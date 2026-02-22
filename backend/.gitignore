@@ -1,0 +1,6 @@
+# User-specific config (use config.sample.json as a template)
+config.json
+
+# Build output
+dist/
+node_modules/

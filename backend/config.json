@@ -1,0 +1,17 @@
+{
+  "repoRoot": "C:/Repositories/AM-Teleduct",
+  "systemPromptPath": "C:/Repositories/AM-Teleduct/.github/agents/Teleduct_Investigation.agent.md",
+  "retrospectPromptPath": "C:/Repositories/AM-Teleduct/.github/agents/RetrospectPrompt.md",
+  "knowledgeBasePath": "docs/telemetry-investigations",
+  "mcpServers": [],
+  "maxSteps": 0,
+  "retrospectTimeoutMinutes": 30,
+  "model": "claude-opus-4.6",
+  "defaultTimeRange": "ago(1h)",
+  "maxConcurrentInvestigations": 3,
+  "autoRefreshInterval": 30,
+  "workingDirectory": "C:\\Repositories\\AM-Teleduct\\tools\\InvestigationDashboard\\backend",
+  "notifications": true,
+  "investigationsPath": "C:\\Repositories\\AM-Teleduct\\docs\\telemetry-investigations\\Investigations\\AgentInvestigations",
+  "theme": "light"
+}

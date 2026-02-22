@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-slate-50 text-slate-900;
+}
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.5);
+  border-radius: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+/* Reconnect Overlay Animations */
+.reconnect-overlay-enter {
+  animation: overlayFadeIn 0.3s ease-out forwards;
+}
+.reconnect-overlay-exit {
+  animation: overlayFadeOut 0.6s ease-in forwards;
+  animation-delay: 1.2s;
+}
+
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes overlayFadeOut {
+  0%   { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* Spinning ring around WifiOff icon */
+.reconnect-spinner {
+  animation: spinRing 1.4s linear infinite;
+}
+@keyframes spinRing {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Gentle pulse on the WifiOff icon */
+.reconnect-icon-pulse {
+  animation: iconPulse 2s ease-in-out infinite;
+}
+@keyframes iconPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.5; transform: scale(0.9); }
+}
+
+/* Bouncing dots indicator */
+.reconnect-dot {
+  animation: dotBounce 1.4s ease-in-out infinite;
+}
+@keyframes dotBounce {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
+  40%           { opacity: 1; transform: scale(1.2); }
+}
+
+/* Pop-in for success checkmark */
+.reconnect-success-pop {
+  animation: successPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
+@keyframes successPop {
+  from { transform: scale(0.5); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
