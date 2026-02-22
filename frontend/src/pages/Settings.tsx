@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen } from 'lucide-react';
+import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List } from 'lucide-react';
 import { api } from '../api';
 import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
@@ -11,6 +11,14 @@ export const Settings = () => {
     const [error, setError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
+    const [defaultView, setDefaultView] = useState<'grid' | 'list'>(
+        () => (localStorage.getItem('inv-view') as 'grid' | 'list') ?? 'grid'
+    );
+
+    const handleDefaultViewChange = (mode: 'grid' | 'list') => {
+        setDefaultView(mode);
+        localStorage.setItem('inv-view', mode);
+    };
 
     // File Browser State
     const [showFileBrowser, setShowFileBrowser] = useState(false);
@@ -147,7 +155,7 @@ export const Settings = () => {
                                     <div className="flex justify-between items-center">
                                         <label className="text-sm font-bold text-slate-700 block">Max Steps Limit</label>
                                         <span className={`text-xs font-mono px-2 py-1 rounded ${config.maxSteps === 0 ? 'bg-brand-100 text-brand-700 font-bold' : 'bg-slate-200 text-slate-600'}`}>
-                                            {config.maxSteps === 0 ? 'Unlimited (∞)' : `${config.maxSteps} steps`}
+                                            {config.maxSteps === 0 ? 'Unlimited' : `${config.maxSteps} steps`}
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-4">
@@ -161,7 +169,7 @@ export const Settings = () => {
                                             className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-brand-500"
                                         />
                                         <div className="text-xs text-slate-400 whitespace-nowrap">
-                                            {config.maxSteps === 0 ? 'Drag right to set limit' : 'Drag left to 0 for ∞'}
+                                            {config.maxSteps === 0 ? 'Drag right to set limit' : 'Drag left to 0 for unlimited'}
                                         </div>
                                     </div>
                                     <p className="text-xs text-slate-400">Controls the maximum number of reasoning steps before the agent pauses for safety. Set to 0 for no limit.</p>
@@ -350,6 +358,31 @@ export const Settings = () => {
                                     <Layout className="text-pink-500" /> Appearance
                                 </h2>
                                 <p className="text-slate-500">Customize the look and feel of the dashboard.</p>
+                            </div>
+
+                            <div className="bg-white/50 p-6 rounded-2xl border border-white/60 shadow-sm flex items-center justify-between">
+                                <div>
+                                    <h3 className="font-semibold text-slate-700">Default Investigations View</h3>
+                                    <p className="text-sm text-slate-400">How investigations are displayed when you open the dashboard.</p>
+                                </div>
+                                <div className="flex items-center bg-slate-100 rounded-xl p-1 gap-1">
+                                    <button
+                                        onClick={() => handleDefaultViewChange('grid')}
+                                        className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                                            defaultView === 'grid' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                                        }`}
+                                    >
+                                        <LayoutGrid className="w-4 h-4" /> Grid
+                                    </button>
+                                    <button
+                                        onClick={() => handleDefaultViewChange('list')}
+                                        className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                                            defaultView === 'list' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-400 hover:text-slate-600'
+                                        }`}
+                                    >
+                                        <List className="w-4 h-4" /> List
+                                    </button>
+                                </div>
                             </div>
 
                             <div className="bg-white/50 p-6 rounded-2xl border border-white/60 shadow-sm flex items-center justify-between">

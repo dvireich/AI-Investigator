@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Settings } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Settings, Info } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
 
@@ -87,6 +87,7 @@ export const Layout = () => {
                     <nav className="flex items-center space-x-1 ml-6">
                         <NavLink to="/" icon={<LayoutDashboard size={18} />} label="Investigations" active={location.pathname === '/'} />
                         <NavLink to="/new" icon={<PlusCircle size={18} />} label="New" active={location.pathname === '/new'} />
+                        <NavLink to="/about" icon={<Info size={18} />} label="About" active={location.pathname === '/about'} />
                     </nav>
                 </div>
 

@@ -428,6 +428,7 @@ app.get('/api/investigations', (req, res) => {
             messages: [],
             proposals: (s.retrospect.proposals || []).map((p: any) => ({ id: p.id, status: p.status })),
             analysisComplete: s.retrospect.analysisComplete,
+            analysisFailed: s.retrospect.analysisFailed,
             completed: s.retrospect.completed
         } : undefined
     }));
@@ -680,22 +681,27 @@ app.post('/api/investigations/:id/retrospect/analyze', async (req, res) => {
 
     if (!runner) return res.status(404).json({ error: 'Investigation not found' });
 
-    try {
-        // If reset flag is set, clear analysisComplete so it re-runs
-        if (reset) {
-            runner.resetRetrospectiveAnalysis();
-        }
-        await runner.runRetrospectiveAnalysis();
+    // If reset flag is set, clear analysisComplete so it re-runs
+    if (reset) {
+        runner.resetRetrospectiveAnalysis();
+    }
+
+    // Return 202 immediately — analysis runs in the background.
+    // Progress is streamed via WebSocket 'retrospect' events; the HTTP response
+    // staying open for 10–30 min would be killed by the browser (ERR_CONNECTION_RESET).
+    res.status(202).json({ success: true, message: 'Analysis started' });
+
+    // Fire-and-forget: run asynchronously and clean up temp runner when done
+    runner.runRetrospectiveAnalysis().then(async () => {
         if (isTemporary) {
             history.set(id, (runner as any).state);
             await (runner as any).saveArtifacts();
             runners.delete(id);
         }
-        res.json({ success: true });
-    } catch (e: any) {
+    }).catch((e: any) => {
+        console.error(`[retrospect/analyze] Unhandled error for ${id}:`, e.message);
         if (isTemporary) runners.delete(id);
-        res.status(500).json({ error: e.message });
-    }
+    });
 });
 
 // --- Update investigation title ---

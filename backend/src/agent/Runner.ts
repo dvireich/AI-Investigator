@@ -31,10 +31,18 @@ export interface ProposedChange {
     status: 'pending' | 'approved' | 'rejected' | 'applied';
 }
 
+export interface RetrospectMessage {
+    role: 'user' | 'assistant' | 'tool-call' | 'tool-result';
+    content: string;
+    toolName?: string;   // for tool-call and tool-result rows
+    isError?: boolean;   // for tool-result rows that returned an error
+}
+
 export interface RetrospectState {
-    messages: { role: string; content: string; }[];
+    messages: RetrospectMessage[];
     proposals: ProposedChange[];
     analysisComplete: boolean;
+    analysisFailed?: boolean;  // true when analysis ended with an error (not user-cancelled)
     completed: boolean;
 }
 
@@ -350,6 +358,7 @@ export class AgentRunner extends EventEmitter {
     resetRetrospectiveAnalysis(): void {
         const retro = this.initRetrospect();
         retro.analysisComplete = false;
+        retro.analysisFailed = false;
         retro.messages = [];
         retro.proposals = [];
         this.emit('retrospect', this.state.retrospect);
@@ -578,11 +587,14 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         // Investigation transcript as a separate message (~25k tokens max)
         const transcriptMsg = `## Investigation Transcript\n${effectiveHistory}\n\n## Final Report\n${(this.state.finalReport || 'N/A').substring(0, 5000)}`;
 
-        // Only include the last N retro messages to avoid accumulation blowup
+        // Only include the last N retro messages to avoid accumulation blowup.
+        // Filter out display-only tool-call/tool-result entries — they are persisted for the UI
+        // but are not valid OpenAI message roles and must never be sent to the API.
         const MAX_RETRO_MESSAGES = 10;
-        let recentMessages = retroMessages.length > MAX_RETRO_MESSAGES
-            ? retroMessages.slice(-MAX_RETRO_MESSAGES)
-            : [...retroMessages];
+        const apiMessages = retroMessages.filter(m => m.role === 'user' || m.role === 'assistant');
+        let recentMessages = apiMessages.length > MAX_RETRO_MESSAGES
+            ? apiMessages.slice(-MAX_RETRO_MESSAGES)
+            : [...apiMessages];
 
         // Sanitize broken message patterns: remove "Let me read..." assistant messages
         // that represent failed tool-calling attempts (model described plan but didn't act).
@@ -684,19 +696,24 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         this.retrospectAbortController = new AbortController();
         const abortSignal = this.retrospectAbortController.signal;
 
-        // Reuse cached OpenAI client, recreating only when token changes
-        if (!this.openaiClient || this.cachedCopilotToken !== token) {
+        // Per-call timeout equals the configured overall budget so a single slow API call
+        // never times out before the user-configured limit fires.
+        const perCallTimeoutMs = (this.config.retrospectTimeoutMinutes || 10) * 60 * 1000;
+
+        // Reuse cached OpenAI client, recreating when token OR timeout config changes
+        if (!this.openaiClient || this.cachedCopilotToken !== token || (this.openaiClient as any)._configuredTimeout !== perCallTimeoutMs) {
             this.cachedCopilotToken = token;
             this.openaiClient = new OpenAI({
                 apiKey: token,
                 baseURL: "https://api.githubcopilot.com",
-                timeout: 90_000, // 90s per-request timeout
+                timeout: perCallTimeoutMs,
                 defaultHeaders: {
                     'Editor-Version': 'vscode/1.85.1',
                     'Editor-Plugin-Version': 'copilot/1.155.0',
                     'User-Agent': 'GithubCopilot/1.155.0'
                 }
             });
+            (this.openaiClient as any)._configuredTimeout = perCallTimeoutMs;
         }
         const openai = this.openaiClient;
 
@@ -763,16 +780,43 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             }
             this.log(`[Retrospect] tool_choice=${JSON.stringify(effectiveToolChoice)}, hasToolResults=${hasToolResults}, consecutiveNoTool=${consecutiveNoToolCalls}`);
 
-            const completion = await openai.chat.completions.create({
-                model: model,
-                messages: messages as any[],
-                tools: tools,
-                tool_choice: effectiveToolChoice,
-                temperature: hasToolResults ? 0.7 : 0.3 // Lower temperature when forcing tool use
-            }, {
-                signal: abortSignal,
-                timeout: 90_000 // 90s timeout per API call
-            });
+            // Retry up to 2x on transient *network* errors only.
+            // Timeouts propagate immediately — they mean the user-configured limit was hit.
+            let completion: any;
+            {
+                const MAX_CALL_RETRIES = 2;
+                let callAttempt = 0;
+                while (true) {
+                    try {
+                        completion = await openai.chat.completions.create({
+                            model: model,
+                            messages: messages as any[],
+                            tools: tools,
+                            tool_choice: effectiveToolChoice,
+                            temperature: hasToolResults ? 0.7 : 0.3
+                        }, {
+                            signal: abortSignal,
+                            timeout: perCallTimeoutMs
+                        });
+                        break; // success
+                    } catch (callErr: any) {
+                        callAttempt++;
+                        const isTimeout = callErr.message?.toLowerCase().includes('timed out')
+                            || callErr.message?.toLowerCase().includes('timeout')
+                            || callErr.code === 'ETIMEDOUT';
+                        const isNetworkError = !isTimeout && (
+                            callErr.code === 'ECONNRESET' || callErr.code === 'ECONNREFUSED'
+                            || callErr.message?.toLowerCase().includes('fetch failed')
+                        );
+                        if (isNetworkError && callAttempt <= MAX_CALL_RETRIES && !abortSignal.aborted) {
+                            this.log(`[Retrospect] Network error (attempt ${callAttempt}/${MAX_CALL_RETRIES + 1}), retrying in 3s...`);
+                            await new Promise(r => setTimeout(r, 3000));
+                        } else {
+                            throw callErr;
+                        }
+                    }
+                }
+            }
 
             const message = completion.choices[0].message;
             this.log(`[Retrospect] Response: hasContent=${!!message.content}, toolCalls=${message.tool_calls?.length || 0}`);
@@ -820,10 +864,10 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                     // Escalate the forcefulness of the prompt
                     let nudgePrompt: string;
                     if (noProposalRetries <= 2) {
-                        nudgePrompt = `Your analysis identified issues but you did NOT call the propose_change tool. You MUST call propose_change NOW for each file you want to modify. Each call needs: filePath, description, and newContent. Do not describe changes in text — call the tool.`;
+                        nudgePrompt = `Your analysis identified issues but you did NOT call the propose_change tool. You MUST call propose_change NOW for each file you want to modify. Each call needs: filePath, description, and content. Do not describe changes in text — call the tool.`;
                     } else if (noProposalRetries <= 4) {
                         const examplePath = this.config.knowledgeBasePath ? `${this.config.knowledgeBasePath}/README.md` : 'path/to/file.md';
-                        nudgePrompt = `CRITICAL: You have written analysis text ${noProposalRetries} times without calling propose_change. STOP writing text. Call the propose_change function with these parameters: {"filePath": "${examplePath}", "description": "your change description", "newContent": "the new file content"}. Call it NOW.`;
+                        nudgePrompt = `CRITICAL: You have written analysis text ${noProposalRetries} times without calling propose_change. STOP writing text. Call the propose_change function with these parameters: {"filePath": "${examplePath}", "description": "your change description", "content": "the complete new file content"}. Call it NOW.`;
                     } else {
                         nudgePrompt = `FINAL ATTEMPT: Call propose_change or say "No changes needed". Nothing else.`;
                     }
@@ -940,12 +984,38 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                     result = `Error executing ${fnName}: ${toolErr.message}`;
                 }
 
-                // Add tool response
+                // Add tool response to LLM context
                 messages.push({
                     role: 'tool',
                     tool_call_id: toolCall.id,
                     content: typeof result === 'string' ? result : JSON.stringify(result)
                 });
+
+                // Persist tool activity to retro.messages for live streaming + navigation resume
+                {
+                    const retroLive = this.state.retrospect;
+                    if (retroLive) {
+                        const resultStr = typeof result === 'string' ? result : JSON.stringify(result);
+                        const isResultError = resultStr.startsWith('Error') || resultStr.startsWith('[Already read]')
+                            || resultStr.startsWith('File not found') || resultStr.startsWith('Unknown tool');
+                        retroLive.messages.push({ role: 'tool-call', content: activityDesc, toolName: fnName });
+                        retroLive.messages.push({
+                            role: 'tool-result',
+                            content: resultStr.length > 600
+                                ? resultStr.substring(0, 600) + `\n...[${resultStr.length} chars total]`
+                                : resultStr,
+                            toolName: fnName,
+                            isError: isResultError
+                        });
+                        this.emit('retrospect', this.state.retrospect);
+                        // Throttled save: always on propose_change, otherwise at most every 8s
+                        const now = Date.now();
+                        if (fnName === 'propose_change' || now - this._lastRetroSave > 8_000) {
+                            this._lastRetroSave = now;
+                            await this.saveArtifacts();
+                        }
+                    }
+                }
 
                 // After enough reads with no proposals, append a strong hint to pivot
                 const retro = this.state.retrospect;
@@ -1014,9 +1084,9 @@ Be thorough but focused. Only propose changes that would directly improve the ou
     private handleProposeChange(args: { type: string; filePath: string; description: string; content: string }): string {
         // Validate filePath: block path traversal
         const path = require('path');
-        const repoRoot = this.getRepoRoot();
+        const repoRoot = path.resolve(this.getRepoRoot());
         const resolved = path.resolve(repoRoot, args.filePath);
-        if (!resolved.startsWith(repoRoot)) {
+        if (!resolved.startsWith(repoRoot + path.sep) && resolved !== repoRoot) {
             return `Error: filePath '${args.filePath}' resolves outside the repository root.`;
         }
 
@@ -1095,6 +1165,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
     private retrospectAbortController: AbortController | null = null;
     private isRetrospectRunning = false;
+    private _lastRetroSave: number = 0;
 
     abortRetrospective() {
         if (this.retrospectAbortController) {
@@ -1167,17 +1238,20 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             }
             retro.messages.push({ role: 'assistant', content: summaryParts.join('\n\n') });
             retro.analysisComplete = true;
+            retro.analysisFailed = false;
             this.emit('retrospect', this.state.retrospect);
             await this.saveArtifacts();
         } catch (error: any) {
-            const errMsg = error.name === 'AbortError'
+            const isCancelled = error.name === 'AbortError';
+            const errMsg = isCancelled
                 ? 'Retrospective analysis was cancelled.'
                 : `Error during auto-analysis: ${error.message}`;
             this.log(`[Retrospect] ERROR: ${errMsg}`);
             retro.messages.push({ role: 'assistant', content: errMsg });
-            // Mark as complete even on error to prevent infinite retries.
-            // User can always chat manually in the retrospect tab.
+            // Mark as complete to prevent infinite auto-retries.
+            // Set analysisFailed so the UI shows a Retry button instead of the success badge.
             retro.analysisComplete = true;
+            retro.analysisFailed = !isCancelled;
             this.emit('retrospect', this.state.retrospect);
             await this.saveArtifacts();
         } finally {

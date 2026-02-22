@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation } from '../api';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -618,12 +618,29 @@ export const InvestigationDetail = () => {
             analysisTriggeredRef.current = true;
             setIsAnalyzing(true);
             api.analyzeRetrospect(investigation.id)
-                .then(() => mounted ? fetchInvestigation() : undefined)
-                .catch(err => console.error('Auto-analysis failed:', err))
-                .finally(() => { if (mounted) { setIsAnalyzing(false); setRetroToolActivity(null); } });
+                .then(() => { if (mounted) fetchInvestigation(); })
+                .catch(err => {
+                    // 409 means analysis is already running on the server (e.g. user navigated away
+                    // and back while it was in progress). Keep isAnalyzing=true so the spinner stays
+                    // visible — WS events / the analysisComplete useEffect will clear it when done.
+                    const isAlreadyRunning = err.message.includes('currently being processed');
+                    if (!isAlreadyRunning) {
+                        console.error('Auto-analysis failed:', err);
+                        if (mounted) { setIsAnalyzing(false); setRetroToolActivity(null); }
+                    }
+                });
         }
         return () => { mounted = false; };
     }, [activeTab, investigation?.id, investigation?.status, investigation?.retrospect?.analysisComplete]);
+
+    // Clear the local isAnalyzing spinner as soon as the server confirms analysis is done.
+    // This is the primary cleanup path when the 409 "already running" branch keeps isAnalyzing=true
+    // while the actual run completes asynchronously via WS / state polling.
+    useEffect(() => {
+        if (investigation?.retrospect?.analysisComplete) {
+            setIsAnalyzing(false);
+        }
+    }, [investigation?.retrospect?.analysisComplete]);
 
     // Helper to update proposal status
     const handleProposalAction = useCallback(async (proposalId: string, status: 'approved' | 'rejected') => {
@@ -1124,8 +1141,8 @@ export const InvestigationDetail = () => {
 
                                     {/* Auto-analysis loading state */}
                                     {isAnalyzing && !investigation.retrospect?.messages.length && (
-                                        <div className="flex gap-3 justify-start animate-fade-in pl-2">
-                                            <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 mt-1">
+                                        <div className="flex gap-3 items-start justify-start animate-fade-in pl-2">
+                                            <div className="w-8 h-8 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center shrink-0 mt-1">
                                                 <Loader2 className="w-4 h-4 text-purple-400 animate-spin" />
                                             </div>
                                             <div className="bg-slate-800 text-slate-300 border border-slate-700 rounded-2xl rounded-tl-none px-4 py-3 max-w-[80%]">
@@ -1146,33 +1163,84 @@ export const InvestigationDetail = () => {
                                     )}
 
                                     {/* Messages */}
-                                    {investigation.retrospect?.messages.map((msg, i) => (
-                                        <div key={i} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                            {msg.role !== 'user' && (
-                                                <div className="w-8 h-8 rounded-full bg-slate-800 border border-slate-700 flex items-center justify-center shrink-0 mt-1">
-                                                    <Sparkles className="w-4 h-4 text-purple-400" />
+                                    {investigation.retrospect?.messages.map((msg, i) => {
+                                        // Tool-call row: agent activity card with avatar on every row
+                                        if (msg.role === 'tool-call') {
+                                            const tn = msg.toolName;
+                                            const toolIcon = tn === 'read_file'
+                                                ? <FileText className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                                                : tn === 'list_dir'
+                                                ? <FolderOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                                                : tn === 'propose_change'
+                                                ? <FileEdit className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                                : tn === 'run_kusto_query'
+                                                ? <Cpu className="w-3.5 h-3.5 text-purple-400 shrink-0" />
+                                                : (tn === 'grep_search' || tn === 'semantic_search' || tn === 'search_code')
+                                                ? <Search className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                                : <Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" />;
+                                            const borderCls = tn === 'propose_change' ? 'border-l-emerald-500/50'
+                                                : tn === 'list_dir' ? 'border-l-amber-500/30'
+                                                : tn === 'run_kusto_query' ? 'border-l-purple-500/30'
+                                                : (tn === 'grep_search' || tn === 'semantic_search' || tn === 'search_code') ? 'border-l-indigo-500/30'
+                                                : 'border-l-sky-500/20';
+                                            return (
+                                                <div key={i} className="flex items-start gap-3">
+                                                    <div className="w-8 h-8 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center shrink-0 mt-0.5">
+                                                        <Sparkles className="w-4 h-4 text-purple-400" />
+                                                    </div>
+                                                    <div className={`flex-1 flex items-start gap-2.5 px-3 py-1.5 rounded-lg bg-slate-800/30 border-l-2 ${borderCls}`}>
+                                                        <div className="mt-0.5 shrink-0">{toolIcon}</div>
+                                                        <span className="text-xs text-slate-400 leading-snug">{msg.content}</span>
+                                                    </div>
                                                 </div>
-                                            )}
-                                            <div className={`max-w-[80%] rounded-2xl p-4 ${msg.role === 'user'
-                                                ? 'bg-purple-600 text-white rounded-tr-none'
-                                                : 'bg-slate-800 text-slate-200 border border-slate-700 rounded-tl-none'
-                                                }`}>
-                                                <div className="prose prose-invert prose-sm max-w-none">
-                                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                                        {msg.content}
-                                                    </ReactMarkdown>
-                                                </div>
-                                            </div>
-                                            {msg.role === 'user' && (
-                                                <div className="w-8 h-8 rounded-full bg-purple-600/20 border border-purple-500/30 flex items-center justify-center shrink-0 mt-1">
-                                                    <User className="w-4 h-4 text-purple-400" />
-                                                </div>
-                                            )}
-                                        </div>
-                                    ))}
+                                            );
+                                        }
 
-                                    {/* Analysis complete indicator */}
-                                    {investigation.retrospect?.analysisComplete && !isAnalyzing && !isRetrospectThinking && (investigation.retrospect?.messages?.length || 0) > 0 && (
+                                        // Tool-result row: collapsible, indented to align with tool-call content
+                                        if (msg.role === 'tool-result') {
+                                            return (
+                                                <div key={i} className="flex items-start gap-3">
+                                                    <div className="w-8 shrink-0" />
+                                                    <details className="group flex-1 pl-3">
+                                                        <summary className={`text-[11px] cursor-pointer select-none list-none flex items-center gap-1 ${msg.isError ? 'text-red-400/80' : 'text-slate-600 hover:text-slate-400'}`}>
+                                                            <ChevronRight className="w-3 h-3 group-open:rotate-90 transition-transform shrink-0" />
+                                                            {msg.isError ? 'Error returned' : `${msg.content.length} chars returned`}
+                                                        </summary>
+                                                        <pre className="mt-1 text-[11px] text-slate-500 font-mono whitespace-pre-wrap break-all bg-slate-800/50 rounded p-2 max-h-48 overflow-y-auto">{msg.content}</pre>
+                                                    </details>
+                                                </div>
+                                            );
+                                        }
+
+                                        // User / assistant messages
+                                        return (
+                                            <div key={i} className={`flex gap-3 items-start ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                                {msg.role === 'assistant' && (
+                                                    <div className="w-8 h-8 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center shrink-0 mt-1">
+                                                        <Sparkles className="w-4 h-4 text-purple-400" />
+                                                    </div>
+                                                )}
+                                                <div className={`min-w-0 ${msg.role === 'user' ? 'max-w-[80%]' : 'flex-1'} rounded-2xl p-4 ${msg.role === 'user'
+                                                    ? 'bg-purple-600 text-white rounded-tr-none'
+                                                    : 'bg-slate-800/80 text-slate-200 border border-slate-700 rounded-tl-none'
+                                                    }`}>
+                                                    <div className="prose prose-invert prose-sm max-w-none break-words">
+                                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                            {msg.content}
+                                                        </ReactMarkdown>
+                                                    </div>
+                                                </div>
+                                                {msg.role === 'user' && (
+                                                    <div className="w-8 h-8 rounded-full bg-purple-600/20 border border-purple-500/30 flex items-center justify-center shrink-0 mt-1">
+                                                        <User className="w-4 h-4 text-purple-400" />
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+
+                                    {/* Analysis complete indicator — success */}
+                                    {investigation.retrospect?.analysisComplete && !investigation.retrospect?.analysisFailed && !isAnalyzing && !isRetrospectThinking && (investigation.retrospect?.messages?.length || 0) > 0 && (
                                         <div className="flex gap-3 justify-start pl-2">
                                             <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center shrink-0 mt-1">
                                                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
@@ -1182,6 +1250,18 @@ export const InvestigationDetail = () => {
                                                     ? `— ${investigation.retrospect?.proposals?.length} proposed change${(investigation.retrospect?.proposals?.length || 0) === 1 ? '' : 's'} ready for review`
                                                     : '— no changes proposed'
                                                 }
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Analysis complete indicator — failed */}
+                                    {investigation.retrospect?.analysisComplete && investigation.retrospect?.analysisFailed && !isAnalyzing && !isRetrospectThinking && (
+                                        <div className="flex gap-3 justify-start pl-2">
+                                            <div className="w-8 h-8 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0 mt-1">
+                                                <AlertTriangle className="w-4 h-4 text-red-400" />
+                                            </div>
+                                            <div className="bg-red-500/10 border border-red-500/20 rounded-2xl rounded-tl-none px-4 py-2.5 text-sm text-red-300 font-medium">
+                                                Analysis failed — click <strong>Re-run Analysis</strong> below to retry
                                             </div>
                                         </div>
                                     )}
@@ -1249,9 +1329,14 @@ export const InvestigationDetail = () => {
                                                         setRetroToolActivity(null);
                                                     }
                                                 }}
-                                                className="flex items-center justify-center gap-2 bg-purple-600/20 hover:bg-purple-600/30 border border-purple-500/30 text-purple-300 text-sm font-medium py-2 px-4 rounded-xl transition-all"
+                                                className={`flex items-center justify-center gap-2 border text-sm font-medium py-2 px-4 rounded-xl transition-all ${
+                                                    investigation.retrospect?.analysisFailed
+                                                        ? 'bg-red-600/20 hover:bg-red-600/30 border-red-500/40 text-red-300'
+                                                        : 'bg-purple-600/20 hover:bg-purple-600/30 border-purple-500/30 text-purple-300'
+                                                }`}
                                             >
-                                                <RefreshCw className="w-4 h-4" /> Re-run Analysis
+                                                <RefreshCw className="w-4 h-4" />
+                                                {investigation.retrospect?.analysisFailed ? 'Retry Analysis' : 'Re-run Analysis'}
                                             </button>
                                         )}
                                         <form
@@ -1416,31 +1501,60 @@ export const InvestigationDetail = () => {
                                                     {expandedProposal === proposal.id && (
                                                         <div className="border-t border-slate-700/50">
                                                             {/* Content diff area */}
-                                                            <div className="p-3 max-h-64 overflow-y-auto custom-scrollbar">
+                                                            <div className="p-3 max-h-96 overflow-y-auto custom-scrollbar">
                                                                 {proposal.type === 'edit' && proposal.originalContent ? (
                                                                     <div className="space-y-2">
-                                                                        <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Changes Preview</div>
-                                                                        <div className="bg-slate-900 rounded-lg p-3 text-xs font-mono leading-relaxed max-h-48 overflow-y-auto custom-scrollbar">
-                                                                            <div className="text-red-400/70 mb-2">
-                                                                                <span className="text-red-500 font-bold">- Original:</span> {proposal.originalContent.length.toLocaleString()} chars
-                                                                            </div>
-                                                                            <div className="text-emerald-400/70">
-                                                                                <span className="text-emerald-500 font-bold">+ Proposed:</span> {proposal.content.length.toLocaleString()} chars
-                                                                            </div>
-                                                                            <div className="text-slate-500 mt-2 border-t border-slate-800 pt-2">
-                                                                                {(() => {
-                                                                                    const origLines = proposal.originalContent!.split('\n').length;
-                                                                                    const newLines = proposal.content.split('\n').length;
-                                                                                    const diff = newLines - origLines;
-                                                                                    return `${origLines} lines → ${newLines} lines (${diff >= 0 ? '+' : ''}${diff})`;
-                                                                                })()}
-                                                                            </div>
+                                                                        <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Diff Preview</div>
+                                                                        <div className="bg-slate-900 rounded-lg text-xs font-mono leading-relaxed max-h-80 overflow-y-auto custom-scrollbar">
+                                                                            {(() => {
+                                                                                const origLines = proposal.originalContent!.split('\n');
+                                                                                const newLines = proposal.content.split('\n');
+                                                                                // Simple patience-like diff: LCS on line level
+                                                                                const m = origLines.length, n = newLines.length;
+                                                                                // dp[i][j] = LCS length of origLines[0..i-1], newLines[0..j-1]
+                                                                                // Use 1-D rolling array to keep memory reasonable
+                                                                                const lcs: number[][] = Array.from({ length: Math.min(m, 400) + 1 }, () => new Array(Math.min(n, 400) + 1).fill(0));
+                                                                                const om = Math.min(m, 400), on_ = Math.min(n, 400);
+                                                                                for (let i = 1; i <= om; i++) for (let j = 1; j <= on_; j++)
+                                                                                    lcs[i][j] = origLines[i-1] === newLines[j-1] ? lcs[i-1][j-1] + 1 : Math.max(lcs[i-1][j], lcs[i][j-1]);
+                                                                                // Backtrack
+                                                                                const hunks: Array<{t:'same'|'del'|'add', l:string}> = [];
+                                                                                let i = om, j = on_;
+                                                                                while (i > 0 || j > 0) {
+                                                                                    if (i > 0 && j > 0 && origLines[i-1] === newLines[j-1]) { hunks.push({t:'same',l:origLines[i-1]}); i--; j--; }
+                                                                                    else if (j > 0 && (i === 0 || lcs[i][j-1] >= lcs[i-1][j])) { hunks.push({t:'add',l:newLines[j-1]}); j--; }
+                                                                                    else { hunks.push({t:'del',l:origLines[i-1]}); i--; }
+                                                                                }
+                                                                                hunks.reverse();
+                                                                                // Render with context (3 lines around changes)
+                                                                                const CONTEXT = 3;
+                                                                                const changed = hunks.map((h,idx) => h.t !== 'same' ? idx : -1).filter(x => x >= 0);
+                                                                                if (changed.length === 0) return <div className="p-3 text-slate-500">No line-level differences detected.</div>;
+                                                                                const shown = new Set<number>();
+                                                                                changed.forEach(ci => { for (let k = Math.max(0,ci-CONTEXT); k <= Math.min(hunks.length-1,ci+CONTEXT); k++) shown.add(k); });
+                                                                                const rows: JSX.Element[] = [];
+                                                                                let prevIdx = -1;
+                                                                                Array.from(shown).sort((a,b)=>a-b).forEach((idx) => {
+                                                                                    if (prevIdx !== -1 && idx > prevIdx + 1) rows.push(<div key={`gap-${idx}`} className="px-3 py-0.5 text-slate-600 select-none">@@ ... @@</div>);
+                                                                                    const h = hunks[idx];
+                                                                                    rows.push(
+                                                                                        <div key={idx} className={`px-3 py-px whitespace-pre-wrap break-all ${h.t==='add'?'bg-emerald-950/60 text-emerald-300':h.t==='del'?'bg-red-950/60 text-red-300':'text-slate-500'}`}>
+                                                                                            <span className="select-none mr-2 opacity-50">{h.t==='add'?'+':h.t==='del'?'-':' '}</span>{h.l}
+                                                                                        </div>
+                                                                                    );
+                                                                                    prevIdx = idx;
+                                                                                });
+                                                                                return <div>{rows}</div>;
+                                                                            })()}
+                                                                        </div>
+                                                                        <div className="text-[11px] text-slate-600 font-mono">
+                                                                            {proposal.originalContent.split('\n').length} -&gt; {proposal.content.split('\n').length} lines
                                                                         </div>
                                                                     </div>
                                                                 ) : (
                                                                     <div className="space-y-2">
                                                                         <div className="text-xs font-bold text-emerald-500 uppercase tracking-wider">New File Preview</div>
-                                                                        <pre className="bg-slate-900 rounded-lg p-3 text-xs font-mono text-slate-300 leading-relaxed max-h-48 overflow-y-auto custom-scrollbar whitespace-pre-wrap break-all">
+                                                                        <pre className="bg-slate-900 rounded-lg p-3 text-xs font-mono text-slate-300 leading-relaxed max-h-64 overflow-y-auto custom-scrollbar whitespace-pre-wrap break-all">
                                                                             {proposal.content.substring(0, 2000)}
                                                                             {proposal.content.length > 2000 && `\n\n... [${(proposal.content.length - 2000).toLocaleString()} more chars]`}
                                                                         </pre>

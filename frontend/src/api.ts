@@ -13,10 +13,18 @@ export interface ProposedChange {
     status: 'pending' | 'approved' | 'rejected' | 'applied';
 }
 
+export interface RetrospectMessage {
+    role: 'user' | 'assistant' | 'tool-call' | 'tool-result';
+    content: string;
+    toolName?: string;
+    isError?: boolean;
+}
+
 export interface RetrospectState {
-    messages: { role: string; content: string; }[];
+    messages: RetrospectMessage[];
     proposals: ProposedChange[];
     analysisComplete: boolean;
+    analysisFailed?: boolean;
     completed: boolean;
 }
 
