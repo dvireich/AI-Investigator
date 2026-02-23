@@ -134,10 +134,13 @@ export const About = () => (
                     <PipelineStep n={3} icon={<FileText className="w-4 h-4 text-sky-400" />}
                         title="Structured report generation"
                         desc="The agent produces a markdown report with root cause analysis, evidence, timeline, and recommended actions. All artifacts are persisted to disk." />
-                    <PipelineStep n={4} icon={<Sparkles className="w-4 h-4 text-purple-400" />}
+                    <PipelineStep n={4} icon={<RotateCcw className="w-4 h-4 text-amber-400" />}
+                        title="Contest & resume"
+                        desc="Disagree with the report? Contest it with your feedback. The investigation resumes with your corrections injected — the agent re-examines its findings and produces an improved report." />
+                    <PipelineStep n={5} icon={<Sparkles className="w-4 h-4 text-purple-400" />}
                         title="Retrospective analysis"
                         desc="A second agent pass reads the knowledge base and the full investigation transcript, then calls propose_change for each guide improvement it identifies." />
-                    <PipelineStep n={5} last icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                    <PipelineStep n={6} last icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                         title="Review and apply"
                         desc="You review each proposed change in an inline diff, approve or reject, then apply — the knowledge base improves incrementally with every investigation." />
                 </div>
@@ -150,7 +153,7 @@ export const About = () => (
                     {([
                         [Shield,        'text-sky-400',     'Path traversal protection — agents cannot escape the repo root'],
                         [MessageSquare, 'text-purple-400',  'Follow-up chat after retrospective — ask the agent anything'],
-                        [RotateCcw,     'text-amber-400',   'Retry and re-run support — resume any phase independently'],
+                        [RotateCcw,     'text-amber-400',   'Contest reports — provide feedback and the agent re-investigates'],
                         [Database,      'text-emerald-400', 'Kusto (ADX) integration with full query tool support'],
                         [Globe,         'text-brand-400',   'Configurable model, timeout, knowledge base path, and stamp'],
                         [Code2,         'text-pink-400',    'Inline diff viewer with LCS-based line-level change highlighting'],

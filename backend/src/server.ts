@@ -574,6 +574,33 @@ app.post('/api/investigations/:id/action', async (req, res) => {
                 console.error(`Failed to persist intervention for ${id}:`, e.message);
             }
             return res.json({ status: 'ok' });
+        } else if (action === 'contest' && message) {
+            if (state.status !== 'completed') {
+                return res.status(400).json({ error: 'Can only contest a completed investigation.' });
+            }
+            // Guard against double-contest race condition
+            if (runners.has(id)) {
+                return res.json({ status: 'ok', message: 'Already contesting' });
+            }
+            runner = new AgentRunner(config, state);
+            runners.set(id, runner);
+            attachRunnerListeners(runner, id);
+
+            runner.contestReport(message);
+
+            // Restart execution loop with the original query
+            const query = state.query || 'Resume investigation';
+            runner.start(query).then(() => {
+                history.set(id, (runner as any).state);
+                runners.delete(id);
+            }).catch(err => {
+                console.error(`Runner ${id} failed after contest:`, err);
+                history.set(id, (runner as any).state);
+                runners.delete(id);
+            });
+
+            runner.log(`Investigation ${id} contested and resumed from disk...`);
+            return res.json({ status: 'ok' });
         } else {
             return res.status(400).json({ error: 'Runner not active. Use resume to restart.' });
         }
@@ -586,6 +613,13 @@ app.post('/api/investigations/:id/action', async (req, res) => {
     if (action === 'abort') runner.abort();
     if (action === 'intervene' && message) {
         runner.intervene(message);
+    }
+    if (action === 'contest' && message) {
+        try {
+            runner.contestReport(message);
+        } catch (e: any) {
+            return res.status(400).json({ error: e.message });
+        }
     }
 
     res.json({ status: 'ok' });

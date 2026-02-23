@@ -64,6 +64,7 @@ export interface InvestigationState {
     totalPausedTime?: number;
     finalReport?: string;
     retrospect?: RetrospectState;
+    contestCount?: number;
 }
 
 export class AgentRunner extends EventEmitter {
@@ -1406,6 +1407,63 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         this.log("Investigation resumed.");
     }
     abort() { this.aborted = true; this.state.status = 'aborted'; this.emit('status', { status: 'aborted' }); }
+
+    contestReport(feedback: string) {
+        if (this.state.status !== 'completed') {
+            throw new Error('Can only contest a completed investigation.');
+        }
+
+        const contestNum = (this.state.contestCount || 0) + 1;
+        this.state.contestCount = contestNum;
+
+        // 1. Push a user-visible contest message (rendered as a special bubble in the UI)
+        const userVisibleMessage = `Report Contested: ${feedback}`;
+        this.state.thoughts.push({ role: 'user', content: userVisibleMessage });
+        this.state.actions.push(null as any);
+        this.emit('thought', { role: 'user', content: userVisibleMessage });
+
+        // 2. Push a system notification (rendered as a centered pill in the UI)
+        const systemNotice = `System: Report contested (attempt #${contestNum}). Investigation resumed with user feedback.`;
+        this.state.thoughts.push(systemNotice);
+        this.state.actions.push(null as any);
+        this.emit('thought', systemNotice);
+
+        // 3. Inject the full context for the LLM (rejected report + feedback + instructions)
+        const rejectedReport = this.state.finalReport || '(no report content)';
+        const contestMessage = [
+            `CONTESTED REPORT (attempt #${contestNum})`,
+            `The user has rejected the following final report:`,
+            `--- REJECTED REPORT START ---`,
+            rejectedReport,
+            `--- REJECTED REPORT END ---`,
+            ``,
+            `User feedback: ${feedback}`,
+            ``,
+            `(SYSTEM NOTE: You MUST acknowledge this feedback, understand what was wrong or missing, and continue investigating. Do NOT repeat the same conclusions. Address the user's concerns and call the finish tool again only when you have a substantially improved report.)`
+        ].join('\n');
+
+        this.state.thoughts.push({ role: 'user', content: contestMessage });
+        this.state.actions.push(null as any);
+
+        // Clear the final report
+        this.state.finalReport = undefined;
+
+        // Reset retrospective (it analyzed a now-rejected report)
+        this.state.retrospect = { messages: [], proposals: [], analysisComplete: false, completed: false };
+
+        // Transition back to running
+        this.paused = false;
+        this.aborted = false;
+        this.state.status = 'running';
+        if (this.state.pausedAt) {
+            const pausedDuration = Date.now() - this.state.pausedAt;
+            this.state.totalPausedTime = (this.state.totalPausedTime || 0) + pausedDuration;
+            this.state.pausedAt = undefined;
+        }
+
+        this.emit('status', { status: 'running' });
+        this.log(`Investigation report contested (attempt #${contestNum}). User feedback: ${feedback}`);
+    }
 
     private loadSystemPrompt(): string {
         if (existsSync(this.config.systemPromptPath)) {

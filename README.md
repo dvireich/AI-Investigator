@@ -40,7 +40,7 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Agentic Investigation** | LLM-driven think → act → observe loop with autonomous KQL execution |
 | **Live Streaming** | WebSocket-powered real-time display of agent thoughts, tool calls, and results |
 | **Dual KQL Backend** | Kusto CLI (primary) with MCP KQL Server fallback — auto-detects and auto-installs |
-| **Full Lifecycle Control** | Start, pause, resume, abort, intervene — all while the agent is running |
+| **Full Lifecycle Control** | Start, pause, resume, abort, intervene, contest — all while the agent is running |
 | **Retrospective Analysis** | Post-investigation AI analysis that reads the knowledge base and proposes improvements |
 | **Proposal Workflow** | Review, approve, reject, and apply file changes directly from the UI |
 | **Persistent History** | All investigations saved as JSON state + Markdown reports, survives server restarts |
@@ -111,7 +111,23 @@ Inject custom instructions to a running investigation to guide the agent in a sp
 
 ---
 
-<!-- ### 5. Token Management
+### 5. Contest Report
+
+Disagree with the final report? Click **Contest Report** at the bottom of the Report tab, provide your feedback, and the investigation resumes — the agent re-examines its findings with your corrections.
+
+![Contest Report](docs/screenshots/Consent-report.png)
+
+---
+
+### 6. Investigation Resumed After Contest
+
+After contesting, the Live Session shows your feedback as an amber user bubble and a system notification. The agent acknowledges the feedback and continues investigating.
+
+![Investigation Resumed After Contest](docs/screenshots/investigation-consent-resume.png)
+
+---
+
+<!-- ### 7. Token Management
 
 When the context window fills up, a banner appears with a one-click Summarize button that compacts history while preserving recent context.
 
@@ -123,7 +139,7 @@ Screenshot: The yellow/amber token alert banner at the top of the live session w
 
 ---
 
-### 5. Final Report
+### 7. Final Report
 
 Auto-generated Markdown report with findings, KQL queries used, and conclusions — styled with prose typography.
 
@@ -133,7 +149,7 @@ Auto-generated Markdown report with findings, KQL queries used, and conclusions 
 
 ---
 
-### 6. Retrospective — Auto-Analysis
+### 8. Retrospective — Auto-Analysis
 
 When you open the Retrospect tab, an AI agent automatically reads the investigation transcript and knowledge base files, then proposes improvements.
 
@@ -143,7 +159,7 @@ When you open the Retrospect tab, an AI agent automatically reads the investigat
 
 ---
 
-### 7. Retrospective — Knowledge Base Analysis
+### 9. Retrospective — Knowledge Base Analysis
 
 The retrospective agent reads the investigation transcript and existing knowledge base files, then identifies gaps and proposes new documentation.
 
@@ -153,7 +169,7 @@ The retrospective agent reads the investigation transcript and existing knowledg
 
 ---
 
-### 8. Retrospective — Proposed Changes
+### 10. Retrospective — Proposed Changes
 
 The agent proposes concrete file changes (edit existing or create new). Review each proposal, approve or reject, then apply all approved changes to disk.
 
@@ -175,7 +191,7 @@ Screenshot: The chat panel with the auto-analysis message, followed by a user qu
 
 ---
 
-### 9. Settings
+### 11. Settings
 
 Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults.
 
@@ -205,6 +221,7 @@ Screenshot: The login modal showing the device code and "Open Login Page" button
 - **Run** — Autonomous think → act → observe loop with KQL execution against live Kusto clusters
 - **Pause / Resume** — Freeze the agent, inspect state, optionally switch models, then continue
 - **Intervene** — Inject messages into the running agent's context to redirect its approach
+- **Contest Report** — Disagree with the final report? Provide feedback and the investigation resumes, the agent re-examines its findings and produces an improved report
 - **Abort** — Stop immediately with state preserved
 - **Max Steps** — Configurable safety limit (auto-pauses at threshold, resume for another batch)
 - **Model Switching** — Change the LLM model mid-investigation (even while paused)

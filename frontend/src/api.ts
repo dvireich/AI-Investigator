@@ -45,6 +45,7 @@ export interface Investigation {
     totalPausedTime?: number;
     finalReport?: string;
     retrospect?: RetrospectState;
+    contestCount?: number;
 }
 
 export const api = {

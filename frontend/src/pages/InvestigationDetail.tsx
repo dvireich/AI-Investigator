@@ -166,6 +166,7 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
 
     const isSystemMessage = typeof thoughtContent === 'string' && thoughtContent.startsWith('System:');
     const isUserMessage = typeof thoughtContent === 'string' && thoughtContent.startsWith('User Intervention:');
+    const isContestMessage = typeof thoughtContent === 'string' && thoughtContent.startsWith('Report Contested:');
     const isObservation = typeof thoughtContent === 'string' && thoughtContent.startsWith('Observation:');
 
     if (isSystemMessage) {
@@ -208,6 +209,30 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
                 </div>
             </div>
         );
+    }
+
+    if (isContestMessage) {
+        return (
+            <div className="flex justify-end my-4 animate-fade-in pl-12 group items-end gap-2">
+                <div className="bg-amber-500/10 border border-amber-500/20 text-amber-100 rounded-2xl rounded-tr-none p-4 shadow-sm max-w-[85%] relative">
+                    <div className="text-[10px] text-amber-400 font-bold mb-1 uppercase tracking-wider flex items-center justify-end gap-1 opacity-70">
+                        <RotateCcw className="w-3 h-3" />
+                        Report Contested
+                    </div>
+                    <div className="prose prose-invert prose-sm text-amber-50 max-w-none">
+                        {thoughtContent.replace('Report Contested: ', '').trim()}
+                    </div>
+                </div>
+                <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-500/30 flex items-center justify-center shrink-0 shadow-lg shadow-amber-500/10">
+                    <User className="w-4 h-4 text-amber-400" />
+                </div>
+            </div>
+        );
+    }
+
+    // Hide the full LLM context message for contested reports (only for the agent, not the user)
+    if (typeof thoughtContent === 'string' && thoughtContent.startsWith('CONTESTED REPORT (attempt')) {
+        return null;
     }
 
     // Check for Azure Auth Error
@@ -430,6 +455,8 @@ export const InvestigationDetail = () => {
     const [pendingInterventions, setPendingInterventions] = useState<Array<{ id: string; text: string; timestamp: number }>>([]);
     const [wsConnected, setWsConnected] = useState(true);
     const [wsJustReconnected, setWsJustReconnected] = useState(false);
+    const [contestFeedback, setContestFeedback] = useState('');
+    const [showContestForm, setShowContestForm] = useState(false);
     const hadDisconnectRef = useRef(false);
     const logsEndRef = useRef<HTMLDivElement>(null);
     const retrospectEndRef = useRef<HTMLDivElement>(null);
@@ -602,6 +629,22 @@ export const InvestigationDetail = () => {
         }
     }, [investigation?.retrospect?.messages.length, activeTab]);
 
+    // Auto-switch away from report/retrospect tabs when investigation is contested
+    // (finalReport cleared → report tab disabled, status back to running → retrospect tab hidden)
+    useEffect(() => {
+        if (!investigation) return;
+        if (activeTab === 'report' && !investigation.finalReport) {
+            setActiveTab('live');
+        }
+        if (activeTab === 'retrospect' && !['completed', 'failed', 'aborted'].includes(investigation.status)) {
+            setActiveTab('live');
+        }
+        // Reset retrospective analysis trigger so it can fire again after contest
+        if (investigation.status === 'running') {
+            analysisTriggeredRef.current = false;
+        }
+    }, [investigation?.finalReport, investigation?.status, activeTab]);
+
     // Auto-trigger retrospective analysis when tab is first opened
     // Uses useRef instead of useState so the guard survives React StrictMode's
     // mount → cleanup → remount cycle and prevents duplicate API calls.
@@ -670,11 +713,11 @@ export const InvestigationDetail = () => {
         }
     }, [investigation?.id]);
 
-    const handleAction = async (action: string) => {
+    const handleAction = async (action: string, message?: string) => {
         if (!id) return;
         setActingAction(action);
         try {
-            await api.sendAction(id, action);
+            await api.sendAction(id, action, message);
             await new Promise(r => setTimeout(r, 500));
             await fetchInvestigation();
         } catch (e: any) {
@@ -682,6 +725,13 @@ export const InvestigationDetail = () => {
         } finally {
             setActingAction(null);
         }
+    };
+
+    const handleContest = async () => {
+        if (!contestFeedback.trim()) return;
+        await handleAction('contest', contestFeedback.trim());
+        setContestFeedback('');
+        setShowContestForm(false);
     };
 
     const handleIntervention = async (msg: string) => {
@@ -1105,9 +1155,67 @@ export const InvestigationDetail = () => {
                                         <div className="bg-slate-50 border-t border-slate-100 px-8 py-4 text-center">
                                             <p className="text-xs text-slate-400 font-medium">
                                                 CONFIDENTIAL • Generated automatically by AI Investigation Agent
+                                                {investigation.contestCount ? ` • Contested ${investigation.contestCount} time${investigation.contestCount > 1 ? 's' : ''}` : ''}
                                             </p>
                                         </div>
                                     </div>
+                                </div>
+                            )}
+
+                            {/* Contest Report Bar — fixed at bottom of Report tab, always visible */}
+                            {investigation.finalReport && investigation.status === 'completed' && (
+                                <div className="shrink-0 border-t border-slate-200 bg-white">
+                                    {!showContestForm ? (
+                                        <div className="px-6 py-3 flex items-center justify-between">
+                                            <p className="text-sm text-slate-500">
+                                                Not satisfied with this report?
+                                            </p>
+                                            <button
+                                                onClick={() => setShowContestForm(true)}
+                                                className="flex items-center gap-2 px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-600 font-semibold rounded-lg border border-amber-200 hover:border-amber-300 transition-all text-sm"
+                                            >
+                                                <RotateCcw className="w-4 h-4" />
+                                                Contest Report
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 space-y-3">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                                                    <span className="font-bold text-amber-800 text-sm">Contest This Report</span>
+                                                </div>
+                                                <button
+                                                    onClick={() => { setShowContestForm(false); setContestFeedback(''); }}
+                                                    className="text-slate-400 hover:text-slate-600 transition-colors"
+                                                >
+                                                    <X className="w-4 h-4" />
+                                                </button>
+                                            </div>
+                                            <textarea
+                                                value={contestFeedback}
+                                                onChange={e => setContestFeedback(e.target.value)}
+                                                placeholder="Explain what's wrong with this report or what the investigation should explore further..."
+                                                className="w-full h-20 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300"
+                                            />
+                                            <div className="flex items-center justify-end gap-3">
+                                                <button
+                                                    onClick={() => { setShowContestForm(false); setContestFeedback(''); }}
+                                                    className="px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors"
+                                                >
+                                                    Cancel
+                                                </button>
+                                                <button
+                                                    onClick={handleContest}
+                                                    disabled={!contestFeedback.trim() || actingAction === 'contest'}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all shadow-md shadow-amber-500/25 text-sm"
+                                                >
+                                                    {actingAction === 'contest' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                                                    {actingAction === 'contest' ? 'Contesting...' : 'Contest & Resume'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
