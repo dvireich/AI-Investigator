@@ -209,6 +209,35 @@ wss.on('connection', (ws, req) => {
     }
 });
 
+/**
+ * Build the effective AgentConfig for a given investigation state.
+ * 
+ * When an investigation was created under a specific product, the product's
+ * investigationsPath, repoRoot, prompts, etc. must be used when the runner is
+ * rehydrated (e.g. for retrospect, resume, compact, save).
+ * Without this, the global config (which may have an empty investigationsPath)
+ * would be used, causing artifacts to save to the wrong directory.
+ */
+function getEffectiveConfig(state?: Partial<InvestigationState>): typeof config {
+    const productId = state?.productId;
+    if (productId) {
+        const product = config.products.find(p => p.id === productId);
+        if (product) {
+            return {
+                ...config,
+                repoRoot: product.repoRoot || config.repoRoot,
+                systemPromptPath: product.systemPromptPath || config.systemPromptPath,
+                retrospectPromptPath: product.retrospectPromptPath || config.retrospectPromptPath,
+                knowledgeBasePath: product.knowledgeBasePath || config.knowledgeBasePath,
+                workingDirectory: product.workingDirectory || config.workingDirectory,
+                investigationsPath: product.investigationsPath || config.investigationsPath,
+                icmScriptsPath: product.icmScriptsPath || config.icmScriptsPath,
+            };
+        }
+    }
+    return config;
+}
+
 // Config Persistence
 // Derive configFile from __dirname (compiled: dist/server.js -> backend/config.json)
 // or from process.cwd() as fallback
@@ -882,6 +911,7 @@ app.get('/api/investigations', (req, res) => {
         pausedAt: s.pausedAt,
         totalPausedTime: s.totalPausedTime,
         thoughts: s.thoughts.slice(-1), // Only last thought for preview
+        thoughtCount: s.thoughts.length, // Actual count for stale detection & step bar
         actions: [],
         logs: [],
         retrospect: s.retrospect ? {
@@ -979,7 +1009,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             if (runners.has(id)) {
                 return res.json({ status: 'ok', message: 'Already resuming' });
             }
-            runner = new AgentRunner(config, state);
+            runner = new AgentRunner(getEffectiveConfig(state), state);
             runners.set(id, runner);
             attachRunnerListeners(runner, id);
 
@@ -1005,7 +1035,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             history.set(id, state);
             // Persist to disk
             try {
-                const tempRunner = new AgentRunner(config, state);
+                const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
                 await (tempRunner as any).saveArtifacts();
             } catch (e: any) {
                 console.error(`Failed to persist pause for ${id}:`, e.message);
@@ -1016,7 +1046,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             history.set(id, state);
             // Persist to disk
             try {
-                const tempRunner = new AgentRunner(config, state);
+                const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
                 await (tempRunner as any).saveArtifacts();
             } catch (e: any) {
                 console.error(`Failed to persist abort for ${id}:`, e.message);
@@ -1028,7 +1058,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             history.set(id, state);
             // Persist to disk
             try {
-                const tempRunner = new AgentRunner(config, state);
+                const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
                 await (tempRunner as any).saveArtifacts();
             } catch (e: any) {
                 console.error(`Failed to persist intervention for ${id}:`, e.message);
@@ -1042,7 +1072,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             if (runners.has(id)) {
                 return res.json({ status: 'ok', message: 'Already contesting' });
             }
-            runner = new AgentRunner(config, state);
+            runner = new AgentRunner(getEffectiveConfig(state), state);
             runners.set(id, runner);
             attachRunnerListeners(runner, id);
 
@@ -1125,7 +1155,7 @@ app.post('/api/investigations/:id/retrospect', async (req, res) => {
             return res.status(409).json({ error: 'Investigation is currently being processed by another request. Try again shortly.' });
         }
         const state = history.get(id)!;
-        runner = new AgentRunner(config, state);
+        runner = new AgentRunner(getEffectiveConfig(state), state);
         // Attach listeners so retrospect events are broadcast via WS
         attachRunnerListeners(runner, id);
 
@@ -1166,7 +1196,7 @@ app.post('/api/investigations/:id/retrospect/analyze', async (req, res) => {
             return res.status(409).json({ error: 'Investigation is currently being processed by another request. Try again shortly.' });
         }
         const state = history.get(id)!;
-        runner = new AgentRunner(config, state);
+        runner = new AgentRunner(getEffectiveConfig(state), state);
         attachRunnerListeners(runner, id);
         runners.set(id, runner);
         (runner as any)._isTemporary = true;
@@ -1223,7 +1253,7 @@ app.patch('/api/investigations/:id/title', async (req, res) => {
     state.title = title;
     history.set(id, state);
     try {
-        const tempRunner = new AgentRunner(config, state);
+        const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
         await (tempRunner as any).saveArtifacts();
     } catch (e: any) {
         console.error(`Failed to persist title for ${id}:`, e.message);
@@ -1309,7 +1339,7 @@ app.patch('/api/investigations/:id/retrospect/proposals/:proposalId', async (req
     if (!runner && history.has(id)) {
         if (runners.has(id)) return res.status(409).json({ error: 'Concurrent operation in progress' });
         const state = history.get(id)!;
-        runner = new AgentRunner(config, state);
+        runner = new AgentRunner(getEffectiveConfig(state), state);
         runners.set(id, runner);
         (runner as any)._isTemporary = true;
         isTemporary = true;
@@ -1345,7 +1375,7 @@ app.post('/api/investigations/:id/retrospect/complete', async (req, res) => {
     if (!runner && history.has(id)) {
         if (runners.has(id)) return res.status(409).json({ error: 'Concurrent operation in progress' });
         const state = history.get(id)!;
-        runner = new AgentRunner(config, state);
+        runner = new AgentRunner(getEffectiveConfig(state), state);
         runners.set(id, runner);
         (runner as any)._isTemporary = true;
         isTemporary = true;
@@ -1393,7 +1423,7 @@ app.post('/api/investigations/:id/retrospect/apply', async (req, res) => {
     if (!runner && history.has(id)) {
         if (runners.has(id)) return res.status(409).json({ error: 'Concurrent operation in progress' });
         const state = history.get(id)!;
-        runner = new AgentRunner(config, state);
+        runner = new AgentRunner(getEffectiveConfig(state), state);
         runners.set(id, runner);
         (runner as any)._isTemporary = true;
         isTemporary = true;
@@ -1428,7 +1458,7 @@ app.post('/api/investigations/:id/compact', async (req, res) => {
     // If runner inactive but in history, rehydrate a temporary runner to summarize
     if (!runner && history.has(id)) {
         const state = history.get(id)!;
-        runner = new AgentRunner(config, state);
+        runner = new AgentRunner(getEffectiveConfig(state), state);
         // Attach listeners so the frontend gets the "Starting..." and "Finished" thoughts via WS
         attachRunnerListeners(runner, id);
         runners.set(id, runner);

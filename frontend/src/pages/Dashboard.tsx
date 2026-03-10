@@ -100,6 +100,12 @@ const Highlight = ({ text, term }: { text: string; term: string }) => {
 type Toast = { key: number; invId: string; invTitle: string; type: 'completed' | 'failed' };
 let _toastKey = 0;
 
+// Module-level storage for stale detection so it persists across navigation.
+// If this were inside a useRef, it would reset every time the Dashboard
+// unmounts (e.g. user clicks into an investigation and comes back), causing
+// every running investigation to appear non-stale for another 5 minutes.
+const _thoughtActivity: Record<string, { count: number; seenAt: number }> = {};
+
 export const Dashboard = () => {
     const [investigations, setInvestigations] = useState<Investigation[]>([]);
     const [search, setSearch] = useState('');
@@ -120,7 +126,7 @@ export const Dashboard = () => {
         () => new Set(JSON.parse(localStorage.getItem('inv-pinned') || '[]'))
     );
     const prevStatusRef = useRef<Record<string, string>>({});
-    const lastThoughtActivityRef = useRef<Record<string, { count: number; seenAt: number }>>({});
+    const lastThoughtActivityRef = useRef(_thoughtActivity);
     const searchRef = useRef<HTMLInputElement>(null);
     const navigate = useNavigate();
     const [showShortcuts, setShowShortcuts] = useState(false);
@@ -146,8 +152,9 @@ export const Dashboard = () => {
                     if (inv.status === 'failed')    addToast(inv, 'failed');
                 }
                 prev[inv.id] = inv.status;
-                // Stale detection: track when thought count last changed
-                const count = inv.thoughts?.length ?? 0;
+                // Stale detection: use actual thoughtCount from API (list endpoint
+                // only returns the last thought for preview, so .length is always 0|1)
+                const count = inv.thoughtCount ?? inv.thoughts?.length ?? 0;
                 if (!lta[inv.id] || lta[inv.id].count !== count) {
                     lta[inv.id] = { count, seenAt: Date.now() };
                 }
@@ -801,8 +808,8 @@ export const Dashboard = () => {
                                                 <span className="flex items-center gap-1" title={getLaunchTime(inv)}>
                                                     <Clock className="w-3 h-3" />{getRelativeTime(inv)}
                                                 </span>
-                                                {(inv.thoughts?.length ?? 0) > 0 && (
-                                                    <StepBar count={inv.thoughts.length}
+                                                {(inv.thoughtCount ?? inv.thoughts?.length ?? 0) > 0 && (
+                                                    <StepBar count={inv.thoughtCount ?? inv.thoughts.length}
                                                         color={isRunning ? 'bg-blue-400' : isPaused ? 'bg-amber-400' : isCompleted ? 'bg-emerald-400' : isFailed ? 'bg-red-400' : 'bg-slate-400'} />
                                                 )}
                                             </div>
@@ -977,8 +984,8 @@ export const Dashboard = () => {
                                                             <AlertTriangle className="w-2.5 h-2.5" />Stale
                                                         </span>
                                                     )}
-                                                    {(inv.thoughts?.length ?? 0) > 0 && (
-                                                        <StepBar count={inv.thoughts.length} color={isRunning ? 'bg-blue-400' : isCompleted ? 'bg-emerald-400' : isFailed ? 'bg-red-400' : 'bg-slate-400'} />
+                                                    {(inv.thoughtCount ?? inv.thoughts?.length ?? 0) > 0 && (
+                                                        <StepBar count={inv.thoughtCount ?? inv.thoughts.length} color={isRunning ? 'bg-blue-400' : isCompleted ? 'bg-emerald-400' : isFailed ? 'bg-red-400' : 'bg-slate-400'} />
                                                     )}
                                                     {(isRunning || isPaused) && !isNaN(Number(inv.id)) && (
                                                         <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isPaused ? 'bg-amber-100 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>

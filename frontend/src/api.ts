@@ -58,6 +58,7 @@ export interface Investigation {
     id: string;
     status: 'running' | 'paused' | 'aborted' | 'completed' | 'failed';
     thoughts: string[];
+    thoughtCount?: number;
     actions: any[];
     logs: string[];
     title?: string;
