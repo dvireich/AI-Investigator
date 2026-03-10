@@ -88,9 +88,8 @@ npm install
 if ($LASTEXITCODE -ne 0) { Write-Error "Frontend install failed"; exit 1 }
 
 # --- ICM Scripts (Playwright) ---
-$icmScriptsDir = Join-Path $PSScriptRoot ".." ".." ".skills" "Teleduct" "icm-automation" "scripts"
-$icmScriptsDir = (Resolve-Path $icmScriptsDir -ErrorAction SilentlyContinue).Path
-if ($icmScriptsDir -and (Test-Path (Join-Path $icmScriptsDir "package.json"))) {
+$icmScriptsDir = Join-Path $PSScriptRoot "scripts" "icm"
+if (Test-Path (Join-Path $icmScriptsDir "package.json")) {
     Write-Host ""
     Write-Host "Installing ICM Script Dependencies (Playwright)..." -ForegroundColor Yellow
     Set-Location $icmScriptsDir

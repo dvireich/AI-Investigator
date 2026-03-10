@@ -1,7 +1,6 @@
 {
   "repoRoot": "/path/to/your/repo",
   "systemPromptPath": "/path/to/your/repo/.github/agents/YourAgent.md",
-  "retrospectPromptPath": "/path/to/your/repo/tools/InvestigationDashboard/prompts/RetrospectPrompt.md",
   "knowledgeBasePath": "docs/investigations",
   "mcpServers": [],
   "maxSteps": 50,
@@ -13,5 +12,16 @@
   "workingDirectory": "/path/to/your/repo/tools/InvestigationDashboard/backend",
   "notifications": true,
   "investigationsPath": "/path/to/your/repo/investigations",
-  "theme": "light"
+  "products": [
+    {
+      "id": "my-product",
+      "name": "My Product",
+      "repoRoot": "/path/to/your/repo",
+      "systemPromptPath": "/path/to/your/repo/.github/agents/YourAgent.md",
+      "knowledgeBasePath": "/path/to/your/repo/docs/investigations",
+      "workingDirectory": "/path/to/your/repo/tools/InvestigationDashboard/backend",
+      "investigationsPath": "/path/to/your/repo/investigations"
+    }
+  ],
+  "activeProductId": "my-product"
 }

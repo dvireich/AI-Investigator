@@ -1,0 +1,39 @@
+{
+  "settings": {
+    "model": "claude-sonnet-4-20250514",
+    "maxSteps": 50,
+    "investigationsPath": "C:\\Repositories\\AM-Teleduct\\tools\\InvestigationDashboard\\investigations"
+  },
+  "models": [
+    "claude-sonnet-4-20250514",
+    "gpt-4o",
+    "gpt-4o-mini",
+    "o4-mini",
+    "claude-3-5-sonnet",
+    "claude-3-haiku"
+  ],
+  "products": [
+    {
+      "id": "teleduct",
+      "name": "Teleduct",
+      "repoRoot": "C:\\Repositories\\AM-Teleduct",
+      "systemPromptPath": "C:\\Repositories\\AM-Teleduct\\.github\\agents\\Teleduct_Investigation.agent.md",
+      "knowledgeBasePath": "C:\\Repositories\\AM-Teleduct\\docs\\telemetry-investigations",
+      "workingDirectory": "C:\\Repositories\\AM-Teleduct",
+      "investigationsPath": "C:\\Repositories\\AM-Teleduct\\tools\\InvestigationDashboard\\investigations"
+    }
+  ],
+  "activeProductId": "teleduct",
+  "productValidations": {
+    "teleduct": {
+      "valid": true,
+      "paths": [
+        { "field": "repoRoot", "label": "Repository Root", "value": "C:\\Repositories\\AM-Teleduct", "isAbsolute": true, "exists": true, "error": null },
+        { "field": "systemPromptPath", "label": "System Prompt", "value": "C:\\Repositories\\AM-Teleduct\\.github\\agents\\Teleduct_Investigation.agent.md", "isAbsolute": true, "exists": true, "error": null },
+        { "field": "knowledgeBasePath", "label": "Knowledge Base", "value": "C:\\Repositories\\AM-Teleduct\\docs\\telemetry-investigations", "isAbsolute": true, "exists": true, "error": null },
+        { "field": "workingDirectory", "label": "Working Directory", "value": "C:\\Repositories\\AM-Teleduct", "isAbsolute": true, "exists": true, "error": null },
+        { "field": "investigationsPath", "label": "Investigations Path", "value": "C:\\Repositories\\AM-Teleduct\\tools\\InvestigationDashboard\\investigations", "isAbsolute": true, "exists": true, "error": null }
+      ]
+    }
+  }
+}

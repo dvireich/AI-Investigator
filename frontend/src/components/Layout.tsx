@@ -75,13 +75,13 @@ export const Layout = () => {
     };
 
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-brand-500/30">
+        <div className="min-h-screen bg-transparent text-slate-100 font-sans selection:bg-brand-500/30">
             {/* Header */}
-            <header className="fixed top-0 left-0 right-0 h-16 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b border-white/10 z-50 flex items-center justify-between px-6 shadow-2xl">
+            <header className="fixed top-0 left-0 right-0 h-16 bg-slate-900/70 backdrop-blur-xl border-b border-white/[0.06] z-50 flex items-center justify-between px-6 shadow-2xl shadow-black/20">
                 <div className="flex items-center gap-4">
                     <div className="flex items-center gap-2">
                         {/* CSS LOGO */}
-                        <div className="relative w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-400 to-brand-600 flex items-center justify-center shadow-lg shadow-brand-500/20 group cursor-pointer overflow-hidden">
+                        <div className="relative w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-400 to-brand-600 flex items-center justify-center shadow-lg shadow-brand-500/30 group cursor-pointer overflow-hidden">
                             <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                             <div className="w-4 h-4 rounded-full border-2 border-white/90"></div>
                             <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.8)]"></div>
@@ -169,8 +169,8 @@ const NavLink = ({ to, icon, label, active }: { to: string; icon: any; label: st
     <Link
         to={to}
         className={`flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${active
-            ? 'bg-white/10 text-white shadow-inner shadow-white/5'
-            : 'text-slate-400 hover:text-white hover:bg-white/5'
+            ? 'bg-white/[0.08] text-white border border-white/[0.08] shadow-inner shadow-white/5'
+            : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
             }`}
     >
         <span className={`mr-2 ${active ? 'text-brand-400' : ''}`}>{icon}</span>

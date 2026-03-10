@@ -3,10 +3,84 @@
 @tailwind utilities;
 
 body {
-  @apply bg-slate-50 text-slate-900;
+  background-color: #0a0f1a;
+  @apply text-slate-100;
+}
+
+/* Ambient background gradient */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 50% 60% at 20% 10%, rgba(14, 165, 233, 0.06), transparent),
+    radial-gradient(ellipse 40% 50% at 80% 90%, rgba(139, 92, 246, 0.05), transparent),
+    radial-gradient(ellipse 60% 40% at 50% 50%, rgba(14, 165, 233, 0.02), transparent);
+  pointer-events: none;
+}
+
+/* Glass card utilities */
+@layer components {
+  .glass-card {
+    @apply bg-slate-900/50 backdrop-blur-xl border border-white/[0.06] shadow-lg shadow-black/20 rounded-2xl;
+  }
+  .glass-card-hover {
+    @apply hover:border-white/[0.1] hover:bg-slate-900/60 hover:shadow-xl transition-all duration-200;
+  }
+  .glass-card-interactive {
+    @apply glass-card glass-card-hover;
+  }
+}
+
+/* Stagger animation delays */
+.stagger-1 { animation-delay: 50ms; }
+.stagger-2 { animation-delay: 100ms; }
+.stagger-3 { animation-delay: 150ms; }
+.stagger-4 { animation-delay: 200ms; }
+.stagger-5 { animation-delay: 250ms; }
+
+/* Chart entrance animation */
+.chart-enter {
+  animation: chartSlideUp 0.4s ease-out both;
+}
+.chart-enter:nth-child(1) { animation-delay: 0ms; }
+.chart-enter:nth-child(2) { animation-delay: 80ms; }
+.chart-enter:nth-child(3) { animation-delay: 160ms; }
+
+@keyframes chartSlideUp {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Focus-visible for accessibility */
+@layer base {
+  *:focus-visible {
+    @apply outline-none ring-2 ring-offset-2;
+    --tw-ring-color: rgba(14, 165, 233, 0.5);
+    ring-offset-color: #0a0f1a;
+  }
 }
 
 /* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.4);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(71, 85, 105, 0.5);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 8px;
   height: 8px;

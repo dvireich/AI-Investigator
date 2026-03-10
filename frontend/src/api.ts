@@ -3,11 +3,9 @@ export interface Product {
     name: string;
     repoRoot: string;
     systemPromptPath: string;
-    retrospectPromptPath: string;
     knowledgeBasePath: string;
     workingDirectory: string;
     investigationsPath: string;
-    icmScriptsPath: string;
 }
 
 export interface PathValidationResult {
@@ -22,6 +20,12 @@ export interface PathValidationResult {
 export interface ProductValidation {
     valid: boolean;
     paths: PathValidationResult[];
+}
+
+export interface DiscoverResult {
+    source: 'manifest' | 'auto-discovered' | 'none';
+    product: Partial<Product>;
+    suggestions: string[];
 }
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
@@ -321,6 +325,26 @@ export const api = {
     validateProduct: async (id: string): Promise<ProductValidation> => {
         const response = await fetch(`${API_URL}/products/${encodeURIComponent(id)}/validate`);
         if (!response.ok) throw new Error('Failed to validate product');
+        return response.json();
+    },
+
+    discoverProduct: async (repoRoot: string): Promise<DiscoverResult> => {
+        const response = await fetch(`${API_URL}/products/discover?repoRoot=${encodeURIComponent(repoRoot)}`);
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: 'Failed to discover product' }));
+            throw new Error(err.error || 'Failed to discover product');
+        }
+        return response.json();
+    },
+
+    cloneProduct: async (id: string): Promise<Product> => {
+        const response = await fetch(`${API_URL}/products/${encodeURIComponent(id)}/clone`, {
+            method: 'POST',
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: 'Failed to clone product' }));
+            throw new Error(err.error || 'Failed to clone product');
+        }
         return response.json();
     },
 

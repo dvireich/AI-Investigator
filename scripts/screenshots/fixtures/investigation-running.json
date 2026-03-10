@@ -1,0 +1,60 @@
+{
+  "id": "1749820000000",
+  "status": "running",
+  "title": "High ingestion latency on oi-tds-prd-eus2p-01",
+  "query": "Investigate high ingestion latency on oi-tds-prd-eus2p-01 for the past 6 hours",
+  "stamp": "oi-tds-prd-eus2p-01",
+  "timeRange": "ago(6h)",
+  "issueType": "latency",
+  "model": "claude-sonnet-4-20250514",
+  "productId": "teleduct",
+  "productName": "Teleduct",
+  "thoughtCount": 3,
+  "thoughts": [
+    "I'll start by examining the end-to-end latency metrics for stamp `oi-tds-prd-eus2p-01` over the past 6 hours. This will help identify which latency percentile is degraded and when the issue began.",
+    {
+      "content": "The p95 latency has spiked to **4,800ms** (baseline ~1,200ms) starting around 08:30 UTC. Let me check which processing stage is contributing the most to this latency increase by breaking down the pipeline stages.",
+      "type": "thought"
+    },
+    {
+      "content": "Interesting — the **Delta Service** stage accounts for 72% of the total latency. The queue wait time is normal, but the Delta Service processing time jumped from 400ms to 3,200ms. Let me investigate the Delta Service metrics and check for any recent deployments.",
+      "type": "thought"
+    }
+  ],
+  "actions": [
+    {
+      "type": "tool_use",
+      "name": "execute_kql_query",
+      "input": {
+        "query": "TeleductMetrics\n| where Stamp == 'oi-tds-prd-eus2p-01'\n| where TimeGenerated > ago(6h)\n| where MetricName == 'E2ELatencyMs'\n| summarize\n    p50=percentile(Value, 50),\n    p95=percentile(Value, 95),\n    p99=percentile(Value, 99)\n    by bin(TimeGenerated, 5m)\n| order by TimeGenerated desc\n| take 20"
+      },
+      "result": "| TimeGenerated           | p50  | p95  | p99   |\n|-------------------------|------|------|-------|\n| 2025-06-13T14:30:00Z    | 1250 | 4800 | 12500 |\n| 2025-06-13T14:25:00Z    | 1180 | 4600 | 11200 |\n| 2025-06-13T14:20:00Z    | 1320 | 5100 | 13800 |\n| 2025-06-13T14:15:00Z    | 1150 | 4500 | 10900 |\n| 2025-06-13T14:10:00Z    | 1280 | 4900 | 12100 |\n| 2025-06-13T14:05:00Z    | 1190 | 4700 | 11800 |\n| 2025-06-13T14:00:00Z    | 1210 | 4650 | 11500 |\n| 2025-06-13T13:55:00Z    | 1100 | 4200 | 10200 |"
+    },
+    {
+      "type": "tool_use",
+      "name": "execute_kql_query",
+      "input": {
+        "query": "TeleductMetrics\n| where Stamp == 'oi-tds-prd-eus2p-01'\n| where TimeGenerated > ago(6h)\n| where MetricName in ('QueueWaitMs', 'DeltaServiceMs', 'PayloadFannerMs', 'KustoIngestionMs')\n| summarize p95=percentile(Value, 95) by MetricName, bin(TimeGenerated, 30m)\n| order by TimeGenerated desc, MetricName asc"
+      },
+      "result": "| TimeGenerated           | MetricName       | p95  |\n|-------------------------|------------------|------|\n| 2025-06-13T14:00:00Z    | DeltaServiceMs   | 3200 |\n| 2025-06-13T14:00:00Z    | KustoIngestionMs | 680  |\n| 2025-06-13T14:00:00Z    | PayloadFannerMs  | 420  |\n| 2025-06-13T14:00:00Z    | QueueWaitMs      | 185  |\n| 2025-06-13T13:30:00Z    | DeltaServiceMs   | 3100 |\n| 2025-06-13T13:30:00Z    | KustoIngestionMs | 710  |\n| 2025-06-13T13:30:00Z    | PayloadFannerMs  | 390  |\n| 2025-06-13T13:30:00Z    | QueueWaitMs      | 175  |"
+    },
+    {
+      "type": "tool_use",
+      "name": "execute_kql_query",
+      "input": {
+        "query": "TeleductDeployments\n| where Stamp == 'oi-tds-prd-eus2p-01'\n| where TimeGenerated > ago(12h)\n| project TimeGenerated, CommitId, Version, ChangeDescription\n| order by TimeGenerated desc"
+      },
+      "result": "| TimeGenerated           | CommitId | Version   | ChangeDescription                        |\n|-------------------------|----------|-----------|------------------------------------------|\n| 2025-06-13T08:15:00Z    | b4c9e1f2 | 3.42.1    | Delta Service: Enable adaptive batching  |\n| 2025-06-12T22:00:00Z    | a1d7f3e8 | 3.42.0    | BlobReader: Fix buffer pool race cond.   |"
+    }
+  ],
+  "logs": [
+    "Investigation started",
+    "Kusto CLI connection established",
+    "Executing KQL: E2E latency percentiles...",
+    "Query returned 8 rows",
+    "Executing KQL: Stage breakdown...",
+    "Query returned 8 rows",
+    "Executing KQL: Recent deployments...",
+    "Query returned 2 rows"
+  ]
+}

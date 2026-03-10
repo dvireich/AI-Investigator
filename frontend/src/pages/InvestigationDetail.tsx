@@ -443,7 +443,7 @@ const ModelSelector = ({ currentModel, availableModels, onSelect }: { currentMod
         <div className="relative" ref={dropdownRef}>
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="w-full flex items-center justify-between bg-white/50 hover:bg-white/80 border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-700 transition-all shadow-sm group"
+                className="w-full flex items-center justify-between bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 rounded-lg px-3 py-1.5 text-sm font-medium text-slate-200 transition-all shadow-sm group"
             >
                 <span className="truncate mr-2">{currentModel}</span>
                 <svg className={`w-4 h-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -452,8 +452,8 @@ const ModelSelector = ({ currentModel, availableModels, onSelect }: { currentMod
             </button>
 
             {isOpen && (
-                <div className="absolute z-50 mt-1 w-full min-w-[180px] bg-white rounded-lg shadow-xl border border-slate-100 py-1 animate-in fade-in zoom-in-95 duration-100 origin-top-right right-0">
-                    <div className="px-3 py-2 border-b border-slate-50 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                <div className="absolute z-50 mt-1 w-full min-w-[180px] bg-slate-800 rounded-lg shadow-xl border border-slate-700 py-1 animate-in fade-in zoom-in-95 duration-100 origin-top-right right-0">
+                    <div className="px-3 py-2 border-b border-slate-700 text-[10px] uppercase font-bold text-slate-500 tracking-wider">
                         Select Model
                     </div>
                     <div className="max-h-60 overflow-y-auto custom-scrollbar">
@@ -464,7 +464,7 @@ const ModelSelector = ({ currentModel, availableModels, onSelect }: { currentMod
                                     onSelect(model);
                                     setIsOpen(false);
                                 }}
-                                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-slate-50 transition-colors ${currentModel === model ? 'text-brand-600 font-bold bg-brand-50/50' : 'text-slate-600'}`}
+                                className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-slate-700/50 transition-colors ${currentModel === model ? 'text-brand-400 font-bold bg-brand-500/10' : 'text-slate-300'}`}
                             >
                                 {model}
                                 {currentModel === model && <div className="w-1.5 h-1.5 rounded-full bg-brand-500"></div>}
@@ -520,6 +520,74 @@ const InterventionInput = ({ onSend, status }: { onSend: (msg: string) => void, 
     );
 };
 
+/** Extracted contest form — isolates keystroke re-renders from the heavy parent component */
+const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedback: string) => Promise<void>; actingAction: string | null }) => {
+    const [showForm, setShowForm] = useState(false);
+    const [feedback, setFeedback] = useState('');
+
+    const handleSubmit = async () => {
+        if (!feedback.trim()) return;
+        await onContest(feedback.trim());
+        setFeedback('');
+        setShowForm(false);
+    };
+
+    if (!showForm) {
+        return (
+            <div className="px-6 py-3 flex items-center justify-between">
+                <p className="text-sm text-slate-400">Not satisfied with this report?</p>
+                <button
+                    onClick={() => setShowForm(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-semibold rounded-lg border border-amber-500/20 hover:border-amber-500/30 transition-all text-sm"
+                >
+                    <RotateCcw className="w-4 h-4" />
+                    Contest Report
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-500" />
+                    <span className="font-bold text-amber-300 text-sm">Contest This Report</span>
+                </div>
+                <button
+                    onClick={() => { setShowForm(false); setFeedback(''); }}
+                    className="text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                    <X className="w-4 h-4" />
+                </button>
+            </div>
+            <textarea
+                autoFocus
+                value={feedback}
+                onChange={e => setFeedback(e.target.value)}
+                placeholder="Explain what's wrong with this report or what the investigation should explore further..."
+                className="w-full h-20 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/40"
+            />
+            <div className="flex items-center justify-end gap-3">
+                <button
+                    onClick={() => { setShowForm(false); setFeedback(''); }}
+                    className="px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                    Cancel
+                </button>
+                <button
+                    onClick={handleSubmit}
+                    disabled={!feedback.trim() || actingAction === 'contest'}
+                    className="flex items-center gap-2 px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 disabled:bg-slate-800 disabled:border-slate-700 disabled:cursor-not-allowed text-amber-300 font-bold rounded-lg transition-all shadow-md shadow-amber-500/10 text-sm"
+                >
+                    {actingAction === 'contest' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                    {actingAction === 'contest' ? 'Contesting...' : 'Contest & Resume'}
+                </button>
+            </div>
+        </div>
+    );
+});
+
 export const InvestigationDetail = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
@@ -538,8 +606,6 @@ export const InvestigationDetail = () => {
     const [pendingInterventions, setPendingInterventions] = useState<Array<{ id: string; text: string; timestamp: number }>>([]);
     const [wsConnected, setWsConnected] = useState(true);
     const [wsJustReconnected, setWsJustReconnected] = useState(false);
-    const [contestFeedback, setContestFeedback] = useState('');
-    const [showContestForm, setShowContestForm] = useState(false);
     const hadDisconnectRef = useRef(false);
     const logsEndRef = useRef<HTMLDivElement>(null);
     const retrospectEndRef = useRef<HTMLDivElement>(null);
@@ -810,12 +876,19 @@ export const InvestigationDetail = () => {
         }
     };
 
-    const handleContest = async () => {
-        if (!contestFeedback.trim()) return;
-        await handleAction('contest', contestFeedback.trim());
-        setContestFeedback('');
-        setShowContestForm(false);
-    };
+    const handleContest = useCallback(async (feedback: string) => {
+        if (!id) return;
+        setActingAction('contest');
+        try {
+            await api.sendAction(id, 'contest', feedback);
+            await new Promise(r => setTimeout(r, 500));
+            await fetchInvestigation();
+        } catch (e: any) {
+            alert(`Action failed: ${e.message}`);
+        } finally {
+            setActingAction(null);
+        }
+    }, [id]);
 
     const handleIntervention = async (msg: string) => {
         if (id && msg.trim()) {
@@ -832,7 +905,51 @@ export const InvestigationDetail = () => {
         }
     };
 
-    if (!investigation) return <div className="flex justify-center items-center h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-500"></div></div>;
+    if (!investigation) return (
+        <div className="h-[calc(100vh-7rem)] overflow-hidden grid grid-cols-1 lg:grid-cols-12 gap-6 pb-2 animate-pulse">
+            {/* Sidebar skeleton */}
+            <div className="lg:col-span-4 xl:col-span-3 space-y-4">
+                <div className="glass-card p-5 space-y-4">
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-slate-700/60" />
+                        <div className="flex-1 space-y-2">
+                            <div className="h-4 w-24 rounded bg-slate-700/60" />
+                            <div className="h-3 w-16 rounded bg-slate-800/60" />
+                        </div>
+                    </div>
+                    <div className="space-y-3 pt-2">
+                        {[1,2,3,4].map(i => (
+                            <div key={i} className="flex items-center justify-between">
+                                <div className="h-3 w-20 rounded bg-slate-800/60" />
+                                <div className="h-3 w-28 rounded bg-slate-800/40" />
+                            </div>
+                        ))}
+                    </div>
+                </div>
+                <div className="flex gap-2">
+                    {[1,2,3].map(i => <div key={i} className="flex-1 h-10 rounded-xl bg-slate-800/40" />)}
+                </div>
+            </div>
+            {/* Main area skeleton */}
+            <div className="lg:col-span-8 xl:col-span-9 space-y-3">
+                <div className="glass-card p-4 space-y-3">
+                    <div className="h-4 w-48 rounded bg-slate-700/60" />
+                    <div className="space-y-2">
+                        <div className="h-3 w-full rounded bg-slate-800/40" />
+                        <div className="h-3 w-5/6 rounded bg-slate-800/40" />
+                        <div className="h-3 w-4/6 rounded bg-slate-800/40" />
+                    </div>
+                </div>
+                <div className="glass-card p-4 space-y-3">
+                    <div className="h-4 w-32 rounded bg-slate-700/60" />
+                    <div className="space-y-2">
+                        <div className="h-3 w-full rounded bg-slate-800/40" />
+                        <div className="h-3 w-3/4 rounded bg-slate-800/40" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
 
     const isActive = investigation.status === 'running' || investigation.status === 'paused';
 
@@ -893,20 +1010,24 @@ export const InvestigationDetail = () => {
             {/* Sidebar: Status & Info */}
             <div className="lg:col-span-3 flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
                 {/* Status Card */}
-                <div className="bg-gradient-to-br from-white/90 to-white/70 backdrop-blur-xl rounded-3xl p-6 shadow-2xl border border-white/60 relative overflow-hidden group shrink-0">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/5 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+                <div className="bg-slate-900/60 backdrop-blur-xl rounded-3xl p-6 shadow-2xl border border-white/[0.06] relative overflow-hidden group shrink-0">
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
 
                     <div className="flex flex-col items-center justify-center mb-8">
-                        <div className={`relative w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all duration-500 ${investigation.status === 'running' ? 'bg-green-100 text-green-600 ring-4 ring-green-50' :
-                            investigation.status === 'paused' ? 'bg-amber-100 text-amber-600 ring-4 ring-amber-50' :
-                                investigation.status === 'failed' ? 'bg-red-100 text-red-600 ring-4 ring-red-50' :
-                                    'bg-slate-100 text-slate-400 ring-4 ring-slate-50'
+                        <div className={`relative w-20 h-20 rounded-full flex items-center justify-center mb-4 transition-all duration-500 ${
+                            investigation.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400 ring-4 ring-emerald-500/20' :
+                            investigation.status === 'running' ? 'bg-green-500/20 text-green-400 ring-4 ring-green-500/20' :
+                            investigation.status === 'paused' ? 'bg-amber-500/20 text-amber-400 ring-4 ring-amber-500/20' :
+                            investigation.status === 'failed' ? 'bg-red-500/20 text-red-400 ring-4 ring-red-500/20' :
+                            investigation.status === 'aborted' ? 'bg-orange-500/20 text-orange-400 ring-4 ring-orange-500/20' :
+                                'bg-slate-800 text-slate-400 ring-4 ring-slate-700/30'
                             }`}>
-                            {investigation.status === 'running' && <div className="absolute inset-0 rounded-full border-4 border-green-500/20 animate-ping"></div>}
+                            {investigation.status === 'running' && <div className="absolute inset-0 rounded-full border-4 border-green-500/30 animate-ping"></div>}
+                            {investigation.status === 'completed' && <div className="absolute inset-0 rounded-full border-2 border-emerald-500/30"></div>}
                             <Activity className={`w-8 h-8 ${investigation.status === 'running' ? 'animate-pulse' : ''}`} />
                         </div>
 
-                        <h2 className="text-2xl font-black text-slate-800 tracking-tight capitalize">{investigation.status}</h2>
+                        <h2 className="text-2xl font-black text-slate-100 tracking-tight capitalize">{investigation.status}</h2>
                         <p className="text-slate-500 text-sm font-medium">Investigation Status</p>
                     </div>
 
@@ -915,7 +1036,7 @@ export const InvestigationDetail = () => {
                             <button
                                 onClick={() => handleAction('pause')}
                                 disabled={actingAction !== null}
-                                className="w-full group/btn flex items-center justify-center px-6 py-4 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-2xl transition-all shadow-lg shadow-amber-500/30 transform hover:-translate-y-0.5 active:translate-y-0"
+                                className="w-full group/btn flex items-center justify-center px-6 py-4 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 disabled:bg-slate-800 disabled:border-slate-700 disabled:cursor-not-allowed text-amber-300 font-bold rounded-2xl transition-all shadow-lg shadow-amber-500/10 transform hover:-translate-y-0.5 active:translate-y-0"
                             >
                                 {actingAction === 'pause' ? <RefreshCw className="w-5 h-5 mr-3 animate-spin" /> : <Pause className="w-5 h-5 mr-3 fill-current" />}
                                 {actingAction === 'pause' ? 'Pausing...' : 'Pause'}
@@ -925,7 +1046,7 @@ export const InvestigationDetail = () => {
                             <button
                                 onClick={() => handleAction('resume')}
                                 disabled={actingAction !== null}
-                                className="w-full group/btn flex items-center justify-center px-6 py-4 bg-emerald-500 hover:bg-emerald-400 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-2xl transition-all shadow-lg shadow-emerald-500/30 transform hover:-translate-y-0.5 active:translate-y-0"
+                                className="w-full group/btn flex items-center justify-center px-6 py-4 bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/30 disabled:bg-slate-800 disabled:border-slate-700 disabled:cursor-not-allowed text-emerald-300 font-bold rounded-2xl transition-all shadow-lg shadow-emerald-500/10 transform hover:-translate-y-0.5 active:translate-y-0"
                             >
                                 {actingAction === 'resume' ? <RefreshCw className="w-5 h-5 mr-3 animate-spin" /> : <Play className="w-5 h-5 mr-3 fill-current" />}
                                 {actingAction === 'resume' ? 'Resuming...' : 'Resume'}
@@ -935,7 +1056,7 @@ export const InvestigationDetail = () => {
                             <button
                                 onClick={() => handleAction('abort')}
                                 disabled={actingAction !== null}
-                                className="w-full group/btn flex items-center justify-center px-6 py-4 bg-white text-red-500 font-bold rounded-2xl border-2 border-red-100 hover:bg-red-50 hover:border-red-200 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
+                                className="w-full group/btn flex items-center justify-center px-6 py-4 bg-red-500/10 text-red-400 font-bold rounded-2xl border border-red-500/20 hover:bg-red-500/20 hover:border-red-500/30 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm"
                             >
                                 {actingAction === 'abort' ? <RefreshCw className="w-5 h-5 mr-3 animate-spin" /> : <XCircle className="w-5 h-5 mr-3" />}
                                 {actingAction === 'abort' ? 'Aborting...' : 'Abort'}
@@ -945,7 +1066,7 @@ export const InvestigationDetail = () => {
                 </div>
 
                 {/* Info Card */}
-                <div className="bg-white/60 backdrop-blur-md rounded-2xl p-5 shadow-lg border border-white/50 text-sm shrink-0">
+                <div className="bg-slate-900/50 backdrop-blur-md rounded-2xl p-5 shadow-lg border border-white/[0.06] text-sm shrink-0">
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Details</h3>
                     <div className="space-y-3">
                         {investigation.status === 'running' && (
@@ -955,7 +1076,7 @@ export const InvestigationDetail = () => {
                                 </div>
                                 <div>
                                     <span className="block text-slate-500 text-xs">Duration</span>
-                                    <span className="font-medium text-slate-700">
+                                    <span className="font-medium text-slate-200">
                                         <DurationTimer
                                             startTime={Number(investigation.id)}
                                             status={investigation.status}
@@ -970,35 +1091,35 @@ export const InvestigationDetail = () => {
                             <Clock className="w-4 h-4 text-slate-400 mr-2 mt-0.5" />
                             <div>
                                 <span className="block text-slate-500 text-xs">Started</span>
-                                <span className="font-medium text-slate-700">{isNaN(Number(investigation.id)) ? 'Legacy' : new Date(parseInt(investigation.id)).toLocaleString()}</span>
+                                <span className="font-medium text-slate-200">{isNaN(Number(investigation.id)) ? 'Legacy' : new Date(parseInt(investigation.id)).toLocaleString()}</span>
                             </div>
                         </div>
                         {investigation.stamp && (
                             <div className="flex items-start">
-                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5 rounded bg-blue-100 text-blue-600 font-bold text-[10px]">S</div>
+                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5 rounded bg-blue-500/20 text-blue-400 font-bold text-[10px]">S</div>
                                 <div>
                                     <span className="block text-slate-500 text-xs">Stamp</span>
-                                    <span className="font-medium text-slate-700">{investigation.stamp}</span>
+                                    <span className="font-medium text-slate-200">{investigation.stamp}</span>
                                 </div>
                             </div>
                         )}
                         {investigation.timeRange && (
                             <div className="flex items-start">
-                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5 rounded bg-purple-100 text-purple-600 font-bold text-[10px]">T</div>
+                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5 rounded bg-purple-500/20 text-purple-400 font-bold text-[10px]">T</div>
                                 <div>
                                     <span className="block text-slate-500 text-xs">Time Range</span>
-                                    <span className="font-medium text-slate-700" title={investigation.timeRange}>{formatTimeRange(investigation.timeRange)}</span>
+                                    <span className="font-medium text-slate-200" title={investigation.timeRange}>{formatTimeRange(investigation.timeRange)}</span>
                                 </div>
                             </div>
                         )}
                         {investigation.query && (
                             <div className="flex items-start">
-                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5 rounded bg-slate-200 text-slate-600 font-bold text-[10px]">Q</div>
+                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5 rounded bg-slate-700 text-slate-400 font-bold text-[10px]">Q</div>
                                 <div className="min-w-0 flex-1">
                                     <span className="block text-slate-500 text-xs">Query</span>
                                     <button
                                         onClick={() => setShowQueryModal(true)}
-                                        className="text-xs text-brand-600 font-bold hover:underline flex items-center mt-1 border border-brand-100 bg-brand-50 px-2 py-1 rounded transition-colors hover:bg-brand-100"
+                                        className="text-xs text-brand-400 font-bold hover:underline flex items-center mt-1 border border-brand-500/20 bg-brand-500/10 px-2 py-1 rounded transition-colors hover:bg-brand-500/20"
                                     >
                                         <FileText className="w-3 h-3 mr-1" /> View Full Query
                                     </button>
@@ -1007,7 +1128,7 @@ export const InvestigationDetail = () => {
                         )}
                         {investigation.model && (
                             <div className="flex items-start group/model">
-                                <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center mr-3 shrink-0 border border-indigo-100 group-hover/model:bg-indigo-100 group-hover/model:scale-105 transition-all">
+                                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center mr-3 shrink-0 border border-indigo-500/20 group-hover/model:bg-indigo-500/20 group-hover/model:scale-105 transition-all">
                                     <Cpu className="w-4 h-4" />
                                 </div>
                                 <div className="w-full min-w-0">
@@ -1049,7 +1170,7 @@ export const InvestigationDetail = () => {
                             </div>
                         </div>
                         <div className="flex-1 flex justify-end">
-                            <div className="flex space-x-2 opacity-50 hovered:opacity-100 transition-opacity">
+                            <div className="flex space-x-2 opacity-50 hover:opacity-100 transition-opacity">
                                 <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/50"></div>
                                 <div className="w-3 h-3 rounded-full bg-amber-500/20 border border-amber-500/50"></div>
                                 <div className="w-3 h-3 rounded-full bg-green-500/20 border border-green-500/50"></div>
@@ -1181,14 +1302,14 @@ export const InvestigationDetail = () => {
                         {/* VIEW 2: Final Report */}
                         <div className={`absolute inset-0 z-20 flex flex-col ${activeTab === 'report' ? 'z-20' : 'hidden'}`}>
                             {investigation.finalReport && (
-                                <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-100">
-                                    <div className="max-w-4xl mx-auto my-8 lg:my-12 bg-white shadow-xl shadow-slate-200/50 rounded-xl border border-slate-200 overflow-hidden">
+                                <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-950">
+                                    <div className="max-w-4xl mx-auto my-8 lg:my-12 bg-slate-900/80 shadow-2xl shadow-black/30 rounded-xl border border-slate-700/50 overflow-hidden backdrop-blur-sm">
 
                                         {/* Report Header */}
-                                        <div className="bg-slate-50 border-b border-slate-100 px-8 py-6 flex items-start justify-between">
+                                        <div className="bg-slate-800/60 border-b border-slate-700/50 px-8 py-6 flex items-start justify-between">
                                             <div>
-                                                <h1 className="text-2xl font-bold text-slate-800 mb-2">Investigation Report</h1>
-                                                <div className="flex items-center gap-4 text-sm text-slate-500">
+                                                <h1 className="text-2xl font-bold text-slate-100 mb-2">Investigation Report</h1>
+                                                <div className="flex items-center gap-4 text-sm text-slate-400">
                                                     <span className="flex items-center gap-1.5">
                                                         <Clock className="w-4 h-4" />
                                                         {(() => {
@@ -1204,9 +1325,9 @@ export const InvestigationDetail = () => {
                                                     </span>
                                                 </div>
                                             </div>
-                                            <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${investigation.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
-                                                investigation.status === 'failed' ? 'bg-red-100 text-red-700' :
-                                                    'bg-slate-200 text-slate-600'
+                                            <div className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${investigation.status === 'completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                                                investigation.status === 'failed' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+                                                    'bg-slate-700 text-slate-400 border border-slate-600'
                                                 }`}>
                                                 {investigation.status}
                                             </div>
@@ -1214,19 +1335,21 @@ export const InvestigationDetail = () => {
 
                                         {/* Report Content */}
                                         <div className="p-8 lg:p-12">
-                                            <div className="prose prose-slate max-w-none 
-                                                prose-headings:font-bold prose-headings:text-slate-800 
-                                                prose-h1:text-3xl prose-h1:mb-6 prose-h1:pb-4 prose-h1:border-b prose-h1:border-slate-100
-                                                prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4 prose-h2:text-brand-600
+                                            <div className="prose prose-invert max-w-none 
+                                                prose-headings:font-bold prose-headings:text-slate-100 
+                                                prose-h1:text-3xl prose-h1:mb-6 prose-h1:pb-4 prose-h1:border-b prose-h1:border-slate-700/50
+                                                prose-h2:text-xl prose-h2:mt-8 prose-h2:mb-4 prose-h2:text-brand-400
                                                 prose-h3:text-lg prose-h3:mt-6
-                                                prose-p:text-slate-600 prose-p:leading-relaxed
-                                                prose-a:text-brand-600 prose-a:font-medium hover:prose-a:text-brand-700
-                                                prose-strong:text-slate-700
-                                                prose-code:text-brand-600 prose-code:bg-brand-50 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none
-                                                prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-pre:rounded-xl prose-pre:shadow-lg
-                                                prose-li:text-slate-600
+                                                prose-p:text-slate-300 prose-p:leading-relaxed
+                                                prose-a:text-brand-400 prose-a:font-medium hover:prose-a:text-brand-300
+                                                prose-strong:text-slate-200
+                                                prose-code:text-brand-400 prose-code:bg-brand-500/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none
+                                                prose-pre:bg-slate-950 prose-pre:text-slate-300 prose-pre:rounded-xl prose-pre:shadow-lg prose-pre:border prose-pre:border-slate-800
+                                                prose-li:text-slate-300
                                                 prose-img:rounded-xl prose-img:shadow-md
-                                                prose-blockquote:border-l-4 prose-blockquote:border-brand-500 prose-blockquote:bg-brand-50/50 prose-blockquote:px-6 prose-blockquote:py-2 prose-blockquote:rounded-r-lg prose-blockquote:not-italic prose-blockquote:text-slate-700
+                                                prose-blockquote:border-l-4 prose-blockquote:border-brand-500 prose-blockquote:bg-brand-500/5 prose-blockquote:px-6 prose-blockquote:py-2 prose-blockquote:rounded-r-lg prose-blockquote:not-italic prose-blockquote:text-slate-300
+                                                prose-table:border-collapse prose-th:bg-slate-800/50 prose-th:text-slate-200 prose-th:border prose-th:border-slate-700 prose-th:px-3 prose-th:py-2
+                                                prose-td:border prose-td:border-slate-700/50 prose-td:px-3 prose-td:py-2 prose-td:text-slate-300
                                             ">
                                                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                                     {investigation.finalReport}
@@ -1235,8 +1358,8 @@ export const InvestigationDetail = () => {
                                         </div>
 
                                         {/* Report Footer */}
-                                        <div className="bg-slate-50 border-t border-slate-100 px-8 py-4 text-center">
-                                            <p className="text-xs text-slate-400 font-medium">
+                                        <div className="bg-slate-800/40 border-t border-slate-700/50 px-8 py-4 text-center">
+                                            <p className="text-xs text-slate-500 font-medium">
                                                 CONFIDENTIAL • Generated automatically by AI Investigation Agent
                                                 {investigation.contestCount ? ` • Contested ${investigation.contestCount} time${investigation.contestCount > 1 ? 's' : ''}` : ''}
                                             </p>
@@ -1247,58 +1370,8 @@ export const InvestigationDetail = () => {
 
                             {/* Contest Report Bar — fixed at bottom of Report tab, always visible */}
                             {investigation.finalReport && investigation.status === 'completed' && (
-                                <div className="shrink-0 border-t border-slate-200 bg-white">
-                                    {!showContestForm ? (
-                                        <div className="px-6 py-3 flex items-center justify-between">
-                                            <p className="text-sm text-slate-500">
-                                                Not satisfied with this report?
-                                            </p>
-                                            <button
-                                                onClick={() => setShowContestForm(true)}
-                                                className="flex items-center gap-2 px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-600 font-semibold rounded-lg border border-amber-200 hover:border-amber-300 transition-all text-sm"
-                                            >
-                                                <RotateCcw className="w-4 h-4" />
-                                                Contest Report
-                                            </button>
-                                        </div>
-                                    ) : (
-                                        <div className="p-4 space-y-3">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <AlertTriangle className="w-4 h-4 text-amber-500" />
-                                                    <span className="font-bold text-amber-800 text-sm">Contest This Report</span>
-                                                </div>
-                                                <button
-                                                    onClick={() => { setShowContestForm(false); setContestFeedback(''); }}
-                                                    className="text-slate-400 hover:text-slate-600 transition-colors"
-                                                >
-                                                    <X className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                            <textarea
-                                                value={contestFeedback}
-                                                onChange={e => setContestFeedback(e.target.value)}
-                                                placeholder="Explain what's wrong with this report or what the investigation should explore further..."
-                                                className="w-full h-20 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-slate-700 placeholder-slate-400 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-300"
-                                            />
-                                            <div className="flex items-center justify-end gap-3">
-                                                <button
-                                                    onClick={() => { setShowContestForm(false); setContestFeedback(''); }}
-                                                    className="px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors"
-                                                >
-                                                    Cancel
-                                                </button>
-                                                <button
-                                                    onClick={handleContest}
-                                                    disabled={!contestFeedback.trim() || actingAction === 'contest'}
-                                                    className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 disabled:bg-slate-300 disabled:cursor-not-allowed text-white font-bold rounded-lg transition-all shadow-md shadow-amber-500/25 text-sm"
-                                                >
-                                                    {actingAction === 'contest' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-                                                    {actingAction === 'contest' ? 'Contesting...' : 'Contest & Resume'}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    )}
+                                <div className="shrink-0 border-t border-slate-700/50 bg-slate-900/80">
+                                    <ContestForm onContest={handleContest} actingAction={actingAction} />
                                 </div>
                             )}
                         </div>

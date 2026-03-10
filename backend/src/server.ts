@@ -227,11 +227,9 @@ function getEffectiveConfig(state?: Partial<InvestigationState>): typeof config 
                 ...config,
                 repoRoot: product.repoRoot || config.repoRoot,
                 systemPromptPath: product.systemPromptPath || config.systemPromptPath,
-                retrospectPromptPath: product.retrospectPromptPath || config.retrospectPromptPath,
                 knowledgeBasePath: product.knowledgeBasePath || config.knowledgeBasePath,
                 workingDirectory: product.workingDirectory || config.workingDirectory,
                 investigationsPath: product.investigationsPath || config.investigationsPath,
-                icmScriptsPath: product.icmScriptsPath || config.icmScriptsPath,
             };
         }
     }
@@ -252,17 +250,15 @@ interface Product {
     name: string;
     repoRoot: string;
     systemPromptPath: string;
-    retrospectPromptPath: string;
     knowledgeBasePath: string;
     workingDirectory: string;
     investigationsPath: string;
-    icmScriptsPath: string;
 }
 
 let config: {
     repoRoot: string;
     systemPromptPath: string;
-    retrospectPromptPath: string;
+    retrospectPromptPath: string; // Internal — resolved automatically, not user-configurable
     knowledgeBasePath: string;
     mcpServers: string[];
     maxSteps: number;
@@ -274,13 +270,13 @@ let config: {
     workingDirectory: string;
     notifications: boolean;
     investigationsPath: string;
-    icmScriptsPath: string;
+    icmScriptsPath: string; // Internal — resolved automatically, not user-configurable
     products: Product[];
     activeProductId: string;
 } = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
-    retrospectPromptPath: '',
+    retrospectPromptPath: path.resolve(__dirname, '..', '..', 'prompts', 'RetrospectPrompt.md'),
     knowledgeBasePath: '',
     mcpServers: [],
     maxSteps: 50,
@@ -292,7 +288,7 @@ let config: {
     workingDirectory: process.cwd(),
     notifications: true,
     investigationsPath: '',
-    icmScriptsPath: '',
+    icmScriptsPath: path.resolve(__dirname, '..', '..', 'scripts', 'icm'),
     products: [],
     activeProductId: ''
 };
@@ -342,10 +338,10 @@ app.post('/api/settings', (req, res) => {
 
         // Whitelist allowed config keys to prevent arbitrary key injection
         const ALLOWED_KEYS = new Set([
-            'repoRoot', 'systemPromptPath', 'retrospectPromptPath', 'knowledgeBasePath',
+            'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
             'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
-            'notifications', 'investigationsPath', 'products', 'activeProductId', 'icmScriptsPath',
+            'notifications', 'investigationsPath', 'products', 'activeProductId',
             'theme'
         ]);
         const filtered = Object.fromEntries(
@@ -517,11 +513,9 @@ function validateProductPaths(product: Product): ProductValidation {
     const pathFields: { field: keyof Product; label: string; required: boolean }[] = [
         { field: 'repoRoot', label: 'Repository Root', required: true },
         { field: 'systemPromptPath', label: 'System Prompt', required: false },
-        { field: 'retrospectPromptPath', label: 'Retrospect Prompt', required: false },
         { field: 'knowledgeBasePath', label: 'Knowledge Base', required: false },
         { field: 'workingDirectory', label: 'Working Directory', required: false },
         { field: 'investigationsPath', label: 'Investigations Storage', required: false },
-        { field: 'icmScriptsPath', label: 'ICM Scripts', required: false },
     ];
 
     const results: PathValidationResult[] = [];
@@ -580,6 +574,181 @@ app.get('/api/products/:id/validate', (req, res) => {
     }
 });
 
+// --- Product Discovery & Clone ---
+
+interface InvestigatorManifest {
+    name?: string;
+    description?: string;
+    systemPrompt?: string;
+    knowledgeBase?: string;
+    workingDirectory?: string;
+    investigationsPath?: string;
+}
+
+interface DiscoverResult {
+    source: 'manifest' | 'auto-discovered' | 'none';
+    product: Partial<Product>;
+    suggestions: string[];
+}
+
+/**
+ * Resolve a manifest's relative paths to absolute paths based on repoRoot.
+ */
+function resolveManifest(repoRoot: string, manifest: InvestigatorManifest): Partial<Product> {
+    const abs = (rel?: string) => rel ? path.resolve(repoRoot, rel) : '';
+    return {
+        name: manifest.name || path.basename(repoRoot),
+        repoRoot,
+        systemPromptPath: abs(manifest.systemPrompt),
+        knowledgeBasePath: abs(manifest.knowledgeBase),
+        workingDirectory: abs(manifest.workingDirectory),
+        investigationsPath: abs(manifest.investigationsPath),
+    };
+}
+
+/**
+ * Auto-discover product configuration by scanning repo structure for known patterns.
+ */
+function autoDiscoverProduct(repoRoot: string): { product: Partial<Product>; suggestions: string[] } {
+    const product: Partial<Product> = { name: path.basename(repoRoot), repoRoot };
+    const suggestions: string[] = [];
+
+    // Look for agent prompts
+    const agentsDir = path.join(repoRoot, '.github', 'agents');
+    if (fs.existsSync(agentsDir)) {
+        try {
+            const agentFiles = fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'));
+            if (agentFiles.length === 1) {
+                product.systemPromptPath = path.join(agentsDir, agentFiles[0]);
+                suggestions.push(`Found agent prompt: ${agentFiles[0]}`);
+            } else if (agentFiles.length > 1) {
+                suggestions.push(`Found ${agentFiles.length} agent prompts in .github/agents/ — pick one for System Prompt`);
+            }
+        } catch { /* ignore read errors */ }
+    }
+
+    // Look for knowledge base directories
+    const kbCandidates = ['docs/telemetry-investigations', 'docs/investigations', 'docs', 'knowledge'];
+    for (const candidate of kbCandidates) {
+        const full = path.join(repoRoot, candidate);
+        if (fs.existsSync(full) && fs.statSync(full).isDirectory()) {
+            product.knowledgeBasePath = full;
+            suggestions.push(`Found knowledge base directory at ${candidate}`);
+            break;
+        }
+    }
+
+    // Look for investigations directory
+    const invCandidates = [
+        'docs/telemetry-investigations/Investigations/AgentInvestigations',
+        'docs/investigations/AgentInvestigations',
+        'investigations',
+    ];
+    for (const candidate of invCandidates) {
+        const full = path.join(repoRoot, candidate);
+        if (fs.existsSync(full) && fs.statSync(full).isDirectory()) {
+            product.investigationsPath = full;
+            suggestions.push(`Found investigations directory at ${candidate}`);
+            break;
+        }
+    }
+
+    // Working directory — default to repo root
+    product.workingDirectory = repoRoot;
+    suggestions.push('Working directory defaulted to repo root');
+
+    return { product, suggestions };
+}
+
+app.get('/api/products/discover', (req, res) => {
+    try {
+        const repoRoot = req.query.repoRoot as string;
+        if (!repoRoot) {
+            return res.status(400).json({ error: 'repoRoot query parameter is required' });
+        }
+        const resolvedRoot = path.resolve(repoRoot);
+        if (!fs.existsSync(resolvedRoot)) {
+            return res.status(404).json({ error: 'Repository root does not exist on disk' });
+        }
+
+        // Step 1: Try .investigator.json manifest
+        const manifestPath = path.join(resolvedRoot, '.investigator.json');
+        if (fs.existsSync(manifestPath)) {
+            try {
+                const raw = fs.readFileSync(manifestPath, 'utf-8');
+                const manifest: InvestigatorManifest = JSON.parse(raw);
+                const product = resolveManifest(resolvedRoot, manifest);
+                const result: DiscoverResult = {
+                    source: 'manifest',
+                    product,
+                    suggestions: ['Loaded from .investigator.json manifest'],
+                };
+                return res.json(result);
+            } catch (parseErr: any) {
+                // Manifest exists but is malformed — fall through to auto-discover
+                console.warn(`Malformed .investigator.json at ${manifestPath}: ${parseErr.message}`);
+            }
+        }
+
+        // Step 2: Auto-discover by pattern scanning
+        const { product, suggestions } = autoDiscoverProduct(resolvedRoot);
+        if (suggestions.length > 0) {
+            const result: DiscoverResult = {
+                source: 'auto-discovered',
+                product,
+                suggestions,
+            };
+            return res.json(result);
+        }
+
+        // Step 3: Nothing found
+        const result: DiscoverResult = {
+            source: 'none',
+            product: { name: path.basename(resolvedRoot), repoRoot: resolvedRoot },
+            suggestions: ['No .investigator.json or recognizable structure found — configure paths manually'],
+        };
+        res.json(result);
+    } catch (e: any) {
+        console.error("Failed to discover product:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/products/:id/clone', (req, res) => {
+    try {
+        const { id } = req.params;
+        const products: Product[] = config.products || [];
+        const source = products.find(p => p.id === id);
+        if (!source) {
+            return res.status(404).json({ error: 'Source product not found' });
+        }
+
+        // Generate a unique clone ID
+        let baseId = source.id + '-copy';
+        let cloneId = baseId;
+        let counter = 2;
+        while (products.some(p => p.id === cloneId)) {
+            cloneId = `${baseId}-${counter++}`;
+        }
+
+        const clonedProduct: Product = {
+            ...source,
+            id: cloneId,
+            name: `${source.name} (Copy)`,
+        };
+
+        config.products.push(clonedProduct);
+        const tmpConfigFile = configFile + '.tmp';
+        fs.writeFileSync(tmpConfigFile, JSON.stringify(config, null, 2));
+        fs.renameSync(tmpConfigFile, configFile);
+
+        res.json(clonedProduct);
+    } catch (e: any) {
+        console.error("Failed to clone product:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get('/api/models', async (req, res) => {
     try {
         const models = await copilotClient.listModels();
@@ -632,25 +801,14 @@ app.get('/api/files/list', (req, res) => {
 });
 
 // --- ICM Endpoints -------------------------------------------------------
-// Helper to get the effective ICM scripts path (product-specific or global)
-function getEffectiveIcmScriptsPath(): string | undefined {
-    // First try active product's path
-    if (config.activeProductId && config.products) {
-        const activeProduct = config.products.find((p: Product) => p.id === config.activeProductId);
-        if (activeProduct?.icmScriptsPath) {
-            return activeProduct.icmScriptsPath;
-        }
-    }
-    // Fall back to global config
+// ICM scripts are bundled with the dashboard at scripts/icm/
+function getIcmScriptsPath(): string {
     return config.icmScriptsPath;
 }
 
 app.get('/api/icm/status', (_req, res) => {
     // Check if ICM scripts path is configured and the main script exists
-    const scriptsPath = getEffectiveIcmScriptsPath();
-    if (!scriptsPath) {
-        return res.json({ available: false, message: 'icmScriptsPath not configured (check product or global settings)' });
-    }
+    const scriptsPath = getIcmScriptsPath();
     const scriptFile = path.join(scriptsPath, 'icm-full-read.js');
     if (!fs.existsSync(scriptFile)) {
         return res.json({ available: false, message: `Script not found: ${scriptFile}` });
@@ -660,11 +818,7 @@ app.get('/api/icm/status', (_req, res) => {
 
 app.post('/api/icm/:incidentId/read', async (req, res) => {
     const { incidentId } = req.params;
-    const scriptsPath = getEffectiveIcmScriptsPath();
-
-    if (!scriptsPath) {
-        return res.status(400).json({ error: 'icmScriptsPath not configured (check product or global settings)' });
-    }
+    const scriptsPath = getIcmScriptsPath();
 
     const scriptFile = path.join(scriptsPath, 'icm-full-read.js');
     if (!fs.existsSync(scriptFile)) {
@@ -819,11 +973,9 @@ app.post('/api/investigations', async (req, res) => {
                 ...config,
                 repoRoot: product.repoRoot || config.repoRoot,
                 systemPromptPath: product.systemPromptPath || config.systemPromptPath,
-                retrospectPromptPath: product.retrospectPromptPath || config.retrospectPromptPath,
                 knowledgeBasePath: product.knowledgeBasePath || config.knowledgeBasePath,
                 workingDirectory: product.workingDirectory || config.workingDirectory,
-                investigationsPath: product.investigationsPath || config.investigationsPath,
-                icmScriptsPath: product.icmScriptsPath || config.icmScriptsPath
+                investigationsPath: product.investigationsPath || config.investigationsPath
             };
         }
     }

@@ -1,0 +1,291 @@
+{
+  "investigations": [
+    {
+      "id": "1749820000000",
+      "status": "running",
+      "title": "High ingestion latency on oi-tds-prd-eus2p-01",
+      "query": "Investigate high ingestion latency on oi-tds-prd-eus2p-01 for the past 6 hours",
+      "stamp": "oi-tds-prd-eus2p-01",
+      "timeRange": "ago(6h)",
+      "issueType": "latency",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 3,
+      "thoughts": [
+        "Analyzing the pipeline latency metrics for stamp oi-tds-prd-eus2p-01. I'll start by checking the end-to-end latency histogram to identify which percentile is degraded."
+      ],
+      "actions": [
+        {
+          "type": "tool_use",
+          "name": "execute_kql_query",
+          "input": { "query": "TeleductMetrics | where Stamp == 'oi-tds-prd-eus2p-01' | where TimeGenerated > ago(6h) | where MetricName == 'E2ELatencyMs' | summarize p50=percentile(Value, 50), p95=percentile(Value, 95), p99=percentile(Value, 99) by bin(TimeGenerated, 5m) | order by TimeGenerated desc | take 20" },
+          "result": "| TimeGenerated | p50 | p95 | p99 |\n|---|---|---|---|\n| 2025-06-13T14:30:00Z | 1250 | 4800 | 12500 |\n| 2025-06-13T14:25:00Z | 1180 | 4600 | 11200 |\n| 2025-06-13T14:20:00Z | 1320 | 5100 | 13800 |"
+        }
+      ],
+      "logs": ["Investigation started", "Connected to Kusto CLI", "Executing KQL query..."]
+    },
+    {
+      "id": "1749810000000",
+      "status": "running",
+      "title": "Queue throttling analysis — ax-tds-prd-wus2-03",
+      "query": "Investigate MessagingInfraThrottleException on ax-tds-prd-wus2-03",
+      "stamp": "ax-tds-prd-wus2-03",
+      "timeRange": "ago(2h)",
+      "issueType": "throttling",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 8,
+      "thoughts": [
+        "The throttling exceptions are concentrated on nodes _Node_3 and _Node_5. Let me check the queue depth metrics and dequeue rates to understand the pattern."
+      ],
+      "actions": [
+        {
+          "type": "tool_use",
+          "name": "execute_kql_query",
+          "input": { "query": "TeleductTraces | where Stamp == 'ax-tds-prd-wus2-03' | where TimeGenerated > ago(2h) | where Message has 'MessagingInfraThrottleException' | summarize ThrottleCount=count() by bin(TimeGenerated, 5m), NodeName | order by TimeGenerated desc" },
+          "result": "| TimeGenerated | NodeName | ThrottleCount |\n|---|---|---|\n| 2025-06-13T14:15:00Z | _Node_3 | 47 |\n| 2025-06-13T14:15:00Z | _Node_5 | 31 |\n| 2025-06-13T14:10:00Z | _Node_3 | 52 |"
+        },
+        {
+          "type": "tool_use",
+          "name": "execute_kql_query",
+          "input": { "query": "TeleductMetrics | where Stamp == 'ax-tds-prd-wus2-03' | where TimeGenerated > ago(2h) | where MetricName == 'QueueDepth' | summarize avg(Value), max(Value) by bin(TimeGenerated, 5m) | order by TimeGenerated desc | take 10" },
+          "result": "| TimeGenerated | avg_Value | max_Value |\n|---|---|---|\n| 2025-06-13T14:15:00Z | 12450 | 28300 |\n| 2025-06-13T14:10:00Z | 11800 | 25100 |"
+        }
+      ],
+      "logs": ["Investigation started", "Connected to Kusto CLI"]
+    },
+    {
+      "id": "1749800000000",
+      "status": "paused",
+      "title": "BlobReader cache miss cascade — oi-tds-prd-cus-02",
+      "query": "Investigate BlobReader cache miss cascade on oi-tds-prd-cus-02",
+      "stamp": "oi-tds-prd-cus-02",
+      "timeRange": "ago(12h)",
+      "issueType": "blobreader",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "pausedAt": 1749803600000,
+      "totalPausedTime": 0,
+      "thoughtCount": 5,
+      "thoughts": [
+        "I've identified the cache miss pattern. The cache hit ratio dropped from 98% to 34% at 06:15 UTC, coinciding with a node restart on _Node_2. Paused for user review."
+      ],
+      "actions": [
+        {
+          "type": "tool_use",
+          "name": "execute_kql_query",
+          "input": { "query": "TeleductMetrics | where Stamp == 'oi-tds-prd-cus-02' | where MetricName == 'BlobReaderCacheHitRatio'" },
+          "result": "| TimeGenerated | Value |\n|---|---|\n| 2025-06-13T06:15:00Z | 34.2 |\n| 2025-06-13T06:10:00Z | 97.8 |"
+        }
+      ],
+      "logs": ["Investigation started", "Connected to Kusto CLI", "Cache miss pattern detected"]
+    },
+    {
+      "id": "1749790000000",
+      "status": "completed",
+      "title": "Dead letter queue overflow — oi-tds-prd-eus-01",
+      "query": "Investigate DLQ overflow on oi-tds-prd-eus-01",
+      "stamp": "oi-tds-prd-eus-01",
+      "timeRange": "ago(24h)",
+      "issueType": "dlq",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 12,
+      "thoughts": [
+        "Investigation complete. The DLQ overflow was caused by a schema change in the upstream telemetry that introduced a new column type not supported by the current Parquet writer."
+      ],
+      "actions": [],
+      "logs": ["Investigation started", "Investigation completed"],
+      "finalReport": "# Dead Letter Queue Overflow Investigation\n\n## Summary\n\nThe DLQ on `oi-tds-prd-eus-01` experienced an overflow starting at **2025-06-12 18:30 UTC**, increasing from the normal baseline of ~50 messages/hour to **4,200 messages/hour**.\n\n## Root Cause\n\nA schema change in the upstream Geneva telemetry introduced a new `dynamic` column (`ExtendedProperties_v2`) that the Parquet writer attempted to serialize as a primitive string. This caused `InvalidBlobContentException` for every affected message.\n\n## Impact\n\n- **Affected Messages**: ~42,000 messages moved to DLQ over 10 hours\n- **Data Tables Impacted**: `SecurityEvent`, `CommonSecurityLog`\n- **Customer Impact**: 3 workspaces experienced delayed ingestion (~2h)\n\n## Evidence\n\n### KQL: DLQ Message Rate\n```kql\nTeleductMetrics\n| where Stamp == 'oi-tds-prd-eus-01'\n| where MetricName == 'DLQMessageCount'\n| summarize sum(Value) by bin(TimeGenerated, 1h)\n| order by TimeGenerated desc\n```\n\n### KQL: Error Distribution\n```kql\nTeleductTraces\n| where Stamp == 'oi-tds-prd-eus-01'\n| where Level == 'Error'\n| where Message has 'InvalidBlobContent'\n| summarize count() by ErrorType = extract('Exception: (\\\\w+)', 1, Message)\n```\n\n## Recommendations\n\n1. **Immediate**: Replay DLQ messages after deploying the Parquet writer fix\n2. **Short-term**: Add `dynamic` type handling to the Parquet serializer\n3. **Long-term**: Implement schema evolution detection in the pipeline intake"
+    },
+    {
+      "id": "1749780000000",
+      "status": "completed",
+      "title": "Kusto ingestion errors — ax-tds-prd-neu-01",
+      "query": "Investigate Kusto ingestion failures on ax-tds-prd-neu-01",
+      "stamp": "ax-tds-prd-neu-01",
+      "timeRange": "ago(3d)",
+      "issueType": "kusto-errors",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 15,
+      "thoughts": [
+        "Analysis complete. The ingestion errors were caused by capacity throttling on the target Kusto cluster."
+      ],
+      "actions": [],
+      "logs": ["Investigation started", "Investigation completed"],
+      "finalReport": "# Kusto Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `ax-tds-prd-neu-01` peaked at 2,800 failures/hour due to Kusto cluster capacity throttling.\n\n## Root Cause\n\nThe target ADX cluster `adx-prd-neu-01` hit its ingestion capacity limit (95% utilization) during a bulk backfill operation from another pipeline.\n\n## Recommendations\n\n1. Coordinate bulk operations with cluster capacity planning\n2. Implement adaptive retry with exponential backoff",
+      "retrospect": {
+        "messages": [
+          { "role": "assistant", "content": "I'll analyze the investigation transcript and knowledge base to identify areas for improvement." },
+          { "role": "tool-call", "content": "Reading investigation transcript...", "toolName": "read_file" },
+          { "role": "tool-result", "content": "Successfully read investigation transcript (15 steps, 12 KQL queries)" },
+          { "role": "tool-call", "content": "Reading knowledge base file: teleduct-kusto-error-investigation.md", "toolName": "read_file" },
+          { "role": "tool-result", "content": "File contents loaded (234 lines)" },
+          { "role": "assistant", "content": "After reviewing the investigation and knowledge base, I've identified 3 areas for improvement:\n\n1. **Missing capacity throttling guidance** — The Kusto error guide doesn't mention checking ADX cluster utilization as a first step\n2. **New error pattern** — The `IngestionCapacityExceeded` error type should be added to the known errors table\n3. **Cross-pipeline coordination** — A new runbook should document how bulk operations affect ingestion capacity" }
+        ],
+        "proposals": [
+          {
+            "id": "prop-1",
+            "type": "edit",
+            "filePath": "docs/telemetry-investigations/teleduct-kusto-error-investigation.md",
+            "description": "Add ADX cluster capacity check as the first diagnostic step in the Kusto error investigation guide",
+            "content": "## Step 0: Check ADX Cluster Capacity\n\nBefore investigating individual ingestion errors, verify the target cluster isn't throttling:\n\n```kql\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining\n```",
+            "originalContent": "## Step 1: Identify Error Pattern",
+            "status": "pending"
+          },
+          {
+            "id": "prop-2",
+            "type": "edit",
+            "filePath": "docs/telemetry-investigations/teleduct-kusto-error-investigation.md",
+            "description": "Add IngestionCapacityExceeded to the known error types table",
+            "content": "| IngestionCapacityExceeded | Cluster at capacity | Check .show capacity, coordinate with platform team |",
+            "originalContent": "",
+            "status": "approved"
+          },
+          {
+            "id": "prop-3",
+            "type": "create",
+            "filePath": "docs/telemetry-investigations/teleduct-bulk-operation-coordination.md",
+            "description": "Create new runbook for coordinating bulk ingestion operations to prevent capacity conflicts",
+            "content": "# Bulk Operation Coordination Guide\n\n## Overview\n\nWhen running bulk data operations (backfills, migrations, replays), coordinate with the platform team to prevent capacity throttling on shared ADX clusters.\n\n## Pre-Operation Checklist\n\n1. Check current cluster utilization\n2. Schedule during off-peak hours\n3. Set ingestion rate limits",
+            "status": "pending"
+          },
+          {
+            "id": "prop-4",
+            "type": "edit",
+            "filePath": "docs/telemetry-investigations/investigation-methodology.md",
+            "description": "Add cluster health check to the standard investigation methodology Phase 1",
+            "content": "- [ ] Check ADX cluster capacity and utilization",
+            "originalContent": "",
+            "status": "rejected"
+          }
+        ],
+        "analysisComplete": true,
+        "completed": false
+      }
+    },
+    {
+      "id": "1749770000000",
+      "status": "failed",
+      "title": "Node crash investigation — oi-tds-prd-weu-01",
+      "query": "Investigate node crashes on oi-tds-prd-weu-01",
+      "stamp": "oi-tds-prd-weu-01",
+      "timeRange": "ago(1h)",
+      "issueType": "node-failure",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 4,
+      "thoughts": [
+        "Error: Failed to connect to Kusto CLI after 3 attempts. The Azure authentication token may have expired."
+      ],
+      "actions": [
+        {
+          "type": "tool_use",
+          "name": "execute_kql_query",
+          "input": { "query": "TeleductTraces | where Stamp == 'oi-tds-prd-weu-01' | where Level == 'Critical' | take 10" },
+          "result": "Error: Azure CLI authentication failed. Please run 'az login' to authenticate."
+        }
+      ],
+      "logs": ["Investigation started", "Connected to Kusto CLI", "ERROR: KQL execution failed - authentication error", "ERROR: Consecutive failures exceeded limit (3). Investigation failed."]
+    },
+    {
+      "id": "1749760000000",
+      "status": "completed",
+      "title": "Service Fabric PLB balancing storm — oi-tds-prd-eus2p-02",
+      "query": "Investigate Service Fabric placement load balancer balancing storm",
+      "stamp": "oi-tds-prd-eus2p-02",
+      "timeRange": "between(datetime(2025-06-10T08:00:00Z) .. datetime(2025-06-10T14:00:00Z))",
+      "issueType": "service-fabric",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 10,
+      "thoughts": [
+        "The PLB storm was triggered by a deployment that changed the replica count from 5 to 7, causing rapid re-balancing across all nodes."
+      ],
+      "actions": [],
+      "logs": ["Investigation started", "Investigation completed"],
+      "finalReport": "# PLB Balancing Storm Investigation\n\n## Summary\nA Service Fabric PLB balancing storm occurred on `oi-tds-prd-eus2p-02` between 08:00-14:00 UTC on June 10, affecting pipeline throughput.\n\n## Root Cause\nDeployment `CommitId: a3f8b2c1` changed the target replica count from 5 to 7, triggering aggressive placement rebalancing."
+    },
+    {
+      "id": "1749750000000",
+      "status": "completed",
+      "title": "Parquet ingestion latency spike — ax-tds-prd-eus-01",
+      "query": "Investigate Parquet ingestion latency on ax-tds-prd-eus-01",
+      "stamp": "ax-tds-prd-eus-01",
+      "timeRange": "ago(6h)",
+      "issueType": "parquet-latency",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 9,
+      "thoughts": [],
+      "actions": [],
+      "logs": ["Investigation started", "Investigation completed"],
+      "finalReport": "# Parquet Ingestion Latency Spike\n\n## Summary\nP99 ingestion latency on `ax-tds-prd-eus-01` spiked to 45 seconds (baseline: 8 seconds) due to large payload batching.\n\n## Recommendations\n1. Reduce max batch size from 100MB to 50MB\n2. Add payload size histogram metrics",
+      "retrospect": {
+        "messages": [
+          { "role": "assistant", "content": "Analyzing the investigation transcript and knowledge base files..." },
+          { "role": "tool-call", "content": "Reading investigation transcript...", "toolName": "read_file" },
+          { "role": "tool-result", "content": "Read 9 investigation steps" },
+          { "role": "assistant", "content": "Analysis complete. The investigation was thorough but could benefit from documented batch size thresholds in the Parquet latency guide." }
+        ],
+        "proposals": [
+          {
+            "id": "prop-5",
+            "type": "edit",
+            "filePath": "docs/telemetry-investigations/ParquetIngestionService-Latency-Investigation-Guide.md",
+            "description": "Add batch size threshold reference table",
+            "content": "## Batch Size Thresholds\n| Batch Size | Expected P99 | Alert Level |\n|---|---|---|\n| < 50MB | < 10s | Normal |\n| 50-100MB | 10-30s | Warning |\n| > 100MB | > 30s | Critical |",
+            "status": "applied"
+          }
+        ],
+        "analysisComplete": true,
+        "completed": true
+      }
+    },
+    {
+      "id": "1749740000000",
+      "status": "aborted",
+      "title": "VM health check — oi-tds-prd-sea-01",
+      "query": "Check VM health metrics on oi-tds-prd-sea-01",
+      "stamp": "oi-tds-prd-sea-01",
+      "timeRange": "ago(1h)",
+      "issueType": "vm-health",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 2,
+      "thoughts": [
+        "Started checking VM health metrics..."
+      ],
+      "actions": [],
+      "logs": ["Investigation started", "Investigation aborted by user"]
+    },
+    {
+      "id": "1749730000000",
+      "status": "completed",
+      "title": "IcM 412587391 — Deployment correlation analysis",
+      "query": "Investigate IcM incident 412587391 — correlate recent deployment with latency regression",
+      "stamp": "oi-tds-prd-cus-01",
+      "timeRange": "between(datetime(2025-06-09T12:00:00Z) .. datetime(2025-06-09T18:00:00Z))",
+      "issueType": "deployment",
+      "incidentId": "412587391",
+      "model": "claude-sonnet-4-20250514",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 14,
+      "thoughts": [],
+      "actions": [],
+      "logs": ["Investigation started", "Investigation completed"],
+      "finalReport": "# IcM 412587391 — Deployment Correlation Analysis\n\n## Summary\nLatency regression on `oi-tds-prd-cus-01` correlated with deployment `CommitId: e7d2a4f9` which changed the queue batch size configuration.\n\n## Recommendation\nRollback to previous configuration and validate batch size changes in INT environment first."
+    }
+  ]
+}

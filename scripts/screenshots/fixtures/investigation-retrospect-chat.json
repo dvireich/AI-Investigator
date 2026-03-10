@@ -1,0 +1,84 @@
+{
+  "id": "1749780000000",
+  "status": "completed",
+  "title": "Kusto ingestion errors — ax-tds-prd-neu-01",
+  "query": "Investigate Kusto ingestion failures on ax-tds-prd-neu-01",
+  "stamp": "ax-tds-prd-neu-01",
+  "timeRange": "ago(3d)",
+  "issueType": "kusto-errors",
+  "model": "claude-sonnet-4-20250514",
+  "productId": "teleduct",
+  "productName": "Teleduct",
+  "thoughtCount": 15,
+  "thoughts": [],
+  "actions": [],
+  "logs": ["Investigation started", "Investigation completed"],
+  "finalReport": "# Kusto Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `ax-tds-prd-neu-01` peaked at 2,800 failures/hour.\n\n## Root Cause\n\nADX cluster capacity throttling during bulk backfill.",
+  "retrospect": {
+    "messages": [
+      {
+        "role": "assistant",
+        "content": "I'll analyze the investigation transcript and existing knowledge base files to identify gaps and improvements."
+      },
+      {
+        "role": "tool-call",
+        "content": "Reading file: investigations/1749780000000/state.json",
+        "toolName": "read_file"
+      },
+      {
+        "role": "tool-result",
+        "content": "Successfully read investigation state (15 steps, 12 KQL queries)"
+      },
+      {
+        "role": "tool-call",
+        "content": "Reading file: docs/telemetry-investigations/teleduct-kusto-error-investigation.md",
+        "toolName": "read_file"
+      },
+      {
+        "role": "tool-result",
+        "content": "Successfully read Kusto error investigation guide (234 lines)"
+      },
+      {
+        "role": "assistant",
+        "content": "I've identified 3 knowledge base improvements. Generating proposals now..."
+      },
+      {
+        "role": "user",
+        "content": "Can you also check if there's guidance about monitoring ingestion lag during bulk operations? That was a gap I noticed during the investigation."
+      },
+      {
+        "role": "assistant",
+        "content": "Great question! Let me check the existing documentation for ingestion lag monitoring guidance.\n\nAfter reviewing the knowledge base, I can confirm there's **no specific guidance** for monitoring ingestion lag during bulk operations. The closest documentation is the Parquet ingestion latency guide, but it focuses on steady-state operations rather than bulk scenarios.\n\nI'll add a new proposal for an ingestion lag monitoring section that covers:\n1. Setting up real-time lag alerts during bulk operations\n2. KQL queries for comparing ingestion timestamps vs event timestamps\n3. Threshold guidelines for when to pause or throttle bulk operations\n\nThis would complement the bulk operation coordination guide I already proposed."
+      }
+    ],
+    "proposals": [
+      {
+        "id": "prop-1",
+        "type": "edit",
+        "filePath": "docs/telemetry-investigations/teleduct-kusto-error-investigation.md",
+        "description": "Add ADX cluster capacity check as first diagnostic step",
+        "content": "## Step 0: Check ADX Cluster Capacity\n\n```kql\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining\n```",
+        "originalContent": "## Step 1: Identify Error Pattern",
+        "status": "approved"
+      },
+      {
+        "id": "prop-2",
+        "type": "edit",
+        "filePath": "docs/telemetry-investigations/teleduct-kusto-error-investigation.md",
+        "description": "Add IngestionCapacityExceeded to known error types",
+        "content": "| IngestionCapacityExceeded | Cluster at capacity | Check .show capacity |",
+        "status": "approved"
+      },
+      {
+        "id": "prop-3",
+        "type": "create",
+        "filePath": "docs/telemetry-investigations/teleduct-bulk-operation-coordination.md",
+        "description": "Create bulk operation coordination runbook",
+        "content": "# Bulk Operation Coordination Guide\n\n## Pre-Operation Checklist\n1. Check cluster utilization\n2. Schedule off-peak\n3. Set rate limits",
+        "status": "pending"
+      }
+    ],
+    "analysisComplete": true,
+    "completed": false
+  }
+}

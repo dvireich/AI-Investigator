@@ -1,0 +1,49 @@
+{
+  "id": "1749790000000",
+  "status": "completed",
+  "title": "Dead letter queue overflow — oi-tds-prd-eus-01",
+  "query": "Investigate DLQ overflow on oi-tds-prd-eus-01",
+  "stamp": "oi-tds-prd-eus-01",
+  "timeRange": "ago(24h)",
+  "issueType": "dlq",
+  "model": "claude-sonnet-4-20250514",
+  "productId": "teleduct",
+  "productName": "Teleduct",
+  "thoughtCount": 15,
+  "contestCount": 1,
+  "thoughts": [
+    "Starting investigation into DLQ overflow on `oi-tds-prd-eus-01`.",
+    {
+      "content": "The DLQ message rate spiked dramatically at 18:30 UTC yesterday — from the baseline of ~50 messages/hour to **4,200 messages/hour**.",
+      "type": "thought"
+    },
+    {
+      "content": "The errors are almost exclusively `InvalidBlobContentException` caused by a `dynamic` column type mismatch.",
+      "type": "thought"
+    },
+    {
+      "content": "Confirmed schema change deployed at 18:15 UTC introduced `ExtendedProperties_v2` column. ~42,000 messages affected.",
+      "type": "thought"
+    },
+    "Report Contested: The report mentions 3 affected workspaces but I believe the number is higher — we received escalations from at least 7 workspace owners. Also please check if the CMK-encrypted workspaces were additionally impacted.",
+    "System: Report contested by user. Resuming investigation with feedback.",
+    {
+      "content": "Thank you for the correction. Let me re-examine the workspace impact and specifically check CMK-encrypted workspaces.\n\nI'll query for all distinct workspace IDs that had messages routed to the DLQ during the incident window.",
+      "type": "thought"
+    },
+    {
+      "content": "You're right — the actual impact is larger. I found **9 affected workspaces**, not 3. Of these, 2 are CMK-encrypted workspaces that experienced an additional failure mode: the `InvalidBlobContentException` cascaded into a `CMKDecryptionFailedException` because the error handler tried to re-read the original blob.\n\nUpdating the report with corrected workspace count and CMK-specific findings.",
+      "type": "thought"
+    }
+  ],
+  "actions": [],
+  "logs": [
+    "Investigation started",
+    "Investigation completed — report generated",
+    "Report contested by user",
+    "Investigation resumed with feedback",
+    "Additional KQL queries executed",
+    "Report updated with corrections"
+  ],
+  "finalReport": "# Dead Letter Queue Overflow Investigation (Updated)\n\n## Summary\n\nThe DLQ on `oi-tds-prd-eus-01` experienced a critical overflow at **2025-06-12 18:30 UTC** — **84x** increase from baseline.\n\n## Root Cause\n\nGeneva schema update introduced `ExtendedProperties_v2` (dynamic type) → Parquet writer serialization failure.\n\n## Impact (Revised)\n\n- **Total Affected Messages**: ~42,000\n- **Affected Workspaces**: **9** (revised from initial estimate of 3)\n- **CMK Impact**: 2 CMK-encrypted workspaces experienced cascading `CMKDecryptionFailedException`\n\n## Recommendations\n\n1. Deploy Parquet writer fix with `dynamic` type support\n2. Add CMK-aware error handling to prevent cascade failures\n3. Implement schema evolution detection"
+}

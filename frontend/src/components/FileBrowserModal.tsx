@@ -134,42 +134,42 @@ export const FileBrowserModal = ({ isOpen, onClose, onSelect, initialPath, mode 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 animate-fade-in">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[80vh] overflow-hidden border border-slate-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+            <div className="glass-card w-full max-w-2xl flex flex-col max-h-[80vh] overflow-hidden">
                 {/* Header */}
-                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                    <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                        {mode === 'directory' ? <Folder className="text-brand-500 w-5 h-5" /> : <File className="text-brand-500 w-5 h-5" />}
+                <div className="p-4 border-b border-white/[0.06] flex justify-between items-center">
+                    <h3 className="font-bold text-white flex items-center gap-2">
+                        {mode === 'directory' ? <Folder className="text-brand-400 w-5 h-5" /> : <File className="text-brand-400 w-5 h-5" />}
                         {title || (mode === 'directory' ? 'Select Directory' : 'Select File')}
                     </h3>
-                    <button onClick={onClose} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                        <X className="w-5 h-5 text-slate-500" />
+                    <button onClick={onClose} className="p-1 hover:bg-slate-800 rounded-full transition-colors">
+                        <X className="w-5 h-5 text-slate-400" />
                     </button>
                 </div>
 
                 {/* Path Bar */}
-                <div className="p-3 border-b border-slate-100 flex gap-2 items-center bg-white">
+                <div className="p-3 border-b border-white/[0.06] flex gap-2 items-center">
                     <button
                         onClick={handleUp}
-                        className="p-2 hover:bg-slate-100 rounded-lg text-slate-600 transition-colors"
+                        className="p-2 hover:bg-slate-800 rounded-lg text-slate-400 transition-colors"
                         title="Go Up"
                     >
                         <ChevronUp className="w-5 h-5" />
                     </button>
-                    <div className="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 flex items-center gap-2">
-                        <HardDrive className="w-4 h-4 text-slate-400" />
+                    <div className="flex-1 bg-slate-800/60 border border-slate-700/50 rounded-lg px-3 py-2 flex items-center gap-2">
+                        <HardDrive className="w-4 h-4 text-slate-500" />
                         <input
                             type="text"
                             value={currentPath}
                             onChange={(e) => setCurrentPath(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && loadDirectory(currentPath)}
-                            className="flex-1 bg-transparent border-none outline-none text-sm font-mono text-slate-700"
+                            className="flex-1 bg-transparent border-none outline-none text-sm font-mono text-slate-200"
                         />
-                        {loading && <Loader2 className="w-4 h-4 text-brand-500 animate-spin" />}
+                        {loading && <Loader2 className="w-4 h-4 text-brand-400 animate-spin" />}
                     </div>
                     <button
                         onClick={() => loadDirectory(currentPath)}
-                        className="p-2 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-600 text-sm font-bold"
+                        className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-400 text-sm font-bold border border-slate-700/50"
                     >
                         Go
                     </button>
@@ -177,7 +177,7 @@ export const FileBrowserModal = ({ isOpen, onClose, onSelect, initialPath, mode 
 
                 {/* Error Banner */}
                 {error && (
-                    <div className="p-3 bg-red-50 text-red-600 text-sm flex items-center gap-2 border-b border-red-100">
+                    <div className="p-3 bg-red-500/10 text-red-400 text-sm flex items-center gap-2 border-b border-red-500/20">
                         <AlertCircle className="w-4 h-4" />
                         {error}
                     </div>
@@ -202,7 +202,7 @@ export const FileBrowserModal = ({ isOpen, onClose, onSelect, initialPath, mode 
                                     onDoubleClick={() => entry.isDirectory && handleNavigate(entry.name)}
                                     className={`
                                         flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors select-none
-                                        ${isSelected ? 'bg-brand-50 text-brand-700 border border-brand-200' : 'hover:bg-slate-50 text-slate-700 border border-transparent'}
+                                        ${isSelected ? 'bg-brand-500/15 text-brand-300 border border-brand-500/20' : 'hover:bg-slate-800/50 text-slate-300 border border-transparent'}
                                     `}
                                 >
                                     {entry.isDirectory ? (
@@ -220,10 +220,10 @@ export const FileBrowserModal = ({ isOpen, onClose, onSelect, initialPath, mode 
                 </div>
 
                 {/* Footer */}
-                <div className="p-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3">
+                <div className="p-4 border-t border-white/[0.06] flex justify-end gap-3">
                     <button
                         onClick={onClose}
-                        className="px-4 py-2 text-slate-600 hover:text-slate-800 font-medium transition-colors"
+                        className="px-4 py-2 text-slate-400 hover:text-slate-200 font-medium transition-colors"
                     >
                         Cancel
                     </button>

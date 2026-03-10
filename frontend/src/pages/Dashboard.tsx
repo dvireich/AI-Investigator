@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation } from '../api';
-import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package } from 'lucide-react';
+import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown } from 'lucide-react';
+import { InvestigationTrend } from '../components/charts/InvestigationTrend';
+import { IssueTypeDonut } from '../components/charts/IssueTypeDonut';
+import { DurationDistribution } from '../components/charts/DurationDistribution';
 
 /** Mini 5-segment step depth bar */
 const StepBar = ({ count, color }: { count: number; color: string }) => {
@@ -9,7 +12,7 @@ const StepBar = ({ count, color }: { count: number; color: string }) => {
     return (
         <div className="flex items-center gap-0.5" title={`${count} steps`}>
             {[0, 1, 2, 3, 4].map(i => (
-                <div key={i} className={`h-1.5 rounded-full transition-all ${i < filled ? color : 'bg-slate-200'} ${i < filled ? 'w-3' : 'w-2'}`} />
+                <div key={i} className={`h-1.5 rounded-full transition-all ${i < filled ? color : 'bg-slate-700'} ${i < filled ? 'w-3' : 'w-2'}`} />
             ))}
         </div>
     );
@@ -91,7 +94,7 @@ const Highlight = ({ text, term }: { text: string; term: string }) => {
     return (
         <>
             {text.slice(0, idx)}
-            <mark className="bg-yellow-100 text-yellow-900 rounded px-0.5 not-italic font-bold">{text.slice(idx, idx + term.length)}</mark>
+            <mark className="bg-brand-500/20 text-brand-300 rounded px-0.5 not-italic font-bold">{text.slice(idx, idx + term.length)}</mark>
             {text.slice(idx + term.length)}
         </>
     );
@@ -131,6 +134,16 @@ export const Dashboard = () => {
     const navigate = useNavigate();
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [groupByStamp, setGroupByStamp] = useState(false);
+    const [showAnalytics, setShowAnalytics] = useState<boolean>(
+        () => localStorage.getItem('inv-analytics') !== 'false'
+    );
+
+    const toggleAnalytics = () => {
+        setShowAnalytics(prev => {
+            localStorage.setItem('inv-analytics', String(!prev));
+            return !prev;
+        });
+    };
 
     const dismissToast = (key: number) => setToasts(t => t.filter(x => x.key !== key));
 
@@ -367,12 +380,12 @@ export const Dashboard = () => {
 
     const pausedCount = investigations.filter(i => i.status === 'paused').length;
     const statusFilters: { key: typeof filter; label: string; count: number; color: string }[] = [
-        { key: 'all',       label: 'All',       count: investigations.length,                                           color: 'text-slate-600' },
-        { key: 'running',   label: 'Running',   count: investigations.filter(i => i.status === 'running').length,       color: 'text-blue-600' },
-        { key: 'paused',    label: 'Paused',    count: pausedCount,                                                     color: 'text-amber-600' },
-        { key: 'completed', label: 'Completed', count: completedCount,                                                  color: 'text-emerald-600' },
-        { key: 'failed',    label: 'Failed',    count: failedCount,                                                     color: 'text-red-500' },
-        { key: 'aborted',   label: 'Aborted',   count: abortedCount,                                                    color: 'text-slate-400' },
+        { key: 'all',       label: 'All',       count: investigations.length,                                           color: 'text-slate-400' },
+        { key: 'running',   label: 'Running',   count: investigations.filter(i => i.status === 'running').length,       color: 'text-blue-400' },
+        { key: 'paused',    label: 'Paused',    count: pausedCount,                                                     color: 'text-amber-400' },
+        { key: 'completed', label: 'Completed', count: completedCount,                                                  color: 'text-emerald-400' },
+        { key: 'failed',    label: 'Failed',    count: failedCount,                                                     color: 'text-red-400' },
+        { key: 'aborted',   label: 'Aborted',   count: abortedCount,                                                    color: 'text-slate-500' },
     ];
 
     const toggleView = (mode: 'grid' | 'list') => {
@@ -385,25 +398,25 @@ export const Dashboard = () => {
         const hasRetro = !!(inv.retrospect);
         const isRetroCompleted = !!(inv.retrospect?.completed);
         if (inv.status === 'running')
-            return { label: 'Running',      icon: <Activity className="w-3 h-3 animate-pulse" />,   chip: 'bg-blue-100 text-blue-700',    accent: 'border-l-blue-400',    dot: 'bg-blue-400' };
+            return { label: 'Running',      icon: <Activity className="w-3 h-3 animate-pulse" />,   chip: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',    accent: 'border-l-blue-500',    dot: 'bg-blue-400' };
         if (inv.status === 'paused')
-            return { label: 'Paused',       icon: <Pause className="w-3 h-3 fill-current" />,        chip: 'bg-amber-100 text-amber-700',  accent: 'border-l-amber-400',   dot: 'bg-amber-400' };
+            return { label: 'Paused',       icon: <Pause className="w-3 h-3 fill-current" />,        chip: 'bg-amber-500/15 text-amber-400 border border-amber-500/20',  accent: 'border-l-amber-500',   dot: 'bg-amber-400' };
         if (inv.status === 'completed' && hasRetro && !isRetroCompleted)
-            return { label: 'Retrospective',icon: <Sparkles className="w-3 h-3" />,                  chip: 'bg-purple-100 text-purple-700',accent: 'border-l-purple-400',  dot: 'bg-purple-400' };
+            return { label: 'Retrospective',icon: <Sparkles className="w-3 h-3" />,                  chip: 'bg-purple-500/15 text-purple-400 border border-purple-500/20',accent: 'border-l-purple-500',  dot: 'bg-purple-400' };
         if (inv.status === 'completed')
-            return { label: isRetroCompleted ? 'Retro Done' : 'Completed', icon: <CheckCircle2 className="w-3 h-3" />, chip: 'bg-emerald-100 text-emerald-700', accent: 'border-l-emerald-400', dot: 'bg-emerald-400' };
+            return { label: isRetroCompleted ? 'Retro Done' : 'Completed', icon: <CheckCircle2 className="w-3 h-3" />, chip: 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20', accent: 'border-l-emerald-500', dot: 'bg-emerald-400' };
         if (inv.status === 'failed')
-            return { label: 'Failed',       icon: <XCircle className="w-3 h-3" />,                   chip: 'bg-red-100 text-red-600',      accent: 'border-l-red-400',     dot: 'bg-red-400' };
-        return     { label: 'Aborted',      icon: <Ban className="w-3 h-3" />,                        chip: 'bg-slate-100 text-slate-500',  accent: 'border-l-slate-300',   dot: 'bg-slate-300' };
+            return { label: 'Failed',       icon: <XCircle className="w-3 h-3" />,                   chip: 'bg-red-500/15 text-red-400 border border-red-500/20',      accent: 'border-l-red-500',     dot: 'bg-red-400' };
+        return     { label: 'Aborted',      icon: <Ban className="w-3 h-3" />,                        chip: 'bg-slate-500/15 text-slate-400 border border-slate-500/20',  accent: 'border-l-slate-600',   dot: 'bg-slate-500' };
     };
 
     const emptyStateConfig: Record<typeof filter, { icon: React.ReactNode; title: string; body: string }> = {
-        all:       { icon: <LayoutGrid className="w-7 h-7 text-slate-400" />,  title: 'No investigations yet',          body: 'Start your first investigation to get going.' },
+        all:       { icon: <LayoutGrid className="w-7 h-7 text-slate-500" />,  title: 'No investigations yet',          body: 'Start your first investigation to get going.' },
         running:   { icon: <Activity className="w-7 h-7 text-blue-400" />,    title: 'Nothing running',                body: 'All quiet - start a new investigation to see it here.' },
         paused:    { icon: <Pause className="w-7 h-7 text-amber-400" />,      title: 'No paused investigations',       body: 'Paused investigations will appear here.' },
         completed: { icon: <CheckCircle2 className="w-7 h-7 text-emerald-400" />, title: 'No completions yet',        body: 'Finished investigations will appear here.' },
         failed:    { icon: <XCircle className="w-7 h-7 text-red-400" />,      title: 'No failures',                   body: "That's a good sign. No failed investigations here." },
-        aborted:   { icon: <Ban className="w-7 h-7 text-slate-400" />,        title: 'No aborted investigations',     body: 'Nothing was stopped early.' },
+        aborted:   { icon: <Ban className="w-7 h-7 text-slate-500" />,        title: 'No aborted investigations',     body: 'Nothing was stopped early.' },
     };
 
     return (
@@ -413,12 +426,12 @@ export const Dashboard = () => {
             {toasts.length > 0 && (
                 <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
                     {toasts.map(t => (
-                        <div key={t.key} className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold animate-fade-in min-w-[280px] max-w-sm ${
-                            t.type === 'completed' ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-red-50 border-red-200 text-red-800'
+                        <div key={t.key} className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold animate-fade-in min-w-[280px] max-w-sm backdrop-blur-xl ${
+                            t.type === 'completed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-red-500/10 border-red-500/20 text-red-300'
                         }`}>
                             {t.type === 'completed'
-                                ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                                : <XCircle className="w-4 h-4 text-red-500 shrink-0" />}
+                                ? <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                                : <XCircle className="w-4 h-4 text-red-400 shrink-0" />}
                             <div className="flex-1 min-w-0">
                                 <div className="text-[11px] font-bold uppercase tracking-wider opacity-60 mb-0.5">
                                     {t.type === 'completed' ? 'Investigation complete' : 'Investigation failed'}
@@ -427,7 +440,7 @@ export const Dashboard = () => {
                             </div>
                             <div className="flex items-center gap-1 shrink-0">
                                 <button onClick={() => navigate(`/investigation/${t.invId}`)} className={`text-[11px] font-bold px-2 py-1 rounded-lg transition-colors ${
-                                    t.type === 'completed' ? 'bg-emerald-100 hover:bg-emerald-200 text-emerald-700' : 'bg-red-100 hover:bg-red-200 text-red-700'
+                                    t.type === 'completed' ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300' : 'bg-red-500/20 hover:bg-red-500/30 text-red-300'
                                 }`}>View</button>
                                 <button onClick={() => dismissToast(t.key)} className="p-1 rounded-lg opacity-50 hover:opacity-100 transition-opacity">
                                     <X className="w-3.5 h-3.5" />
@@ -442,15 +455,15 @@ export const Dashboard = () => {
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                 <div>
                     <div className="flex items-center gap-2 mb-1">
-                        <LayoutGrid className="w-5 h-5 text-brand-500" />
-                        <span className="text-xs font-bold uppercase tracking-widest text-brand-500">Dashboard</span>
+                        <LayoutGrid className="w-5 h-5 text-brand-400" />
+                        <span className="text-xs font-bold uppercase tracking-widest text-brand-400">Dashboard</span>
                     </div>
-                    <h1 className="text-3xl font-black text-slate-900 leading-tight">Investigations</h1>
-                    <p className="text-slate-500 text-sm mt-1">Monitor, review, and manage all active and past investigations.</p>
+                    <h1 className="text-3xl font-black text-white leading-tight">Investigations</h1>
+                    <p className="text-slate-400 text-sm mt-1">Monitor, review, and manage all active and past investigations.</p>
                 </div>
                 <Link
                     to="/new"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-brand-600 text-white font-bold rounded-xl shadow-lg transition-all duration-200 group whitespace-nowrap"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl shadow-lg shadow-brand-500/20 transition-all duration-200 group whitespace-nowrap"
                 >
                     <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
                     Start New Investigation
@@ -459,7 +472,7 @@ export const Dashboard = () => {
 
             {/* Stats Strip - tiles are clickable to filter */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <button onClick={() => { setFilter('all'); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left bg-gradient-to-br from-brand-500 to-brand-700 rounded-2xl p-5 text-white shadow-lg shadow-brand-500/20 relative overflow-hidden hover:from-brand-400 hover:to-brand-600 transition-all">
+                <button onClick={() => { setFilter('all'); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left bg-gradient-to-br from-brand-600 to-brand-800 rounded-2xl p-5 text-white shadow-lg shadow-brand-500/20 relative overflow-hidden hover:from-brand-500 hover:to-brand-700 transition-all">
                     <div className="absolute -top-4 -right-4 w-20 h-20 bg-white/10 rounded-full blur-xl" />
                     <div className="flex items-center gap-2 mb-3">
                         <Activity className="w-4 h-4 text-brand-200" />
@@ -469,75 +482,111 @@ export const Dashboard = () => {
                     <div className="text-4xl font-black tabular-nums">{activeDisplay}</div>
                     <div className="text-brand-300 text-xs mt-1">Running now</div>
                 </button>
-                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:border-emerald-200 hover:shadow-md transition-all group">
+                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-2xl p-5 group">
                     <div className="flex items-center gap-2 mb-3">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Done</span>
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Done</span>
                     </div>
-                    <div className="text-3xl font-black text-slate-800 tabular-nums">{completedDisplay}</div>
+                    <div className="text-3xl font-black text-slate-100 tabular-nums">{completedDisplay}</div>
                     {investigations.length > 0 && (
-                        <div className="mt-2 h-1 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-emerald-400 rounded-full transition-all" style={{ width: `${Math.round(completedCount / investigations.length * 100)}%` }} />
+                        <div className="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.round(completedCount / investigations.length * 100)}%` }} />
                         </div>
                     )}
                 </button>
-                <button onClick={() => { setFilter('failed'); setFocusedIdx(null); }} className="text-left bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:border-red-200 hover:shadow-md transition-all group">
+                <button onClick={() => { setFilter('failed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-2xl p-5 group">
                     <div className="flex items-center gap-2 mb-3">
-                        <XCircle className={`w-4 h-4 ${failedCount > 0 ? 'text-red-400' : 'text-slate-300'}`} />
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Failed</span>
+                        <XCircle className={`w-4 h-4 ${failedCount > 0 ? 'text-red-400' : 'text-slate-600'}`} />
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Failed</span>
                         {failedCount > 0 && <span className="ml-auto w-2 h-2 rounded-full bg-red-400 animate-pulse" />}
                     </div>
-                    <div className={`text-3xl font-black tabular-nums ${failedCount > 0 ? 'text-red-600' : 'text-slate-800'}`}>{failedDisplay}</div>
-                    <div className="text-slate-400 text-xs mt-1">{failedCount > 0 ? 'Need review' : 'All clear'}</div>
+                    <div className={`text-3xl font-black tabular-nums ${failedCount > 0 ? 'text-red-400' : 'text-slate-100'}`}>{failedDisplay}</div>
+                    <div className="text-slate-500 text-xs mt-1">{failedCount > 0 ? 'Need review' : 'All clear'}</div>
                 </button>
-                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left bg-white rounded-2xl p-5 shadow-sm border border-slate-100 hover:border-emerald-200 hover:shadow-md transition-all">
+                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-2xl p-5">
                     <div className="flex items-center gap-2 mb-3">
-                        <TrendingUp className={`w-4 h-4 ${successRateValue >= 80 ? 'text-emerald-500' : 'text-slate-400'}`} />
-                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Success rate</span>
+                        <TrendingUp className={`w-4 h-4 ${successRateValue >= 80 ? 'text-emerald-400' : 'text-slate-500'}`} />
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Success rate</span>
                     </div>
-                    <div className={`text-3xl font-black tabular-nums ${successRateValue >= 80 ? 'text-emerald-600' : 'text-slate-800'}`}>
+                    <div className={`text-3xl font-black tabular-nums ${successRateValue >= 80 ? 'text-emerald-400' : 'text-slate-100'}`}>
                         {investigations.length > 0 ? `${successDisplay}%` : '--'}
                     </div>
-                    <div className="text-slate-400 text-xs mt-1">
+                    <div className="text-slate-500 text-xs mt-1">
                         {completedCount + failedCount + abortedCount} resolved
                     </div>
                 </button>
             </div>
 
+            {/* Analytics Toggle */}
+            {investigations.length > 0 && (
+                <button
+                    onClick={toggleAnalytics}
+                    className="flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-300 transition-colors group"
+                >
+                    <BarChart3 className="w-3.5 h-3.5" />
+                    Analytics
+                    <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${showAnalytics ? 'rotate-180' : ''}`} />
+                </button>
+            )}
+
+            {/* Analytics Section */}
+            {investigations.length > 0 && (
+                <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 transition-all duration-300 ease-in-out origin-top ${showAnalytics ? 'max-h-[500px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-95 overflow-hidden pointer-events-none'}`}>
+                    <div className="glass-card p-4 chart-enter">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">14-Day Trend</div>
+                        <div className="h-36">
+                            <InvestigationTrend investigations={investigations} />
+                        </div>
+                    </div>
+                    <div className="glass-card p-4 chart-enter">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">Issue Types</div>
+                        <div className="h-36">
+                            <IssueTypeDonut investigations={investigations} />
+                        </div>
+                    </div>
+                    <div className="glass-card p-4 chart-enter">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">Duration Distribution</div>
+                        <div className="h-36">
+                            <DurationDistribution investigations={investigations} />
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* Filters & Search */}
-            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center sticky top-16 z-10 bg-slate-50/80 backdrop-blur-sm py-2 -mx-4 px-4">
+            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center sticky top-16 z-10 bg-surface/80 backdrop-blur-xl py-2 -mx-4 px-4 border-b border-white/[0.04]">
                 {/* Search */}
                 <div className="relative flex-1 max-w-xs group">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 w-4 h-4 group-focus-within:text-brand-500 transition-colors" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4 group-focus-within:text-brand-400 transition-colors" />
                     <input
                         ref={searchRef}
                         type="text"
                         placeholder="Search..."
-                        className="w-full pl-9 pr-8 py-2 bg-white border border-slate-200 rounded-xl text-sm font-medium shadow-sm focus:ring-2 focus:ring-brand-500/40 focus:border-brand-400 placeholder:text-slate-400 outline-none transition-all"
+                        className="w-full pl-9 pr-8 py-2 bg-slate-900/60 border border-slate-700/50 rounded-xl text-sm font-medium text-slate-200 shadow-sm focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/40 placeholder:text-slate-500 outline-none transition-all"
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                     />
                     {!search && (
-                        <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-md pointer-events-none">/</kbd>
+                        <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded-md pointer-events-none border border-slate-700">/</kbd>
                     )}
                     {search && (
-                        <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold">x</button>
+                        <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs font-bold">x</button>
                     )}
                 </div>
 
                 {/* Status tabs */}
-                <div className="flex items-center gap-0.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm overflow-x-auto shrink-0">
+                <div className="flex items-center gap-0.5 bg-slate-900/60 border border-slate-700/50 rounded-xl p-1 shadow-sm overflow-x-auto shrink-0">
                     {statusFilters.map(({ key, label, count, color }) => (
                         <button
                             key={key}
                             onClick={() => setFilter(key)}
                             className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
-                                filter === key ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-500 hover:bg-slate-50'
+                                filter === key ? 'bg-brand-500/15 text-brand-300 border border-brand-500/20 shadow-sm' : 'text-slate-500 hover:bg-slate-800/60 hover:text-slate-300 border border-transparent'
                             }`}
                         >
                             {label}
                             {count > 0 && (
-                                <span className={`text-[10px] font-black px-1 rounded ${filter === key ? 'text-slate-300' : color}`}>{count}</span>
+                                <span className={`text-[10px] font-black px-1 rounded ${filter === key ? 'text-brand-400' : color}`}>{count}</span>
                             )}
                         </button>
                     ))}
@@ -551,10 +600,10 @@ export const Dashboard = () => {
                             <select
                                 value={productFilter}
                                 onChange={(e) => setProductFilter(e.target.value)}
-                                className={`appearance-none pl-7 pr-6 py-2 border rounded-xl text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-300 transition-all ${
+                                className={`appearance-none pl-7 pr-6 py-2 border rounded-xl text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all ${
                                     productFilter !== 'all' 
-                                        ? 'bg-purple-50 border-purple-300 text-purple-700' 
-                                        : 'bg-white border-slate-200 text-slate-600'
+                                        ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' 
+                                        : 'bg-slate-900/60 border-slate-700/50 text-slate-400'
                                 }`}
                             >
                                 <option value="all">All Products</option>
@@ -571,7 +620,7 @@ export const Dashboard = () => {
                         <select
                             value={sortOrder}
                             onChange={(e) => setSortOrder(e.target.value as typeof sortOrder)}
-                            className="appearance-none pl-7 pr-6 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-300 transition-all"
+                            className="appearance-none pl-7 pr-6 py-2 bg-slate-900/60 border border-slate-700/50 rounded-xl text-xs font-bold text-slate-400 shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all"
                         >
                             <option value="newest">Newest</option>
                             <option value="oldest">Oldest</option>
@@ -579,17 +628,17 @@ export const Dashboard = () => {
                         </select>
                         <ArrowDownUp className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
                     </div>
-                    <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+                    <div className="flex items-center bg-slate-900/60 border border-slate-700/50 rounded-xl p-1 shadow-sm">
                         <button
                             onClick={() => toggleView('grid')}
-                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-slate-900 text-white' : 'text-slate-400 hover:bg-slate-50'}`}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-brand-500/20 text-brand-300' : 'text-slate-500 hover:bg-slate-800'}`}
                             title="Grid view"
                         >
                             <LayoutGrid className="w-3.5 h-3.5" />
                         </button>
                         <button
                             onClick={() => toggleView('list')}
-                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-slate-900 text-white' : 'text-slate-400 hover:bg-slate-50'}`}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-brand-500/20 text-brand-300' : 'text-slate-500 hover:bg-slate-800'}`}
                             title="List view"
                         >
                             <List className="w-3.5 h-3.5" />
@@ -601,8 +650,8 @@ export const Dashboard = () => {
                             onClick={() => setGroupByStamp(s => !s)}
                             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm ${
                                 groupByStamp
-                                    ? 'bg-slate-900 text-white border-slate-900'
-                                    : 'bg-white text-slate-400 hover:text-slate-700 hover:bg-slate-50 border-slate-200'
+                                    ? 'bg-brand-500/20 text-brand-300 border-brand-500/20'
+                                    : 'bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800 border-slate-700/50'
                             }`}
                             title="Group by stamp"
                         >
@@ -613,7 +662,7 @@ export const Dashboard = () => {
                     <button
                         onClick={() => setShowShortcuts(s => !s)}
                         className={`p-1.5 rounded-xl text-xs font-black transition-all border shadow-sm ${
-                            showShortcuts ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400 hover:text-slate-700 hover:bg-slate-50 border-slate-200'
+                            showShortcuts ? 'bg-brand-500/20 text-brand-300 border-brand-500/20' : 'bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800 border-slate-700/50'
                         }`}
                         title="Keyboard shortcuts (?)"
                     >?</button>
@@ -622,16 +671,16 @@ export const Dashboard = () => {
 
             {/* Results count */}
             {(search || filter !== 'all' || productFilter !== 'all') && sorted.length > 0 && (
-                <p className="text-xs text-slate-400 font-medium flex items-center gap-2">
+                <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
                     <span>{sorted.length} {sorted.length === 1 ? 'investigation' : 'investigations'}</span>
-                    {search && <><span>matching</span> <span className="font-bold text-slate-600">"{search}"</span></>}
+                    {search && <><span>matching</span> <span className="font-bold text-slate-300">"{search}"</span></>}
                     {productFilter !== 'all' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 border border-purple-200 text-purple-600 rounded-full font-bold">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded-full font-bold">
                             <Package className="w-3 h-3" />
                             {uniqueProducts.find(p => p.id === productFilter)?.name}
                             <button 
                                 onClick={() => setProductFilter('all')} 
-                                className="ml-0.5 hover:text-purple-800"
+                                className="ml-0.5 hover:text-purple-300"
                             >
                                 <X className="w-3 h-3" />
                             </button>
@@ -644,22 +693,22 @@ export const Dashboard = () => {
             {loading && investigations.length === 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {Array.from({ length: 6 }).map((_, i) => (
-                        <div key={i} className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3 animate-pulse">
+                        <div key={i} className="glass-card p-5 space-y-3 animate-pulse">
                             <div className="flex items-start gap-3">
-                                <div className="w-10 h-10 rounded-xl bg-slate-100 shrink-0" />
+                                <div className="w-10 h-10 rounded-xl bg-slate-800 shrink-0" />
                                 <div className="flex-1 space-y-2 pt-1">
-                                    <div className="h-3 bg-slate-100 rounded-full w-3/4" />
-                                    <div className="h-2.5 bg-slate-100 rounded-full w-1/2" />
+                                    <div className="h-3 bg-slate-800 rounded-full w-3/4" />
+                                    <div className="h-2.5 bg-slate-800 rounded-full w-1/2" />
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <div className="h-2.5 bg-slate-100 rounded-full" />
-                                <div className="h-2.5 bg-slate-100 rounded-full w-5/6" />
-                                <div className="h-2.5 bg-slate-100 rounded-full w-4/6" />
+                                <div className="h-2.5 bg-slate-800 rounded-full" />
+                                <div className="h-2.5 bg-slate-800 rounded-full w-5/6" />
+                                <div className="h-2.5 bg-slate-800 rounded-full w-4/6" />
                             </div>
-                            <div className="pt-3 border-t border-slate-100 flex justify-between">
-                                <div className="h-2 bg-slate-100 rounded-full w-16" />
-                                <div className="h-2 bg-slate-100 rounded-full w-20" />
+                            <div className="pt-3 border-t border-slate-800 flex justify-between">
+                                <div className="h-2 bg-slate-800 rounded-full w-16" />
+                                <div className="h-2 bg-slate-800 rounded-full w-20" />
                             </div>
                         </div>
                     ))}
@@ -668,7 +717,7 @@ export const Dashboard = () => {
 
             {/* Grid view */}
             {viewMode === 'grid' && sorted.length > 0 && (
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 animate-fade-in">
                     {sorted.map((inv, sortedGridIdx) => {
                         const isPaused = inv.status === 'paused';
                         const isCompleted = inv.status === 'completed';
@@ -682,15 +731,15 @@ export const Dashboard = () => {
                         const isStale = isRunning && !!staleEntry && (Date.now() - staleEntry.seenAt > 5 * 60 * 1000);
                         const isPinned = pinnedIds.has(inv.id);
 
-                        const iconClass = isRunning ? 'bg-blue-100 text-blue-600'
-                            : isPaused ? 'bg-amber-100 text-amber-600'
-                            : isCompleted ? 'bg-emerald-100 text-emerald-600'
-                            : isFailed ? 'bg-red-100 text-red-500'
-                            : 'bg-slate-100 text-slate-500';
+                        const iconClass = isRunning ? 'bg-blue-500/15 text-blue-400'
+                            : isPaused ? 'bg-amber-500/15 text-amber-400'
+                            : isCompleted ? 'bg-emerald-500/15 text-emerald-400'
+                            : isFailed ? 'bg-red-500/15 text-red-400'
+                            : 'bg-slate-800 text-slate-500';
 
                         return (
-                            <Link key={inv.id} to={`/investigation/${inv.id}`} className="group relative block" tabIndex={0}>
-                                <div className={`relative bg-white rounded-2xl border border-l-4 ${sc.accent} shadow-sm hover:shadow-md transition-all duration-200 h-full flex flex-col overflow-hidden hover:-translate-y-0.5 ${focusedIdx === sortedGridIdx ? 'border-brand-400 ring-2 ring-brand-300/50' : 'border-slate-200'}`}>
+                            <Link key={inv.id} to={`/investigation/${inv.id}`} className="group relative block animate-fade-in opacity-0" style={{ animationDelay: `${Math.min(sortedGridIdx * 50, 300)}ms`, animationFillMode: 'forwards' }} tabIndex={0}>
+                                <div className={`relative bg-slate-900/50 backdrop-blur-sm rounded-2xl border border-l-4 ${sc.accent} shadow-lg shadow-black/10 hover:shadow-xl hover:shadow-black/20 transition-all duration-200 h-full flex flex-col overflow-hidden hover:-translate-y-0.5 hover:bg-slate-900/60 ${focusedIdx === sortedGridIdx ? 'border-brand-400 ring-2 ring-brand-300/30' : 'border-white/[0.06]'}`}>
                                     {isRunning && (
                                         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-blue-400 to-transparent [background-size:200%_100%] animate-shimmer" />
                                     )}
@@ -715,17 +764,17 @@ export const Dashboard = () => {
                                                     )}
                                                 </span>
                                                 {isStale && (
-                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">
+                                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
                                                         <AlertTriangle className="w-2.5 h-2.5" />Stale
                                                     </span>
                                                 )}
                                                 {inv.stamp && (
-                                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-lg max-w-[160px] truncate" title={inv.stamp}>
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-slate-800/60 px-1.5 py-0.5 rounded-lg max-w-[160px] truncate border border-slate-700/30" title={inv.stamp}>
                                                         <Server className="w-2.5 h-2.5 shrink-0" />{inv.stamp}
                                                     </span>
                                                 )}
                                                 {inv.incidentId && (
-                                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-lg" title={`IcM Incident ${inv.incidentId}`}>
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-lg border border-orange-500/20" title={`IcM Incident ${inv.incidentId}`}>
                                                         <ShieldAlert className="w-2.5 h-2.5 shrink-0" />ICM
                                                     </span>
                                                 )}
@@ -735,7 +784,7 @@ export const Dashboard = () => {
                                         <div className="flex items-start gap-1">
                                             {editingId === inv.id ? (
                                                 <input autoFocus
-                                                    className="flex-1 text-base font-bold text-slate-800 leading-tight bg-white border border-brand-300 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-brand-400"
+                                                    className="flex-1 text-base font-bold text-slate-100 leading-tight bg-slate-800 border border-brand-500/40 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-brand-400"
                                                     value={editingTitle}
                                                     onChange={(e) => setEditingTitle(e.target.value)}
                                                     onBlur={() => saveTitle(inv.id)}
@@ -744,21 +793,21 @@ export const Dashboard = () => {
                                                 />
                                             ) : (
                                                 <>
-                                                    <h3 className="flex-1 text-base font-bold text-slate-800 line-clamp-2 leading-snug group-hover:text-brand-600 transition-colors">
+                                                    <h3 className="flex-1 text-base font-bold text-slate-200 line-clamp-2 leading-snug group-hover:text-brand-400 transition-colors">
                                                         {search
                                                             ? <Highlight text={inv.title || inv.query || inv.id.replace(/-/g, ' ')} term={search} />
                                                             : (inv.title || inv.query || inv.id.replace(/-/g, ' '))}
                                                     </h3>
                                                     <button onClick={(e) => togglePin(e, inv.id)}
-                                                        className={`mt-0.5 p-1 rounded-lg transition-all ${isPinned ? 'text-yellow-500 opacity-100' : 'text-slate-300 hover:text-yellow-500 hover:bg-yellow-50 opacity-0 group-hover:opacity-100'}`}
+                                                        className={`mt-0.5 p-1 rounded-lg transition-all ${isPinned ? 'text-yellow-400 opacity-100' : 'text-slate-600 hover:text-yellow-400 hover:bg-yellow-500/10 opacity-0 group-hover:opacity-100'}`}
                                                         title={isPinned ? 'Unpin' : 'Pin to top'}>
                                                         <Pin className={`w-3 h-3 transition-transform duration-200 ${isPinned ? 'rotate-0' : 'rotate-45'}`} />
                                                     </button>
-                                                    <button onClick={(e) => startEditing(e, inv)} className="mt-0.5 p-1 rounded-lg text-slate-300 hover:text-brand-500 hover:bg-brand-50 transition-all opacity-0 group-hover:opacity-100" title="Edit title">
+                                                    <button onClick={(e) => startEditing(e, inv)} className="mt-0.5 p-1 rounded-lg text-slate-600 hover:text-brand-400 hover:bg-brand-500/10 transition-all opacity-0 group-hover:opacity-100" title="Edit title">
                                                         <Pencil className="w-3 h-3" />
                                                     </button>
                                                     {!isRunning && (
-                                                        <button onClick={(e) => confirmDelete(e, inv.id)} className="mt-0.5 p-1 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100" title="Delete">
+                                                        <button onClick={(e) => confirmDelete(e, inv.id)} className="mt-0.5 p-1 rounded-lg text-slate-600 hover:text-red-400 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100" title="Delete">
                                                             <Trash2 className="w-3 h-3" />
                                                         </button>
                                                     )}
@@ -770,7 +819,7 @@ export const Dashboard = () => {
                                             <div className="flex flex-wrap gap-1.5">
                                                 {inv.productName && (
                                                     <span 
-                                                        className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full cursor-pointer hover:bg-purple-100 transition-colors"
+                                                        className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full cursor-pointer hover:bg-purple-500/20 transition-colors"
                                                         onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProductFilter(inv.productId!); }}
                                                         title={`Filter by ${inv.productName}`}
                                                     >
@@ -779,19 +828,19 @@ export const Dashboard = () => {
                                                     </span>
                                                 )}
                                                 {inv.issueType && (
-                                                    <span className="inline-block text-[10px] font-mono font-bold text-brand-500 bg-brand-50 px-2 py-0.5 rounded-full">#{inv.issueType}</span>
+                                                    <span className="inline-block text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full border border-brand-500/20">#{inv.issueType}</span>
                                                 )}
                                             </div>
                                             {(inv.timeRange || inv.trackingId) && (
                                                 <div className="flex flex-wrap items-center gap-1.5">
                                                     {inv.timeRange && (
-                                                        <span className="text-[10px] font-mono text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md" title={inv.timeRange}>
+                                                        <span className="text-[10px] font-mono text-slate-400 bg-slate-800/60 border border-slate-700/30 px-1.5 py-0.5 rounded-md" title={inv.timeRange}>
                                                             {formatTimeRange(inv.timeRange)}
                                                         </span>
                                                     )}
                                                     {inv.trackingId && (
                                                         <button onClick={(e) => copyTrackingId(e, inv.trackingId!)} title={`Copy TrackingId: ${inv.trackingId}`}
-                                                            className="inline-flex items-center gap-1 text-[10px] font-mono text-brand-600 bg-brand-50 border border-brand-200 hover:bg-brand-100 px-1.5 py-0.5 rounded-md transition-colors">
+                                                            className="inline-flex items-center gap-1 text-[10px] font-mono text-brand-400 bg-brand-500/10 border border-brand-500/20 hover:bg-brand-500/20 px-1.5 py-0.5 rounded-md transition-colors">
                                                             {copiedTrackingId === inv.trackingId ? <CheckCheck className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
                                                             {inv.trackingId.slice(0, 8)}...
                                                         </button>
@@ -803,7 +852,7 @@ export const Dashboard = () => {
                                             </p>
                                         </div>
                                         {/* Footer */}
-                                        <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400 font-medium">
+                                        <div className="pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs text-slate-500 font-medium">
                                             <div className="flex items-center gap-3">
                                                 <span className="flex items-center gap-1" title={getLaunchTime(inv)}>
                                                     <Clock className="w-3 h-3" />{getRelativeTime(inv)}
@@ -815,7 +864,7 @@ export const Dashboard = () => {
                                             </div>
                                             <div className="flex items-center gap-2">
                                                 {(isRunning || isPaused) && !isNaN(Number(inv.id)) && (
-                                                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isPaused ? 'bg-amber-100 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isPaused ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
                                                         <Timer className="w-2.5 h-2.5" />
                                                         <DurationTimer startTime={Number(inv.id)} pausedAt={inv.pausedAt} totalPausedTime={inv.totalPausedTime} />
                                                     </span>
@@ -825,11 +874,11 @@ export const Dashboard = () => {
                                                     <button
                                                         onClick={(e) => handleAction(e, inv.id, isPaused ? 'resume' : 'pause')}
                                                         title={isPaused ? 'Resume' : 'Pause'}
-                                                        className={`p-1 rounded-lg transition-all opacity-0 group-hover:opacity-100 ${isPaused ? 'text-emerald-500 hover:bg-emerald-50' : 'text-amber-500 hover:bg-amber-50'}`}>
+                                                        className={`p-1 rounded-lg transition-all opacity-0 group-hover:opacity-100 ${isPaused ? 'text-emerald-400 hover:bg-emerald-500/10' : 'text-amber-400 hover:bg-amber-500/10'}`}>
                                                         {isPaused ? <Play className="w-3.5 h-3.5 fill-current" /> : <Pause className="w-3.5 h-3.5 fill-current" />}
                                                     </button>
                                                 )}
-                                                <span className={`inline-flex items-center gap-0.5 font-bold transition-all opacity-0 group-hover:opacity-100 ${isCompleted ? 'text-emerald-600' : isFailed ? 'text-red-500' : 'text-brand-600'}`}>
+                                                <span className={`inline-flex items-center gap-0.5 font-bold transition-all opacity-0 group-hover:opacity-100 ${isCompleted ? 'text-emerald-400' : isFailed ? 'text-red-400' : 'text-brand-400'}`}>
                                                     {isPaused ? 'View' : isCompleted ? 'View Report' : isFailed ? 'View' : 'Open'}
                                                     <ChevronRight className="w-3.5 h-3.5" />
                                                 </span>
@@ -876,16 +925,16 @@ export const Dashboard = () => {
 
                 let globalIdx = 0;
                 return (
-                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="glass-card overflow-hidden">
                         {groups.map(({ label, items }, gi) => (
                             <div key={gi}>
                                 {label && (
-                                    <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-2">
+                                    <div className="px-4 py-2 bg-slate-800/40 border-b border-white/[0.04] flex items-center gap-2">
                                         <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">{label}</span>
-                                        <span className="text-[10px] text-slate-400 font-medium">{items.length}</span>
+                                        <span className="text-[10px] text-slate-600 font-medium">{items.length}</span>
                                     </div>
                                 )}
-                                <div className="divide-y divide-slate-100">
+                                <div className="divide-y divide-white/[0.04]">
                                     {items.map((inv) => {
                                         const myIdx = globalIdx++;
                                         const isPaused = inv.status === 'paused';
@@ -900,15 +949,17 @@ export const Dashboard = () => {
                                         const isStale = isRunning && !!listStaleEntry && (Date.now() - listStaleEntry.seenAt > 5 * 60 * 1000);
 
                                         return (
-                                            <Link key={inv.id} to={`/investigation/${inv.id}`} className={`group flex items-center gap-3 px-4 py-3 transition-colors relative overflow-hidden ${isFocused ? 'bg-brand-50' : 'hover:bg-slate-50'}`}>
+                                            <Link key={inv.id} to={`/investigation/${inv.id}`}
+                                                style={{ animationDelay: `${Math.min(myIdx * 30, 300)}ms` }}
+                                                className={`group flex items-center gap-3 px-4 py-3 transition-colors relative overflow-hidden animate-fade-in ${isFocused ? 'bg-brand-500/10' : 'hover:bg-slate-800/50'}`}>
                                                 {/* Left accent */}
                                                 <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${sc.dot}`} />
 
                                                 {/* Status icon */}
                                                 <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                                                    isRunning ? 'bg-blue-100 text-blue-600' : isPaused ? 'bg-amber-100 text-amber-600'
-                                                    : isCompleted ? 'bg-emerald-100 text-emerald-600' : isFailed ? 'bg-red-100 text-red-500'
-                                                    : 'bg-slate-100 text-slate-500'}`}>
+                                                    isRunning ? 'bg-blue-500/15 text-blue-400' : isPaused ? 'bg-amber-500/15 text-amber-400'
+                                                    : isCompleted ? 'bg-emerald-500/15 text-emerald-400' : isFailed ? 'bg-red-500/15 text-red-400'
+                                                    : 'bg-slate-800 text-slate-500'}`}>
                                                     {isRunning    ? <Activity className="w-3.5 h-3.5 animate-pulse" />
                                                     : isPaused    ? <Pause className="w-3.5 h-3.5 fill-current" />
                                                     : isCompleted ? <CheckCircle2 className="w-3.5 h-3.5" />
@@ -920,7 +971,7 @@ export const Dashboard = () => {
                                                 <div className="flex-1 min-w-0">
                                                     {editingId === inv.id ? (
                                                         <input autoFocus
-                                                            className="w-full text-sm font-bold text-slate-800 bg-white border border-brand-300 rounded-lg px-2 py-0.5 outline-none focus:ring-2 focus:ring-brand-400"
+                                                            className="w-full text-sm font-bold text-slate-100 bg-slate-800 border border-brand-500/40 rounded-lg px-2 py-0.5 outline-none focus:ring-2 focus:ring-brand-400"
                                                             value={editingTitle}
                                                             onChange={(e) => setEditingTitle(e.target.value)}
                                                             onBlur={() => saveTitle(inv.id)}
@@ -928,7 +979,7 @@ export const Dashboard = () => {
                                                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                         />
                                                     ) : (
-                                                        <span className="text-sm font-semibold text-slate-800 truncate block group-hover:text-brand-600 transition-colors">
+                                                        <span className="text-sm font-semibold text-slate-200 truncate block group-hover:text-brand-400 transition-colors">
                                                             {search
                                                                 ? <Highlight text={inv.title || inv.query || inv.id} term={search} />
                                                                 : (inv.title || inv.query || inv.id)}
@@ -940,7 +991,7 @@ export const Dashboard = () => {
                                                 <div className="hidden sm:flex items-center gap-2 shrink-0">
                                                     {inv.productName && (
                                                         <span 
-                                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-purple-100 transition-colors"
+                                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-400 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-purple-500/20 transition-colors"
                                                             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProductFilter(inv.productId!); }}
                                                             title={`Filter by ${inv.productName}`}
                                                         >
@@ -949,27 +1000,27 @@ export const Dashboard = () => {
                                                         </span>
                                                     )}
                                                     {inv.issueType && (
-                                                        <span className="text-[10px] font-mono font-bold text-brand-500 bg-brand-50 px-1.5 py-0.5 rounded-full">#{inv.issueType}</span>
+                                                        <span className="text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-1.5 py-0.5 rounded-full border border-brand-500/20">#{inv.issueType}</span>
                                                     )}
                                                     {inv.timeRange && (
-                                                        <span className="text-[10px] font-mono text-slate-400 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded-md" title={inv.timeRange}>
+                                                        <span className="text-[10px] font-mono text-slate-500 bg-slate-800/60 border border-slate-700/30 px-1.5 py-0.5 rounded-md" title={inv.timeRange}>
                                                             {formatTimeRange(inv.timeRange)}
                                                         </span>
                                                     )}
                                                     {inv.trackingId && (
                                                         <button onClick={(e) => copyTrackingId(e, inv.trackingId!)} title={`Copy TrackingId: ${inv.trackingId}`}
-                                                            className="inline-flex items-center gap-1 text-[10px] font-mono text-brand-600 bg-brand-50 border border-brand-200 hover:bg-brand-100 px-1.5 py-0.5 rounded-md transition-colors">
+                                                            className="inline-flex items-center gap-1 text-[10px] font-mono text-brand-400 bg-brand-500/10 border border-brand-500/20 hover:bg-brand-500/20 px-1.5 py-0.5 rounded-md transition-colors">
                                                             {copiedTrackingId === inv.trackingId ? <CheckCheck className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
                                                             {inv.trackingId.slice(0, 8)}...
                                                         </button>
                                                     )}
                                                     {inv.stamp && (
-                                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-lg max-w-[120px] truncate">
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-slate-800/60 px-1.5 py-0.5 rounded-lg max-w-[120px] truncate border border-slate-700/30">
                                                             <Server className="w-2.5 h-2.5 shrink-0" />{inv.stamp}
                                                         </span>
                                                     )}
                                                     {inv.incidentId && (
-                                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-lg" title={`IcM Incident ${inv.incidentId}`}>
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-lg border border-orange-500/20" title={`IcM Incident ${inv.incidentId}`}>
                                                             <ShieldAlert className="w-2.5 h-2.5 shrink-0" />ICM
                                                         </span>
                                                     )}
@@ -980,7 +1031,7 @@ export const Dashboard = () => {
                                                         )}
                                                     </span>
                                                     {isStale && (
-                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700">
+                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/20">
                                                             <AlertTriangle className="w-2.5 h-2.5" />Stale
                                                         </span>
                                                     )}
@@ -988,37 +1039,37 @@ export const Dashboard = () => {
                                                         <StepBar count={inv.thoughtCount ?? inv.thoughts.length} color={isRunning ? 'bg-blue-400' : isCompleted ? 'bg-emerald-400' : isFailed ? 'bg-red-400' : 'bg-slate-400'} />
                                                     )}
                                                     {(isRunning || isPaused) && !isNaN(Number(inv.id)) && (
-                                                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isPaused ? 'bg-amber-100 text-amber-600' : 'bg-blue-50 text-blue-600'}`}>
+                                                        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${isPaused ? 'bg-amber-500/15 text-amber-400' : 'bg-blue-500/10 text-blue-400'}`}>
                                                             <Timer className="w-3 h-3" />
                                                             <DurationTimer startTime={Number(inv.id)} pausedAt={inv.pausedAt} totalPausedTime={inv.totalPausedTime} />
                                                         </span>
                                                     )}
-                                                    <span className="text-[11px] text-slate-400 font-medium w-16 text-right shrink-0" title={getLaunchTime(inv)}>{getRelativeTime(inv)}</span>
+                                                    <span className="text-[11px] text-slate-500 font-medium w-16 text-right shrink-0" title={getLaunchTime(inv)}>{getRelativeTime(inv)}</span>
                                                 </div>
 
                                                 {/* Actions */}
                                                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                                                     <button onClick={(e) => togglePin(e, inv.id)}
-                                                        className={`p-1.5 rounded-lg transition-all ${pinnedIds.has(inv.id) ? 'text-yellow-500 !opacity-100' : 'text-slate-400 hover:text-yellow-500 hover:bg-yellow-50'}`}
+                                                        className={`p-1.5 rounded-lg transition-all ${pinnedIds.has(inv.id) ? 'text-yellow-400 !opacity-100' : 'text-slate-500 hover:text-yellow-400 hover:bg-yellow-500/10'}`}
                                                         title={pinnedIds.has(inv.id) ? 'Unpin' : 'Pin to top'}>
                                                         <Pin className={`w-3.5 h-3.5 transition-transform duration-200 ${pinnedIds.has(inv.id) ? 'rotate-0' : 'rotate-45'}`} />
                                                     </button>
                                                     {(isRunning || isPaused) && (
                                                         <button onClick={(e) => handleAction(e, inv.id, isPaused ? 'resume' : 'pause')}
-                                                            className={`p-1.5 rounded-lg transition-all ${isPaused ? 'text-slate-400 hover:text-emerald-500 hover:bg-emerald-50' : 'text-slate-400 hover:text-amber-500 hover:bg-amber-50'}`}
+                                                            className={`p-1.5 rounded-lg transition-all ${isPaused ? 'text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10' : 'text-slate-500 hover:text-amber-400 hover:bg-amber-500/10'}`}
                                                             title={isPaused ? 'Resume' : 'Pause'}>
                                                             {isPaused ? <Play className="w-3.5 h-3.5 fill-current" /> : <Pause className="w-3.5 h-3.5 fill-current" />}
                                                         </button>
                                                     )}
-                                                    <button onClick={(e) => startEditing(e, inv)} className="p-1.5 rounded-lg text-slate-400 hover:text-brand-500 hover:bg-brand-50 transition-all" title="Edit title">
+                                                    <button onClick={(e) => startEditing(e, inv)} className="p-1.5 rounded-lg text-slate-500 hover:text-brand-400 hover:bg-brand-500/10 transition-all" title="Edit title">
                                                         <Pencil className="w-3.5 h-3.5" />
                                                     </button>
                                                     {!isRunning && (
-                                                        <button onClick={(e) => confirmDelete(e, inv.id)} className="p-1.5 rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-all" title="Delete">
+                                                        <button onClick={(e) => confirmDelete(e, inv.id)} className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all" title="Delete">
                                                             <Trash2 className="w-3.5 h-3.5" />
                                                         </button>
                                                     )}
-                                                    <ChevronRight className={`w-4 h-4 ml-1 transition-colors ${isFocused ? 'text-brand-500' : 'text-slate-300 group-hover:text-brand-500'}`} />
+                                                    <ChevronRight className={`w-4 h-4 ml-1 transition-colors ${isFocused ? 'text-brand-400' : 'text-slate-600 group-hover:text-brand-400'}`} />
                                                 </div>
                                             </Link>
                                         );
@@ -1037,16 +1088,16 @@ export const Dashboard = () => {
                 const isEmpty = investigations.length === 0;
                 return (
                     <div className="text-center py-24">
-                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-100 mb-5">{es.icon}</div>
-                        <h3 className="text-slate-800 font-bold text-lg mb-1">{es.title}</h3>
-                        <p className="text-slate-500 text-sm mb-5">{es.body}</p>
+                        <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-800/60 border border-slate-700/40 mb-5">{es.icon}</div>
+                        <h3 className="text-white font-bold text-lg mb-1">{es.title}</h3>
+                        <p className="text-slate-400 text-sm mb-5">{es.body}</p>
                         {isEmpty && (
-                            <Link to="/new" className="inline-flex items-center gap-2 px-5 py-2.5 bg-slate-900 text-white rounded-xl font-bold text-sm hover:bg-brand-600 transition-colors">
+                            <Link to="/new" className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 text-white rounded-xl font-bold text-sm hover:bg-brand-500 transition-colors shadow-lg shadow-brand-500/20">
                                 <Play className="w-4 h-4 fill-current" /> Start New Investigation
                             </Link>
                         )}
                         {search && (
-                            <button onClick={() => setSearch('')} className="text-sm font-bold text-brand-600 hover:underline">Clear search</button>
+                            <button onClick={() => setSearch('')} className="text-sm font-bold text-brand-400 hover:underline">Clear search</button>
                         )}
                     </div>
                 );
@@ -1085,18 +1136,18 @@ export const Dashboard = () => {
 
             {/* Delete Confirmation Modal */}
             {deletingId && (
-                <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setDeletingId(null)}>
-                    <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-sm mx-4 w-full" onClick={(e) => e.stopPropagation()}>
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center" onClick={() => setDeletingId(null)}>
+                    <div className="glass-card p-6 max-w-sm mx-4 w-full" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center gap-3 mb-4">
-                            <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center">
-                                <Trash2 className="w-5 h-5 text-red-600" />
+                            <div className="w-10 h-10 rounded-xl bg-red-500/15 flex items-center justify-center border border-red-500/20">
+                                <Trash2 className="w-5 h-5 text-red-400" />
                             </div>
-                            <h3 className="text-base font-bold text-slate-800">Delete Investigation</h3>
+                            <h3 className="text-base font-bold text-white">Delete Investigation</h3>
                         </div>
-                        <p className="text-sm text-slate-500 mb-6 leading-relaxed">This will permanently delete this investigation and all its data. This action cannot be undone.</p>
+                        <p className="text-sm text-slate-400 mb-6 leading-relaxed">This will permanently delete this investigation and all its data. This action cannot be undone.</p>
                         <div className="flex justify-end gap-2">
-                            <button onClick={() => setDeletingId(null)} className="px-4 py-2 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors">Cancel</button>
-                            <button onClick={executeDelete} className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-colors">Delete</button>
+                            <button onClick={() => setDeletingId(null)} className="px-4 py-2 text-sm font-bold text-slate-400 hover:bg-slate-800 rounded-xl transition-colors">Cancel</button>
+                            <button onClick={executeDelete} className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-500 rounded-xl transition-colors shadow-lg shadow-red-500/20">Delete</button>
                         </div>
                     </div>
                 </div>

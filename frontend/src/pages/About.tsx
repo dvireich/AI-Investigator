@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio } from 'lucide-react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -50,10 +50,10 @@ const SectionHeader = ({ icon, title }: { icon: React.ReactNode; title: string }
 );
 
 export const About = () => (
-    <div className="min-h-screen bg-slate-950 pt-16">
+    <div className="min-h-screen pt-16">
 
         {/* ── Hero ── */}
-        <div className="relative overflow-hidden bg-gradient-to-b from-slate-900 via-slate-950 to-slate-950 border-b border-slate-800">
+        <div className="relative overflow-hidden bg-gradient-to-b from-slate-900/60 via-transparent to-transparent border-b border-slate-800">
             <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[480px] h-[240px] rounded-full bg-brand-500/10 blur-3xl pointer-events-none" />
             <div className="absolute top-0 right-0 w-64 h-64 rounded-full bg-purple-600/5 blur-3xl pointer-events-none" />
 
@@ -118,6 +118,16 @@ export const About = () => (
                         bg="bg-slate-900/60 border-slate-800 hover:border-sky-500/20"
                         title="Live activity streaming"
                         desc="Every tool call, file read, and query streams to the UI in real time over WebSocket so you can watch the agent think and intervene at any point." />
+                    <FeatureCard icon={<AlertCircle className="w-4 h-4" />}
+                        color="bg-rose-500/10 border border-rose-500/20 text-rose-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-rose-500/20"
+                        title="ICM incident integration"
+                        desc="Start investigations directly from an IcM incident ID. The system auto-extracts stamp, time range, severity, and description — no manual form-filling required." />
+                    <FeatureCard icon={<Compass className="w-4 h-4" />}
+                        color="bg-teal-500/10 border border-teal-500/20 text-teal-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-teal-500/20"
+                        title="Auto-discovery onboarding"
+                        desc="Drop a .investigator.json manifest at any repo root for one-click product setup. Auto-scans for agent files, docs, and prompts when no manifest is found." />
                 </div>
             </section>
 
@@ -131,16 +141,19 @@ export const About = () => (
                     <PipelineStep n={2} icon={<Brain className="w-4 h-4 text-purple-400" />}
                         title="Agentic investigation loop"
                         desc="An agentic loop (gpt-4o or claude-sonnet via the Copilot API) reads your knowledge base guides, runs queries, reads logs, and reasons iteratively until it reaches a conclusion." />
-                    <PipelineStep n={3} icon={<FileText className="w-4 h-4 text-sky-400" />}
+                    <PipelineStep n={3} icon={<PenLine className="w-4 h-4 text-teal-400" />}
+                        title="Real-time control"
+                        desc="Pause, resume, switch models mid-run, or inject messages into the running agent's context to redirect its approach. A configurable max-steps limit auto-pauses the agent at your safety threshold." />
+                    <PipelineStep n={4} icon={<FileText className="w-4 h-4 text-sky-400" />}
                         title="Structured report generation"
                         desc="The agent produces a markdown report with root cause analysis, evidence, timeline, and recommended actions. All artifacts are persisted to disk." />
-                    <PipelineStep n={4} icon={<RotateCcw className="w-4 h-4 text-amber-400" />}
+                    <PipelineStep n={5} icon={<RotateCcw className="w-4 h-4 text-amber-400" />}
                         title="Contest & resume"
                         desc="Disagree with the report? Contest it with your feedback. The investigation resumes with your corrections injected — the agent re-examines its findings and produces an improved report." />
-                    <PipelineStep n={5} icon={<Sparkles className="w-4 h-4 text-purple-400" />}
+                    <PipelineStep n={6} icon={<Sparkles className="w-4 h-4 text-purple-400" />}
                         title="Retrospective analysis"
                         desc="A second agent pass reads the knowledge base and the full investigation transcript, then calls propose_change for each guide improvement it identifies." />
-                    <PipelineStep n={6} last icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                    <PipelineStep n={7} last icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                         title="Review and apply"
                         desc="You review each proposed change in an inline diff, approve or reject, then apply — the knowledge base improves incrementally with every investigation." />
                 </div>
@@ -154,8 +167,14 @@ export const About = () => (
                         [Shield,        'text-sky-400',     'Path traversal protection — agents cannot escape the repo root'],
                         [MessageSquare, 'text-purple-400',  'Follow-up chat after retrospective — ask the agent anything'],
                         [RotateCcw,     'text-amber-400',   'Contest reports — provide feedback and the agent re-investigates'],
-                        [Database,      'text-emerald-400', 'Kusto (ADX) integration with full query tool support'],
+                        [Database,      'text-emerald-400', 'Dual KQL backend — Kusto CLI primary (auto-installs) + MCP KQL Server fallback'],
+                        [AlertCircle,   'text-rose-400',    'ICM auto-extraction — start from incident IDs with auto-populated fields'],
+                        [Compass,       'text-teal-400',    'Auto-discovery — .investigator.json manifest for one-click product onboarding'],
+                        [Layers,        'text-indigo-400',  'Token auto-compaction — proactive summarization before hitting context limits'],
+                        [LayoutGrid,    'text-cyan-400',    'Rich dashboard — grid/list views, pinning, full-text search, keyboard shortcuts (press ?)'],
+                        [ShieldAlert,   'text-orange-400',  'Destructive command blocking — Kusto CLI rejects .drop, .delete, .purge commands'],
                         [Globe,         'text-brand-400',   'Configurable model, timeout, knowledge base path, and stamp'],
+                        [Lock,          'text-emerald-400', 'Azure CLI inline auth — in-app login prompt when Kusto auth expires mid-investigation'],
                         [Code2,         'text-pink-400',    'Inline diff viewer with LCS-based line-level change highlighting'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
@@ -218,7 +237,7 @@ export const About = () => (
 
         </div>
 
-        <div className="border-t border-slate-800/60 py-6 text-center text-slate-500 text-xs">
+        <div className="border-t border-white/[0.06] py-6 text-center text-slate-500 text-xs">
             AI Investigator &bull; AM-Teleduct &bull; Internal tool &bull; {new Date().getFullYear()}
         </div>
     </div>
