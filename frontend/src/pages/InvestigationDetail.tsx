@@ -339,8 +339,10 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
         return null;
     }
 
-    // Check for Azure Auth Error
-    if (typeof thoughtContent === 'string' && (thoughtContent.includes("Azure Authentication Required") || thoughtContent.includes("Please log in"))) {
+    // Check for Azure Auth Error — only show the auth prompt when the error
+    // is specifically "Azure Authentication Required", not when the message
+    // is a generic "KQL tools unavailable" that happens to contain the old error text.
+    if (typeof thoughtContent === 'string' && thoughtContent.includes("Azure Authentication Required") && !thoughtContent.includes("KQL tools still unavailable")) {
         return <AzureAuthPrompt />;
     }
 

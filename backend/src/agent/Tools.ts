@@ -34,8 +34,10 @@ export class ToolManager {
     public async checkAzureAuth(log: (msg: string) => void): Promise<boolean> {
         log("Checking Azure authentication status...");
         return new Promise((resolve) => {
-            const options = this.workDir ? { cwd: this.workDir, shell: true } : { shell: true };
-            const check = spawn('az', ['account', 'show'], options);
+            // Don't pass cwd here — az account show reads tokens from ~/.azure/
+            // and doesn't need a specific working directory. Using a non-existent
+            // cwd would cause spawn to ENOENT, falsely reporting auth failure.
+            const check = spawn('az', ['account', 'show'], { shell: true });
             check.on('close', (code) => {
                 if (code === 0) {
                     log("Azure authentication verified.");
@@ -56,6 +58,11 @@ export class ToolManager {
         this.workDir = cwd;
         const log = logger || console.log;
 
+        // Reset state at the start of each initialization attempt so stale
+        // errors from previous attempts don't persist.
+        this.initError = null;
+        this.ready = false;
+
         if (this.workDir) log(`Initializing ToolManager in ${this.workDir}`);
 
         // 1. Check Azure Auth
@@ -66,7 +73,14 @@ export class ToolManager {
             return;
         }
 
-        // 2. Try Kusto CLI first (fast, no server process needed)
+        // 2. Validate working directory exists (if specified)
+        if (this.workDir && !fs.existsSync(this.workDir)) {
+            this.initError = `Working directory does not exist: ${this.workDir}. Please check the product configuration in Settings.`;
+            log(`Working directory not found: ${this.workDir}`);
+            return;
+        }
+
+        // 3. Try Kusto CLI first (fast, no server process needed)
         const cliPath = await this.detectKustoCli(log);
         if (cliPath) {
             this.kustoCliPath = cliPath;
@@ -80,7 +94,7 @@ export class ToolManager {
 
         log("Kusto CLI not found. Falling back to MCP KQL Server...");
 
-        // 3. Fall back to MCP Server
+        // 4. Fall back to MCP Server
         await this.initializeMcp(log);
     }
 

@@ -296,7 +296,24 @@ export class AgentRunner extends EventEmitter {
                     const lastAction = this.state.actions[this.state.actions.length - 1];
                     lastAction.result = result;
 
-                    this.state.thoughts.push({ role: 'user', content: `Observation: ${JSON.stringify(result)}` });
+                    // Truncate oversized tool results to prevent token overflow.
+                    // A single KQL result can be 300K+ chars (~75K tokens), which alone
+                    // exceeds the 128K token limit. Cap at ~80K chars (~20K tokens).
+                    const MAX_OBSERVATION_CHARS = 80_000;
+                    let resultStr = JSON.stringify(result);
+                    if (resultStr.length > MAX_OBSERVATION_CHARS) {
+                        const originalLen = resultStr.length;
+                        // Keep head and tail so the agent sees the query + beginning/end of data
+                        const headSize = Math.floor(MAX_OBSERVATION_CHARS * 0.6);
+                        const tailSize = Math.floor(MAX_OBSERVATION_CHARS * 0.3);
+                        resultStr = resultStr.substring(0, headSize) +
+                            `\n\n... [OUTPUT TRUNCATED: ${originalLen.toLocaleString()} chars total, showing first ${headSize.toLocaleString()} + last ${tailSize.toLocaleString()} chars. ` +
+                            `Re-run the query with filters or | take N to reduce output size.] ...\n\n` +
+                            resultStr.substring(originalLen - tailSize);
+                        this.log(`Tool result truncated: ${originalLen.toLocaleString()} → ${resultStr.length.toLocaleString()} chars`);
+                    }
+
+                    this.state.thoughts.push({ role: 'user', content: `Observation: ${resultStr}` });
                     this.state.actions.push(null as any);
 
                 } else {
@@ -1538,17 +1555,30 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                     this.log(`Warning: Failed to list tools: ${e}`);
                 }
 
+                // Per-message size guard: even after compaction, individual messages
+                // can be oversized (e.g., a single KQL observation). Cap each message
+                // to prevent a single entry from blowing the token budget.
+                const MAX_MSG_CHARS = 80_000; // ~20K tokens per message
+                const capContent = (content: string): string => {
+                    if (content.length <= MAX_MSG_CHARS) return content;
+                    const headSize = Math.floor(MAX_MSG_CHARS * 0.6);
+                    const tailSize = Math.floor(MAX_MSG_CHARS * 0.3);
+                    return content.substring(0, headSize) +
+                        `\n\n... [MESSAGE TRUNCATED: ${content.length.toLocaleString()} chars → ${MAX_MSG_CHARS.toLocaleString()} chars] ...\n\n` +
+                        content.substring(content.length - tailSize);
+                };
+
                 const messages = [
                     { role: 'system', content: system },
                     { role: 'user', content: userQuery },
                     ...currentHistory.map(h => {
                         // Support explicit role in history items
                         if (h && typeof h === 'object' && h.role && h.content) {
-                            return { role: h.role, content: h.content };
+                            return { role: h.role, content: capContent(h.content) };
                         }
                         // Default to assistant for strings or other objects
-                        if (typeof h === 'string') return { role: 'assistant', content: h };
-                        return { role: 'assistant', content: JSON.stringify(h) };
+                        if (typeof h === 'string') return { role: 'assistant', content: capContent(h) };
+                        return { role: 'assistant', content: capContent(JSON.stringify(h)) };
                     })
                 ];
 
