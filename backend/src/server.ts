@@ -1486,13 +1486,21 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.post('/api/auth/azure-login', async (req, res) => {
     try {
-        // Spawn 'az login' which opens the browser for interactive Azure authentication
-        const child = spawn('az', ['login'], { shell: true, stdio: 'ignore', detached: true });
+        // Open `az login` in a visible terminal window so the user can interact with it.
+        // On some machines the browser-based flow doesn't work, and the user needs to see
+        // the device code or error output. Using `start cmd /k` opens a new cmd window
+        // that stays open after `az login` completes so the user can see the result.
+        const child = spawn('cmd', ['/c', 'start', 'cmd', '/k', 'az login'], {
+            shell: false,
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: false
+        });
         child.unref();
         child.on('error', (err) => {
             console.error('Failed to spawn az login:', err);
         });
-        res.json({ success: true, message: 'Azure login process started. A browser window should open for authentication.' });
+        res.json({ success: true, message: 'Azure login started in a new terminal window.' });
     } catch (e: any) {
         res.status(500).json({ error: e.message });
     }
@@ -1500,14 +1508,24 @@ app.post('/api/auth/azure-login', async (req, res) => {
 
 app.get('/api/auth/azure-status', async (req, res) => {
     try {
-        const result = await new Promise<boolean>((resolve) => {
-            const check = spawn('az', ['account', 'show'], { shell: true });
-            check.on('close', (code) => resolve(code === 0));
-            check.on('error', () => resolve(false));
+        const result = await new Promise<{ authenticated: boolean; error?: string }>((resolve) => {
+            let stderr = '';
+            const check = spawn('az', ['account', 'show', '--output', 'none'], { shell: true });
+            check.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+            check.on('close', (code) => {
+                if (code === 0) {
+                    resolve({ authenticated: true });
+                } else {
+                    resolve({ authenticated: false, error: stderr.trim() || 'az account show failed' });
+                }
+            });
+            check.on('error', (err) => resolve({ authenticated: false, error: `az CLI not found: ${err.message}` }));
+            // Timeout after 10 seconds
+            setTimeout(() => { try { check.kill(); } catch {} resolve({ authenticated: false, error: 'az account show timed out' }); }, 10000);
         });
-        res.json({ authenticated: result });
+        res.json(result);
     } catch (e: any) {
-        res.json({ authenticated: false });
+        res.json({ authenticated: false, error: e.message });
     }
 });
 

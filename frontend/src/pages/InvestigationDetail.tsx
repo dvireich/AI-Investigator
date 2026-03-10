@@ -137,6 +137,110 @@ const ActionResult = ({ result, truncated, onExpand, loading }: { result: string
     );
 };
 
+/**
+ * Azure auth prompt with inline status — replaces the old alert()-based approach.
+ * Polls /api/auth/azure-status after the user clicks login and shows real-time feedback.
+ */
+const AzureAuthPrompt = () => {
+    const [status, setStatus] = useState<'idle' | 'polling' | 'success' | 'error'>('idle');
+    const [statusMessage, setStatusMessage] = useState('');
+    const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+    useEffect(() => {
+        return () => { if (pollerRef.current) clearInterval(pollerRef.current); };
+    }, []);
+
+    const handleLogin = async () => {
+        try {
+            setStatus('polling');
+            setStatusMessage('Starting Azure login — a terminal window should open...');
+            await api.startAzureLogin();
+            setStatusMessage('Complete the login in the terminal window. Checking status...');
+
+            // Poll for Azure auth status every 3 seconds for up to 3 minutes
+            let attempts = 0;
+            const maxAttempts = 60;
+            pollerRef.current = setInterval(async () => {
+                attempts++;
+                try {
+                    const result = await api.getAzureAuthStatus();
+                    if (result.authenticated) {
+                        if (pollerRef.current) clearInterval(pollerRef.current);
+                        pollerRef.current = null;
+                        setStatus('success');
+                        setStatusMessage('Successfully authenticated with Azure! You can now restart the investigation.');
+                    } else if (attempts >= maxAttempts) {
+                        if (pollerRef.current) clearInterval(pollerRef.current);
+                        pollerRef.current = null;
+                        setStatus('error');
+                        setStatusMessage('Login check timed out. If you completed login, try refreshing the page.');
+                    }
+                } catch {
+                    if (attempts >= maxAttempts) {
+                        if (pollerRef.current) clearInterval(pollerRef.current);
+                        pollerRef.current = null;
+                        setStatus('error');
+                        setStatusMessage('Unable to verify Azure login status. Try refreshing the page.');
+                    }
+                }
+            }, 3000);
+        } catch (e: any) {
+            setStatus('error');
+            setStatusMessage('Failed to start Azure login: ' + (e.message || 'Unknown error'));
+        }
+    };
+
+    return (
+        <div className="flex justify-center my-6 animate-fade-in px-8">
+            <div className="bg-blue-500/10 border border-blue-500/20 backdrop-blur-sm text-blue-200 text-xs px-6 py-4 rounded-xl shadow-sm flex flex-col items-center gap-3 max-w-md text-center">
+                <div className="flex items-center gap-2 font-bold text-blue-100">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>Azure Authentication Required</span>
+                </div>
+                <p className="opacity-80">The agent cannot connect to Kusto because you are not logged in to Azure.</p>
+
+                {status === 'idle' && (
+                    <button
+                        onClick={handleLogin}
+                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold transition-colors shadow-lg shadow-blue-500/20"
+                    >
+                        Login to Azure via Terminal
+                    </button>
+                )}
+
+                {status === 'polling' && (
+                    <div className="flex items-center gap-2 text-blue-300">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>{statusMessage}</span>
+                    </div>
+                )}
+
+                {status === 'success' && (
+                    <div className="flex items-center gap-2 text-green-300 font-bold">
+                        <CheckCircle2 className="w-4 h-4" />
+                        <span>{statusMessage}</span>
+                    </div>
+                )}
+
+                {status === 'error' && (
+                    <div className="flex flex-col items-center gap-2">
+                        <div className="flex items-center gap-2 text-red-300">
+                            <AlertTriangle className="w-4 h-4" />
+                            <span>{statusMessage}</span>
+                        </div>
+                        <button
+                            onClick={() => { setStatus('idle'); setStatusMessage(''); }}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold transition-colors text-xs"
+                        >
+                            Try Again
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const StepItem = React.memo(({ thought, action, index, id }: { thought: any, action: any, index: number, id: string }) => {
     const [fullThought, setFullThought] = useState<any>(null);
     const [fullActionResult, setFullActionResult] = useState<any>(null);
@@ -237,47 +341,7 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
 
     // Check for Azure Auth Error
     if (typeof thoughtContent === 'string' && (thoughtContent.includes("Azure Authentication Required") || thoughtContent.includes("Please log in"))) {
-        return (
-            <div className="flex justify-center my-6 animate-fade-in px-8">
-                <div className="bg-blue-500/10 border border-blue-500/20 backdrop-blur-sm text-blue-200 text-xs px-6 py-4 rounded-xl shadow-sm flex flex-col items-center gap-3 max-w-md text-center">
-                    <div className="flex items-center gap-2 font-bold text-blue-100">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span>Azure Authentication Required</span>
-                    </div>
-                    <p className="opacity-80">The agent cannot connect to Kusto because you are not logged in to Azure.</p>
-                    <button
-                        onClick={async () => {
-                            try {
-                                await api.startAzureLogin();
-                                // Poll for Azure auth status every 3 seconds for up to 2 minutes
-                                let attempts = 0;
-                                const maxAttempts = 40;
-                                const poller = setInterval(async () => {
-                                    attempts++;
-                                    try {
-                                        const status = await api.getAzureAuthStatus();
-                                        if (status.authenticated) {
-                                            clearInterval(poller);
-                                            alert("Successfully authenticated with Azure! You can now restart the investigation.");
-                                        } else if (attempts >= maxAttempts) {
-                                            clearInterval(poller);
-                                        }
-                                    } catch {
-                                        if (attempts >= maxAttempts) clearInterval(poller);
-                                    }
-                                }, 3000);
-                                alert("Azure login started — a browser window should open. Complete the login there.");
-                            } catch (e: any) {
-                                alert("Failed to start Azure login: " + e.message);
-                            }
-                        }}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold transition-colors shadow-lg shadow-blue-500/20"
-                    >
-                        Login to Azure via Browser
-                    </button>
-                </div>
-            </div>
-        );
+        return <AzureAuthPrompt />;
     }
 
     if (isObservation) {
