@@ -1,7 +1,6 @@
 {
   "repoRoot": "C:\\Repositories\\AM-Teleduct",
   "systemPromptPath": "",
-  "retrospectPromptPath": "",
   "knowledgeBasePath": "",
   "mcpServers": [],
   "maxSteps": 0,
@@ -13,18 +12,15 @@
   "workingDirectory": "C:\\Repositories\\AM-Teleduct\\tools\\InvestigationDashboard\\backend",
   "notifications": true,
   "investigationsPath": "",
-  "icmScriptsPath": "",
   "products": [
     {
       "id": "teleduct",
       "name": "Teleduct",
       "repoRoot": "C:/Repositories/AM-Teleduct",
       "systemPromptPath": "C:/Repositories/AM-Teleduct/.github/agents/Teleduct_Investigation.agent.md",
-      "retrospectPromptPath": "C:/Repositories/AM-Teleduct/tools/InvestigationDashboard/prompts/RetrospectPrompt.md",
       "knowledgeBasePath": "C:/Repositories/AM-Teleduct/docs/telemetry-investigations",
       "workingDirectory": "C:\\Repositories\\AM-Teleduct\\tools\\InvestigationDashboard\\backend",
-      "investigationsPath": "C:\\Repositories\\AM-Teleduct\\docs\\telemetry-investigations\\Investigations\\AgentInvestigations",
-      "icmScriptsPath": "C:/Repositories/AM-Teleduct/.skills/Teleduct/icm-automation/scripts"
+      "investigationsPath": "C:\\Repositories\\AM-Teleduct\\docs\\telemetry-investigations\\Investigations\\AgentInvestigations"
     }
   ],
   "activeProductId": "teleduct",

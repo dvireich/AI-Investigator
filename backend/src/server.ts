@@ -297,7 +297,12 @@ let config: {
 try {
     if (fs.existsSync(configFile)) {
         const savedConfig = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+        // Internal paths are auto-resolved, not user-configurable — never let saved config override them
+        const resolvedIcmScriptsPath = config.icmScriptsPath;
+        const resolvedRetrospectPromptPath = config.retrospectPromptPath;
         config = { ...config, ...savedConfig };
+        config.icmScriptsPath = resolvedIcmScriptsPath;
+        config.retrospectPromptPath = resolvedRetrospectPromptPath;
         console.log("Loaded configuration from disk.");
         // Ensure path exists after loading config (skip empty strings)
         if (config.investigationsPath) {
@@ -351,7 +356,9 @@ app.post('/api/settings', (req, res) => {
         config = { ...config, ...filtered };
 
         const tmpConfigFile = configFile + '.tmp';
-        fs.writeFileSync(tmpConfigFile, JSON.stringify(config, null, 2));
+        // Exclude internal fields that are auto-resolved and not user-configurable
+        const { icmScriptsPath: _icm, retrospectPromptPath: _retro, ...persistableConfig } = config;
+        fs.writeFileSync(tmpConfigFile, JSON.stringify(persistableConfig, null, 2));
         fs.renameSync(tmpConfigFile, configFile);
         console.log("Configuration saved to disk.");
 
