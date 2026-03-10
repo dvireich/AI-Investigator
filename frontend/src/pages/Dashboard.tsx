@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation } from '../api';
-import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle } from 'lucide-react';
+import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package } from 'lucide-react';
 
 /** Mini 5-segment step depth bar */
 const StepBar = ({ count, color }: { count: number; color: string }) => {
@@ -104,6 +104,7 @@ export const Dashboard = () => {
     const [investigations, setInvestigations] = useState<Investigation[]>([]);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted'>('all');
+    const [productFilter, setProductFilter] = useState<string>('all');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingTitle, setEditingTitle] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -234,8 +235,18 @@ export const Dashboard = () => {
         });
     };
 
+    // Get unique products from investigations
+    const uniqueProducts = Array.from(
+        new Map(
+            investigations
+                .filter(inv => inv.productId && inv.productName)
+                .map(inv => [inv.productId!, { id: inv.productId!, name: inv.productName! }])
+        ).values()
+    ).sort((a, b) => a.name.localeCompare(b.name));
+
     const filtered = investigations
         .filter(inv => filter === 'all' || inv.status === filter)
+        .filter(inv => productFilter === 'all' || inv.productId === productFilter)
         .filter(inv => {
             if (!search) return true;
             const s = search.toLowerCase();
@@ -244,6 +255,8 @@ export const Dashboard = () => {
                 (inv.query || '').toLowerCase().includes(s) ||
                 (inv.stamp || '').toLowerCase().includes(s) ||
                 (inv.issueType || '').toLowerCase().includes(s) ||
+                (inv.incidentId || '').toLowerCase().includes(s) ||
+                (inv.productName || '').toLowerCase().includes(s) ||
                 inv.id.toLowerCase().includes(s) ||
                 inv.thoughts.some(t => typeof t === 'string' && t.toLowerCase().includes(s))
             );
@@ -525,6 +538,28 @@ export const Dashboard = () => {
 
                 {/* Sort & View */}
                 <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                    {/* Product filter */}
+                    {uniqueProducts.length > 0 && (
+                        <div className="relative">
+                            <select
+                                value={productFilter}
+                                onChange={(e) => setProductFilter(e.target.value)}
+                                className={`appearance-none pl-7 pr-6 py-2 border rounded-xl text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-300 transition-all ${
+                                    productFilter !== 'all' 
+                                        ? 'bg-purple-50 border-purple-300 text-purple-700' 
+                                        : 'bg-white border-slate-200 text-slate-600'
+                                }`}
+                            >
+                                <option value="all">All Products</option>
+                                {uniqueProducts.map(p => (
+                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                ))}
+                            </select>
+                            <Package className={`absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none ${
+                                productFilter !== 'all' ? 'text-purple-500' : 'text-slate-400'
+                            }`} />
+                        </div>
+                    )}
                     <div className="relative">
                         <select
                             value={sortOrder}
@@ -579,10 +614,22 @@ export const Dashboard = () => {
             </div>
 
             {/* Results count */}
-            {(search || filter !== 'all') && sorted.length > 0 && (
-                <p className="text-xs text-slate-400 font-medium">
-                    {sorted.length} {sorted.length === 1 ? 'investigation' : 'investigations'}
-                    {search && <> matching <span className="font-bold text-slate-600">"{search}"</span></>}
+            {(search || filter !== 'all' || productFilter !== 'all') && sorted.length > 0 && (
+                <p className="text-xs text-slate-400 font-medium flex items-center gap-2">
+                    <span>{sorted.length} {sorted.length === 1 ? 'investigation' : 'investigations'}</span>
+                    {search && <><span>matching</span> <span className="font-bold text-slate-600">"{search}"</span></>}
+                    {productFilter !== 'all' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 border border-purple-200 text-purple-600 rounded-full font-bold">
+                            <Package className="w-3 h-3" />
+                            {uniqueProducts.find(p => p.id === productFilter)?.name}
+                            <button 
+                                onClick={() => setProductFilter('all')} 
+                                className="ml-0.5 hover:text-purple-800"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </span>
+                    )}
                 </p>
             )}
 
@@ -670,6 +717,11 @@ export const Dashboard = () => {
                                                         <Server className="w-2.5 h-2.5 shrink-0" />{inv.stamp}
                                                     </span>
                                                 )}
+                                                {inv.incidentId && (
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-lg" title={`IcM Incident ${inv.incidentId}`}>
+                                                        <ShieldAlert className="w-2.5 h-2.5 shrink-0" />ICM
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                         {/* Title */}
@@ -708,9 +760,21 @@ export const Dashboard = () => {
                                         </div>
                                         {/* Body */}
                                         <div className="flex-1 space-y-2">
-                                            {inv.issueType && (
-                                                <span className="inline-block text-[10px] font-mono font-bold text-brand-500 bg-brand-50 px-2 py-0.5 rounded-full">#{inv.issueType}</span>
-                                            )}
+                                            <div className="flex flex-wrap gap-1.5">
+                                                {inv.productName && (
+                                                    <span 
+                                                        className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-2 py-0.5 rounded-full cursor-pointer hover:bg-purple-100 transition-colors"
+                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProductFilter(inv.productId!); }}
+                                                        title={`Filter by ${inv.productName}`}
+                                                    >
+                                                        <Package className="w-2.5 h-2.5" />
+                                                        {inv.productName}
+                                                    </span>
+                                                )}
+                                                {inv.issueType && (
+                                                    <span className="inline-block text-[10px] font-mono font-bold text-brand-500 bg-brand-50 px-2 py-0.5 rounded-full">#{inv.issueType}</span>
+                                                )}
+                                            </div>
                                             {(inv.timeRange || inv.trackingId) && (
                                                 <div className="flex flex-wrap items-center gap-1.5">
                                                     {inv.timeRange && (
@@ -867,6 +931,16 @@ export const Dashboard = () => {
 
                                                 {/* Tags & meta */}
                                                 <div className="hidden sm:flex items-center gap-2 shrink-0">
+                                                    {inv.productName && (
+                                                        <span 
+                                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-600 bg-purple-50 border border-purple-200 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-purple-100 transition-colors"
+                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProductFilter(inv.productId!); }}
+                                                            title={`Filter by ${inv.productName}`}
+                                                        >
+                                                            <Package className="w-2.5 h-2.5" />
+                                                            {inv.productName}
+                                                        </span>
+                                                    )}
                                                     {inv.issueType && (
                                                         <span className="text-[10px] font-mono font-bold text-brand-500 bg-brand-50 px-1.5 py-0.5 rounded-full">#{inv.issueType}</span>
                                                     )}
@@ -885,6 +959,11 @@ export const Dashboard = () => {
                                                     {inv.stamp && (
                                                         <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded-lg max-w-[120px] truncate">
                                                             <Server className="w-2.5 h-2.5 shrink-0" />{inv.stamp}
+                                                        </span>
+                                                    )}
+                                                    {inv.incidentId && (
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded-lg" title={`IcM Incident ${inv.incidentId}`}>
+                                                            <ShieldAlert className="w-2.5 h-2.5 shrink-0" />ICM
                                                         </span>
                                                     )}
                                                     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${sc.chip}`}>

@@ -3,9 +3,16 @@ import { LayoutDashboard, PlusCircle, Settings, Info } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
 
+interface GitHubUser {
+    login: string;
+    name: string | null;
+    avatar_url: string;
+}
+
 export const Layout = () => {
     const location = useLocation();
     const [authenticated, setAuthenticated] = useState(false);
+    const [user, setUser] = useState<GitHubUser | null>(null);
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [loginData, setLoginData] = useState<any>(null);
     const loginPollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -22,6 +29,7 @@ export const Layout = () => {
         try {
             const status = await api.getAuthStatus();
             setAuthenticated(status.authenticated);
+            setUser(status.user || null);
         } catch (e) { console.error(e); }
     };
 
@@ -44,6 +52,8 @@ export const Layout = () => {
                         loginPollerRef.current = null;
                         setShowLoginModal(false);
                         setAuthenticated(true);
+                        // Fetch user info after successful login
+                        checkAuth();
                         alert("Successfully logged in to GitHub Copilot!");
                     }
                 } catch (e: any) {
@@ -54,7 +64,7 @@ export const Layout = () => {
                         setShowLoginModal(false);
                         alert('Login session expired. Please try again.');
                     } else if (errMsg === 'slow_down') {
-                        // Back off — skip this poll cycle
+                        // Back off - skip this poll cycle
                     }
                     // else continue polling
                 }
@@ -105,11 +115,21 @@ export const Layout = () => {
                     <Link to="/settings" className="p-2 text-slate-400 hover:text-white transition-colors">
                         <Settings size={20} />
                     </Link>
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 p-0.5">
-                        <div className="w-full h-full rounded-full bg-slate-900 flex items-center justify-center text-white text-xs font-bold">
-                            DR
+                    {user ? (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 p-0.5" title={user.name || user.login}>
+                            <img 
+                                src={user.avatar_url} 
+                                alt={user.login}
+                                className="w-full h-full rounded-full object-cover"
+                            />
                         </div>
-                    </div>
+                    ) : (
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 p-0.5">
+                            <div className="w-full h-full rounded-full bg-slate-900 flex items-center justify-center text-slate-500 text-xs font-bold">
+                                ?
+                            </div>
+                        </div>
+                    )}
                 </div>
             </header>
 

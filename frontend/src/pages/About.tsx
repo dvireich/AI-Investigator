@@ -111,8 +111,8 @@ export const About = () => (
                     <FeatureCard icon={<Globe className="w-4 h-4" />}
                         color="bg-brand-500/10 border border-brand-500/20 text-brand-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-brand-500/20"
-                        title="Works with any knowledge base"
-                        desc="Fully configurable: point it at any markdown knowledge base, any Kusto cluster, any stamp. Ships pre-configured for Teleduct but adapts to any on-call domain out of the box." />
+                        title="Multi-product support"
+                        desc="Configure multiple investigation targets with their own knowledge bases, prompts, and storage paths. Switch between products instantly from the investigation form." />
                     <FeatureCard icon={<Radio className="w-4 h-4" />}
                         color="bg-sky-500/10 border border-sky-500/20 text-sky-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-sky-500/20"

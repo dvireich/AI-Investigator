@@ -1,8 +1,61 @@
 import { useState, useEffect } from 'react';
-import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List } from 'lucide-react';
-import { api } from '../api';
+import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Brain, Database, Terminal, Archive, Shield, ChevronDown, ChevronUp, Copy, Check } from 'lucide-react';
+import { api, type Product, type ProductValidation, type PathValidationResult } from '../api';
 import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
+
+// Path config item component
+const PathItem = ({ icon: Icon, label, value, color, validation }: { icon: any; label: string; value: string; color: string; validation?: PathValidationResult | null }) => {
+    const [copied, setCopied] = useState(false);
+    const copyToClipboard = () => {
+        if (value) {
+            navigator.clipboard.writeText(value);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+        }
+    };
+
+    // Determine status: null = not configured (skip), validation error = red, ok = green
+    const hasError = validation?.error;
+
+    return (
+        <div className={`group flex items-start gap-3 p-3 rounded-xl transition-all ${hasError ? 'bg-red-50/60 hover:bg-red-50' : 'hover:bg-slate-50/80'}`}>
+            <div className={`p-2 rounded-lg ${color} shrink-0`}>
+                <Icon size={14} className="text-white" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                    <div className="text-xs font-semibold text-slate-500 uppercase tracking-wide">{label}</div>
+                    {validation && !validation.error && (
+                        <CheckCircle2 size={12} className="text-green-500 shrink-0" />
+                    )}
+                    {validation?.error && (
+                        <AlertCircle size={12} className="text-red-500 shrink-0" />
+                    )}
+                </div>
+                <div 
+                    className={`text-sm font-mono truncate cursor-pointer transition-colors ${hasError ? 'text-red-600' : 'text-slate-700 group-hover:text-brand-600'}`}
+                    title={value || 'Not configured'}
+                    onClick={copyToClipboard}
+                >
+                    {value || <span className="text-slate-300 italic font-sans">Not configured</span>}
+                </div>
+                {validation?.error && (
+                    <div className="text-xs text-red-500 mt-1 font-medium">{validation.error}</div>
+                )}
+            </div>
+            {value && (
+                <button
+                    onClick={copyToClipboard}
+                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-lg transition-all"
+                    title="Copy path"
+                >
+                    {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                </button>
+            )}
+        </div>
+    );
+};
 
 export const Settings = () => {
     const [activeTab, setActiveTab] = useState('agent');
@@ -14,6 +67,41 @@ export const Settings = () => {
     const [defaultView, setDefaultView] = useState<'grid' | 'list'>(
         () => (localStorage.getItem('inv-view') as 'grid' | 'list') ?? 'grid'
     );
+
+    // Products state
+    const [products, setProducts] = useState<Product[]>([]);
+    const [activeProductId, setActiveProductId] = useState<string>('');
+    const [showProductModal, setShowProductModal] = useState(false);
+    const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+    const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set());
+    const [productForm, setProductForm] = useState<Omit<Product, 'id'>>({
+        name: '',
+        repoRoot: '',
+        systemPromptPath: '',
+        retrospectPromptPath: '',
+        knowledgeBasePath: '',
+        workingDirectory: '',
+        investigationsPath: '',
+        icmScriptsPath: ''
+    });
+    const [productBrowserTarget, setProductBrowserTarget] = useState<keyof Omit<Product, 'id' | 'name'> | null>(null);
+
+    // Product validation state
+    const [productValidations, setProductValidations] = useState<Record<string, ProductValidation>>({});
+    // Modal-level validation after save
+    const [modalValidation, setModalValidation] = useState<ProductValidation | null>(null);
+
+    const toggleProductExpanded = (productId: string) => {
+        setExpandedProducts(prev => {
+            const next = new Set(prev);
+            if (next.has(productId)) {
+                next.delete(productId);
+            } else {
+                next.add(productId);
+            }
+            return next;
+        });
+    };
 
     const handleDefaultViewChange = (mode: 'grid' | 'list') => {
         setDefaultView(mode);
@@ -33,18 +121,13 @@ export const Settings = () => {
         autoRefreshInterval: 30,
         defaultTimeRange: 'ago(1h)',
         notifications: true,
-        model: 'gpt-4-turbo',
-        repoRoot: '',
-        systemPromptPath: '',
-        retrospectPromptPath: '',
-        knowledgeBasePath: '',
-        workingDirectory: '',
-        investigationsPath: ''
+        model: 'gpt-4-turbo'
     });
 
     useEffect(() => {
         loadSettings();
         loadModels();
+        loadProducts();
     }, []);
 
     const loadModels = async () => {
@@ -54,6 +137,41 @@ export const Settings = () => {
         } catch (e) {
             console.error("Failed to load models", e);
             setAvailableModels(['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo']);
+        }
+    };
+
+    const loadProducts = async () => {
+        try {
+            const productsList = await api.listProducts();
+            setProducts(productsList);
+            const active = await api.getActiveProduct();
+            if (active) {
+                setActiveProductId(active.id);
+            }
+            // Validate all products
+            const validations: Record<string, ProductValidation> = {};
+            await Promise.all(productsList.map(async (p) => {
+                try {
+                    validations[p.id] = await api.validateProduct(p.id);
+                } catch {
+                    // ignore validation failures
+                }
+            }));
+            setProductValidations(validations);
+
+            // Auto-expand products that have validation errors
+            const errorProductIds = Object.entries(validations)
+                .filter(([, v]) => !v.valid)
+                .map(([id]) => id);
+            if (errorProductIds.length > 0) {
+                setExpandedProducts(prev => {
+                    const next = new Set(prev);
+                    errorProductIds.forEach(id => next.add(id));
+                    return next;
+                });
+            }
+        } catch (e) {
+            console.error("Failed to load products:", e);
         }
     };
 
@@ -107,6 +225,7 @@ export const Settings = () => {
     };
 
     const tabs = [
+        { id: 'products', label: 'Products', icon: <Package size={18} /> },
         { id: 'agent', label: 'Agent Behavior', icon: <Cpu size={18} /> },
         { id: 'appearance', label: 'Appearance', icon: <Layout size={18} /> },
         { id: 'system', label: 'System', icon: <Monitor size={18} /> },
@@ -139,6 +258,239 @@ export const Settings = () => {
 
                 {/* Scrollable Content Area */}
                 <div className="flex-1 overflow-y-auto p-10 space-y-10 relative z-10 custom-scrollbar">
+
+                    {activeTab === 'products' && (
+                        <div className="space-y-8 animate-fade-in">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-slate-800 mb-2 flex items-center gap-2">
+                                        <Package className="text-purple-500" /> Products
+                                    </h2>
+                                    <p className="text-slate-500">Configure investigation targets with their own paths and settings.</p>
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setEditingProduct(null);
+                                        setProductForm({
+                                            name: '',
+                                            repoRoot: '',
+                                            systemPromptPath: '',
+                                            retrospectPromptPath: '',
+                                            knowledgeBasePath: '',
+                                            workingDirectory: '',
+                                            investigationsPath: '',
+                                            icmScriptsPath: ''
+                                        });
+                                        setModalValidation(null);
+                                        setShowProductModal(true);
+                                    }}
+                                    className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold shadow-lg shadow-brand-500/20 transition-all"
+                                >
+                                    <Plus size={18} /> Add Product
+                                </button>
+                            </div>
+
+                            {/* Active Product Selector */}
+                            <div className="bg-white/50 p-6 rounded-2xl border border-white/60 shadow-sm space-y-4">
+                                <label className="text-sm font-bold text-slate-700 block">Active Product</label>
+                                <p className="text-xs text-slate-400">New investigations will use the paths from the selected product.</p>
+                                <select
+                                    value={activeProductId}
+                                    onChange={async (e) => {
+                                        try {
+                                            await api.setActiveProduct(e.target.value);
+                                            setActiveProductId(e.target.value);
+                                        } catch (err) {
+                                            console.error('Failed to set active product:', err);
+                                        }
+                                    }}
+                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white/80 focus:ring-2 focus:ring-brand-500 outline-none"
+                                >
+                                    {products.map(p => (
+                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Product List */}
+                            <div className="space-y-4">
+                                {products.map(product => {
+                                    const isExpanded = expandedProducts.has(product.id);
+                                    const isActive = product.id === activeProductId;
+                                    const validation = productValidations[product.id];
+                                    const errorCount = validation?.paths.filter(p => p.error).length ?? 0;
+                                    const configuredCount = [
+                                        product.repoRoot,
+                                        product.systemPromptPath,
+                                        product.retrospectPromptPath,
+                                        product.knowledgeBasePath,
+                                        product.workingDirectory,
+                                        product.investigationsPath,
+                                        product.icmScriptsPath
+                                    ].filter(Boolean).length;
+
+                                    return (
+                                        <div 
+                                            key={product.id} 
+                                            className={`bg-gradient-to-br from-white/80 to-white/40 rounded-2xl border shadow-sm overflow-hidden transition-all duration-300 ${
+                                                errorCount > 0
+                                                    ? 'border-red-300 ring-2 ring-red-100 shadow-red-100/50'
+                                                    : isActive 
+                                                        ? 'border-brand-300 ring-2 ring-brand-100 shadow-brand-100/50' 
+                                                        : 'border-slate-200/60 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            {/* Header */}
+                                            <div 
+                                                className={`p-5 cursor-pointer transition-colors ${isExpanded ? 'bg-slate-50/50' : 'hover:bg-slate-50/30'}`}
+                                                onClick={() => toggleProductExpanded(product.id)}
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-4">
+                                                        <div className={`p-3 rounded-xl ${isActive ? 'bg-gradient-to-br from-brand-500 to-brand-600 shadow-lg shadow-brand-500/30' : 'bg-gradient-to-br from-slate-400 to-slate-500'}`}>
+                                                            <Package size={20} className="text-white" />
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-3">
+                                                                <h3 className="font-bold text-lg text-slate-800">{product.name}</h3>
+                                                                {isActive && (
+                                                                    <span className="flex items-center gap-1 text-xs px-2.5 py-1 bg-gradient-to-r from-brand-500 to-brand-600 text-white rounded-full font-semibold shadow-sm">
+                                                                        <CheckCircle2 size={12} /> Active
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-2 mt-1">
+                                                                <span className="text-xs text-slate-400">
+                                                                    {configuredCount}/7 paths configured
+                                                                </span>
+                                                                <div className="flex gap-0.5">
+                                                                    {[...Array(7)].map((_, i) => (
+                                                                        <div 
+                                                                            key={i} 
+                                                                            className={`w-1.5 h-1.5 rounded-full ${i < configuredCount ? 'bg-brand-500' : 'bg-slate-200'}`}
+                                                                        />
+                                                                    ))}
+                                                                </div>
+                                                                {errorCount > 0 && (
+                                                                    <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-red-100 text-red-600 rounded-full font-semibold">
+                                                                        <AlertCircle size={10} /> {errorCount} path {errorCount === 1 ? 'issue' : 'issues'}
+                                                                    </span>
+                                                                )}
+                                                                {validation && errorCount === 0 && validation.paths.length > 0 && (
+                                                                    <span className="flex items-center gap-1 text-xs px-2 py-0.5 bg-green-100 text-green-600 rounded-full font-semibold">
+                                                                        <CheckCircle2 size={10} /> All paths valid
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setEditingProduct(product);
+                                                                setProductForm({
+                                                                    name: product.name,
+                                                                    repoRoot: product.repoRoot,
+                                                                    systemPromptPath: product.systemPromptPath,
+                                                                    retrospectPromptPath: product.retrospectPromptPath,
+                                                                    knowledgeBasePath: product.knowledgeBasePath,
+                                                                    workingDirectory: product.workingDirectory,
+                                                                    investigationsPath: product.investigationsPath,
+                                                                    icmScriptsPath: product.icmScriptsPath
+                                                                });
+                                                                setModalValidation(productValidations[product.id] || null);
+                                                                setShowProductModal(true);
+                                                            }}
+                                                            className="p-2.5 text-slate-400 hover:text-brand-600 hover:bg-brand-50 rounded-xl transition-all"
+                                                            title="Edit product"
+                                                        >
+                                                            <Pencil size={18} />
+                                                        </button>
+                                                        <button
+                                                            onClick={async (e) => {
+                                                                e.stopPropagation();
+                                                                if (products.length <= 1) {
+                                                                    setError('Cannot delete the last product');
+                                                                    return;
+                                                                }
+                                                                if (confirm(`Delete "${product.name}"?`)) {
+                                                                    try {
+                                                                        await api.deleteProduct(product.id);
+                                                                        await loadProducts();
+                                                                    } catch (err: any) {
+                                                                        setError(err.message);
+                                                                    }
+                                                                }
+                                                            }}
+                                                            className="p-2.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                                                            title="Delete product"
+                                                        >
+                                                            <Trash2 size={18} />
+                                                        </button>
+                                                        <div className={`p-2 text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`}>
+                                                            <ChevronDown size={20} />
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Expandable Content */}
+                                            <div className={`overflow-hidden transition-all duration-300 ${isExpanded ? 'max-h-[800px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                                                <div className="px-5 pb-5 border-t border-slate-100">
+                                                    {/* Path issues banner */}
+                                                    {errorCount > 0 && (
+                                                        <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-start gap-3">
+                                                            <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                                                            <div className="text-sm text-red-700">
+                                                                <span className="font-semibold">Investigations cannot start</span> until all path issues are resolved. Paths must be absolute and exist on disk.
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-1 pt-4">
+                                                        {/* Repository & Storage */}
+                                                        <div className="space-y-1">
+                                                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 py-2">Repository & Storage</div>
+                                                            <PathItem icon={GitBranch} label="Repository Root" value={product.repoRoot} color="bg-emerald-500" validation={validation?.paths.find(p => p.field === 'repoRoot')} />
+                                                            <PathItem icon={Archive} label="Investigations Storage" value={product.investigationsPath} color="bg-amber-500" validation={validation?.paths.find(p => p.field === 'investigationsPath')} />
+                                                            <PathItem icon={Terminal} label="Working Directory" value={product.workingDirectory} color="bg-slate-500" validation={validation?.paths.find(p => p.field === 'workingDirectory')} />
+                                                        </div>
+                                                        {/* Agent Configuration */}
+                                                        <div className="space-y-1">
+                                                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider px-3 py-2">Agent Configuration</div>
+                                                            <PathItem icon={FileText} label="System Prompt" value={product.systemPromptPath} color="bg-blue-500" validation={validation?.paths.find(p => p.field === 'systemPromptPath')} />
+                                                            <PathItem icon={Brain} label="Retrospective Prompt" value={product.retrospectPromptPath} color="bg-purple-500" validation={validation?.paths.find(p => p.field === 'retrospectPromptPath')} />
+                                                            <PathItem icon={Database} label="Knowledge Base" value={product.knowledgeBasePath} color="bg-indigo-500" validation={validation?.paths.find(p => p.field === 'knowledgeBasePath')} />
+                                                            <PathItem icon={Shield} label="ICM Scripts" value={product.icmScriptsPath} color="bg-rose-500" validation={validation?.paths.find(p => p.field === 'icmScriptsPath')} />
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {/* Quick Actions */}
+                                                    {!isActive && (
+                                                        <div className="mt-4 pt-4 border-t border-slate-100">
+                                                            <button
+                                                                onClick={async () => {
+                                                                    try {
+                                                                        await api.setActiveProduct(product.id);
+                                                                        setActiveProductId(product.id);
+                                                                    } catch (err) {
+                                                                        console.error('Failed to set active product:', err);
+                                                                    }
+                                                                }}
+                                                                className="w-full py-3 px-4 bg-gradient-to-r from-brand-500 to-brand-600 hover:from-brand-600 hover:to-brand-700 text-white rounded-xl font-semibold shadow-lg shadow-brand-500/20 transition-all flex items-center justify-center gap-2"
+                                                            >
+                                                                <CheckCircle2 size={18} /> Set as Active Product
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
 
                     {activeTab === 'agent' && (
                         <div className="space-y-8 animate-fade-in">
@@ -214,138 +566,6 @@ export const Settings = () => {
                                         )}
                                     </select>
                                     <p className="text-xs text-slate-400">Select the LLM to drive the investigation agent. List fetched from Copilot.</p>
-                                </div>
-
-                                {/* Agent Paths */}
-                                <div className="bg-white/50 p-6 rounded-2xl border border-white/60 shadow-sm space-y-4">
-                                    <label className="text-sm font-bold text-slate-700 block">Agent Paths</label>
-
-                                    <div className="space-y-4">
-                                        <div>
-                                            <label className="block text-xs font-semibold text-slate-500 mb-1">Repository Root</label>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={config.repoRoot || ''}
-                                                    onChange={(e) => handleChange('repoRoot', e.target.value)}
-                                                    className="w-full px-4 py-2 rounded-xl border border-slate-200 bg-white/80 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all font-mono text-xs"
-                                                    placeholder="/path/to/your/repo"
-                                                />
-                                                <button
-                                                    onClick={() => openFileBrowser('repoRoot', 'directory')}
-                                                    className="px-3 py-2 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded-lg border border-slate-200 transition-colors"
-                                                    title="Browse Directory"
-                                                >
-                                                    <FolderOpen className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                            <p className="text-xs text-slate-400 mt-1">Root of the repository. All relative paths are resolved from here.</p>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-xs font-semibold text-slate-500 mb-1">System Prompt Path</label>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={config.systemPromptPath || ''}
-                                                    onChange={(e) => handleChange('systemPromptPath', e.target.value)}
-                                                    className="w-full px-4 py-2 rounded-xl border border-slate-200 bg-white/80 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all font-mono text-xs"
-                                                    placeholder="/path/to/Agent.md"
-                                                />
-                                                <button
-                                                    onClick={() => openFileBrowser('systemPromptPath', 'file')}
-                                                    className="px-3 py-2 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded-lg border border-slate-200 transition-colors"
-                                                    title="Browse File"
-                                                >
-                                                    <FolderOpen className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-xs font-semibold text-slate-500 mb-1">Retrospective Prompt Path</label>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={config.retrospectPromptPath || ''}
-                                                    onChange={(e) => handleChange('retrospectPromptPath', e.target.value)}
-                                                    className="w-full px-4 py-2 rounded-xl border border-slate-200 bg-white/80 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all font-mono text-xs"
-                                                    placeholder="/path/to/RetrospectPrompt.md"
-                                                />
-                                                <button
-                                                    onClick={() => openFileBrowser('retrospectPromptPath', 'file')}
-                                                    className="px-3 py-2 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded-lg border border-slate-200 transition-colors"
-                                                    title="Browse File"
-                                                >
-                                                    <FolderOpen className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                            <p className="text-xs text-slate-400 mt-1">Template file for the retrospective analysis prompt. Supports {'{{GOAL}}'}, {'{{STATUS}}'}, {'{{STAMP}}'}, {'{{ISSUE_TYPE}}'}, {'{{KNOWLEDGE_BASE_FILES}}'} placeholders.</p>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-xs font-semibold text-slate-500 mb-1">Knowledge Base Path</label>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={config.knowledgeBasePath || ''}
-                                                    onChange={(e) => handleChange('knowledgeBasePath', e.target.value)}
-                                                    className="w-full px-4 py-2 rounded-xl border border-slate-200 bg-white/80 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all font-mono text-xs"
-                                                    placeholder="docs/investigations"
-                                                />
-                                                <button
-                                                    onClick={() => openFileBrowser('knowledgeBasePath', 'directory')}
-                                                    className="px-3 py-2 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded-lg border border-slate-200 transition-colors"
-                                                    title="Browse Directory"
-                                                >
-                                                    <FolderOpen className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                            <p className="text-xs text-slate-400 mt-1">Repo-relative path to the knowledge base directory (investigation guides). Used by the retrospective for doc discovery.</p>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-xs font-semibold text-slate-500 mb-1">Working Directory</label>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={config.workingDirectory || ''}
-                                                    onChange={(e) => handleChange('workingDirectory', e.target.value)}
-                                                    className="w-full px-4 py-2 rounded-xl border border-slate-200 bg-white/80 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all font-mono text-xs"
-                                                    placeholder="/path/to/working/directory"
-                                                />
-                                                <button
-                                                    onClick={() => openFileBrowser('workingDirectory', 'directory')}
-                                                    className="px-3 py-2 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded-lg border border-slate-200 transition-colors"
-                                                    title="Browse Directory"
-                                                >
-                                                    <FolderOpen className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                            <p className="text-xs text-slate-400 mt-1">Tools and scripts will execute relative to this directory.</p>
-                                        </div>
-
-                                        <div>
-                                            <label className="block text-xs font-semibold text-slate-500 mb-1">Investigation Storage Path</label>
-                                            <div className="flex gap-2">
-                                                <input
-                                                    type="text"
-                                                    value={config.investigationsPath || ''}
-                                                    onChange={(e) => handleChange('investigationsPath', e.target.value)}
-                                                    className="w-full px-4 py-2 rounded-xl border border-slate-200 bg-white/80 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition-all font-mono text-xs"
-                                                    placeholder="/path/to/investigations"
-                                                />
-                                                <button
-                                                    onClick={() => openFileBrowser('investigationsPath', 'directory')}
-                                                    className="px-3 py-2 bg-slate-100 hover:bg-brand-50 hover:text-brand-600 rounded-lg border border-slate-200 transition-colors"
-                                                    title="Browse Directory"
-                                                >
-                                                    <FolderOpen className="w-4 h-4" />
-                                                </button>
-                                            </div>
-                                            <p className="text-xs text-slate-400 mt-1">Directory where investigation data and logs are stored.</p>
-                                        </div>
-                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -437,7 +657,8 @@ export const Settings = () => {
 
                 </div>
 
-                {/* Footer Actions */}
+                {/* Footer Actions — hidden on Products tab (products save through their own modal) */}
+                {activeTab !== 'products' && (
                 <div className="p-6 border-t border-white/50 bg-white/40 backdrop-blur-sm flex justify-between items-center gap-4">
                     <div className="flex items-center gap-2">
                         {saveSuccess && (
@@ -475,6 +696,7 @@ export const Settings = () => {
                         </button>
                     </div>
                 </div>
+                )}
             </div>
 
             <FileBrowserModal
@@ -485,6 +707,160 @@ export const Settings = () => {
                 title={browserMode === 'file' ? 'Select File' : 'Select Directory'}
                 initialPath={browserTarget && config[browserTarget] ? config[browserTarget] as string : undefined}
             />
+
+            {/* Product Add/Edit Modal */}
+            {showProductModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 animate-fade-in">
+                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden">
+                        <div className="p-6 border-b border-slate-100 flex items-center justify-between">
+                            <h3 className="text-xl font-bold text-slate-800">
+                                {editingProduct ? 'Edit Product' : 'Add Product'}
+                            </h3>
+                            <button
+                                onClick={() => setShowProductModal(false)}
+                                className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-all"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4 overflow-y-auto max-h-[60vh]">
+                            <div>
+                                <label className="text-sm font-bold text-slate-700 block mb-2">Product Name</label>
+                                <input
+                                    type="text"
+                                    value={productForm.name}
+                                    onChange={(e) => setProductForm(prev => ({ ...prev, name: e.target.value }))}
+                                    className="w-full px-4 py-3 rounded-xl border border-slate-200 bg-white focus:ring-2 focus:ring-brand-500 outline-none"
+                                    placeholder="e.g., Teleduct, MyService"
+                                />
+                            </div>
+                            {/* Modal-level validation warning */}
+                            {modalValidation && !modalValidation.valid && (
+                                <div className="flex items-start gap-3 p-3 bg-red-50 border border-red-200 rounded-xl">
+                                    <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                                    <div className="text-sm text-red-700">
+                                        <span className="font-semibold">Path issues detected.</span> Investigations cannot start until these are resolved. All paths must be absolute and exist on disk.
+                                    </div>
+                                </div>
+                            )}
+                            {([
+                                { key: 'repoRoot', label: 'Repository Root', mode: 'directory' as const },
+                                { key: 'systemPromptPath', label: 'System Prompt Path', mode: 'file' as const },
+                                { key: 'retrospectPromptPath', label: 'Retrospect Prompt Path', mode: 'file' as const },
+                                { key: 'knowledgeBasePath', label: 'Knowledge Base Path', mode: 'directory' as const },
+                                { key: 'workingDirectory', label: 'Working Directory', mode: 'directory' as const },
+                                { key: 'investigationsPath', label: 'Investigations Path', mode: 'directory' as const },
+                                { key: 'icmScriptsPath', label: 'ICM Scripts Path', mode: 'directory' as const }
+                            ] as const).map(({ key, label, mode }) => {
+                                const pathError = modalValidation?.paths.find(p => p.field === key);
+                                const hasError = pathError?.error;
+                                return (
+                                <div key={key}>
+                                    <label className="text-sm font-bold text-slate-700 block mb-2">{label}</label>
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            value={productForm[key]}
+                                            onChange={(e) => {
+                                                setProductForm(prev => ({ ...prev, [key]: e.target.value }));
+                                                if (modalValidation) setModalValidation(null);
+                                            }}
+                                            className={`flex-1 px-4 py-3 rounded-xl border bg-white focus:ring-2 outline-none font-mono text-sm transition-colors ${
+                                                hasError
+                                                    ? 'border-red-400 focus:ring-red-300 bg-red-50/50'
+                                                    : pathError && !hasError
+                                                        ? 'border-green-400 focus:ring-green-300'
+                                                        : 'border-slate-200 focus:ring-brand-500'
+                                            }`}
+                                            placeholder={`Path to ${label.toLowerCase()}`}
+                                        />
+                                        <button
+                                            onClick={() => {
+                                                setProductBrowserTarget(key);
+                                                setBrowserMode(mode);
+                                                setShowFileBrowser(true);
+                                            }}
+                                            className="px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all"
+                                            title={`Browse for ${label.toLowerCase()}`}
+                                        >
+                                            <FolderOpen size={18} />
+                                        </button>
+                                    </div>
+                                    {hasError && (
+                                        <p className="text-xs text-red-500 mt-1 flex items-center gap-1">
+                                            <AlertCircle size={12} /> {pathError.error}
+                                        </p>
+                                    )}
+                                </div>
+                                );
+                            })}
+                        </div>
+                        <div className="p-6 border-t border-slate-100 flex justify-end gap-3">
+                            <button
+                                onClick={() => setShowProductModal(false)}
+                                className="px-6 py-3 text-slate-500 font-semibold hover:text-slate-700 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={async () => {
+                                    if (!productForm.name.trim()) {
+                                        setError('Product name is required');
+                                        return;
+                                    }
+                                    try {
+                                        let savedProductId: string;
+                                        if (editingProduct) {
+                                            const updated = await api.updateProduct(editingProduct.id, productForm);
+                                            savedProductId = updated.id;
+                                        } else {
+                                            const created = await api.addProduct(productForm);
+                                            savedProductId = created.id;
+                                        }
+                                        // Validate after save
+                                        const validation = await api.validateProduct(savedProductId);
+                                        setModalValidation(validation);
+                                        // Reload products to refresh cards
+                                        await loadProducts();
+                                        if (validation.valid) {
+                                            // All good, close modal
+                                            setShowProductModal(false);
+                                            setModalValidation(null);
+                                        }
+                                        // If not valid, keep modal open so user sees errors
+                                    } catch (err: any) {
+                                        setError(err.message);
+                                    }
+                                }}
+                                className="px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold shadow-lg shadow-brand-500/20 transition-all"
+                            >
+                                {editingProduct ? 'Save Changes' : 'Add Product'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Product File Browser - update product form when file is selected */}
+            {productBrowserTarget && (
+                <FileBrowserModal
+                    isOpen={showFileBrowser && productBrowserTarget !== null}
+                    onClose={() => {
+                        setShowFileBrowser(false);
+                        setProductBrowserTarget(null);
+                    }}
+                    onSelect={(path) => {
+                        if (productBrowserTarget) {
+                            setProductForm(prev => ({ ...prev, [productBrowserTarget]: path }));
+                        }
+                        setShowFileBrowser(false);
+                        setProductBrowserTarget(null);
+                    }}
+                    mode={browserMode}
+                    title={browserMode === 'file' ? 'Select File' : 'Select Directory'}
+                    initialPath={productBrowserTarget && productForm[productBrowserTarget] ? productForm[productBrowserTarget] : undefined}
+                />
+            )}
         </div>
     );
 };

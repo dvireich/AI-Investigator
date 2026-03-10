@@ -87,6 +87,24 @@ Set-Location "$PSScriptRoot\frontend"
 npm install
 if ($LASTEXITCODE -ne 0) { Write-Error "Frontend install failed"; exit 1 }
 
+# --- ICM Scripts (Playwright) ---
+$icmScriptsDir = Join-Path $PSScriptRoot ".." ".." ".skills" "Teleduct" "icm-automation" "scripts"
+$icmScriptsDir = (Resolve-Path $icmScriptsDir -ErrorAction SilentlyContinue).Path
+if ($icmScriptsDir -and (Test-Path (Join-Path $icmScriptsDir "package.json"))) {
+    Write-Host ""
+    Write-Host "Installing ICM Script Dependencies (Playwright)..." -ForegroundColor Yellow
+    Set-Location $icmScriptsDir
+    npm ci
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "ICM script dependency install failed. ICM incident reading may not work until manually resolved."
+    } else {
+        Write-Host "ICM script dependencies installed." -ForegroundColor Green
+    }
+} else {
+    Write-Host ""
+    Write-Host "ICM scripts directory not found - skipping Playwright install." -ForegroundColor DarkGray
+}
+
 Write-Host ""
 Write-Host "Setup Complete! You can now run 'Run-Dashboard.ps1'" -ForegroundColor Green
 Set-Location $PSScriptRoot

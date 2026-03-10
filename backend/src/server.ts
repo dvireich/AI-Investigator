@@ -6,6 +6,7 @@ import { AgentRunner, InvestigationState } from './agent/Runner';
 import { CopilotClient } from './agent/CopilotClient';
 import * as fs from 'fs';
 import * as path from 'path';
+import { spawn } from 'child_process';
 
 const app = express();
 const port = 3000;
@@ -23,6 +24,15 @@ const copilotClient = new CopilotClient();
 app.use(cors());
 app.use(express.json());
 
+// Handle JSON parse errors from body-parser gracefully
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err.type === 'entity.parse.failed') {
+        console.error(`JSON parse error on ${req.method} ${req.url}:`, err.message);
+        return res.status(400).json({ error: 'Invalid JSON in request body' });
+    }
+    next(err);
+});
+
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
@@ -39,85 +49,107 @@ function ensureDirectoryExists(dir: string) {
 }
 
 function loadHistory() {
-    const dir = config.investigationsPath || path.join(process.cwd(), 'investigations');
-    ensureDirectoryExists(dir);
+    // Collect all investigation directories to scan
+    const dirsToScan: { dir: string; productId?: string }[] = [];
+    
+    // Add global/default investigations path
+    const globalDir = config.investigationsPath || path.join(process.cwd(), 'investigations');
+    dirsToScan.push({ dir: globalDir });
+    
+    // Add each product's investigations path
+    if (config.products && config.products.length > 0) {
+        for (const product of config.products) {
+            if (product.investigationsPath && product.investigationsPath !== globalDir) {
+                dirsToScan.push({ dir: product.investigationsPath, productId: product.id });
+            }
+        }
+    }
+    
+    console.log(`Scanning ${dirsToScan.length} investigation directories...`);
+    
+    for (const { dir, productId } of dirsToScan) {
+        ensureDirectoryExists(dir);
+        
+        try {
+            const files = fs.readdirSync(dir);
+            console.log(`Scanning ${files.length} files in ${dir}${productId ? ` (product: ${productId})` : ''}`);
 
-    try {
-        const files = fs.readdirSync(dir);
-        console.log(`Scanning ${files.length} files in ${dir}`);
+            // 1. Scan for directories (New Structure) and JSON files (Legacy)
+            for (const file of files) {
+                const fullPath = path.join(dir, file);
+                try {
+                    const stat = fs.statSync(fullPath);
 
-        // 1. Scan for directories (New Structure) and JSON files (Legacy)
-        for (const file of files) {
-            const fullPath = path.join(dir, file);
-            try {
-                const stat = fs.statSync(fullPath);
+                    if (stat.isDirectory()) {
+                        // Check for state.json inside
+                        const statePath = path.join(fullPath, 'state.json');
+                        if (fs.existsSync(statePath)) {
+                            const content = fs.readFileSync(statePath, 'utf-8');
+                            const state = JSON.parse(content) as InvestigationState;
 
-                if (stat.isDirectory()) {
-                    // Check for state.json inside
-                    const statePath = path.join(fullPath, 'state.json');
-                    if (fs.existsSync(statePath)) {
-                        const content = fs.readFileSync(statePath, 'utf-8');
+                            // Force running investigations to pause on server restart
+                            if (state.status === 'running') {
+                                state.status = 'paused';
+                                state.thoughts.push("System: Investigation automatically paused due to server restart.");
+                            }
+
+                            // Tag with productId if loaded from a product directory and not already tagged
+                            if (productId && !state.productId) {
+                                state.productId = productId;
+                            }
+
+                            if (state.id) history.set(state.id, state);
+                        }
+                    } else if (file.endsWith('.json')) {
+                        // Legacy flat file support
+                        const content = fs.readFileSync(fullPath, 'utf-8');
                         const state = JSON.parse(content) as InvestigationState;
 
-                        // Force running investigations to pause on server restart
                         if (state.status === 'running') {
                             state.status = 'paused';
                             state.thoughts.push("System: Investigation automatically paused due to server restart.");
                         }
 
+                        // Tag with productId if loaded from a product directory and not already tagged
+                        if (productId && !state.productId) {
+                            state.productId = productId;
+                        }
+
                         if (state.id) history.set(state.id, state);
                     }
-                } else if (file.endsWith('.json')) {
-                    // Legacy flat file support
-                    const content = fs.readFileSync(fullPath, 'utf-8');
-                    const state = JSON.parse(content) as InvestigationState;
-
-                    if (state.status === 'running') {
-                        state.status = 'paused';
-                        state.thoughts.push("System: Investigation automatically paused due to server restart.");
-                    }
-
-                    if (state.id) history.set(state.id, state);
-                }
-            } catch (e) {
-                console.error(`Failed to load ${file}:`, e);
-            }
-        }
-
-        // 2. Load Markdown reports (legacy/completed) if no JSON exists for them
-        const mdFiles = files.filter(f => f.endsWith('.md'));
-        for (const file of mdFiles) {
-            // Check if we already have a state for this file (matching ID or similar name)
-            // Heuristic: MD filenames often don't match JSON IDs exactly in legacy, 
-            // but for new ones they do. 
-            // We'll create a synthetic ID from the filename.
-            const id = file.replace('.md', '');
-
-            // If we don't have this ID yet (from JSON), create a synthetic state
-            if (!history.has(id)) {
-                // Try to exist smarter: check if any existing JSON state *generated* this MD file?
-                // Hard to know without metadata. We'll treat it as a separate entry if no JSON match.
-                // Actually, let's just add them as "Archived" investigations.
-
-                try {
-                    const stats = fs.statSync(path.join(dir, file));
-                    history.set(id, {
-                        id: id,
-                        status: 'completed', // Assume completed if report exists
-                        thoughts: [`Legacy report loaded from ${file}`],
-                        actions: [],
-                        logs: [`Imported from ${file} on ${new Date().toISOString()}`],
-                        // Use file creation time as timestamp roughly
-                    });
                 } catch (e) {
-                    console.error(`Failed to load legacy MD ${file}:`, e);
+                    console.error(`Failed to load ${file}:`, e);
                 }
             }
+
+            // 2. Load Markdown reports (legacy/completed) if no JSON exists for them
+            const mdFiles = files.filter(f => f.endsWith('.md'));
+            for (const file of mdFiles) {
+                const id = file.replace('.md', '');
+
+                // If we don't have this ID yet (from JSON), create a synthetic state
+                if (!history.has(id)) {
+                    try {
+                        const stats = fs.statSync(path.join(dir, file));
+                        history.set(id, {
+                            id: id,
+                            status: 'completed',
+                            thoughts: [`Legacy report loaded from ${file}`],
+                            actions: [],
+                            logs: [`Imported from ${file} on ${new Date().toISOString()}`],
+                            productId: productId, // Tag with product if from product directory
+                        });
+                    } catch (e) {
+                        console.error(`Failed to load legacy MD ${file}:`, e);
+                    }
+                }
+            }
+        } catch (e) {
+            console.error(`Failed to read investigations directory ${dir}:`, e);
         }
-        console.log(`Loaded ${history.size} total investigations into history.`);
-    } catch (e) {
-        console.error("Failed to read investigations directory:", e);
     }
+    
+    console.log(`Loaded ${history.size} total investigations into history.`);
 }
 
 
@@ -186,12 +218,42 @@ const configFile = path.join(__dirname, '..', 'config.json');
 // Expected layout: <repoRoot>/tools/InvestigationDashboard/backend/src/server.ts (4 levels up)
 const defaultRepoRoot = path.resolve(__dirname, '..', '..', '..', '..');
 
-let config = {
+interface Product {
+    id: string;
+    name: string;
+    repoRoot: string;
+    systemPromptPath: string;
+    retrospectPromptPath: string;
+    knowledgeBasePath: string;
+    workingDirectory: string;
+    investigationsPath: string;
+    icmScriptsPath: string;
+}
+
+let config: {
+    repoRoot: string;
+    systemPromptPath: string;
+    retrospectPromptPath: string;
+    knowledgeBasePath: string;
+    mcpServers: string[];
+    maxSteps: number;
+    retrospectTimeoutMinutes: number;
+    model: string;
+    defaultTimeRange: string;
+    maxConcurrentInvestigations: number;
+    autoRefreshInterval: number;
+    workingDirectory: string;
+    notifications: boolean;
+    investigationsPath: string;
+    icmScriptsPath: string;
+    products: Product[];
+    activeProductId: string;
+} = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
     retrospectPromptPath: '',
     knowledgeBasePath: '',
-    mcpServers: [] as string[],
+    mcpServers: [],
     maxSteps: 50,
     retrospectTimeoutMinutes: 10,
     model: 'gpt-4-turbo',
@@ -200,7 +262,10 @@ let config = {
     autoRefreshInterval: 30,
     workingDirectory: process.cwd(),
     notifications: true,
-    investigationsPath: ''
+    investigationsPath: '',
+    icmScriptsPath: '',
+    products: [],
+    activeProductId: ''
 };
 
 // Load config from disk if exists
@@ -251,7 +316,8 @@ app.post('/api/settings', (req, res) => {
             'repoRoot', 'systemPromptPath', 'retrospectPromptPath', 'knowledgeBasePath',
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
             'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
-            'notifications', 'investigationsPath'
+            'notifications', 'investigationsPath', 'products', 'activeProductId', 'icmScriptsPath',
+            'theme'
         ]);
         const filtered = Object.fromEntries(
             Object.entries(newSettings).filter(([k]) => ALLOWED_KEYS.has(k))
@@ -283,6 +349,204 @@ app.post('/api/settings', (req, res) => {
         res.json(config);
     } catch (e: any) {
         console.error("Failed to save settings:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Products API
+app.get('/api/products', (req, res) => {
+    const products: Product[] = config.products || [];
+    res.json(products);
+});
+
+app.get('/api/products/active', (req, res) => {
+    const products: Product[] = config.products || [];
+    const activeProduct = products.find(p => p.id === config.activeProductId) || null;
+    res.json(activeProduct);
+});
+
+app.put('/api/products/active', (req, res) => {
+    try {
+        const { productId } = req.body;
+        if (!productId) {
+            return res.status(400).json({ error: 'productId is required' });
+        }
+        const products: Product[] = config.products || [];
+        const product = products.find(p => p.id === productId);
+        if (!product) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+        config.activeProductId = productId;
+        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        res.json({ success: true });
+    } catch (e: any) {
+        console.error("Failed to set active product:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/products', (req, res) => {
+    try {
+        const product: Omit<Product, 'id'> = req.body;
+        if (!product.name) {
+            return res.status(400).json({ error: 'name is required' });
+        }
+        // Generate a unique ID from the name
+        const id = product.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+        if (!config.products) {
+            config.products = [];
+        }
+        if (config.products.some((p: Product) => p.id === id)) {
+            return res.status(409).json({ error: 'Product with this name already exists' });
+        }
+        const newProduct: Product = { id, ...product };
+        config.products.push(newProduct);
+        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        // Reload history to include investigations from new product directory
+        if (newProduct.investigationsPath) {
+            console.log(`New product added with investigationsPath: ${newProduct.investigationsPath}. Reloading history...`);
+            history.clear();
+            loadHistory();
+        }
+        res.json(newProduct);
+    } catch (e: any) {
+        console.error("Failed to add product:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.put('/api/products/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates: Partial<Product> = req.body;
+        const products: Product[] = config.products || [];
+        const index = products.findIndex(p => p.id === id);
+        if (index === -1) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+        // Prevent changing the ID
+        delete updates.id;
+        const oldInvestigationsPath = config.products[index].investigationsPath;
+        config.products[index] = { ...config.products[index], ...updates };
+        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        // Reload history if investigationsPath changed
+        if (updates.investigationsPath && updates.investigationsPath !== oldInvestigationsPath) {
+            console.log(`Product investigationsPath changed to ${updates.investigationsPath}. Reloading history...`);
+            history.clear();
+            loadHistory();
+        }
+        res.json(config.products[index]);
+    } catch (e: any) {
+        console.error("Failed to update product:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.delete('/api/products/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        if (!config.products || config.products.length === 0) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+        const index = config.products.findIndex((p: Product) => p.id === id);
+        if (index === -1) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+        // Don't allow deleting the last product
+        if (config.products.length === 1) {
+            return res.status(400).json({ error: 'Cannot delete the last product' });
+        }
+        // If deleting the active product, switch to first available
+        if (config.activeProductId === id) {
+            const remaining = config.products.filter((p: Product) => p.id !== id);
+            config.activeProductId = remaining[0]?.id || '';
+        }
+        config.products.splice(index, 1);
+        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        res.json({ success: true });
+    } catch (e: any) {
+        console.error("Failed to delete product:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// --- Product Path Validation ---
+interface PathValidationResult {
+    field: string;
+    label: string;
+    value: string;
+    isAbsolute: boolean;
+    exists: boolean;
+    error: string | null;
+}
+interface ProductValidation {
+    valid: boolean;
+    paths: PathValidationResult[];
+}
+
+function validateProductPaths(product: Product): ProductValidation {
+    const pathFields: { field: keyof Product; label: string; required: boolean }[] = [
+        { field: 'repoRoot', label: 'Repository Root', required: true },
+        { field: 'systemPromptPath', label: 'System Prompt', required: false },
+        { field: 'retrospectPromptPath', label: 'Retrospect Prompt', required: false },
+        { field: 'knowledgeBasePath', label: 'Knowledge Base', required: false },
+        { field: 'workingDirectory', label: 'Working Directory', required: false },
+        { field: 'investigationsPath', label: 'Investigations Storage', required: false },
+        { field: 'icmScriptsPath', label: 'ICM Scripts', required: false },
+    ];
+
+    const results: PathValidationResult[] = [];
+    let allValid = true;
+
+    for (const { field, label, required } of pathFields) {
+        const value = product[field] || '';
+        if (!value) {
+            // Empty path - only an error if required
+            if (required) {
+                results.push({ field, label, value, isAbsolute: false, exists: false, error: 'Path is required' });
+                allValid = false;
+            }
+            continue; // skip unconfigured optional paths
+        }
+
+        const isAbsolute = path.isAbsolute(value);
+        let exists = false;
+        let error: string | null = null;
+
+        if (!isAbsolute) {
+            error = 'Path must be absolute (full path, not relative)';
+            allValid = false;
+        } else {
+            try {
+                exists = fs.existsSync(value);
+                if (!exists) {
+                    error = 'Path does not exist on disk';
+                    allValid = false;
+                }
+            } catch {
+                error = 'Unable to check path on disk';
+                allValid = false;
+            }
+        }
+
+        results.push({ field, label, value, isAbsolute, exists, error });
+    }
+
+    return { valid: allValid, paths: results };
+}
+
+app.get('/api/products/:id/validate', (req, res) => {
+    try {
+        const { id } = req.params;
+        const products: Product[] = config.products || [];
+        const product = products.find(p => p.id === id);
+        if (!product) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+        const validation = validateProductPaths(product);
+        res.json(validation);
+    } catch (e: any) {
+        console.error("Failed to validate product:", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -338,15 +602,163 @@ app.get('/api/files/list', (req, res) => {
     }
 });
 
-app.post('/api/investigations', async (req, res) => {
-    const { query, stamp, timeRange, trackingId, issueType, model } = req.body;
-
-    // Validate required fields
-    if (!stamp || typeof stamp !== 'string') {
-        return res.status(400).json({ error: 'stamp is required and must be a string' });
+// --- ICM Endpoints -------------------------------------------------------
+// Helper to get the effective ICM scripts path (product-specific or global)
+function getEffectiveIcmScriptsPath(): string | undefined {
+    // First try active product's path
+    if (config.activeProductId && config.products) {
+        const activeProduct = config.products.find((p: Product) => p.id === config.activeProductId);
+        if (activeProduct?.icmScriptsPath) {
+            return activeProduct.icmScriptsPath;
+        }
     }
-    if (!timeRange || typeof timeRange !== 'string') {
-        return res.status(400).json({ error: 'timeRange is required and must be a string' });
+    // Fall back to global config
+    return config.icmScriptsPath;
+}
+
+app.get('/api/icm/status', (_req, res) => {
+    // Check if ICM scripts path is configured and the main script exists
+    const scriptsPath = getEffectiveIcmScriptsPath();
+    if (!scriptsPath) {
+        return res.json({ available: false, message: 'icmScriptsPath not configured (check product or global settings)' });
+    }
+    const scriptFile = path.join(scriptsPath, 'icm-full-read.js');
+    if (!fs.existsSync(scriptFile)) {
+        return res.json({ available: false, message: `Script not found: ${scriptFile}` });
+    }
+    res.json({ available: true });
+});
+
+app.post('/api/icm/:incidentId/read', async (req, res) => {
+    const { incidentId } = req.params;
+    const scriptsPath = getEffectiveIcmScriptsPath();
+
+    if (!scriptsPath) {
+        return res.status(400).json({ error: 'icmScriptsPath not configured (check product or global settings)' });
+    }
+
+    const scriptFile = path.join(scriptsPath, 'icm-full-read.js');
+    if (!fs.existsSync(scriptFile)) {
+        return res.status(400).json({ error: `ICM script not found: ${scriptFile}` });
+    }
+
+    // Stream progress events via SSE
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.flushHeaders();
+
+    try {
+        let metadata: any = {};
+        let content = '';
+        let sections: any = {};
+
+        await new Promise<void>((resolve, reject) => {
+            let stderr = '';
+            const proc = spawn('node', [scriptFile, incidentId], {
+                cwd: scriptsPath,
+                timeout: 120000,
+                env: { ...process.env }
+            });
+
+            proc.stdout.on('data', (data: Buffer) => {
+                const lines = data.toString().split('\n');
+                for (const line of lines) {
+                    const trimmed = line.trim();
+                    if (!trimmed) continue;
+
+                    // Parse structured progress events
+                    if (trimmed.startsWith('[PROGRESS] ')) {
+                        try {
+                            const event = JSON.parse(trimmed.substring(11));
+                            res.write(`data: ${JSON.stringify(event)}\n\n`);
+                        } catch { /* skip malformed */ }
+                        continue;
+                    }
+
+                    // Parse structured data events
+                    if (trimmed.startsWith('[DATA] ')) {
+                        try {
+                            const event = JSON.parse(trimmed.substring(7));
+                            if (event.key === 'metadata') metadata = event.value;
+                            if (event.key === 'content') content = event.value;
+                            if (event.key === 'sections') sections = event.value;
+                        } catch { /* skip malformed */ }
+                        continue;
+                    }
+                }
+            });
+
+            proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+            proc.on('close', (code) => {
+                if (code === 0) {
+                    resolve();
+                } else {
+                    reject(new Error(`ICM script exited with code ${code}: ${stderr}`));
+                }
+            });
+            proc.on('error', (err) => reject(err));
+        });
+
+        // Extract time range from metadata
+        let timeRange = '';
+        const timeSource = metadata.impactingFrom || metadata.created;
+        if (timeSource) {
+            const parsedDate = new Date(timeSource);
+            if (!isNaN(parsedDate.getTime())) {
+                const startISO = parsedDate.toISOString();
+                const endISO = new Date().toISOString();
+                timeRange = `between(datetime(${startISO}) .. datetime(${endISO}))`;
+            }
+        }
+
+        // Also try to find stamp in content if not in metadata
+        const stamp = metadata.stamp || '';
+        if (!stamp && content) {
+            const stampMatch = content.match(/(oi-tds-[\w-]+|ax-tds-[\w-]+)/i);
+            if (stampMatch) metadata.stamp = stampMatch[0];
+        }
+
+        // Build summary from the first 500 chars of the summary section
+        const summaryText = (sections.summary || content || '').substring(0, 500).trim();
+
+        // Send final result event
+        const result = {
+            type: 'result',
+            incidentId,
+            title: metadata.title || `IcM Incident ${incidentId}`,
+            severity: metadata.severity || 'Unknown',
+            status: metadata.status || '',
+            owner: metadata.owner || '',
+            owningTeam: metadata.owningTeam || '',
+            stamp: metadata.stamp || '',
+            timeRange,
+            summary: summaryText,
+            raw: content
+        };
+        res.write(`data: ${JSON.stringify(result)}\n\n`);
+        res.end();
+
+    } catch (err: any) {
+        console.error(`[ICM] Failed to read incident ${incidentId}:`, err);
+        const errorEvent = { type: 'error', message: err.message || 'Failed to read ICM incident' };
+        res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+        res.end();
+    }
+});
+// --- End ICM Endpoints ---------------------------------------------------
+
+app.post('/api/investigations', async (req, res) => {
+    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId } = req.body;
+
+    // Validate required fields - stamp and timeRange are optional when incidentId is provided
+    if (!incidentId) {
+        if (!stamp || typeof stamp !== 'string') {
+            return res.status(400).json({ error: 'stamp is required and must be a string (or provide incidentId)' });
+        }
+        if (!timeRange || typeof timeRange !== 'string') {
+            return res.status(400).json({ error: 'timeRange is required and must be a string (or provide incidentId)' });
+        }
     }
 
     // Enforce max concurrent investigations
@@ -355,19 +767,60 @@ app.post('/api/investigations', async (req, res) => {
         return res.status(429).json({ error: `Maximum concurrent investigations (${config.maxConcurrentInvestigations}) reached. Wait for one to complete or pause an active investigation.` });
     }
 
+    // Determine which config to use (product-specific or global)
+    let effectiveConfig = config;
+    if (productId && config.products && config.products.length > 0) {
+        const product = config.products.find(p => p.id === productId);
+        if (product) {
+            // Validate product paths before starting
+            const validation = validateProductPaths(product);
+            if (!validation.valid) {
+                const issues = validation.paths
+                    .filter(p => p.error)
+                    .map(p => `${p.label}: ${p.error}`)
+                    .join('; ');
+                return res.status(400).json({
+                    error: `Product "${product.name}" has path issues that must be fixed before starting an investigation: ${issues}`,
+                    pathErrors: validation.paths.filter(p => p.error)
+                });
+            }
+
+            // Merge product-specific paths into the config
+            effectiveConfig = {
+                ...config,
+                repoRoot: product.repoRoot || config.repoRoot,
+                systemPromptPath: product.systemPromptPath || config.systemPromptPath,
+                retrospectPromptPath: product.retrospectPromptPath || config.retrospectPromptPath,
+                knowledgeBasePath: product.knowledgeBasePath || config.knowledgeBasePath,
+                workingDirectory: product.workingDirectory || config.workingDirectory,
+                investigationsPath: product.investigationsPath || config.investigationsPath,
+                icmScriptsPath: product.icmScriptsPath || config.icmScriptsPath
+            };
+        }
+    }
+
     // Construct the user query for the agent
-    let fullQuery = `Stamp: ${stamp}\nTime Range: ${timeRange}`;
+    let fullQuery = '';
+    if (incidentId) {
+        fullQuery = `IcM Incident ID: ${incidentId}`;
+        if (stamp) fullQuery += `\nStamp: ${stamp}`;
+        if (timeRange) fullQuery += `\nTime Range: ${timeRange}`;
+    } else {
+        fullQuery = `Stamp: ${stamp}\nTime Range: ${timeRange}`;
+    }
     if (trackingId) fullQuery += `\nTrackingId: ${trackingId}`;
     if (issueType) fullQuery += `\nIssue Type: ${issueType}`;
-    fullQuery += `\n\nUser Question/Context: ${query || 'Start general investigation based on provided tracking ID or issue.'}`;
+    fullQuery += `\n\nUser Question/Context: ${query || (incidentId ? 'Investigate this IcM incident. Extract context and route to the correct investigation guide.' : 'Start general investigation based on provided tracking ID or issue.')}`;
 
-    const runner = new AgentRunner(config, {
+    const runner = new AgentRunner(effectiveConfig, {
         query: fullQuery, // Store the full constructed query for resumption
         stamp,
         timeRange,
         trackingId,
         issueType,
-        model
+        incidentId,
+        model,
+        productId
     });
 
     // Typescript workaround for private state
@@ -408,6 +861,10 @@ app.get('/api/investigations', (req, res) => {
     const past = Array.from(history.values()).filter(p => !runners.has(p.id));
     const all = [...active, ...past];
 
+    // Create a product name lookup map
+    const productMap = new Map<string, string>();
+    (config.products || []).forEach((p: Product) => productMap.set(p.id, p.name));
+
     // Return lightweight summaries for list view, not full thoughts/actions
     const summaries = all.map(s => ({
         id: s.id,
@@ -418,7 +875,10 @@ app.get('/api/investigations', (req, res) => {
         timeRange: s.timeRange,
         trackingId: s.trackingId,
         issueType: s.issueType,
+        incidentId: s.incidentId,
         model: s.model,
+        productId: s.productId,
+        productName: s.productId ? productMap.get(s.productId) || 'Unknown' : undefined,
         pausedAt: s.pausedAt,
         totalPausedTime: s.totalPausedTime,
         thoughts: s.thoughts.slice(-1), // Only last thought for preview
@@ -785,14 +1245,23 @@ app.delete('/api/investigations/:id', async (req, res) => {
         runners.delete(id);
     }
 
-    if (!history.has(id)) {
+    const investigation = history.get(id);
+    if (!investigation) {
         return res.status(404).json({ error: 'Investigation not found' });
+    }
+
+    // Determine the correct investigations directory based on productId
+    let investigationsDir = config.investigationsPath || path.join(process.cwd(), 'investigations');
+    if (investigation.productId) {
+        const product = (config.products || []).find((p: Product) => p.id === investigation.productId);
+        if (product && product.investigationsPath) {
+            investigationsDir = product.investigationsPath;
+        }
     }
 
     history.delete(id);
 
-    // Remove from disk — folder is named ${timestamp}_${safeStamp}_${safeId}
-    const investigationsDir = config.investigationsPath || path.join(process.cwd(), 'investigations');
+    // Remove from disk - folder is named ${timestamp}_${safeStamp}_${safeId}
     const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
     let dirPath: string | null = null;
 
@@ -815,7 +1284,7 @@ app.delete('/api/investigations/:id', async (req, res) => {
         if (fs.existsSync(jsonPath)) {
             fs.unlinkSync(jsonPath);
         }
-        console.log(`[Delete] Investigation ${id} deleted from disk.`);
+        console.log(`[Delete] Investigation ${id} deleted from disk at ${investigationsDir}.`);
     } catch (e: any) {
         console.error(`[Delete] Failed to delete files for ${id}:`, e.message);
         // Still return success since it's removed from memory
@@ -990,7 +1459,20 @@ app.get('/api/health', (req, res) => {
 // Auth Routes
 
 app.get('/api/auth/status', async (req, res) => {
-    res.json({ authenticated: await copilotClient.isAuthenticated() });
+    const authenticated = await copilotClient.isAuthenticated();
+    let user = null;
+    if (authenticated) {
+        user = await copilotClient.getGitHubUser();
+    }
+    res.json({ authenticated, user });
+});
+
+app.get('/api/auth/user', async (req, res) => {
+    const user = await copilotClient.getGitHubUser();
+    if (!user) {
+        return res.status(401).json({ error: 'Not authenticated' });
+    }
+    res.json(user);
 });
 
 app.post('/api/auth/login', async (req, res) => {
@@ -999,6 +1481,33 @@ app.post('/api/auth/login', async (req, res) => {
         res.json(data);
     } catch (e: any) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/auth/azure-login', async (req, res) => {
+    try {
+        // Spawn 'az login' which opens the browser for interactive Azure authentication
+        const child = spawn('az', ['login'], { shell: true, stdio: 'ignore', detached: true });
+        child.unref();
+        child.on('error', (err) => {
+            console.error('Failed to spawn az login:', err);
+        });
+        res.json({ success: true, message: 'Azure login process started. A browser window should open for authentication.' });
+    } catch (e: any) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/auth/azure-status', async (req, res) => {
+    try {
+        const result = await new Promise<boolean>((resolve) => {
+            const check = spawn('az', ['account', 'show'], { shell: true });
+            check.on('close', (code) => resolve(code === 0));
+            check.on('error', () => resolve(false));
+        });
+        res.json({ authenticated: result });
+    } catch (e: any) {
+        res.json({ authenticated: false });
     }
 });
 

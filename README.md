@@ -270,9 +270,19 @@ The retrospective is a second-pass AI agent that learns from each investigation:
 - Server restart recovery — running investigations auto-pause, all state preserved
 - Legacy format support — loads old flat JSON and standalone Markdown reports
 
+### 📦 Multi-Product Support
+
+Configure multiple investigation targets (products) with independent paths:
+
+- **Products Tab** — Add, edit, delete products in Settings
+- **Per-Product Paths** — Each product has its own repoRoot, systemPromptPath, knowledgeBasePath, investigationsPath, etc.
+- **Active Product Selector** — Choose which product to use when launching new investigations
+- **Product Switching** — Select product from dropdown in the New Investigation form
+
 ### ⚙️ Settings
 
-Three-tab Settings page:
+Four-tab Settings page:
+- **Products** — Configure investigation targets with independent paths and knowledge bases
 - **Agent Behavior** — Max steps, default model, system prompt path, working directory, investigation storage path
 - **Appearance** — Auto-refresh interval
 - **System** — Default KQL time range
@@ -400,13 +410,31 @@ Configuration is managed through the Settings UI or directly in `backend/config.
 | `model` | `gpt-4-turbo` | Default LLM model for new investigations |
 | `maxSteps` | `50` | Max reasoning steps before auto-pause (0 = unlimited) |
 | `systemPromptPath` | *(empty)* | Path to the agent's system prompt `.md` file |
-| `retrospectPromptPath` | *(empty)* | Path to the retrospective prompt template. Supports `{{GOAL}}`, `{{STATUS}}`, `{{STAMP}}`, `{{ISSUE_TYPE}}` placeholders |
+| `retrospectPromptPath` | *(empty)* | Path to the retrospective prompt template (e.g., `tools/InvestigationDashboard/prompts/RetrospectPrompt.md`). Supports `{{GOAL}}`, `{{STATUS}}`, `{{STAMP}}`, `{{ISSUE_TYPE}}` placeholders |
 | `knowledgeBasePath` | *(empty)* | Repo-relative path to the knowledge base directory (e.g., `docs/investigations`). Used by retrospective for doc discovery |
 | `investigationsPath` | `<repoRoot>/investigations` | Where investigation artifacts (JSON + Markdown) are saved |
 | `defaultTimeRange` | `ago(1h)` | Default KQL time range preset |
 | `maxConcurrentInvestigations` | `3` | Maximum parallel investigations |
 | `autoRefreshInterval` | `30` | Dashboard refresh interval (seconds) |
 | `workingDirectory` | Backend CWD | Working directory for file operations |
+| `products` | `[]` | Array of product configurations (see Multi-Product Support) |
+| `activeProductId` | *(empty)* | ID of the currently selected product for new investigations |
+
+### Product Configuration
+
+Each product in the `products` array has:
+
+| Field | Description |
+|-------|-------------|
+| `id` | Unique identifier (auto-generated from name) |
+| `name` | Display name for the product |
+| `repoRoot` | Repository root path for this product |
+| `systemPromptPath` | Path to agent system prompt |
+| `retrospectPromptPath` | Path to retrospect prompt template |
+| `knowledgeBasePath` | Path to knowledge base directory |
+| `workingDirectory` | Working directory for file operations |
+| `investigationsPath` | Where investigation artifacts are saved |
+| `icmScriptsPath` | Path to ICM automation scripts |
 
 ---
 
@@ -434,6 +462,17 @@ Configuration is managed through the Settings UI or directly in `backend/config.
 | `PATCH` | `/api/investigations/:id/retrospect/proposals/:pid` | Approve / Reject proposal |
 | `POST` | `/api/investigations/:id/retrospect/apply` | Apply all approved proposals |
 | `POST` | `/api/investigations/:id/retrospect/complete` | Mark complete / Reopen |
+
+### Products
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/products` | List all configured products |
+| `POST` | `/api/products` | Add a new product |
+| `GET` | `/api/products/active` | Get the currently active product |
+| `PUT` | `/api/products/active` | Set the active product |
+| `PUT` | `/api/products/:id` | Update a product |
+| `DELETE` | `/api/products/:id` | Delete a product |
 
 ### Auth & System
 

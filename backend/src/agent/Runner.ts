@@ -19,6 +19,7 @@ export interface AgentConfig {
     workingDirectory?: string;
     investigationsPath?: string;
     retrospectTimeoutMinutes?: number;
+    icmScriptsPath?: string;
 }
 
 export interface ProposedChange {
@@ -59,7 +60,9 @@ export interface InvestigationState {
     timeRange?: string;
     trackingId?: string;
     issueType?: string;
+    incidentId?: string;
     model?: string;
+    productId?: string;
     pausedAt?: number;
     totalPausedTime?: number;
     finalReport?: string;
@@ -169,9 +172,15 @@ export class AgentRunner extends EventEmitter {
         if (this.state.stamp) contextParts.push(`Target Stamp/Environment: ${this.state.stamp}`);
         if (this.state.trackingId) contextParts.push(`Tracking ID: ${this.state.trackingId}`);
         if (this.state.issueType) contextParts.push(`Issue Type: ${this.state.issueType}`);
+        if (this.state.incidentId) contextParts.push(`IcM Incident ID: ${this.state.incidentId}`);
 
         if (contextParts.length > 0) {
             systemPrompt += `\n\n## Investigation Context\nYou are investigating an issue with the following constraints:\n${contextParts.map(p => `- ${p}`).join('\n')}\n\nUse this context to filter your queries (e.g. strict time filtering).`;
+        }
+
+        // ICM Directive: if this investigation was started from an IcM incident, instruct the agent
+        if (this.state.incidentId) {
+            systemPrompt += `\n\n## ICM Incident Investigation\nThis investigation was initiated from IcM Incident ${this.state.incidentId}. Follow the ICM investigation guide (teleduct-icm-investigation.md):\n1. The incident context has already been extracted and is included in the user query below.\n2. Use the extracted stamp, time range, and symptom keywords to route to the correct specialized investigation guide.\n3. If stamp or time range is missing, attempt to extract them from the incident details in the query.\n4. Carry the IncidentId forward in all investigation state tracking.`;
         }
 
         // Main Loop

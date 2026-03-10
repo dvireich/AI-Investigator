@@ -32,6 +32,20 @@ foreach ($p in 5174..5180) {
     }
 }
 
+# Cleanup Edge --app windows pointing to the dashboard
+Write-Host "Checking for Edge app windows..." -ForegroundColor Yellow
+try {
+    $edgeAppProcs = Get-CimInstance Win32_Process | Where-Object {
+        $_.Name -eq 'msedge.exe' -and $_.CommandLine -like '*--app=http://localhost:5173*'
+    }
+    foreach ($proc in $edgeAppProcs) {
+        Write-Host "Killing Edge app window (PID: $($proc.ProcessId))..." -ForegroundColor Red
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+} catch {
+    Write-Host "Could not query Edge app processes, skipping." -ForegroundColor DarkGray
+}
+
 # Cleanup MCP KQL Server Python processes
 Write-Host "Checking for lingering MCP Python processes..." -ForegroundColor Yellow
 try {

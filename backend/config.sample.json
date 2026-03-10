@@ -1,7 +1,7 @@
 {
   "repoRoot": "/path/to/your/repo",
   "systemPromptPath": "/path/to/your/repo/.github/agents/YourAgent.md",
-  "retrospectPromptPath": "/path/to/your/repo/.github/agents/RetrospectPrompt.md",
+  "retrospectPromptPath": "/path/to/your/repo/tools/InvestigationDashboard/prompts/RetrospectPrompt.md",
   "knowledgeBasePath": "docs/investigations",
   "mcpServers": [],
   "maxSteps": 50,

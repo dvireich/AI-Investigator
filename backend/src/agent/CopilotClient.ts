@@ -148,4 +148,25 @@ export class CopilotClient {
     async isAuthenticated() {
         return !!this.token;
     }
+
+    async getGitHubUser(): Promise<{ login: string; name: string | null; avatar_url: string } | null> {
+        if (!this.token) return null;
+
+        try {
+            const response = await axios.get('https://api.github.com/user', {
+                headers: {
+                    'Authorization': `token ${this.token}`,
+                    'User-Agent': 'GithubCopilot/1.155.0'
+                }
+            });
+            return {
+                login: response.data.login,
+                name: response.data.name,
+                avatar_url: response.data.avatar_url
+            };
+        } catch (e: any) {
+            console.error('Failed to fetch GitHub user:', e.response?.data || e.message);
+            return null;
+        }
+    }
 }

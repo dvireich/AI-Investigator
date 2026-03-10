@@ -248,10 +248,27 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
                     <button
                         onClick={async () => {
                             try {
-                                await api.startLogin();
-                                alert("Login process started. Please check your browser or terminal.");
+                                await api.startAzureLogin();
+                                // Poll for Azure auth status every 3 seconds for up to 2 minutes
+                                let attempts = 0;
+                                const maxAttempts = 40;
+                                const poller = setInterval(async () => {
+                                    attempts++;
+                                    try {
+                                        const status = await api.getAzureAuthStatus();
+                                        if (status.authenticated) {
+                                            clearInterval(poller);
+                                            alert("Successfully authenticated with Azure! You can now restart the investigation.");
+                                        } else if (attempts >= maxAttempts) {
+                                            clearInterval(poller);
+                                        }
+                                    } catch {
+                                        if (attempts >= maxAttempts) clearInterval(poller);
+                                    }
+                                }, 3000);
+                                alert("Azure login started — a browser window should open. Complete the login there.");
                             } catch (e: any) {
-                                alert("Failed to start login: " + e.message);
+                                alert("Failed to start Azure login: " + e.message);
                             }
                         }}
                         className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold transition-colors shadow-lg shadow-blue-500/20"

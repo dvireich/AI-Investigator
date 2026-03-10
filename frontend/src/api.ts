@@ -1,3 +1,29 @@
+export interface Product {
+    id: string;
+    name: string;
+    repoRoot: string;
+    systemPromptPath: string;
+    retrospectPromptPath: string;
+    knowledgeBasePath: string;
+    workingDirectory: string;
+    investigationsPath: string;
+    icmScriptsPath: string;
+}
+
+export interface PathValidationResult {
+    field: string;
+    label: string;
+    value: string;
+    isAbsolute: boolean;
+    exists: boolean;
+    error: string | null;
+}
+
+export interface ProductValidation {
+    valid: boolean;
+    paths: PathValidationResult[];
+}
+
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
 
 // Derive the base URL (without /api) for WebSocket connections
@@ -40,12 +66,47 @@ export interface Investigation {
     timeRange?: string;
     trackingId?: string;
     issueType?: string;
+    incidentId?: string;
     model?: string;
+    productId?: string;
+    productName?: string;
     pausedAt?: number;
     totalPausedTime?: number;
     finalReport?: string;
     retrospect?: RetrospectState;
     contestCount?: number;
+}
+
+export interface IcmIncidentPreview {
+    incidentId: string;
+    title: string;
+    severity: string;
+    status: string;
+    owner: string;
+    owningTeam: string;
+    stamp: string;
+    timeRange: string;
+    summary: string;
+    raw: string;
+}
+
+export interface IcmProgressEvent {
+    type: 'progress' | 'data' | 'result' | 'error';
+    step?: string;
+    status?: 'running' | 'done' | 'error';
+    detail?: string;
+    // result fields
+    incidentId?: string;
+    title?: string;
+    severity?: string;
+    incidentStatus?: string;  // renamed to avoid conflict with 'status' field above
+    owner?: string;
+    owningTeam?: string;
+    stamp?: string;
+    timeRange?: string;
+    summary?: string;
+    raw?: string;
+    message?: string;
 }
 
 export const api = {
@@ -111,6 +172,20 @@ export const api = {
             method: 'POST'
         });
         if (!response.ok) throw new Error('Failed to start login');
+        return response.json();
+    },
+
+    startAzureLogin: async () => {
+        const response = await fetch(`${API_URL}/auth/azure-login`, {
+            method: 'POST'
+        });
+        if (!response.ok) throw new Error('Failed to start Azure login');
+        return response.json();
+    },
+
+    getAzureAuthStatus: async () => {
+        const response = await fetch(`${API_URL}/auth/azure-status`);
+        if (!response.ok) throw new Error('Failed to get Azure auth status');
         return response.json();
     },
 
@@ -183,6 +258,71 @@ export const api = {
         if (!response.ok) throw new Error('Failed to save settings');
         return response.json();
     },
+
+    // Products
+    listProducts: async (): Promise<Product[]> => {
+        const response = await fetch(`${API_URL}/products`);
+        if (!response.ok) throw new Error('Failed to list products');
+        return response.json();
+    },
+
+    getActiveProduct: async (): Promise<Product | null> => {
+        const response = await fetch(`${API_URL}/products/active`);
+        if (!response.ok) throw new Error('Failed to get active product');
+        return response.json();
+    },
+
+    setActiveProduct: async (productId: string): Promise<void> => {
+        const response = await fetch(`${API_URL}/products/active`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ productId })
+        });
+        if (!response.ok) throw new Error('Failed to set active product');
+    },
+
+    addProduct: async (product: Omit<Product, 'id'>): Promise<Product> => {
+        const response = await fetch(`${API_URL}/products`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(product)
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: 'Failed to add product' }));
+            throw new Error(err.error || 'Failed to add product');
+        }
+        return response.json();
+    },
+
+    updateProduct: async (id: string, product: Partial<Product>): Promise<Product> => {
+        const response = await fetch(`${API_URL}/products/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(product)
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: 'Failed to update product' }));
+            throw new Error(err.error || 'Failed to update product');
+        }
+        return response.json();
+    },
+
+    deleteProduct: async (id: string): Promise<void> => {
+        const response = await fetch(`${API_URL}/products/${encodeURIComponent(id)}`, {
+            method: 'DELETE'
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: 'Failed to delete product' }));
+            throw new Error(err.error || 'Failed to delete product');
+        }
+    },
+
+    validateProduct: async (id: string): Promise<ProductValidation> => {
+        const response = await fetch(`${API_URL}/products/${encodeURIComponent(id)}/validate`);
+        if (!response.ok) throw new Error('Failed to validate product');
+        return response.json();
+    },
+
     sendRetrospectMessage: async (id: string, message: string) => {
         const res = await fetch(`${API_URL}/investigations/${id}/retrospect`, {
             method: 'POST',
@@ -264,5 +404,77 @@ export const api = {
         const response = await fetch(`${API_URL}/files/list${path ? `?path=${encodeURIComponent(path)}` : ''}`);
         if (!response.ok) throw new Error('Failed to list files');
         return response.json();
+    },
+
+    // ICM
+    checkIcmStatus: async (): Promise<{ available: boolean; message?: string }> => {
+        const response = await fetch(`${API_URL}/icm/status`);
+        if (!response.ok) return { available: false, message: 'Failed to check ICM status' };
+        return response.json();
+    },
+
+    fetchIcmIncident: async (
+        incidentId: string,
+        onProgress?: (event: IcmProgressEvent) => void
+    ): Promise<IcmIncidentPreview> => {
+        const response = await fetch(`${API_URL}/icm/${encodeURIComponent(incidentId)}/read`, {
+            method: 'POST'
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to read ICM incident');
+        }
+
+        // Consume SSE stream
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No response body');
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let result: IcmIncidentPreview | null = null;
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                    try {
+                        const event: IcmProgressEvent = JSON.parse(line.substring(6));
+                        if (event.type === 'progress' && onProgress) {
+                            onProgress(event);
+                        } else if (event.type === 'result') {
+                            result = {
+                                incidentId: event.incidentId || incidentId,
+                                title: event.title || `IcM Incident ${incidentId}`,
+                                severity: event.severity || 'Unknown',
+                                status: (event as any).status || '',
+                                owner: event.owner || '',
+                                owningTeam: event.owningTeam || '',
+                                stamp: event.stamp || '',
+                                timeRange: event.timeRange || '',
+                                summary: event.summary || '',
+                                raw: event.raw || ''
+                            };
+                        } else if (event.type === 'error') {
+                            throw new Error(event.message || 'ICM read failed');
+                        }
+                    } catch (e) {
+                        if (e instanceof Error && e.message !== 'ICM read failed') {
+                            /* skip parse errors */
+                        } else {
+                            throw e;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!result) throw new Error('No result received from ICM script');
+        return result;
     }
 };

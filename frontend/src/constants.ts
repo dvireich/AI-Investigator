@@ -9,3 +9,10 @@ export const TIME_PRESETS = [
     { label: 'Past 7 Days', value: 'ago(7d)' },
     { label: 'Past 30 Days', value: 'ago(30d)' },
 ];
+
+export const INVESTIGATION_MODES = [
+    { label: 'Standard Investigation', value: 'standard', description: 'Investigate by stamp, time range, and issue type' },
+    { label: 'ICM Incident', value: 'icm', description: 'Start from an IcM incident - auto-extracts context' },
+] as const;
+
+export type InvestigationMode = typeof INVESTIGATION_MODES[number]['value'];
