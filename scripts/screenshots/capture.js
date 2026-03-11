@@ -103,6 +103,17 @@ async function captureDashboardMixed(page) {
     await screenshot(page, 'dashboard');
 }
 
+async function captureDashboardResumeAll(page) {
+    console.log('\n📸 Dashboard — Resume All (post-restart)...');
+    // Switch to the "all paused" fixture so the Resume All button appears
+    await controlPost('/__control/set-investigations-all-paused', {});
+    await navigateTo(page, '/');
+    await page.waitForTimeout(1200);
+    await screenshot(page, 'dashboard-resume-all');
+    // Reset back to default
+    await resetMock();
+}
+
 async function captureNewInvestigation(page) {
     console.log('\n📸 New Investigation...');
     await resetMock();
@@ -490,11 +501,12 @@ async function main() {
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
     try {
-        // ---- Capture all 18 screenshots ----
+        // ---- Capture all 19 screenshots ----
 
         // Dashboard
         await captureDashboardOverview(page);
         await captureDashboardMixed(page);
+        await captureDashboardResumeAll(page);
 
         // New Investigation form
         await captureNewInvestigation(page);
@@ -527,7 +539,7 @@ async function main() {
         await captureAuthFlow(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 18 screenshots captured successfully!');
+        console.log('  ✅ All 19 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

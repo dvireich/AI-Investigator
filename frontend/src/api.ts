@@ -165,6 +165,22 @@ export const api = {
         return response.json();
     },
 
+    resumeAll: async (): Promise<{ resumed: number; skipped: number; ids: string[] }> => {
+        const response = await fetch(`${API_URL}/investigations/resume-all`, {
+            method: 'POST'
+        });
+        if (!response.ok) throw new Error('Failed to resume all');
+        return response.json();
+    },
+
+    restartServer: async (): Promise<{ status: string }> => {
+        const response = await fetch(`${API_URL}/server/restart`, {
+            method: 'POST'
+        });
+        if (!response.ok) throw new Error('Failed to restart server');
+        return response.json();
+    },
+
     // Auth
     getAuthStatus: async () => {
         const response = await fetch(`${API_URL}/auth/status`);

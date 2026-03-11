@@ -41,6 +41,7 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Live Streaming** | WebSocket-powered real-time display of agent thoughts, tool calls, and results |
 | **Dual KQL Backend** | Kusto CLI (primary) with MCP KQL Server fallback — auto-detects and auto-installs |
 | **Full Lifecycle Control** | Start, pause, resume, abort, intervene, contest — all while the agent is running |
+| **Bulk Resume & Server Restart** | Resume all paused investigations in one click; restart the backend server from the UI with automatic reconnection |
 | **Retrospective Analysis** | Post-investigation AI analysis that reads the knowledge base and proposes improvements |
 | **Proposal Workflow** | Review, approve, reject, and apply file changes directly from the UI |
 | **Persistent History** | All investigations saved as JSON state + Markdown reports, survives server restarts |
@@ -208,6 +209,16 @@ Configure agent behavior, model selection, investigation storage path (with serv
 ![Settings](docs/screenshots/settings.png)
 
 <!-- Screenshot: The Settings page showing the Agent Behavior tab with the model selector, max steps slider, and file browser for the investigations path. -->
+
+---
+
+### 13. Resume All After Server Restart
+
+When the backend restarts, all running investigations are automatically paused. The dashboard shows a **Resume All** button with the count of paused investigations. Click it to resume them all at once (respecting the max concurrent limit). A separate **Restart Server** button lets you trigger a graceful restart directly from the UI.
+
+![Resume All](docs/screenshots/dashboard-resume-all.png)
+
+<!-- Screenshot: The dashboard header showing the amber "Resume All (3)" button and the "Restart Server" button next to "Start New Investigation". Three investigation cards show paused status with server restart notices. -->
 
 ---
 
@@ -794,35 +805,36 @@ npm run capture
 
 | Command | Description |
 |---------|-------------|
-| `npm run capture` | Full run — starts mock server + Vite, captures all 18 screenshots |
+| `npm run capture` | Full run — starts mock server + Vite, captures all 19 screenshots |
 | `npm run capture:headed` | Same, but with a visible browser window (useful for debugging) |
 | `npm run capture:no-vite` | Skip starting Vite — use when you already have Vite running on port 5174 |
 | `npm run mock-server` | Run only the mock API server (for manual UI exploration at `http://localhost:3099`) |
 
 ### Screenshot Inventory
 
-The capture script produces these 18 files in `docs/screenshots/`:
+The capture script produces these 19 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
 | 1 | `dashboard-overview.png` | Dashboard — main grid overview |
 | 2 | `dashboard.png` | Dashboard — mixed investigation statuses |
-| 3 | `new-investigation.png` | New Investigation form (filled) |
-| 4 | `investigation-start.png` | Investigation detail — early running state |
-| 5 | `live-session.png` | Investigation detail — multi-step with tool calls |
-| 6 | `paused-by-user.png` | Investigation detail — paused state |
-| 7 | `user-intervention.png` | Investigation detail — intervention input filled |
-| 8 | `token-alert.png` | Investigation detail — token limit warning banner |
-| 9 | `final-report.png` | Investigation detail — Report tab with Markdown report |
-| 10 | `Consent-report.png` | Investigation detail — Contest form with feedback |
-| 11 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
-| 12 | `failed-investigation.png` | Investigation detail — failed state |
-| 13 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
-| 14 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
-| 15 | `proposals-panel.png` | Retrospective tab — expanded proposals |
-| 16 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
-| 17 | `settings.png` | Settings — Products tab expanded |
-| 18 | `auth-flow.png` | Unauthenticated state |
+| 3 | `dashboard-resume-all.png` | Dashboard — post-restart with Resume All button |
+| 4 | `new-investigation.png` | New Investigation form (filled) |
+| 5 | `investigation-start.png` | Investigation detail — early running state |
+| 6 | `live-session.png` | Investigation detail — multi-step with tool calls |
+| 7 | `paused-by-user.png` | Investigation detail — paused state |
+| 8 | `user-intervention.png` | Investigation detail — intervention input filled |
+| 9 | `token-alert.png` | Investigation detail — token limit warning banner |
+| 10 | `final-report.png` | Investigation detail — Report tab with Markdown report |
+| 11 | `Consent-report.png` | Investigation detail — Contest form with feedback |
+| 12 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
+| 13 | `failed-investigation.png` | Investigation detail — failed state |
+| 14 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
+| 15 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
+| 16 | `proposals-panel.png` | Retrospective tab — expanded proposals |
+| 17 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
+| 18 | `settings.png` | Settings — Products tab expanded |
+| 19 | `auth-flow.png` | Unauthenticated state |
 
 ### Architecture
 
@@ -830,9 +842,10 @@ The capture script produces these 18 files in `docs/screenshots/`:
 scripts/screenshots/
 ├── package.json           # Dependencies: playwright, express, ws
 ├── mock-server.js         # Express + WebSocket mock API (port 3099)
-├── capture.js             # Playwright orchestration (18 screenshot functions)
+├── capture.js             # Playwright orchestration (19 screenshot functions)
 └── fixtures/              # Canned JSON responses
     ├── investigations.json           # Dashboard card list (10 investigations)
+    ├── investigations-all-paused.json # Post-restart state (3 paused + 2 completed)
     ├── investigation-running.json    # Early-stage running investigation
     ├── investigation-paused.json     # Paused investigation with cache miss findings
     ├── investigation-live-session.json  # Multi-step running with user intervention

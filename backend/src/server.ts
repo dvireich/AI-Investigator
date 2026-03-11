@@ -1101,14 +1101,25 @@ app.get('/api/investigations/:id', (req, res) => {
 
     // Truncate thoughts > 500 chars
     lightweightState.thoughts = state.thoughts.map(t => {
-        const content = typeof t === 'string' ? t : JSON.stringify(t, null, 2);
-        if (content.length > 500) {
-            // Return special object marking truncation
+        if (typeof t === 'string') {
+            if (t.length > 500) {
+                return {
+                    role: 'assistant',
+                    content: t.substring(0, 500) + '...',
+                    _truncated: true,
+                    _original_type: 'string'
+                };
+            }
+            return t;
+        }
+        // Object thought — truncate the .content field directly, preserving role and structure
+        const textContent = typeof t.content === 'string' ? t.content : JSON.stringify(t, null, 2);
+        if (textContent.length > 500) {
             return {
-                role: 'assistant', // preserve role if implicit
-                content: content.substring(0, 500) + '...',
+                ...t,
+                content: textContent.substring(0, 500) + '...',
                 _truncated: true,
-                _original_type: typeof t === 'string' ? 'string' : 'object'
+                _original_type: 'object'
             };
         }
         return t;
@@ -1272,6 +1283,79 @@ app.post('/api/investigations/:id/action', async (req, res) => {
     }
 
     res.json({ status: 'ok' });
+});
+
+// Resume all paused investigations in one call
+app.post('/api/investigations/resume-all', async (req, res) => {
+    const paused: string[] = [];
+    for (const [id, state] of history.entries()) {
+        if (state.status === 'paused' && !runners.has(id)) {
+            paused.push(id);
+        }
+    }
+
+    if (paused.length === 0) {
+        return res.json({ resumed: 0, skipped: 0, ids: [] });
+    }
+
+    // Respect maxConcurrentInvestigations — count currently running
+    const currentlyRunning = Array.from(runners.values()).filter(r => (r as any).state?.status === 'running').length;
+    const slotsAvailable = Math.max(0, config.maxConcurrentInvestigations - currentlyRunning);
+
+    const toResume = paused.slice(0, slotsAvailable);
+    const skipped = paused.length - toResume.length;
+    const resumed: string[] = [];
+
+    for (const id of toResume) {
+        try {
+            const state = history.get(id)!;
+            const runner = new AgentRunner(getEffectiveConfig(state), state);
+            runners.set(id, runner);
+            attachRunnerListeners(runner, id);
+            runner.resume();
+
+            const query = state.query || 'Resume investigation';
+            runner.start(query).then(() => {
+                history.set(id, (runner as any).state);
+                runners.delete(id);
+            }).catch(err => {
+                console.error(`Runner ${id} failed:`, err);
+                history.set(id, (runner as any).state);
+                runners.delete(id);
+            });
+
+            runner.log(`Resuming investigation ${id} (bulk resume-all)...`);
+            resumed.push(id);
+        } catch (e: any) {
+            console.error(`Failed to resume ${id}:`, e.message);
+        }
+    }
+
+    console.log(`Resume-all: ${resumed.length} resumed, ${skipped} skipped (max concurrent: ${config.maxConcurrentInvestigations})`);
+    res.json({ resumed: resumed.length, skipped, ids: resumed });
+});
+
+// Graceful server restart — process manager (ts-node-dev --respawn) will restart automatically
+app.post('/api/server/restart', (req, res) => {
+    console.log('Server restart requested via API. Exiting for respawn...');
+
+    // Pause all running investigations before exit so they auto-pause on reload
+    for (const [id, runner] of runners.entries()) {
+        try {
+            runner.pause();
+            history.set(id, (runner as any).state);
+            console.log(`  Paused runner ${id} before restart.`);
+        } catch (e: any) {
+            console.error(`  Failed to pause runner ${id}:`, e.message);
+        }
+    }
+
+    res.json({ status: 'restarting' });
+
+    // Give the response time to flush, then exit
+    setTimeout(() => {
+        process.exit(0);
+    }, 500);
 });
 
 app.post('/api/investigations/:id/model', async (req, res) => {

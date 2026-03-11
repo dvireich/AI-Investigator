@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation } from '../api';
-import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown } from 'lucide-react';
+import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw } from 'lucide-react';
 import { InvestigationTrend } from '../components/charts/InvestigationTrend';
 import { IssueTypeDonut } from '../components/charts/IssueTypeDonut';
 import { DurationDistribution } from '../components/charts/DurationDistribution';
@@ -134,6 +134,8 @@ export const Dashboard = () => {
     const navigate = useNavigate();
     const [showShortcuts, setShowShortcuts] = useState(false);
     const [groupByStamp, setGroupByStamp] = useState(false);
+    const [resumingAll, setResumingAll] = useState(false);
+    const [restarting, setRestarting] = useState(false);
     const [showAnalytics, setShowAnalytics] = useState<boolean>(
         () => localStorage.getItem('inv-analytics') !== 'false'
     );
@@ -143,6 +145,55 @@ export const Dashboard = () => {
             localStorage.setItem('inv-analytics', String(!prev));
             return !prev;
         });
+    };
+
+    const handleResumeAll = async () => {
+        setResumingAll(true);
+        try {
+            const result = await api.resumeAll();
+            // Optimistically update resumed investigations to 'running'
+            if (result.ids.length > 0) {
+                const resumedSet = new Set(result.ids);
+                setInvestigations(prev => prev.map(inv =>
+                    resumedSet.has(inv.id) ? { ...inv, status: 'running' as Investigation['status'] } : inv
+                ));
+            }
+            if (result.skipped > 0) {
+                console.log(`Resume-all: ${result.resumed} resumed, ${result.skipped} skipped (concurrency limit)`);
+            }
+        } catch (err) {
+            console.error('Resume all failed:', err);
+        } finally {
+            setResumingAll(false);
+        }
+    };
+
+    const handleRestartServer = async () => {
+        if (!confirm('Restart the server? All running investigations will be paused and can be resumed after restart.')) return;
+        setRestarting(true);
+        try {
+            await api.restartServer();
+        } catch {
+            // Expected — server shuts down, connection drops
+        }
+        // Poll until server comes back
+        const pollInterval = setInterval(async () => {
+            try {
+                await api.listInvestigations();
+                clearInterval(pollInterval);
+                setRestarting(false);
+                // Refresh investigation list after restart
+                const data = await api.listInvestigations();
+                setInvestigations(data);
+            } catch {
+                // Server still down, keep polling
+            }
+        }, 1000);
+        // Safety timeout — stop polling after 30s
+        setTimeout(() => {
+            clearInterval(pollInterval);
+            setRestarting(false);
+        }, 30000);
     };
 
     const dismissToast = (key: number) => setToasts(t => t.filter(x => x.key !== key));
@@ -461,13 +512,40 @@ export const Dashboard = () => {
                     <h1 className="text-3xl font-black text-white leading-tight">Investigations</h1>
                     <p className="text-slate-400 text-sm mt-1">Monitor, review, and manage all active and past investigations.</p>
                 </div>
-                <Link
-                    to="/new"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl shadow-lg shadow-brand-500/20 transition-all duration-200 group whitespace-nowrap"
-                >
-                    <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
-                    Start New Investigation
-                </Link>
+                <div className="flex items-center gap-2 flex-wrap">
+                    {/* Resume All — visible when there are paused investigations */}
+                    {pausedCount > 0 && (
+                        <button
+                            onClick={handleResumeAll}
+                            disabled={resumingAll}
+                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/20 font-bold rounded-xl shadow-sm transition-all duration-200 group whitespace-nowrap disabled:opacity-50"
+                        >
+                            {resumingAll
+                                ? <RefreshCw className="w-4 h-4 animate-spin" />
+                                : <RotateCcw className="w-4 h-4 group-hover:scale-110 transition-transform" />}
+                            Resume All ({pausedCount})
+                        </button>
+                    )}
+                    {/* Server Restart */}
+                    <button
+                        onClick={handleRestartServer}
+                        disabled={restarting}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold rounded-xl shadow-sm transition-all duration-200 group whitespace-nowrap disabled:opacity-50"
+                        title="Restart the backend server"
+                    >
+                        {restarting
+                            ? <RefreshCw className="w-4 h-4 animate-spin" />
+                            : <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />}
+                        {restarting ? 'Restarting...' : 'Restart Server'}
+                    </button>
+                    <Link
+                        to="/new"
+                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl shadow-lg shadow-brand-500/20 transition-all duration-200 group whitespace-nowrap"
+                    >
+                        <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
+                        Start New Investigation
+                    </Link>
+                </div>
             </div>
 
             {/* Stats Strip - tiles are clickable to filter */}

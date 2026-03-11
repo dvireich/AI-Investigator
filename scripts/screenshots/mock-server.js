@@ -27,6 +27,7 @@ function loadJSON(name) {
 }
 
 const investigationsIndex = loadJSON('investigations.json');
+const investigationsAllPaused = loadJSON('investigations-all-paused.json');
 const invRunning      = loadJSON('investigation-running.json');
 const invPaused       = loadJSON('investigation-paused.json');
 const invLiveSession  = loadJSON('investigation-live-session.json');
@@ -104,6 +105,15 @@ app.post('/api/investigations', (req, res) => {
 
 app.post('/api/investigations/:id/action', (req, res) => {
     res.json({ success: true });
+});
+
+app.post('/api/investigations/resume-all', (req, res) => {
+    const paused = currentInvestigations.filter(i => i.status === 'paused');
+    res.json({ resumed: paused.length, skipped: 0, ids: paused.map(i => i.id) });
+});
+
+app.post('/api/server/restart', (req, res) => {
+    res.json({ status: 'restarting' });
 });
 
 app.delete('/api/investigations/:id', (req, res) => {
@@ -244,6 +254,11 @@ app.post('/__control/set-detail-override', (req, res) => {
 
 app.post('/__control/set-auth', (req, res) => {
     authStatus = req.body;
+    res.json({ ok: true });
+});
+
+app.post('/__control/set-investigations-all-paused', (_req, res) => {
+    currentInvestigations = investigationsAllPaused.investigations;
     res.json({ ok: true });
 });
 

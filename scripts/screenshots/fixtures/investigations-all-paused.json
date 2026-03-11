@@ -1,0 +1,96 @@
+{
+  "investigations": [
+    {
+      "id": "1749820000000",
+      "status": "paused",
+      "title": "High ingestion latency on oi-tds-prd-eus2p-01",
+      "query": "Investigate high ingestion latency on oi-tds-prd-eus2p-01 for the past 6 hours",
+      "stamp": "oi-tds-prd-eus2p-01",
+      "timeRange": "ago(6h)",
+      "issueType": "latency",
+      "model": "claude-opus-4.6",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 3,
+      "thoughts": [
+        "System: Investigation automatically paused due to server restart."
+      ],
+      "actions": [],
+      "logs": ["Investigation started", "Investigation automatically paused due to server restart."]
+    },
+    {
+      "id": "1749810000000",
+      "status": "paused",
+      "title": "Queue throttling analysis — ax-tds-prd-wus2-03",
+      "query": "Investigate MessagingInfraThrottleException on ax-tds-prd-wus2-03",
+      "stamp": "ax-tds-prd-wus2-03",
+      "timeRange": "ago(2h)",
+      "issueType": "throttling",
+      "model": "claude-opus-4.6",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 8,
+      "thoughts": [
+        "System: Investigation automatically paused due to server restart."
+      ],
+      "actions": [],
+      "logs": ["Investigation started", "Investigation automatically paused due to server restart."]
+    },
+    {
+      "id": "1749800000000",
+      "status": "paused",
+      "title": "BlobReader cache miss cascade — oi-tds-prd-ea-02",
+      "query": "Investigate BlobReader cache miss cascade failure on oi-tds-prd-ea-02",
+      "stamp": "oi-tds-prd-ea-02",
+      "timeRange": "ago(4h)",
+      "issueType": "cache",
+      "model": "claude-opus-4.6",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 5,
+      "thoughts": [
+        "System: Investigation automatically paused due to server restart."
+      ],
+      "actions": [],
+      "logs": ["Investigation started", "Investigation automatically paused due to server restart."]
+    },
+    {
+      "id": "1749780000000",
+      "status": "completed",
+      "title": "Dead letter queue analysis — oi-tds-prd-weu-01",
+      "query": "Investigate DLQ message accumulation on oi-tds-prd-weu-01",
+      "stamp": "oi-tds-prd-weu-01",
+      "timeRange": "ago(12h)",
+      "issueType": "DLQ",
+      "model": "claude-opus-4.6",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 12,
+      "thoughts": [
+        "Investigation complete. The DLQ accumulation was caused by schema validation failures on the new telemetry format."
+      ],
+      "actions": [],
+      "logs": ["Investigation completed"],
+      "finalReport": "# DLQ Analysis Complete\n\nRoot cause identified."
+    },
+    {
+      "id": "1749760000000",
+      "status": "completed",
+      "title": "Node failure correlation — oi-tds-prd-scus-02",
+      "query": "Investigate node failures and dequeue count spikes on oi-tds-prd-scus-02",
+      "stamp": "oi-tds-prd-scus-02",
+      "timeRange": "ago(24h)",
+      "issueType": "node-failure",
+      "model": "claude-opus-4.6",
+      "productId": "teleduct",
+      "productName": "Teleduct",
+      "thoughtCount": 15,
+      "thoughts": [
+        "Investigation complete. The dequeue count spikes correlated with PLB rebalancing events after the 2:00 AM deployment."
+      ],
+      "actions": [],
+      "logs": ["Investigation completed"],
+      "finalReport": "# Node Failure Correlation\n\nPLB rebalancing after deployment."
+    }
+  ]
+}
