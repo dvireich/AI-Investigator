@@ -27,6 +27,7 @@ const VITE_URL = `http://localhost:${VITE_PORT}`;
 const MOCK_URL = `http://localhost:${MOCK_PORT}`;
 
 const VIEWPORT = { width: 1400, height: 900 };
+const MOBILE_VIEWPORT = { width: 375, height: 812 }; // iPhone-size
 
 // Parse CLI flags
 const args = process.argv.slice(2);
@@ -70,8 +71,9 @@ async function screenshot(page, name, opts = {}) {
 
 /** Wait for the React app to finish rendering */
 async function waitForApp(page) {
-    // Wait for the app shell to mount
-    await page.waitForSelector('[class*="animate-fade-in"], [class*="glass-card"], nav', { timeout: 10000 });
+    // Wait for the app shell to mount — match elements visible on both desktop and mobile
+    // Use :visible pseudo-class to skip hidden nav on mobile viewport
+    await page.waitForSelector('[class*="animate-fade-in"], [class*="glass-card"], header', { timeout: 10000, state: 'attached' });
     // Small extra pause for animations to settle
     await page.waitForTimeout(800);
 }
@@ -408,6 +410,77 @@ async function captureAuthFlow(page) {
 }
 
 // ---------------------------------------------------------------------------
+// Mobile screenshot capture functions
+// ---------------------------------------------------------------------------
+
+async function captureMobileDashboard(page) {
+    console.log('\n📱 Mobile Dashboard...');
+    await resetMock();
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await navigateTo(page, '/');
+    await page.waitForTimeout(1200);
+    await screenshot(page, 'mobile-dashboard');
+    await page.setViewportSize(VIEWPORT);
+}
+
+async function captureMobileInvestigationDetail(page) {
+    console.log('\n📱 Mobile Investigation Detail...');
+    const inv = loadFixture('investigation-completed.json');
+    await setDetailOverride(inv.id, inv);
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await navigateTo(page, `/investigation/${inv.id}`);
+    await page.waitForTimeout(800);
+    await screenshot(page, 'mobile-investigation-detail');
+    await page.setViewportSize(VIEWPORT);
+}
+
+async function captureMobileContestReport(page) {
+    console.log('\n📱 Mobile Contest Report...');
+    const inv = loadFixture('investigation-completed.json');
+    await setDetailOverride(inv.id, inv);
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await navigateTo(page, `/investigation/${inv.id}`);
+    await page.waitForTimeout(600);
+
+    // Click the Report tab
+    const reportTab = page.locator('button:has-text("Report")').first();
+    if (await reportTab.isVisible()) {
+        await reportTab.click();
+        await page.waitForTimeout(500);
+    }
+
+    // Click Contest button if visible
+    const contestBtn = page.locator('button:has-text("Contest")').first();
+    if (await contestBtn.isVisible()) {
+        await contestBtn.click();
+        await page.waitForTimeout(400);
+    }
+
+    await screenshot(page, 'mobile-contest-report');
+    await page.setViewportSize(VIEWPORT);
+}
+
+async function captureMobileNewInvestigation(page) {
+    console.log('\n📱 Mobile New Investigation...');
+    await resetMock();
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await navigateTo(page, '/new');
+    await page.waitForTimeout(500);
+    await screenshot(page, 'mobile-new-investigation');
+    await page.setViewportSize(VIEWPORT);
+}
+
+async function captureMobileSettings(page) {
+    console.log('\n📱 Mobile Settings...');
+    await resetMock();
+    await page.setViewportSize(MOBILE_VIEWPORT);
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+    await screenshot(page, 'mobile-settings');
+    await page.setViewportSize(VIEWPORT);
+}
+
+// ---------------------------------------------------------------------------
 // Vite dev server management
 // ---------------------------------------------------------------------------
 
@@ -538,8 +611,15 @@ async function main() {
         // Auth
         await captureAuthFlow(page);
 
+        // Mobile screenshots
+        await captureMobileDashboard(page);
+        await captureMobileInvestigationDetail(page);
+        await captureMobileContestReport(page);
+        await captureMobileNewInvestigation(page);
+        await captureMobileSettings(page);
+
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 19 screenshots captured successfully!');
+        console.log('  ✅ All 24 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

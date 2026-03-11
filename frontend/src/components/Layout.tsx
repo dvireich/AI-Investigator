@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Settings, Info } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Settings, Info, Menu, X } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
 
@@ -16,6 +16,12 @@ export const Layout = () => {
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [loginData, setLoginData] = useState<any>(null);
     const loginPollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+    // Close mobile menu on route change
+    useEffect(() => {
+        setMobileMenuOpen(false);
+    }, [location.pathname]);
 
     useEffect(() => {
         checkAuth();
@@ -77,8 +83,8 @@ export const Layout = () => {
     return (
         <div className="min-h-screen bg-transparent text-slate-100 font-sans selection:bg-brand-500/30">
             {/* Header */}
-            <header className="fixed top-0 left-0 right-0 h-16 bg-slate-900/70 backdrop-blur-xl border-b border-white/[0.06] z-50 flex items-center justify-between px-6 shadow-2xl shadow-black/20">
-                <div className="flex items-center gap-4">
+            <header className="fixed top-0 left-0 right-0 h-14 sm:h-16 bg-slate-900/70 backdrop-blur-xl border-b border-white/[0.06] z-50 flex items-center justify-between px-3 sm:px-6 shadow-2xl shadow-black/20">
+                <div className="flex items-center gap-2 sm:gap-4">
                     <div className="flex items-center gap-2">
                         {/* CSS LOGO */}
                         <div className="relative w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-400 to-brand-600 flex items-center justify-center shadow-lg shadow-brand-500/30 group cursor-pointer overflow-hidden">
@@ -89,19 +95,21 @@ export const Layout = () => {
                         <div>
                             <h1 className="text-lg font-black tracking-tight text-white/90">
                                 <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">AI</span>
-                                <span className="text-brand-400 font-medium ml-1 text-sm tracking-wide">Investigator</span>
+                                <span className="text-brand-400 font-medium ml-1 text-sm tracking-wide hidden sm:inline">Investigator</span>
                             </h1>
                         </div>
                     </div>
 
-                    <nav className="flex items-center space-x-1 ml-6">
+                    {/* Desktop nav */}
+                    <nav className="hidden md:flex items-center space-x-1 ml-6">
                         <NavLink to="/" icon={<LayoutDashboard size={18} />} label="Investigations" active={location.pathname === '/'} />
                         <NavLink to="/new" icon={<PlusCircle size={18} />} label="New" active={location.pathname === '/new'} />
                         <NavLink to="/about" icon={<Info size={18} />} label="About" active={location.pathname === '/about'} />
                     </nav>
                 </div>
 
-                <div className="flex items-center gap-4">
+                {/* Desktop right-side controls */}
+                <div className="hidden md:flex items-center gap-4">
                     {!authenticated ? (
                         <button onClick={handleLogin} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition-colors border border-slate-600">
                             Connect Copilot
@@ -131,17 +139,62 @@ export const Layout = () => {
                         </div>
                     )}
                 </div>
+
+                {/* Mobile hamburger button */}
+                <button
+                    onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                    className="md:hidden p-2 text-slate-400 hover:text-white transition-colors"
+                    aria-label="Toggle menu"
+                >
+                    {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+                </button>
             </header>
+
+            {/* Mobile menu drawer */}
+            {mobileMenuOpen && (
+                <div className="fixed inset-0 z-40 md:hidden">
+                    {/* Backdrop */}
+                    <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setMobileMenuOpen(false)} />
+                    {/* Drawer */}
+                    <div className="absolute top-14 left-0 right-0 bg-slate-900/95 backdrop-blur-xl border-b border-slate-700/50 shadow-2xl animate-fade-in">
+                        <nav className="flex flex-col p-3 gap-1">
+                            <MobileNavLink to="/" icon={<LayoutDashboard size={18} />} label="Investigations" active={location.pathname === '/'} />
+                            <MobileNavLink to="/new" icon={<PlusCircle size={18} />} label="New Investigation" active={location.pathname === '/new'} />
+                            <MobileNavLink to="/about" icon={<Info size={18} />} label="About" active={location.pathname === '/about'} />
+                            <MobileNavLink to="/settings" icon={<Settings size={18} />} label="Settings" active={location.pathname === '/settings'} />
+                        </nav>
+                        <div className="border-t border-slate-800 p-3 flex items-center justify-between">
+                            {!authenticated ? (
+                                <button onClick={() => { setMobileMenuOpen(false); handleLogin(); }} className="w-full px-3 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-sm font-bold transition-colors border border-slate-600">
+                                    Connect Copilot
+                                </button>
+                            ) : (
+                                <div className="flex items-center gap-3 w-full">
+                                    <div className="flex items-center px-3 py-2 bg-green-900/30 text-green-400 rounded-lg text-xs font-bold border border-green-900/50 flex-1">
+                                        <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
+                                        Copilot Active
+                                    </div>
+                                    {user && (
+                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 p-0.5 shrink-0" title={user.name || user.login}>
+                                            <img src={user.avatar_url} alt={user.login} className="w-full h-full rounded-full object-cover" />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Login Modal */}
             {showLoginModal && loginData && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in">
-                    <div className="bg-slate-900 p-8 rounded-2xl border border-slate-700 max-w-md w-full shadow-2xl">
-                        <h2 className="text-2xl font-bold text-white mb-4">Connect to GitHub Copilot</h2>
-                        <p className="text-slate-400 mb-6">Please visit the URL below and enter the code to authorize.</p>
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4">
+                    <div className="bg-slate-900 p-5 sm:p-8 rounded-2xl border border-slate-700 max-w-md w-full shadow-2xl">
+                        <h2 className="text-xl sm:text-2xl font-bold text-white mb-4">Connect to GitHub Copilot</h2>
+                        <p className="text-slate-400 mb-6 text-sm sm:text-base">Please visit the URL below and enter the code to authorize.</p>
 
                         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 mb-6 text-center">
-                            <div className="text-4xl font-mono font-black text-brand-400 tracking-widest mb-2">{loginData.user_code}</div>
+                            <div className="text-2xl sm:text-4xl font-mono font-black text-brand-400 tracking-widest mb-2">{loginData.user_code}</div>
                             <div className="text-xs text-slate-500">USER CODE</div>
                         </div>
 
@@ -158,7 +211,7 @@ export const Layout = () => {
             )}
 
             {/* Main Content */}
-            <main className="pt-24 px-6 md:px-12 max-w-[1600px] mx-auto animate-slide-up">
+            <main className="pt-18 sm:pt-24 px-3 sm:px-6 md:px-12 max-w-[1600px] mx-auto animate-slide-up">
                 <Outlet />
             </main>
         </div>
@@ -174,6 +227,19 @@ const NavLink = ({ to, icon, label, active }: { to: string; icon: any; label: st
             }`}
     >
         <span className={`mr-2 ${active ? 'text-brand-400' : ''}`}>{icon}</span>
+        {label}
+    </Link>
+);
+
+const MobileNavLink = ({ to, icon, label, active }: { to: string; icon: any; label: string; active: boolean }) => (
+    <Link
+        to={to}
+        className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${active
+            ? 'bg-white/[0.08] text-white border border-white/[0.08]'
+            : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
+            }`}
+    >
+        <span className={active ? 'text-brand-400' : ''}>{icon}</span>
         {label}
     </Link>
 );

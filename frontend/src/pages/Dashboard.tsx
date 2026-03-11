@@ -471,13 +471,13 @@ export const Dashboard = () => {
     };
 
     return (
-        <div className="space-y-6 animate-fade-in pb-12">
+        <div className="space-y-4 md:space-y-6 animate-fade-in pb-12">
 
             {/* Toast notifications */}
             {toasts.length > 0 && (
-                <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none">
+                <div className="fixed top-4 right-3 sm:right-4 z-50 flex flex-col gap-2 pointer-events-none">
                     {toasts.map(t => (
-                        <div key={t.key} className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold animate-fade-in min-w-[280px] max-w-sm backdrop-blur-xl ${
+                        <div key={t.key} className={`pointer-events-auto flex items-center gap-3 px-3 sm:px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold animate-fade-in w-[calc(100vw-1.5rem)] sm:w-auto sm:min-w-[280px] max-w-sm backdrop-blur-xl ${
                             t.type === 'completed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-red-500/10 border-red-500/20 text-red-300'
                         }`}>
                             {t.type === 'completed'
@@ -512,13 +512,13 @@ export const Dashboard = () => {
                     <h1 className="text-3xl font-black text-white leading-tight">Investigations</h1>
                     <p className="text-slate-400 text-sm mt-1">Monitor, review, and manage all active and past investigations.</p>
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:flex-wrap w-full sm:w-auto">
                     {/* Resume All — visible when there are paused investigations */}
                     {pausedCount > 0 && (
                         <button
                             onClick={handleResumeAll}
                             disabled={resumingAll}
-                            className="inline-flex items-center gap-2 px-4 py-2.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/20 font-bold rounded-xl shadow-sm transition-all duration-200 group whitespace-nowrap disabled:opacity-50"
+                            className="inline-flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/20 font-bold rounded-xl shadow-sm transition-all duration-200 group whitespace-nowrap disabled:opacity-50 text-sm sm:text-base"
                         >
                             {resumingAll
                                 ? <RefreshCw className="w-4 h-4 animate-spin" />
@@ -530,7 +530,7 @@ export const Dashboard = () => {
                     <button
                         onClick={handleRestartServer}
                         disabled={restarting}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold rounded-xl shadow-sm transition-all duration-200 group whitespace-nowrap disabled:opacity-50"
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold rounded-xl shadow-sm transition-all duration-200 group whitespace-nowrap disabled:opacity-50 text-sm sm:text-base"
                         title="Restart the backend server"
                     >
                         {restarting
@@ -540,7 +540,7 @@ export const Dashboard = () => {
                     </button>
                     <Link
                         to="/new"
-                        className="inline-flex items-center gap-2 px-5 py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl shadow-lg shadow-brand-500/20 transition-all duration-200 group whitespace-nowrap"
+                        className="inline-flex items-center justify-center gap-2 px-5 py-2 sm:py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl shadow-lg shadow-brand-500/20 transition-all duration-200 group whitespace-nowrap text-sm sm:text-base"
                     >
                         <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
                         Start New Investigation
@@ -549,44 +549,44 @@ export const Dashboard = () => {
             </div>
 
             {/* Stats Strip - tiles are clickable to filter */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <button onClick={() => { setFilter('all'); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left bg-gradient-to-br from-brand-600 to-brand-800 rounded-2xl p-5 text-white shadow-lg shadow-brand-500/20 relative overflow-hidden hover:from-brand-500 hover:to-brand-700 transition-all">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                <button onClick={() => { setFilter('all'); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left bg-gradient-to-br from-brand-600 to-brand-800 rounded-xl sm:rounded-2xl p-3 sm:p-5 text-white shadow-lg shadow-brand-500/20 relative overflow-hidden hover:from-brand-500 hover:to-brand-700 transition-all">
                     <div className="absolute -top-4 -right-4 w-20 h-20 bg-white/10 rounded-full blur-xl" />
-                    <div className="flex items-center gap-2 mb-3">
+                    <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <Activity className="w-4 h-4 text-brand-200" />
                         <span className="text-brand-200 text-xs font-semibold uppercase tracking-wider">Active</span>
                         {activeCount > 0 && <span className="ml-auto w-2 h-2 rounded-full bg-white animate-ping" />}
                     </div>
-                    <div className="text-4xl font-black tabular-nums">{activeDisplay}</div>
+                    <div className="text-3xl sm:text-4xl font-black tabular-nums">{activeDisplay}</div>
                     <div className="text-brand-300 text-xs mt-1">Running now</div>
                 </button>
-                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-2xl p-5 group">
-                    <div className="flex items-center gap-2 mb-3">
+                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5 group">
+                    <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                         <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Done</span>
                     </div>
-                    <div className="text-3xl font-black text-slate-100 tabular-nums">{completedDisplay}</div>
+                    <div className="text-2xl sm:text-3xl font-black text-slate-100 tabular-nums">{completedDisplay}</div>
                     {investigations.length > 0 && (
                         <div className="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden">
                             <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.round(completedCount / investigations.length * 100)}%` }} />
                         </div>
                     )}
                 </button>
-                <button onClick={() => { setFilter('failed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-2xl p-5 group">
-                    <div className="flex items-center gap-2 mb-3">
+                <button onClick={() => { setFilter('failed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5 group">
+                    <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <XCircle className={`w-4 h-4 ${failedCount > 0 ? 'text-red-400' : 'text-slate-600'}`} />
                         <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Failed</span>
                         {failedCount > 0 && <span className="ml-auto w-2 h-2 rounded-full bg-red-400 animate-pulse" />}
                     </div>
-                    <div className={`text-3xl font-black tabular-nums ${failedCount > 0 ? 'text-red-400' : 'text-slate-100'}`}>{failedDisplay}</div>
+                    <div className={`text-2xl sm:text-3xl font-black tabular-nums ${failedCount > 0 ? 'text-red-400' : 'text-slate-100'}`}>{failedDisplay}</div>
                     <div className="text-slate-500 text-xs mt-1">{failedCount > 0 ? 'Need review' : 'All clear'}</div>
                 </button>
-                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-2xl p-5">
-                    <div className="flex items-center gap-2 mb-3">
+                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5">
+                    <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <TrendingUp className={`w-4 h-4 ${successRateValue >= 80 ? 'text-emerald-400' : 'text-slate-500'}`} />
                         <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Success rate</span>
                     </div>
-                    <div className={`text-3xl font-black tabular-nums ${successRateValue >= 80 ? 'text-emerald-400' : 'text-slate-100'}`}>
+                    <div className={`text-2xl sm:text-3xl font-black tabular-nums ${successRateValue >= 80 ? 'text-emerald-400' : 'text-slate-100'}`}>
                         {investigations.length > 0 ? `${successDisplay}%` : '--'}
                     </div>
                     <div className="text-slate-500 text-xs mt-1">
@@ -1183,8 +1183,8 @@ export const Dashboard = () => {
 
             {/* Keyboard shortcuts overlay */}
             {showShortcuts && (
-                <div className="fixed bottom-6 right-6 z-50 animate-fade-in" onClick={(e) => e.stopPropagation()}>
-                    <div className="bg-slate-900 text-white rounded-2xl shadow-2xl p-5 w-60">
+                <div className="fixed bottom-3 right-3 sm:bottom-6 sm:right-6 z-50 animate-fade-in" onClick={(e) => e.stopPropagation()}>
+                    <div className="bg-slate-900 text-white rounded-2xl shadow-2xl p-5 w-[calc(100vw-1.5rem)] sm:w-60">
                         <div className="flex items-center justify-between mb-4">
                             <span className="text-sm font-bold">Keyboard shortcuts</span>
                             <button onClick={() => setShowShortcuts(false)} className="text-slate-400 hover:text-white text-[11px] font-bold bg-slate-800 hover:bg-slate-700 px-1.5 py-0.5 rounded-md transition-colors">Esc</button>

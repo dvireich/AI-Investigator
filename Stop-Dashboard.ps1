@@ -38,12 +38,31 @@ try {
     $edgeAppProcs = Get-CimInstance Win32_Process | Where-Object {
         $_.Name -eq 'msedge.exe' -and $_.CommandLine -like '*--app=http://localhost:5173*'
     }
-    foreach ($proc in $edgeAppProcs) {
-        Write-Host "Killing Edge app window (PID: $($proc.ProcessId))..." -ForegroundColor Red
-        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    if ($edgeAppProcs) {
+        foreach ($proc in $edgeAppProcs) {
+            Write-Host "Killing Edge app window (PID: $($proc.ProcessId))..." -ForegroundColor Red
+            Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+        # Give Edge a moment to fully shut down its child processes
+        Start-Sleep -Seconds 1
     }
 } catch {
     Write-Host "Could not query Edge app processes, skipping." -ForegroundColor DarkGray
+}
+
+# Cleanup devtunnel processes
+Write-Host "Checking for devtunnel processes..." -ForegroundColor Yellow
+try {
+    $tunnelProcs = Get-Process -Name "devtunnel" -ErrorAction SilentlyContinue
+    foreach ($proc in $tunnelProcs) {
+        Write-Host "Killing devtunnel process (PID: $($proc.Id))..." -ForegroundColor Red
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+    }
+    if (-not $tunnelProcs) {
+        Write-Host "No devtunnel processes running." -ForegroundColor Green
+    }
+} catch {
+    Write-Host "Could not query devtunnel processes, skipping." -ForegroundColor DarkGray
 }
 
 # Cleanup MCP KQL Server Python processes

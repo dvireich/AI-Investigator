@@ -135,7 +135,7 @@ export const FileBrowserModal = ({ isOpen, onClose, onSelect, initialPath, mode 
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-            <div className="glass-card w-full max-w-2xl flex flex-col max-h-[80vh] overflow-hidden">
+            <div className="glass-card w-full max-w-2xl flex flex-col max-h-[80dvh] overflow-hidden">
                 {/* Header */}
                 <div className="p-4 border-b border-white/[0.06] flex justify-between items-center">
                     <h3 className="font-bold text-white flex items-center gap-2">

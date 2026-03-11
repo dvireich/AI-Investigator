@@ -19,6 +19,7 @@ An agentic system that runs, monitors, and learns from pipeline investigations �
 - [Features](#features)
 - [Architecture](#architecture)
 - [Getting Started](#getting-started)
+- [Remote Access](#remote-access)
 - [Configuration](#configuration)
 - [API Reference](#api-reference)
 - [Tech Stack](#tech-stack)
@@ -548,8 +549,11 @@ The dashboard opens automatically in an Edge standalone window at **http://local
 
 | Mode | Command | Description |
 |------|---------|-------------|
-| **App** (default) | `.\Run-Dashboard.ps1` | Hidden consoles + Edge `--app` chromeless window (1400×900). Clean desktop experience. |
-| **Classic** | `.\Run-Dashboard.ps1 -Classic` | Visible console windows for backend + frontend. Useful for debugging. |
+| **App + Tunnel** (default) | `.\Run-Dashboard.ps1` | Hidden consoles + Edge app window + dev tunnel (tenant-only access). Clean desktop experience with remote sharing. |
+| **App + Anonymous Tunnel** | `.\Run-Dashboard.ps1 -Anonymous` | Same as above, but anyone with the tunnel link can access (no login required). |
+| **App, Local Only** | `.\Run-Dashboard.ps1 -NoTunnel` | Hidden consoles + Edge app window, no dev tunnel. Local access only. |
+| **Classic + Tunnel** | `.\Run-Dashboard.ps1 -Classic` | Visible console windows + dev tunnel (tenant-only). |
+| **Classic, Local Only** | `.\Run-Dashboard.ps1 -Classic -NoTunnel` | Visible console windows, no tunnel. Useful for debugging. |
 
 ### Manual Setup
 
@@ -571,11 +575,90 @@ npm run dev          # Starts on http://localhost:5173
 .\tools\InvestigationDashboard\Stop-Dashboard.ps1
 ```
 
-Cleans up all related processes: backend (port 3000), frontend (ports 5173–5180), Edge app windows, and MCP Python processes.
+Cleans up all related processes: backend (port 3000), frontend (ports 5173–5180), Edge app windows, dev tunnel processes, and MCP Python processes.
 
 ---
 
-## Configuration
+## Remote Access
+
+AI Investigator supports remote access out of the box — manage investigations from your phone, tablet, or any device with a browser. The UI is fully responsive and optimized for small screens.
+
+### How It Works
+
+The startup script automatically creates a [Dev Tunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/) that exposes the frontend through a secure public URL. A Vite proxy forwards `/api` and `/ws` requests to the backend, so everything — REST API calls and WebSocket connections — works through a single tunnel URL.
+
+```
+Phone / Tablet                        Your Laptop
+┌──────────────┐                ┌──────────────────────────┐
+│   Browser    │   Dev Tunnel   │  Vite (port 5173)        │
+│  (anywhere)  │ ──────────────→│    ├─ /      → React UI  │
+│              │    HTTPS/WSS   │    ├─ /api/* → Express   │
+│              │                │    └─ /ws    → WebSocket │
+│              │                │  Express (port 3000)     │
+│              │                │    ├─ REST API            │
+│              │                │    ├─ WebSocket server    │
+│              │                │    └─ Kusto CLI / MCP     │
+└──────────────┘                └──────────────────────────┘
+```
+
+### Prerequisites
+
+Install the Dev Tunnel CLI (one-time setup):
+
+```powershell
+winget install Microsoft.devtunnel
+devtunnel user login    # Sign in with your Microsoft account
+```
+
+> `Setup-Dashboard.ps1` checks for the CLI and shows install instructions if missing.
+
+### Access Levels
+
+| Command | Who Can Access |
+|---------|----------------|
+| `.\Run-Dashboard.ps1` | Your Microsoft Entra tenant (colleagues must log in) |
+| `.\Run-Dashboard.ps1 -Anonymous` | Anyone with the link (no login required) |
+| `.\Run-Dashboard.ps1 -NoTunnel` | Local machine only (no remote access) |
+
+The tunnel URL is displayed in a separate console window when the dashboard starts. Share that URL with your phone or teammates.
+
+### Mobile Experience
+
+The dashboard is fully responsive with mobile-optimized layouts:
+
+- **Hamburger navigation** — Full-screen drawer menu replaces the desktop nav bar
+- **Compact investigation sidebar** — Status badge, stamp name, and action buttons in a single row with expandable details
+- **Horizontal settings tabs** — Scrollable tab bar instead of a vertical sidebar
+- **Abbreviated tab labels** — "Live", "Report", "Retro" on small screens
+- **Touch-friendly controls** — Larger tap targets for pause/resume/abort actions
+- **Stacked retrospective panels** — Chat and proposals stack vertically instead of side-by-side
+
+<div align="center">
+
+| Dashboard | Investigation Detail | Contest Report |
+|:---------:|:-------------------:|:--------------:|
+| ![Mobile Dashboard](docs/screenshots/mobile-dashboard.png) | ![Mobile Investigation](docs/screenshots/mobile-investigation-detail.png) | ![Mobile Contest](docs/screenshots/mobile-contest-report.png) |
+
+</div>
+
+### Managing Remote Investigations
+
+With remote access, you can run the AI Investigator on your work laptop and manage investigations from anywhere on your personal device:
+
+1. **Start the dashboard** on your laptop: `.\Run-Dashboard.ps1`
+2. **Copy the tunnel URL** from the console window that opens
+3. **Open the URL** on your phone, tablet, or any browser
+4. **Sign in** with your Microsoft account (tenant mode) or access directly (anonymous mode)
+
+From your phone you can:
+- Monitor live investigation progress in real-time via WebSocket streaming
+- Start new investigations with stamp, time range, and issue type
+- Pause, resume, or abort running investigations
+- Read final reports and contest findings with feedback
+- Review retrospective proposals and apply knowledge base changes
+- Switch between investigations on the dashboard
+
+The tunnel stays active as long as your laptop is running. Close it with `Stop-Dashboard.ps1` or by shutting the tunnel console window.
 
 Configuration is managed through the Settings UI or directly in `backend/config.json` (copy from `config.sample.json` to get started):
 
@@ -721,9 +804,9 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 ├── .investigator.json                # Product manifest for one-click onboarding
 └── tools/InvestigationDashboard/
     ├── README.md                     # This file
-    ├── Run-Dashboard.ps1             # Launch both services (App mode or -Classic)
-    ├── Setup-Dashboard.ps1           # Install dependencies + Kusto CLI + Playwright
-    ├── Stop-Dashboard.ps1            # Kill dashboard processes
+    ├── Run-Dashboard.ps1             # Launch services + dev tunnel (-NoTunnel, -Anonymous, -Classic)
+    ├── Setup-Dashboard.ps1           # Install dependencies + Kusto CLI + Playwright + devtunnel check
+    ├── Stop-Dashboard.ps1            # Kill dashboard + tunnel processes
     ├── prompts/
     │   └── RetrospectPrompt.md       # Retrospective prompt template
     ├── scripts/
@@ -812,7 +895,7 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 19 files in `docs/screenshots/`:
+The capture script produces these 24 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
@@ -835,6 +918,11 @@ The capture script produces these 19 files in `docs/screenshots/`:
 | 17 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
 | 18 | `settings.png` | Settings — Products tab expanded |
 | 19 | `auth-flow.png` | Unauthenticated state |
+| 20 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 21 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 22 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 23 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 24 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
 
 ### Architecture
 

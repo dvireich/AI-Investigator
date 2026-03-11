@@ -54,7 +54,7 @@ export const About = () => (
 
         {/* ── Hero ── */}
         <div className="relative overflow-hidden bg-gradient-to-b from-slate-900/60 via-transparent to-transparent border-b border-slate-800">
-            <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[480px] h-[240px] rounded-full bg-brand-500/10 blur-3xl pointer-events-none" />
+            <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[280px] h-[140px] sm:w-[480px] sm:h-[240px] rounded-full bg-brand-500/10 blur-3xl pointer-events-none" />
             <div className="absolute top-0 right-0 w-64 h-64 rounded-full bg-purple-600/5 blur-3xl pointer-events-none" />
 
             <div className="relative max-w-4xl mx-auto px-6 pt-20 pb-16 text-center space-y-5">
@@ -67,7 +67,7 @@ export const About = () => (
                         <Brain className="w-8 h-8 text-brand-400" />
                     </div>
                 </div>
-                <h1 className="text-5xl font-black tracking-tight">
+                <h1 className="text-3xl sm:text-5xl font-black tracking-tight">
                     <span className="text-white">AI </span>
                     <span className="text-white">Investigator</span>
                 </h1>

@@ -272,24 +272,26 @@ export const Settings = () => {
     ];
 
     return (
-        <div className="max-w-6xl mx-auto h-[calc(100vh-140px)] flex gap-8 animate-fade-in">
+        <div className="max-w-6xl mx-auto min-h-[calc(100dvh-140px)] md:h-[calc(100dvh-140px)] flex flex-col md:flex-row gap-4 md:gap-8 animate-fade-in">
             {/* Sidebar Navigation */}
-            <div className="w-64 shrink-0 space-y-2">
-                <h1 className="text-3xl font-black text-white tracking-tight mb-8 px-4">Settings</h1>
+            <div className="w-full md:w-64 md:shrink-0">
+                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-4 md:mb-8 px-4">Settings</h1>
 
-                {tabs.map(tab => (
-                    <button
-                        key={tab.id}
-                        onClick={() => setActiveTab(tab.id)}
-                        className={`w-full flex items-center space-x-3 px-6 py-4 rounded-xl transition-all font-semibold text-sm ${activeTab === tab.id
-                            ? 'glass-card text-brand-400 border-l-2 border-l-brand-500'
-                            : 'text-slate-500 hover:bg-slate-800/40 hover:text-slate-300'
-                            }`}
-                    >
-                        {tab.icon}
-                        <span>{tab.label}</span>
-                    </button>
-                ))}
+                <div className="flex md:flex-col gap-1 md:gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0 px-1 md:px-0">
+                    {tabs.map(tab => (
+                        <button
+                            key={tab.id}
+                            onClick={() => setActiveTab(tab.id)}
+                            className={`flex items-center space-x-2 md:space-x-3 px-4 md:px-6 py-2.5 md:py-4 rounded-xl transition-all font-semibold text-sm whitespace-nowrap md:w-full ${activeTab === tab.id
+                                ? 'glass-card text-brand-400 border-b-2 md:border-b-0 md:border-l-2 border-brand-500'
+                                : 'text-slate-500 hover:bg-slate-800/40 hover:text-slate-300'
+                                }`}
+                        >
+                            {tab.icon}
+                            <span>{tab.label}</span>
+                        </button>
+                    ))}
+                </div>
             </div>
 
             {/* Main Content */}
@@ -297,7 +299,7 @@ export const Settings = () => {
                 <div className="absolute inset-0 bg-gradient-to-br from-white/[0.02] to-transparent pointer-events-none" />
 
                 {/* Scrollable Content Area */}
-                <div className="flex-1 overflow-y-auto p-10 space-y-10 relative z-10 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-10 space-y-6 sm:space-y-10 relative z-10 custom-scrollbar">
 
                     {activeTab === 'products' && (
                         <div className="space-y-8 animate-fade-in">
@@ -757,7 +759,7 @@ export const Settings = () => {
             {/* Product Add/Edit Modal */}
             {showProductModal && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
-                    <div className="glass-card w-full max-w-2xl max-h-[90vh] overflow-hidden">
+                    <div className="glass-card w-full max-w-2xl max-h-[90dvh] overflow-hidden">
                         <div className="p-6 border-b border-white/[0.06] flex items-center justify-between">
                             <h3 className="text-xl font-bold text-white flex items-center gap-2">
                                 {editingProduct ? (
@@ -773,7 +775,7 @@ export const Settings = () => {
                                 <X size={20} />
                             </button>
                         </div>
-                        <div className="p-6 space-y-4 overflow-y-auto max-h-[60vh]">
+                        <div className="p-6 space-y-4 overflow-y-auto max-h-[60dvh]">
 
                             {/* Discover Step — only for new products */}
                             {!editingProduct && showDiscoverStep && (

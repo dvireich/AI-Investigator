@@ -93,7 +93,7 @@ if (Test-Path (Join-Path $icmScriptsDir "package.json")) {
     Write-Host ""
     Write-Host "Installing ICM Script Dependencies (Playwright)..." -ForegroundColor Yellow
     Set-Location $icmScriptsDir
-    npm ci
+    npm install
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "ICM script dependency install failed. ICM incident reading may not work until manually resolved."
     } else {
@@ -102,6 +102,36 @@ if (Test-Path (Join-Path $icmScriptsDir "package.json")) {
 } else {
     Write-Host ""
     Write-Host "ICM scripts directory not found - skipping Playwright install." -ForegroundColor DarkGray
+}
+
+# --- Dev Tunnel CLI (for remote sharing) ---
+Write-Host ""
+Write-Host "Checking for Dev Tunnel CLI..." -ForegroundColor Yellow
+$devtunnelExe = (Get-Command "devtunnel" -ErrorAction SilentlyContinue).Source
+if (-not $devtunnelExe) {
+    # Check winget install location before installing
+    $wingetPath = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
+    $found = Get-ChildItem -Path $wingetPath -Filter "devtunnel.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($found) { $devtunnelExe = $found.FullName }
+}
+if (-not $devtunnelExe) {
+    Write-Host "Installing devtunnel CLI..." -ForegroundColor Yellow
+    winget install Microsoft.devtunnel --accept-source-agreements --accept-package-agreements
+    # Refresh PATH so devtunnel is available in this session
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $devtunnelExe = (Get-Command "devtunnel" -ErrorAction SilentlyContinue).Source
+    if (-not $devtunnelExe) {
+        $found = Get-ChildItem -Path $wingetPath -Filter "devtunnel.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($found) { $devtunnelExe = $found.FullName }
+    }
+}
+if ($devtunnelExe) {
+    Write-Host "devtunnel CLI ready: $devtunnelExe" -ForegroundColor Green
+    # Auto-login (will open browser if not already logged in)
+    Write-Host "Ensuring devtunnel login..." -ForegroundColor Yellow
+    & $devtunnelExe user login
+} else {
+    Write-Warning "devtunnel installation failed. Remote sharing won't work. Use -NoTunnel when running the dashboard."
 }
 
 Write-Host ""
