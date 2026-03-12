@@ -46,6 +46,8 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Retrospective Analysis** | Post-investigation AI analysis that reads the knowledge base and proposes improvements |
 | **Proposal Workflow** | Review, approve, reject, and apply file changes directly from the UI |
 | **Persistent History** | All investigations saved as JSON state + Markdown reports, survives server restarts |
+| **Share & Export** | Export investigations as JSON files for sharing; import them on any dashboard instance with file picker or drag-and-drop |
+| **PDF Reports** | One-click PDF export of final reports with styled Markdown rendering via Puppeteer |
 | **ICM Integration** | Start investigations from IcM incidents with auto-extracted context (stamp, time range, severity) |
 | **Multi-Product Support** | Configure multiple investigation targets with independent paths, prompts, and knowledge bases |
 
@@ -223,6 +225,26 @@ When the backend restarts, all running investigations are automatically paused. 
 
 ---
 
+### 14. Share & Export
+
+Non-running investigations show **Share** (sky-blue) and **PDF** (violet) buttons in the sidebar. Share exports the full investigation state as a JSON file; PDF renders the final report into a styled, downloadable PDF document via Puppeteer.
+
+![Share & Export Buttons](docs/screenshots/share-export-buttons.png)
+
+<!-- Screenshot: The investigation detail sidebar showing the Share (sky-blue) and PDF (violet) export buttons alongside pause/resume controls. -->
+
+---
+
+### 15. Import Investigation (Drag & Drop)
+
+Import previously exported investigations via the **Import Investigation** button in the floating action dock, or simply drag and drop a `.json` file anywhere on the dashboard. A full-screen animated drop zone appears with gradient borders and a pulsing upload icon.
+
+![Drag & Drop Import](docs/screenshots/drag-drop-import.png)
+
+<!-- Screenshot: The full-screen drag-and-drop overlay with the animated upload icon, gradient border, and "Drop Investigation File" text. -->
+
+---
+
 <!-- ### 13. GitHub Copilot Authentication
 
 Secure OAuth device flow — enter the code on GitHub, and you're connected.
@@ -342,6 +364,20 @@ The main dashboard provides a rich interface for managing all investigations:
 - **TrackingId Copy** — Abbreviated tracking IDs with click-to-copy
 - **Skeleton Loading** — Animated placeholder cards during initial data fetch
 - **Auto-Refresh** — Configurable polling interval (lightweight metadata-only polling)
+- **Floating Action Dock** — Portal-rendered toolbar pinned below the navbar with quick actions:
+  - **Resume All** — Batch-resume all paused investigations (shown only when paused count > 0)
+  - **Restart Server** — Restart the backend server process
+  - **Import Investigation** — Import a previously exported `.json` investigation file
+  - **New Investigation** — Quick link to the investigation launch form
+
+### 📤 Share, Export & Import
+
+- **Export as JSON** — Download any non-running investigation as a portable `.json` file preserving full state, steps, and report
+- **Export as PDF** — Generate a styled PDF report from the investigation's final Markdown report (requires Puppeteer). Available only for investigations with a completed report
+- **Import Investigation** — Upload a previously exported JSON file to restore an investigation:
+  - **File Picker** — Standard file dialog via the Import button in the action dock
+  - **Drag & Drop** — Drag a `.json` file anywhere onto the dashboard to trigger a full-screen animated drop zone with visual feedback
+- **Share Buttons** — Sky-blue Share (JSON) and violet PDF buttons appear in the investigation detail sidebar for completed, paused, failed, and aborted investigations
 
 ### 🧠 Context Management
 
@@ -712,6 +748,9 @@ Each product in the `products` array has:
 | `POST` | `/api/investigations/:id/compact` | Summarize history to reduce tokens |
 | `DELETE` | `/api/investigations/:id` | Delete investigation (memory + disk) |
 | `PATCH` | `/api/investigations/:id/title` | Rename investigation title |
+| `GET` | `/api/investigations/:id/export` | Export investigation as portable JSON |
+| `POST` | `/api/investigations/import` | Import investigation from exported JSON |
+| `GET` | `/api/investigations/:id/pdf` | Export final report as styled PDF (Puppeteer) |
 
 ### Retrospective
 
@@ -789,7 +828,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 | Layer | Technology |
 |-------|-----------|
 | **Frontend** | React 19 · TypeScript · Vite 7 · Tailwind CSS · React Router · lucide-react · react-markdown · remark-gfm |
-| **Backend** | Node.js · Express · TypeScript · WebSocket (ws) · OpenAI SDK · @modelcontextprotocol/sdk · axios |
+| **Backend** | Node.js · Express · TypeScript · WebSocket (ws) · Puppeteer · OpenAI SDK · @modelcontextprotocol/sdk · axios |
 | **LLM** | GitHub Copilot API (OAuth device flow) — GPT-4o, Claude Opus 4.6, etc. |
 | **KQL** | Kusto CLI (primary) · MCP KQL Server (fallback) |
 | **Auth** | GitHub OAuth Device Flow · Azure CLI for Kusto |
@@ -818,6 +857,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
     │   ├── .gitignore                # Ignores config.json + build artifacts
     │   ├── src/
     │   │   ├── server.ts             # Express + WebSocket server
+    │   │   ├── pdfRenderer.ts        # PDF report generation (Puppeteer + Markdown)
     │   │   └── agent/
     │   │       ├── Runner.ts         # Core agent loop + retrospective
     │   │       ├── CopilotClient.ts  # GitHub OAuth + token management
@@ -895,7 +935,7 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 24 files in `docs/screenshots/`:
+The capture script produces these 26 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
@@ -923,6 +963,8 @@ The capture script produces these 24 files in `docs/screenshots/`:
 | 22 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
 | 23 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
 | 24 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
+| 25 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
+| 26 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
 
 ### Architecture
 
@@ -930,7 +972,7 @@ The capture script produces these 24 files in `docs/screenshots/`:
 scripts/screenshots/
 ├── package.json           # Dependencies: playwright, express, ws
 ├── mock-server.js         # Express + WebSocket mock API (port 3099)
-├── capture.js             # Playwright orchestration (19 screenshot functions)
+├── capture.js             # Playwright orchestration (26 screenshot functions)
 └── fixtures/              # Canned JSON responses
     ├── investigations.json           # Dashboard card list (10 investigations)
     ├── investigations-all-paused.json # Post-restart state (3 paused + 2 completed)

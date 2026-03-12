@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import { AgentRunner, InvestigationState } from './agent/Runner';
 import { CopilotClient } from './agent/CopilotClient';
+import { renderPdf } from './pdfRenderer';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
@@ -1565,6 +1566,195 @@ app.delete('/api/investigations/:id', async (req, res) => {
 
     broadcast(id, 'status', { status: 'deleted' });
     res.json({ ok: true });
+});
+
+// --- Export investigation (full state JSON for sharing) ---
+app.get('/api/investigations/:id/export', async (req, res) => {
+    const id = req.params.id;
+
+    // Try to read the full state from disk (not truncated)
+    const investigation = history.get(id) || (runners.has(id) ? (runners.get(id) as any).state as InvestigationState : undefined);
+    if (!investigation) {
+        return res.status(404).json({ error: 'Investigation not found' });
+    }
+
+    // Resolve the investigations directory
+    let investigationsDir = config.investigationsPath || path.join(process.cwd(), 'investigations');
+    if (investigation.productId) {
+        const product = (config.products || []).find((p: Product) => p.id === investigation.productId);
+        if (product && product.investigationsPath) {
+            investigationsDir = product.investigationsPath;
+        }
+    }
+
+    // Try to read full state from disk (not truncated like the GET /:id endpoint)
+    const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
+    let fullState: InvestigationState | null = null;
+    try {
+        const entries = fs.readdirSync(investigationsDir);
+        const match = entries.find(e => e.endsWith(`_${safeId}`));
+        if (match) {
+            const statePath = path.join(investigationsDir, match, 'state.json');
+            if (fs.existsSync(statePath)) {
+                fullState = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
+            }
+        }
+    } catch (e) {
+        // Fall back to in-memory state
+    }
+
+    const state = fullState || investigation;
+
+    // Build a safe filename from stamp and date
+    const startDate = !isNaN(Number(id)) ? new Date(Number(id)) : new Date();
+    const dateStr = startDate.toISOString().split('T')[0];
+    const safeStamp = (state.stamp || 'investigation').replace(/[^a-zA-Z0-9-]/g, '');
+    const filename = `${dateStr}_${safeStamp}_${safeId}.json`;
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(JSON.stringify(state, null, 2));
+});
+
+// --- Import investigation (from shared JSON) ---
+app.post('/api/investigations/import', async (req, res) => {
+    const importedState = req.body;
+
+    if (!importedState || typeof importedState !== 'object') {
+        return res.status(400).json({ error: 'Request body must be a valid investigation state object' });
+    }
+
+    // Validate required fields
+    if (!importedState.id && !importedState.status) {
+        return res.status(400).json({ error: 'Invalid investigation format: missing required fields (id, status)' });
+    }
+
+    // Generate a new ID to avoid collisions
+    const originalId = importedState.id;
+    const newId = Date.now().toString();
+
+    const state: InvestigationState = {
+        ...importedState,
+        id: newId,
+        // Force terminal status — imported investigations should never be 'running'
+        status: ['completed', 'failed', 'aborted'].includes(importedState.status) ? importedState.status : 'completed',
+    };
+
+    // Add an import note to thoughts
+    if (!Array.isArray(state.thoughts)) state.thoughts = [];
+    state.thoughts.push(`System: Imported from shared investigation (original ID: ${originalId}) on ${new Date().toISOString()}`);
+
+    // Ensure arrays exist
+    if (!Array.isArray(state.actions)) state.actions = [];
+    if (!Array.isArray(state.logs)) state.logs = [];
+
+    // Determine investigations directory
+    let investigationsDir = config.investigationsPath || path.join(process.cwd(), 'investigations');
+    if (state.productId) {
+        const product = (config.products || []).find((p: Product) => p.id === state.productId);
+        if (product && product.investigationsPath) {
+            investigationsDir = product.investigationsPath;
+        }
+    }
+
+    // Save to disk using the same folder naming pattern as AgentRunner.saveArtifacts()
+    try {
+        const startDate = new Date(Number(newId));
+        const timestamp = startDate.toISOString().split('T')[0];
+        const safeStamp = (state.stamp || 'UnknownStamp').replace(/[^a-zA-Z0-9-]/g, '');
+        const safeId = newId.replace(/[^a-zA-Z0-9]/g, '');
+        const folderName = `${timestamp}_${safeStamp}_${safeId}`;
+        const investigationDir = path.join(investigationsDir, folderName);
+
+        ensureDirectoryExists(investigationDir);
+
+        // Save state.json
+        const jsonPath = path.join(investigationDir, 'state.json');
+        const tmpPath = jsonPath + '.tmp';
+        fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2));
+        fs.renameSync(tmpPath, jsonPath);
+
+        // Save report.md if finalReport exists
+        if (state.finalReport) {
+            const report = `# Investigation Report: ${newId}\n\n` +
+                `**Status**: ${state.status}\n` +
+                `**Stamp**: ${state.stamp || 'N/A'}\n` +
+                `**Model**: ${state.model || 'N/A'}\n` +
+                `**Imported**: ${new Date().toLocaleString()}\n` +
+                `**Original ID**: ${originalId}\n\n` +
+                `## Report\n\n` +
+                state.finalReport;
+            fs.writeFileSync(path.join(investigationDir, 'report.md'), report);
+        }
+
+        console.log(`[Import] Investigation imported as ${newId} (original: ${originalId}) to ${investigationDir}`);
+    } catch (e: any) {
+        console.error(`[Import] Failed to save to disk:`, e.message);
+        // Continue — we'll still add to memory
+    }
+
+    // Add to history
+    history.set(newId, state);
+
+    // Broadcast so dashboard auto-updates
+    broadcast(newId, 'status', { status: state.status });
+
+    res.json({ ok: true, id: newId });
+});
+
+// --- Export investigation as PDF ---
+app.get('/api/investigations/:id/pdf', async (req, res) => {
+    const id = req.params.id;
+    let state: InvestigationState | undefined;
+
+    if (runners.has(id)) {
+        state = (runners.get(id) as any).state;
+    } else if (history.has(id)) {
+        state = history.get(id);
+    }
+
+    if (!state) {
+        return res.status(404).json({ error: 'Investigation not found' });
+    }
+
+    if (!state.finalReport) {
+        return res.status(400).json({ error: 'No final report available for this investigation. The investigation must be completed first.' });
+    }
+
+    // Resolve product name for metadata
+    let productName: string | undefined;
+    if (state.productId) {
+        const product = (config.products || []).find((p: Product) => p.id === state!.productId);
+        if (product) productName = product.name;
+    }
+
+    try {
+        const pdfBuffer = await renderPdf(state.finalReport, {
+            id: state.id,
+            status: state.status,
+            stamp: state.stamp,
+            timeRange: state.timeRange,
+            issueType: state.issueType,
+            model: state.model,
+            trackingId: state.trackingId,
+            incidentId: state.incidentId,
+            productName,
+            contestCount: state.contestCount,
+        });
+
+        const startDate = !isNaN(Number(id)) ? new Date(Number(id)) : new Date();
+        const dateStr = startDate.toISOString().split('T')[0];
+        const safeStamp = (state.stamp || 'investigation').replace(/[^a-zA-Z0-9-]/g, '');
+        const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
+        const filename = `${dateStr}_${safeStamp}_${safeId}.pdf`;
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.send(pdfBuffer);
+    } catch (e: any) {
+        console.error(`[PDF] Failed to generate PDF for ${id}:`, e.message);
+        res.status(500).json({ error: `PDF generation failed: ${e.message}` });
+    }
 });
 
 // --- Update proposal status (approve/reject) ---

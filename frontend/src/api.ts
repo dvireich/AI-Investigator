@@ -442,6 +442,58 @@ export const api = {
         return res.json();
     },
 
+    // --- Share / Import / Export ---
+
+    /** Download the full investigation state as a JSON file for sharing */
+    exportInvestigation: async (id: string, filename?: string) => {
+        const response = await fetch(`${API_URL}/investigations/${encodeURIComponent(id)}/export`);
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to export investigation');
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || `investigation-${id}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    /** Import an investigation from a JSON state object */
+    importInvestigation: async (state: any): Promise<{ ok: boolean; id: string }> => {
+        const response = await fetch(`${API_URL}/investigations/import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(state)
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to import investigation');
+        }
+        return response.json();
+    },
+
+    /** Download the final report as a PDF document */
+    exportPdf: async (id: string, filename?: string) => {
+        const response = await fetch(`${API_URL}/investigations/${encodeURIComponent(id)}/pdf`);
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to export PDF');
+        }
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename || `investigation-${id}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
     listFiles: async (path?: string) => {
         const response = await fetch(`${API_URL}/files/list${path ? `?path=${encodeURIComponent(path)}` : ''}`);
         if (!response.ok) throw new Error('Failed to list files');

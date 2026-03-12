@@ -2,7 +2,7 @@
  * Automated screenshot capture for the AI Investigator README.
  *
  * Launches a mock API server and the Vite dev server, then uses Playwright
- * to navigate every page/state and capture 18 screenshots to docs/screenshots/.
+ * to navigate every page/state and capture 26 screenshots to docs/screenshots/.
  *
  * Usage:
  *   node capture.js              → full run (starts mock + Vite, captures all)
@@ -410,6 +410,53 @@ async function captureAuthFlow(page) {
 }
 
 // ---------------------------------------------------------------------------
+// Share, Export & Import screenshot capture functions
+// ---------------------------------------------------------------------------
+
+async function captureShareExportButtons(page) {
+    console.log('\n📸 Share & Export Buttons...');
+    // Use completed investigation — share/PDF buttons are visible for non-running states
+    const inv = loadFixture('investigation-completed.json');
+    await setDetailOverride(inv.id, inv);
+    await navigateTo(page, `/investigation/${inv.id}`);
+    await page.waitForTimeout(800);
+    // Stay on the Live/default tab so the sidebar buttons are visible
+    await screenshot(page, 'share-export-buttons');
+}
+
+async function captureDragDropImport(page) {
+    console.log('\n📸 Drag & Drop Import Overlay...');
+    await resetMock();
+    await navigateTo(page, '/');
+    await page.waitForTimeout(800);
+
+    // Simulate a dragenter event to trigger the drag-and-drop overlay
+    await page.evaluate(() => {
+        const dt = new DataTransfer();
+        dt.items.add(new File(['{}'], 'investigation.json', { type: 'application/json' }));
+        const event = new DragEvent('dragenter', {
+            bubbles: true,
+            cancelable: true,
+            dataTransfer: dt,
+        });
+        document.dispatchEvent(event);
+    });
+    await page.waitForTimeout(600);
+
+    await screenshot(page, 'drag-drop-import');
+
+    // Dismiss the overlay by simulating dragleave
+    await page.evaluate(() => {
+        const event = new DragEvent('dragleave', {
+            bubbles: true,
+            cancelable: true,
+        });
+        document.dispatchEvent(event);
+    });
+    await page.waitForTimeout(300);
+}
+
+// ---------------------------------------------------------------------------
 // Mobile screenshot capture functions
 // ---------------------------------------------------------------------------
 
@@ -611,6 +658,10 @@ async function main() {
         // Auth
         await captureAuthFlow(page);
 
+        // Share, Export & Import
+        await captureShareExportButtons(page);
+        await captureDragDropImport(page);
+
         // Mobile screenshots
         await captureMobileDashboard(page);
         await captureMobileInvestigationDetail(page);
@@ -619,7 +670,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 24 screenshots captured successfully!');
+        console.log('  ✅ All 26 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

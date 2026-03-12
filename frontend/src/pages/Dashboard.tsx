@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation } from '../api';
-import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw } from 'lucide-react';
+import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp } from 'lucide-react';
 import { InvestigationTrend } from '../components/charts/InvestigationTrend';
 import { IssueTypeDonut } from '../components/charts/IssueTypeDonut';
 import { DurationDistribution } from '../components/charts/DurationDistribution';
@@ -136,6 +137,10 @@ export const Dashboard = () => {
     const [groupByStamp, setGroupByStamp] = useState(false);
     const [resumingAll, setResumingAll] = useState(false);
     const [restarting, setRestarting] = useState(false);
+    const [importing, setImporting] = useState(false);
+    const importFileRef = useRef<HTMLInputElement>(null);
+    const [dragOver, setDragOver] = useState(false);
+    const dragCounterRef = useRef(0);
     const [showAnalytics, setShowAnalytics] = useState<boolean>(
         () => localStorage.getItem('inv-analytics') !== 'false'
     );
@@ -294,6 +299,69 @@ export const Dashboard = () => {
         }
         setDeletingId(null);
     };
+
+    const processImportFile = useCallback(async (file: File) => {
+        setImporting(true);
+        try {
+            const text = await file.text();
+            const state = JSON.parse(text);
+            const result = await api.importInvestigation(state);
+            if (result.ok && result.id) {
+                const data = await api.listInvestigations();
+                setInvestigations(data);
+                navigate(`/investigation/${result.id}`);
+            }
+        } catch (err: any) {
+            console.error('Import failed:', err);
+            alert(`Import failed: ${err.message || 'Invalid file format'}`);
+        } finally {
+            setImporting(false);
+        }
+    }, [navigate]);
+
+    const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        await processImportFile(file);
+        // Reset file input so the same file can be re-selected
+        if (importFileRef.current) importFileRef.current.value = '';
+    };
+
+    /* ---- Drag-and-drop handlers ---- */
+    const handleDragEnter = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounterRef.current++;
+        if (e.dataTransfer.types.includes('Files')) setDragOver(true);
+    }, []);
+
+    const handleDragOver = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+    }, []);
+
+    const handleDragLeave = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounterRef.current--;
+        if (dragCounterRef.current <= 0) {
+            dragCounterRef.current = 0;
+            setDragOver(false);
+        }
+    }, []);
+
+    const handleDrop = useCallback(async (e: React.DragEvent) => {
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounterRef.current = 0;
+        setDragOver(false);
+        const file = e.dataTransfer.files[0];
+        if (file && file.name.endsWith('.json')) {
+            await processImportFile(file);
+        } else if (file) {
+            alert('Please drop a .json investigation file.');
+        }
+    }, [processImportFile]);
 
     const togglePin = (e: React.MouseEvent, invId: string) => {
         e.preventDefault();
@@ -470,8 +538,14 @@ export const Dashboard = () => {
         aborted:   { icon: <Ban className="w-7 h-7 text-slate-500" />,        title: 'No aborted investigations',     body: 'Nothing was stopped early.' },
     };
 
-    return (
-        <div className="space-y-4 md:space-y-6 animate-fade-in pb-12">
+    const mainContent = (
+        <div
+            className="space-y-4 md:space-y-6 animate-fade-in pt-14"
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
 
             {/* Toast notifications */}
             {toasts.length > 0 && (
@@ -502,51 +576,24 @@ export const Dashboard = () => {
                 </div>
             )}
 
-            {/* Page Header */}
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                <div>
-                    <div className="flex items-center gap-2 mb-1">
-                        <LayoutGrid className="w-5 h-5 text-brand-400" />
-                        <span className="text-xs font-bold uppercase tracking-widest text-brand-400">Dashboard</span>
-                    </div>
-                    <h1 className="text-3xl font-black text-white leading-tight">Investigations</h1>
-                    <p className="text-slate-400 text-sm mt-1">Monitor, review, and manage all active and past investigations.</p>
+            {/* Page Header — clean, no buttons */}
+            <div>
+                <div className="flex items-center gap-2 mb-1">
+                    <LayoutGrid className="w-5 h-5 text-brand-400" />
+                    <span className="text-xs font-bold uppercase tracking-widest text-brand-400">Dashboard</span>
                 </div>
-                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:flex-wrap w-full sm:w-auto">
-                    {/* Resume All — visible when there are paused investigations */}
-                    {pausedCount > 0 && (
-                        <button
-                            onClick={handleResumeAll}
-                            disabled={resumingAll}
-                            className="inline-flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/20 font-bold rounded-xl shadow-sm transition-all duration-200 group whitespace-nowrap disabled:opacity-50 text-sm sm:text-base"
-                        >
-                            {resumingAll
-                                ? <RefreshCw className="w-4 h-4 animate-spin" />
-                                : <RotateCcw className="w-4 h-4 group-hover:scale-110 transition-transform" />}
-                            Resume All ({pausedCount})
-                        </button>
-                    )}
-                    {/* Server Restart */}
-                    <button
-                        onClick={handleRestartServer}
-                        disabled={restarting}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 font-bold rounded-xl shadow-sm transition-all duration-200 group whitespace-nowrap disabled:opacity-50 text-sm sm:text-base"
-                        title="Restart the backend server"
-                    >
-                        {restarting
-                            ? <RefreshCw className="w-4 h-4 animate-spin" />
-                            : <RefreshCw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />}
-                        {restarting ? 'Restarting...' : 'Restart Server'}
-                    </button>
-                    <Link
-                        to="/new"
-                        className="inline-flex items-center justify-center gap-2 px-5 py-2 sm:py-2.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl shadow-lg shadow-brand-500/20 transition-all duration-200 group whitespace-nowrap text-sm sm:text-base"
-                    >
-                        <Play className="w-4 h-4 fill-current group-hover:scale-110 transition-transform" />
-                        Start New Investigation
-                    </Link>
-                </div>
+                <h1 className="text-3xl font-black text-white leading-tight">Investigations</h1>
+                <p className="text-slate-400 text-sm mt-1">Monitor, review, and manage all active and past investigations.</p>
             </div>
+
+            {/* Hidden file input for Import */}
+            <input
+                ref={importFileRef}
+                type="file"
+                accept=".json"
+                onChange={handleImport}
+                className="hidden"
+            />
 
             {/* Stats Strip - tiles are clickable to filter */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
@@ -571,7 +618,7 @@ export const Dashboard = () => {
                             <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.round(completedCount / investigations.length * 100)}%` }} />
                         </div>
                     )}
-                </button>
+                </button >
                 <button onClick={() => { setFilter('failed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5 group">
                     <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <XCircle className={`w-4 h-4 ${failedCount > 0 ? 'text-red-400' : 'text-slate-600'}`} />
@@ -1230,6 +1277,92 @@ export const Dashboard = () => {
                     </div>
                 </div>
             )}
+
         </div>
+    );
+
+    /* ── Portal: dock + drag overlay rendered at <body> so fixed positioning
+       is always relative to the viewport (parent transform animations in
+       Layout/Dashboard would otherwise break it). ── */
+    const portalContent = createPortal(
+        <>
+            {/* Floating Top Dock */}
+            <div className="fixed top-14 sm:top-16 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-2.5 py-2 rounded-b-2xl bg-slate-900/80 backdrop-blur-xl border-b border-x border-white/[0.06] shadow-lg shadow-black/20">
+                {pausedCount > 0 && (
+                    <button
+                        onClick={handleResumeAll}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/30 transition-all whitespace-nowrap"
+                    >
+                        <Play className="w-4 h-4" />
+                        Resume All
+                    </button>
+                )}
+                <button
+                    onClick={handleRestartServer}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] hover:border-white/[0.12] transition-all whitespace-nowrap"
+                >
+                    <RefreshCw className="w-4 h-4" />
+                    Restart Server
+                </button>
+                <button
+                    onClick={() => importFileRef.current?.click()}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 hover:border-sky-500/30 transition-all whitespace-nowrap"
+                >
+                    <FileUp className="w-4 h-4" />
+                    Import Investigation
+                </button>
+                <Link
+                    to="/new"
+                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 shadow-lg shadow-brand-500/20 hover:shadow-brand-500/30 transition-all whitespace-nowrap"
+                >
+                    <Play className="w-4 h-4" />
+                    New Investigation
+                </Link>
+            </div>
+
+            {/* Drag-and-Drop Import Overlay */}
+            {dragOver && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center animate-dropzone-in">
+                    {/* Backdrop */}
+                    <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md" />
+
+                    {/* Centered drop zone card */}
+                    <div className="relative w-[90vw] max-w-lg aspect-[4/3] flex flex-col items-center justify-center">
+                        {/* Animated gradient border */}
+                        <div className="dropzone-border" />
+                        {/* Inner dashed border */}
+                        <div className="dropzone-dashes" />
+
+                        {/* Background glow */}
+                        <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-sky-500/10 via-violet-500/5 to-cyan-500/10" />
+
+                        {/* Content */}
+                        <div className="relative z-10 flex flex-col items-center gap-5 px-8">
+                            {/* Animated icon with ripple rings */}
+                            <div className="relative">
+                                <div className="absolute inset-0 rounded-full bg-sky-500/20 animate-dropzone-ring" />
+                                <div className="absolute inset-0 rounded-full bg-sky-500/10 animate-dropzone-ring" style={{ animationDelay: '0.5s' }} />
+                                <div className="relative w-20 h-20 rounded-2xl bg-gradient-to-br from-sky-500/20 to-violet-500/20 border border-sky-500/30 flex items-center justify-center shadow-lg shadow-sky-500/10">
+                                    <Upload className="w-9 h-9 text-sky-400 animate-dropzone-icon" />
+                                </div>
+                            </div>
+
+                            <div className="text-center">
+                                <h3 className="text-xl font-black text-white mb-1.5">Drop Investigation File</h3>
+                                <p className="text-sm text-slate-400">Release to import your <span className="text-sky-400 font-semibold">.json</span> investigation</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>,
+        document.body
+    );
+
+    return (
+        <>
+            {portalContent}
+            {mainContent}
+        </>
     );
 };

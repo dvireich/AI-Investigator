@@ -152,3 +152,29 @@ body::before {
   from { transform: scale(0.5); opacity: 0; }
   to   { transform: scale(1); opacity: 1; }
 }
+
+/* Drag-and-drop overlay animated border */
+.dropzone-border {
+  position: absolute;
+  inset: 0;
+  border-radius: 1.5rem;
+  padding: 3px;
+  background: linear-gradient(90deg, #0ea5e9, #8b5cf6, #06b6d4, #a78bfa, #0ea5e9);
+  background-size: 200% 100%;
+  animation: border-dance 3s linear infinite;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* Inner dashed hint */
+.dropzone-dashes {
+  position: absolute;
+  inset: 10px;
+  border-radius: 1.25rem;
+  border: 2px dashed rgba(14, 165, 233, 0.3);
+  pointer-events: none;
+}

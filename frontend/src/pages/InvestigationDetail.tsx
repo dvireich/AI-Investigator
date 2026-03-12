@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation } from '../api';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -611,6 +611,7 @@ export const InvestigationDetail = () => {
     const retrospectEndRef = useRef<HTMLDivElement>(null);
     const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [mobileSidebarExpanded, setMobileSidebarExpanded] = useState(false);
+    const [exporting, setExporting] = useState<'share' | 'pdf' | null>(null);
 
     useEffect(() => {
         api.listModels()
@@ -1081,6 +1082,26 @@ export const InvestigationDetail = () => {
                                     {actingAction === 'abort' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <XCircle className="w-4 h-4" />}
                                 </button>
                             )}
+                            {investigation.status !== 'running' && (
+                                <button
+                                    onClick={async () => { setExporting('share'); try { await api.exportInvestigation(investigation.id); } catch (e) { console.error('Export failed:', e); } finally { setExporting(null); } }}
+                                    disabled={exporting !== null}
+                                    className="p-2 rounded-xl bg-sky-500/15 text-sky-400 border border-sky-500/20 hover:bg-sky-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                    title="Share investigation (export JSON)"
+                                >
+                                    {exporting === 'share' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Share2 className="w-4 h-4" />}
+                                </button>
+                            )}
+                            {investigation.status !== 'running' && investigation.finalReport && (
+                                <button
+                                    onClick={async () => { setExporting('pdf'); try { await api.exportPdf(investigation.id); } catch (e) { console.error('PDF export failed:', e); } finally { setExporting(null); } }}
+                                    disabled={exporting !== null}
+                                    className="p-2 rounded-xl bg-violet-500/15 text-violet-400 border border-violet-500/20 hover:bg-violet-500/25 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                    title="Export report as PDF"
+                                >
+                                    {exporting === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
+                                </button>
+                            )}
                         </div>
 
                         {/* Mobile expand/collapse toggle */}
@@ -1123,6 +1144,28 @@ export const InvestigationDetail = () => {
                                 {actingAction === 'abort' ? <RefreshCw className="w-5 h-5 mr-3 animate-spin" /> : <XCircle className="w-5 h-5 mr-3" />}
                                 {actingAction === 'abort' ? 'Aborting...' : 'Abort'}
                             </button>
+                        )}
+                        {investigation.status !== 'running' && (
+                            <div className="space-y-2 pt-2 border-t border-white/[0.06]">
+                                <button
+                                    onClick={async () => { setExporting('share'); try { await api.exportInvestigation(investigation.id); } catch (e) { console.error('Export failed:', e); } finally { setExporting(null); } }}
+                                    disabled={exporting !== null}
+                                    className="w-full group/btn flex items-center justify-center px-6 py-3 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 hover:border-sky-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-sky-400 font-bold rounded-2xl transition-all shadow-sm"
+                                >
+                                    {exporting === 'share' ? <Loader2 className="w-5 h-5 mr-3 animate-spin" /> : <Share2 className="w-5 h-5 mr-3" />}
+                                    {exporting === 'share' ? 'Exporting...' : 'Share'}
+                                </button>
+                                {investigation.finalReport && (
+                                    <button
+                                        onClick={async () => { setExporting('pdf'); try { await api.exportPdf(investigation.id); } catch (e) { console.error('PDF export failed:', e); } finally { setExporting(null); } }}
+                                        disabled={exporting !== null}
+                                        className="w-full group/btn flex items-center justify-center px-6 py-3 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 hover:border-violet-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-violet-400 font-bold rounded-2xl transition-all shadow-sm"
+                                    >
+                                        {exporting === 'pdf' ? <Loader2 className="w-5 h-5 mr-3 animate-spin" /> : <FileDown className="w-5 h-5 mr-3" />}
+                                        {exporting === 'pdf' ? 'Generating PDF...' : 'Export PDF'}
+                                    </button>
+                                )}
+                            </div>
                         )}
                     </div>
                 </div>

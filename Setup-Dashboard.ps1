@@ -81,6 +81,16 @@ Set-Location "$PSScriptRoot\backend"
 npm install
 if ($LASTEXITCODE -ne 0) { Write-Error "Backend install failed"; exit 1 }
 
+# --- Puppeteer Chromium (for PDF export) ---
+Write-Host ""
+Write-Host "Ensuring Puppeteer Chromium browser is downloaded..." -ForegroundColor Yellow
+npx puppeteer browsers install chrome
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Puppeteer Chromium install failed. PDF export may not work until manually resolved (run 'npx puppeteer browsers install chrome' in the backend directory)."
+} else {
+    Write-Host "Puppeteer Chromium ready." -ForegroundColor Green
+}
+
 # --- Frontend ---
 Write-Host "Installing Frontend Dependencies..." -ForegroundColor Yellow
 Set-Location "$PSScriptRoot\frontend"

@@ -54,6 +54,22 @@ export default {
                     '50%': { backgroundPosition: '100% 50%' },
                     '100%': { backgroundPosition: '0% 50%' },
                 },
+                'dropzone-in': {
+                    '0%': { opacity: '0', transform: 'scale(0.95)' },
+                    '100%': { opacity: '1', transform: 'scale(1)' },
+                },
+                'dropzone-icon': {
+                    '0%, 100%': { transform: 'translateY(0)', opacity: '1' },
+                    '50%': { transform: 'translateY(-6px)', opacity: '0.7' },
+                },
+                'dropzone-ring': {
+                    '0%': { transform: 'scale(1)', opacity: '0.5' },
+                    '100%': { transform: 'scale(1.8)', opacity: '0' },
+                },
+                'border-dance': {
+                    '0%': { backgroundPosition: '0% 0%' },
+                    '100%': { backgroundPosition: '200% 0%' },
+                },
             },
             animation: {
                 shimmer: 'shimmer 2s linear infinite',
@@ -62,6 +78,10 @@ export default {
                 shine: 'shine 0.8s ease-in-out',
                 'glow-pulse': 'glow-pulse 2s ease-in-out infinite',
                 'gradient-shift': 'gradient-shift 8s ease infinite',
+                'dropzone-in': 'dropzone-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1) forwards',
+                'dropzone-icon': 'dropzone-icon 2s ease-in-out infinite',
+                'dropzone-ring': 'dropzone-ring 1.5s ease-out infinite',
+                'border-dance': 'border-dance 3s linear infinite',
             },
         },
     },

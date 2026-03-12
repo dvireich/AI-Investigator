@@ -124,6 +124,29 @@ app.patch('/api/investigations/:id/title', (req, res) => {
     res.json({ success: true });
 });
 
+// ---- Export / Import / PDF ----
+
+app.get('/api/investigations/:id/export', (req, res) => {
+    const { id } = req.params;
+    const inv = overrideDetail[id]
+        || detailedInvestigations[id]
+        || currentInvestigations.find(i => i.id === id);
+    if (!inv) return res.status(404).json({ error: 'Not found' });
+    res.json(inv);
+});
+
+app.post('/api/investigations/import', (req, res) => {
+    res.json({ success: true, id: Date.now().toString() });
+});
+
+app.get('/api/investigations/:id/pdf', (req, res) => {
+    // Return a minimal PDF-like buffer for mock purposes
+    const pdfHeader = '%PDF-1.4 mock';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="report.pdf"');
+    res.send(Buffer.from(pdfHeader));
+});
+
 // ---- Auth ----
 
 app.get('/api/auth/status', (_req, res) => {
