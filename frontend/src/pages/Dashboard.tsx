@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation } from '../api';
+import { useToast } from '../components/Toast';
 import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp } from 'lucide-react';
 import { InvestigationTrend } from '../components/charts/InvestigationTrend';
 import { IssueTypeDonut } from '../components/charts/IssueTypeDonut';
@@ -111,6 +112,7 @@ let _toastKey = 0;
 const _thoughtActivity: Record<string, { count: number; seenAt: number }> = {};
 
 export const Dashboard = () => {
+    const { toast, confirm } = useToast();
     const [investigations, setInvestigations] = useState<Investigation[]>([]);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted'>('all');
@@ -141,7 +143,6 @@ export const Dashboard = () => {
     const [importing, setImporting] = useState(false);
     const importFileRef = useRef<HTMLInputElement>(null);
     const [dragOver, setDragOver] = useState(false);
-    const dragCounterRef = useRef(0);
     const [showAnalytics, setShowAnalytics] = useState<boolean>(
         () => localStorage.getItem('inv-analytics') !== 'false'
     );
@@ -175,7 +176,13 @@ export const Dashboard = () => {
     };
 
     const handleRestartServer = async () => {
-        if (!confirm('Restart the server? All running investigations will be paused and can be resumed after restart.')) return;
+        const ok = await confirm({
+            title: 'Restart Server',
+            message: 'All running investigations will be paused and can be resumed after restart.',
+            confirmLabel: 'Restart',
+            variant: 'danger',
+        });
+        if (!ok) return;
         setRestarting(true);
         try {
             await api.restartServer();
@@ -295,8 +302,9 @@ export const Dashboard = () => {
         try {
             await api.deleteInvestigation(deletingId);
             setInvestigations(prev => prev.filter(inv => inv.id !== deletingId));
-        } catch (e) {
+        } catch (e: any) {
             console.error('Failed to delete investigation:', e);
+            toast('error', e.message || 'Failed to delete investigation');
         }
         setDeletingId(null);
     };
@@ -314,7 +322,7 @@ export const Dashboard = () => {
             }
         } catch (err: any) {
             console.error('Import failed:', err);
-            alert(`Import failed: ${err.message || 'Invalid file format'}`);
+            toast('error', `Import failed: ${err.message || 'Invalid file format'}`);
         } finally {
             setImporting(false);
         }
@@ -328,40 +336,55 @@ export const Dashboard = () => {
         if (importFileRef.current) importFileRef.current.value = '';
     };
 
-    /* ---- Drag-and-drop handlers ---- */
-    const handleDragEnter = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragCounterRef.current++;
-        if (e.dataTransfer.types.includes('Files')) setDragOver(true);
-    }, []);
+    /* ---- Drag-and-drop handlers ----
+     * Use document-level listeners with a counter to avoid flicker.
+     * The overlay itself captures drop/dragleave so it never interferes
+     * with the counter by covering child elements.
+     */
+    useEffect(() => {
+        let counter = 0;
 
-    const handleDragOver = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-    }, []);
+        const onDragEnter = (e: DragEvent) => {
+            e.preventDefault();
+            counter++;
+            if (e.dataTransfer?.types.includes('Files')) setDragOver(true);
+        };
 
-    const handleDragLeave = useCallback((e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragCounterRef.current--;
-        if (dragCounterRef.current <= 0) {
-            dragCounterRef.current = 0;
+        const onDragOver = (e: DragEvent) => {
+            e.preventDefault(); // required so 'drop' fires
+        };
+
+        const onDragLeave = (e: DragEvent) => {
+            e.preventDefault();
+            counter--;
+            if (counter <= 0) {
+                counter = 0;
+                setDragOver(false);
+            }
+        };
+
+        const onDrop = (e: DragEvent) => {
+            e.preventDefault();
+            counter = 0;
             setDragOver(false);
-        }
-    }, []);
+            const file = e.dataTransfer?.files[0];
+            if (file && file.name.endsWith('.json')) {
+                processImportFile(file);
+            } else if (file) {
+                toast('warning', 'Please drop a .json investigation file.');
+            }
+        };
 
-    const handleDrop = useCallback(async (e: React.DragEvent) => {
-        e.preventDefault();
-        e.stopPropagation();
-        dragCounterRef.current = 0;
-        setDragOver(false);
-        const file = e.dataTransfer.files[0];
-        if (file && file.name.endsWith('.json')) {
-            await processImportFile(file);
-        } else if (file) {
-            alert('Please drop a .json investigation file.');
-        }
+        document.addEventListener('dragenter', onDragEnter);
+        document.addEventListener('dragover', onDragOver);
+        document.addEventListener('dragleave', onDragLeave);
+        document.addEventListener('drop', onDrop);
+        return () => {
+            document.removeEventListener('dragenter', onDragEnter);
+            document.removeEventListener('dragover', onDragOver);
+            document.removeEventListener('dragleave', onDragLeave);
+            document.removeEventListener('drop', onDrop);
+        };
     }, [processImportFile]);
 
     const togglePin = (e: React.MouseEvent, invId: string) => {
@@ -543,10 +566,6 @@ export const Dashboard = () => {
     const mainContent = (
         <div
             className="space-y-4 md:space-y-6 animate-fade-in pt-14"
-            onDragEnter={handleDragEnter}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
         >
 
             {/* Toast notifications */}

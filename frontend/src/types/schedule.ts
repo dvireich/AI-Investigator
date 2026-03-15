@@ -6,6 +6,7 @@ export interface ScheduleDefinition {
     query: string;
     intervalMinutes: number;
     productId?: string;
+    model?: string;
     maxSteps?: number;
     timeRange?: string;
     issueType?: string;
@@ -14,7 +15,7 @@ export interface ScheduleDefinition {
     createdAt: string;
     lastRunAt?: string;
     nextRunAt?: string;
-    lastVerdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    lastVerdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'paused' | 'completed' | 'unknown';
     lastInvestigationId?: string;
     activeInvestigationId?: string;
     activeEscalationId?: string;
@@ -23,7 +24,7 @@ export interface ScheduleDefinition {
 
 export interface ScheduleHistoryEntry {
     timestamp: string;
-    verdict: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    verdict: 'healthy' | 'warning' | 'critical' | 'error' | 'paused' | 'completed' | 'unknown';
     investigationId: string;
     summary?: string;
 }

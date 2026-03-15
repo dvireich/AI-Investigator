@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type IcmIncidentPreview, type IcmProgressEvent, type Product, type ProductValidation } from '../api';
-import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar } from 'lucide-react';
+import { api, type IcmIncidentPreview, type IcmProgressEvent, type Product, type ProductValidation, type SavedQuery } from '../api';
+import { useToast } from '../components/Toast';
+import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, X, Check, Pencil } from 'lucide-react';
 import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../constants';
 
 /**
@@ -94,6 +95,7 @@ function formatTimeRange(timeRange: string): string {
 }
 
 export const NewInvestigation = () => {
+    const { toast } = useToast();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [models, setModels] = useState<string[]>([]);
@@ -191,6 +193,16 @@ export const NewInvestigation = () => {
         model: 'gpt-4o'
     });
 
+    // ── Query Bank State ──────────────────────────────────────────────────
+    const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
+    const [loadedQueryId, setLoadedQueryId] = useState<string | null>(null);
+    const [queryBankOpen, setQueryBankOpen] = useState(false);
+    const [showSaveDialog, setShowSaveDialog] = useState(false);
+    const [saveQueryName, setSaveQueryName] = useState('');
+    const [savingQuery, setSavingQuery] = useState(false);
+    const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
+    const queryBankRef = useRef<HTMLDivElement>(null);
+
     useEffect(() => {
         // Load models and deduplicate
         api.listModels()
@@ -227,6 +239,11 @@ export const NewInvestigation = () => {
         api.checkIcmStatus()
             .then(status => setIcmAvailable(status.available))
             .catch(() => setIcmAvailable(false));
+
+        // Load saved queries (query bank)
+        api.getSavedQueries()
+            .then(queries => setSavedQueries(queries))
+            .catch(err => console.error('Failed to load saved queries:', err));
     }, []);
 
     // Validate product paths whenever selection changes
@@ -278,7 +295,7 @@ export const NewInvestigation = () => {
         // ICM mode: incidentId is required, stamp/timeRange are optional
         if (mode === 'icm') {
             if (!incidentId.trim()) {
-                alert("Please enter an IcM Incident ID.");
+                toast('warning', 'Please enter an IcM Incident ID.');
                 setLoading(false);
                 return;
             }
@@ -302,7 +319,7 @@ export const NewInvestigation = () => {
                 navigate(`/investigation/${result.id}`);
             } catch (error) {
                 console.error('Failed to start:', error);
-                alert('Failed to start investigation');
+                toast('error', 'Failed to start investigation');
             } finally {
                 setLoading(false);
             }
@@ -316,17 +333,17 @@ export const NewInvestigation = () => {
         if (timeMode === 'custom') {
             // Check for invalid timestamps
             if (startTimeValid === false || endTimeValid === false) {
-                alert("Please fix the invalid timestamp format before starting.");
+                toast('warning', 'Please fix the invalid timestamp format before starting.');
                 setLoading(false);
                 return;
             }
             if (!customStart || !customEnd) {
-                alert("Please select both start and end times for custom range.");
+                toast('warning', 'Please select both start and end times for custom range.');
                 setLoading(false);
                 return;
             }
             if (new Date(customStart) >= new Date(customEnd)) {
-                alert("Start time must be before end time.");
+                toast('warning', 'Start time must be before end time.');
                 setLoading(false);
                 return;
             }
@@ -346,11 +363,113 @@ export const NewInvestigation = () => {
             navigate(`/investigation/${result.id}`);
         } catch (error) {
             console.error('Failed to start:', error);
-            alert('Failed to start investigation');
+            toast('error', 'Failed to start investigation');
         } finally {
             setLoading(false);
         }
     };
+
+    // ── Query Bank Handlers ───────────────────────────────────────────────
+
+    const loadSavedQuery = useCallback((sq: SavedQuery) => {
+        setFormData({
+            stamp: sq.stamp || '',
+            trackingId: sq.trackingId || '',
+            issueType: sq.issueType || '',
+            query: sq.query || '',
+            model: sq.model || formData.model,
+        });
+        if (sq.productId) setSelectedProductId(sq.productId);
+        if (sq.timeMode === 'custom') {
+            setTimeMode('custom');
+            // If the timeRange is a between(...) expression, extract the dates
+            const match = sq.timeRange?.match(/datetime\(([^)]+)\)\s*\.\.\s*datetime\(([^)]+)\)/);
+            if (match) {
+                const startDate = new Date(match[1]);
+                const endDate = new Date(match[2]);
+                setCustomStart(toDateTimeLocalValue(startDate));
+                setCustomEnd(toDateTimeLocalValue(endDate));
+                setStartTimeText(formatDateDisplay(startDate));
+                setEndTimeText(formatDateDisplay(endDate));
+                setStartTimeValid(true);
+                setEndTimeValid(true);
+            }
+        } else {
+            setTimeMode('preset');
+            if (sq.timeRange) setTimePreset(sq.timeRange);
+        }
+        setLoadedQueryId(sq.id);
+        setQueryBankOpen(false);
+    }, [formData.model]);
+
+    const handleSaveQuery = async () => {
+        const name = saveQueryName.trim();
+        if (!name) return;
+        setSavingQuery(true);
+        try {
+            let effectiveTimeRange = timePreset;
+            let effectiveTimeMode: 'preset' | 'custom' = 'preset';
+            if (timeMode === 'custom' && customStart && customEnd) {
+                const startISO = new Date(customStart).toISOString();
+                const endISO = new Date(customEnd).toISOString();
+                effectiveTimeRange = `between(datetime(${startISO}) .. datetime(${endISO}))`;
+                effectiveTimeMode = 'custom';
+            }
+            const payload = {
+                name,
+                stamp: formData.stamp || undefined,
+                query: formData.query || undefined,
+                issueType: formData.issueType || undefined,
+                trackingId: formData.trackingId || undefined,
+                timeRange: effectiveTimeRange,
+                timeMode: effectiveTimeMode,
+                model: formData.model,
+                productId: selectedProductId || undefined,
+            };
+            let saved: SavedQuery;
+            if (loadedQueryId) {
+                // Update existing
+                saved = await api.updateSavedQuery(loadedQueryId, payload);
+                setSavedQueries(prev => prev.map(q => q.id === saved.id ? saved : q));
+            } else {
+                // Create new
+                saved = await api.createSavedQuery(payload);
+                setSavedQueries(prev => [...prev, saved]);
+            }
+            setLoadedQueryId(saved.id);
+            setSaveSuccess(saved.name);
+            setShowSaveDialog(false);
+            setSaveQueryName('');
+            setTimeout(() => setSaveSuccess(null), 2500);
+        } catch (err) {
+            console.error('Failed to save query:', err);
+            toast('error', 'Failed to save query to bank');
+        } finally {
+            setSavingQuery(false);
+        }
+    };
+
+    const handleDeleteSavedQuery = async (id: string, e: React.MouseEvent) => {
+        e.stopPropagation();
+        try {
+            await api.deleteSavedQuery(id);
+            setSavedQueries(prev => prev.filter(q => q.id !== id));
+            if (loadedQueryId === id) setLoadedQueryId(null);
+        } catch (err) {
+            console.error('Failed to delete saved query:', err);
+        }
+    };
+
+    // Close query bank dropdown on outside click
+    useEffect(() => {
+        const handleClickOutside = (e: MouseEvent) => {
+            if (queryBankRef.current && !queryBankRef.current.contains(e.target as Node)) {
+                setQueryBankOpen(false);
+            }
+        };
+        if (queryBankOpen) document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [queryBankOpen]);
 
 
 
@@ -366,28 +485,171 @@ export const NewInvestigation = () => {
                 </p>
             </div>
 
+            {/* Query Bank + Product side by side */}
+            <div className="flex gap-4 items-stretch relative z-10">
+            {/* Query Bank Bar */}
+            <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] flex-1">
+                <div className="px-4 py-3 flex items-center gap-3">
+                    <div className="flex items-center gap-2 text-slate-400">
+                        <BookOpen className="w-4 h-4" />
+                        <span className="text-xs font-bold uppercase tracking-wider">Query Bank</span>
+                    </div>
+
+                    {/* Load dropdown */}
+                    <div className="relative flex-1" ref={queryBankRef}>
+                        <button
+                            type="button"
+                            onClick={() => setQueryBankOpen(!queryBankOpen)}
+                            className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg border text-sm transition-all outline-none ${
+                                loadedQueryId
+                                    ? 'border-brand-500/40 bg-brand-900/20 text-brand-300'
+                                    : 'border-slate-700 bg-slate-800/50 text-slate-300 hover:border-slate-600'
+                            }`}
+                        >
+                            <span className="truncate">
+                                {loadedQueryId
+                                    ? savedQueries.find(q => q.id === loadedQueryId)?.name || 'Loaded query'
+                                    : savedQueries.length > 0
+                                        ? `Select a saved query (${savedQueries.length})`
+                                        : 'No saved queries yet'
+                                }
+                            </span>
+                            <ChevronDown className={`w-4 h-4 shrink-0 ml-2 transition-transform ${queryBankOpen ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {/* Dropdown */}
+                        {queryBankOpen && (
+                            <div className="absolute z-50 mt-1 w-full bg-slate-800 border border-slate-700 rounded-xl shadow-2xl max-h-64 overflow-y-auto animate-fade-in">
+                                {savedQueries.length === 0 ? (
+                                    <div className="px-4 py-3 text-center">
+                                        <p className="text-sm text-slate-500">No saved queries yet</p>
+                                        <p className="text-xs text-slate-600 mt-1">Fill out the form below, then click <strong className="text-slate-400">Save</strong> to store it as a reusable template.</p>
+                                    </div>
+                                ) : (
+                                    savedQueries.map(sq => (
+                                        <div
+                                            key={sq.id}
+                                            onClick={() => loadSavedQuery(sq)}
+                                            className={`flex items-center gap-2 px-4 py-2.5 cursor-pointer transition-colors hover:bg-slate-700/60 group ${
+                                                loadedQueryId === sq.id ? 'bg-brand-900/20' : ''
+                                            }`}
+                                        >
+                                            <div className="flex-1 min-w-0">
+                                                <div className="text-sm font-semibold text-white truncate flex items-center gap-2">
+                                                    {sq.name}
+                                                    {loadedQueryId === sq.id && <Check className="w-3.5 h-3.5 text-brand-400" />}
+                                                </div>
+                                                <div className="text-[11px] text-slate-400 truncate">
+                                                    {[sq.stamp, sq.issueType, sq.timeRange].filter(Boolean).join(' · ') || 'No details'}
+                                                </div>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={(e) => handleDeleteSavedQuery(sq.id, e)}
+                                                className="p-1 rounded-md opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 hover:bg-red-900/20 transition-all"
+                                                title="Delete saved query"
+                                            >
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Clear loaded query */}
+                    {loadedQueryId && (
+                        <button
+                            type="button"
+                            onClick={() => setLoadedQueryId(null)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all"
+                            title="Clear loaded query"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    )}
+
+                    {/* Save button */}
+                    <div className="relative">
+                        {saveSuccess ? (
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-green-900/20 border border-green-500/30 text-green-400 text-xs font-bold animate-fade-in">
+                                <Check className="w-3.5 h-3.5" />
+                                Saved
+                            </div>
+                        ) : showSaveDialog ? (
+                            <div className="flex items-center gap-2 animate-fade-in">
+                                <input
+                                    type="text"
+                                    placeholder={loadedQueryId ? savedQueries.find(q => q.id === loadedQueryId)?.name || 'Query name' : 'Query name'}
+                                    className="px-3 py-1.5 rounded-lg border border-slate-600 bg-slate-800 text-white text-sm outline-none focus:ring-2 focus:ring-brand-500 w-48"
+                                    value={saveQueryName}
+                                    onChange={(e) => setSaveQueryName(e.target.value)}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSaveQuery(); } if (e.key === 'Escape') setShowSaveDialog(false); }}
+                                    autoFocus
+                                />
+                                <button
+                                    type="button"
+                                    onClick={handleSaveQuery}
+                                    disabled={savingQuery || !saveQueryName.trim()}
+                                    className="p-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                                    title="Confirm save"
+                                >
+                                    {savingQuery ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => { setShowSaveDialog(false); setSaveQueryName(''); }}
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-all"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    // Pre-fill name if updating an existing query
+                                    if (loadedQueryId) {
+                                        const existing = savedQueries.find(q => q.id === loadedQueryId);
+                                        setSaveQueryName(existing?.name || '');
+                                    }
+                                    setShowSaveDialog(true);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/50 text-slate-300 hover:text-white hover:border-slate-600 text-xs font-bold transition-all"
+                                title={loadedQueryId ? 'Update saved query with current form values' : 'Save current form (stamp, issue type, time range, query, model) as a reusable template'}
+                            >
+                                {loadedQueryId ? <Pencil className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
+                                {loadedQueryId ? 'Update' : 'Save'}
+                            </button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {/* Product Selector */}
+            {products.length > 0 && (
+                <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] flex items-center px-4 py-3 gap-3">
+                    <Package className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 shrink-0">Product</span>
+                    <select
+                        value={selectedProductId}
+                        onChange={(e) => setSelectedProductId(e.target.value)}
+                        className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/50 text-sm font-medium text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all min-w-[180px]"
+                    >
+                        {products.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                    </select>
+                </div>
+            )}
+            </div>
+
             <form onSubmit={handleSubmit} className="space-y-4">
 
                 {/* Investigation Mode Toggle */}
                 <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] overflow-hidden relative">
                     <div className="p-4 space-y-4">
-                        {/* Product Selector */}
-                        {products.length > 0 && (
-                            <div className="flex items-center gap-3 pb-3 border-b border-slate-800">
-                                <Package className="w-4 h-4 text-slate-400" />
-                                <span className="text-xs font-semibold text-slate-400">Product</span>
-                                <select
-                                    value={selectedProductId}
-                                    onChange={(e) => setSelectedProductId(e.target.value)}
-                                    className="flex-1 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/50 text-sm font-medium text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all"
-                                >
-                                    {products.map(p => (
-                                        <option key={p.id} value={p.id}>{p.name}</option>
-                                    ))}
-                                </select>
-                            </div>
-                        )}
-
                         {/* Path validation warning */}
                         {productValidation && !productValidation.valid && (
                             <div className="flex items-start gap-3 p-3 bg-red-900/20 border border-red-800 rounded-xl">

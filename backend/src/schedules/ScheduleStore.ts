@@ -13,6 +13,7 @@ export interface ScheduleDefinition {
     query: string;                     // Free-form investigation query
     intervalMinutes: number;           // Default 15
     productId?: string;
+    model?: string;                    // AI model to use (e.g. "gpt-4o")
     maxSteps?: number;                 // Constrain agent steps (default 20)
     timeRange?: string;                // KQL time range per run (default "ago(1h)")
     issueType?: string;
@@ -25,7 +26,7 @@ export interface ScheduleDefinition {
     createdAt: string;
     lastRunAt?: string;
     nextRunAt?: string;
-    lastVerdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    lastVerdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'paused' | 'completed' | 'unknown';
     lastInvestigationId?: string;
     activeInvestigationId?: string;    // For dedup — set while investigation is running
     activeEscalationId?: string;       // Escalated investigation ID (if any)
@@ -34,7 +35,7 @@ export interface ScheduleDefinition {
 
 export interface ScheduleHistoryEntry {
     timestamp: string;
-    verdict: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    verdict: 'healthy' | 'warning' | 'critical' | 'error' | 'paused' | 'completed' | 'unknown';
     investigationId: string;
     summary?: string;
 }
@@ -90,7 +91,18 @@ export class ScheduleStore {
 
     delete(id: string): boolean {
         const deleted = this.schedules.delete(id);
-        if (deleted) this.save();
+        if (deleted) {
+            this.save();
+            // Clean up history directory for this schedule
+            const histDir = path.join(this.historyDir, id);
+            if (fs.existsSync(histDir)) {
+                try {
+                    fs.rmSync(histDir, { recursive: true, force: true });
+                } catch (err) {
+                    console.error(`[ScheduleStore] Failed to clean up history for schedule ${id}:`, err);
+                }
+            }
+        }
         return deleted;
     }
 
@@ -141,9 +153,11 @@ export class ScheduleStore {
         try {
             const data: ScheduleDefinition[] = JSON.parse(fs.readFileSync(this.schedulesFilePath, 'utf-8'));
             for (const def of data) {
-                // Clear transient runtime state on load — the scheduler will re-evaluate
-                def.activeInvestigationId = undefined;
-                def.activeEscalationId = undefined;
+                // Keep activeInvestigationId / activeEscalationId on load so that
+                // the auto-settlement logic (GET /api/schedules & Scheduler tick)
+                // can check the actual investigation status, set the correct
+                // lastVerdict, and THEN clear the reference.  Blindly clearing here
+                // left lastVerdict unset → UI showed "Pending" forever.
                 this.schedules.set(def.id, def);
             }
             console.log(`[ScheduleStore] Loaded ${this.schedules.size} schedule(s) from disk.`);

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal } from 'lucide-react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3 } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -133,6 +133,21 @@ export const About = () => (
                         bg="bg-slate-900/60 border-slate-800 hover:border-sky-500/20"
                         title="Share, export & import"
                         desc="Export investigations as portable JSON or styled PDF reports. Import them back with a file picker or by dragging and dropping onto the dashboard — complete with an animated drop zone." />
+                    <FeatureCard icon={<CalendarClock className="w-4 h-4" />}
+                        color="bg-indigo-500/10 border border-indigo-500/20 text-indigo-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-indigo-500/20"
+                        title="Scheduled investigations"
+                        desc="Set up recurring health checks that run on configurable intervals (5m to 24h). Each schedule tracks verdict history (healthy/warning/critical), supports inline editing, run-now, and auto-cascades deletes." />
+                    <FeatureCard icon={<BookOpen className="w-4 h-4" />}
+                        color="bg-orange-500/10 border border-orange-500/20 text-orange-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-orange-500/20"
+                        title="Query bank"
+                        desc="Save and reuse investigation templates. Store stamp, query, time range, issue type, and model as named presets — load them instantly from the New Investigation form or when creating schedules." />
+                    <FeatureCard icon={<BarChart3 className="w-4 h-4" />}
+                        color="bg-cyan-500/10 border border-cyan-500/20 text-cyan-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-cyan-500/20"
+                        title="Dashboard analytics"
+                        desc="Interactive charts — investigation trend over time, issue type distribution donut, duration histogram, and animated success rate. Click stats tiles to filter the dashboard." />
                 </div>
             </section>
 
@@ -185,6 +200,9 @@ export const About = () => (
                         [FileDown,      'text-violet-400',  'Export as PDF — styled reports generated server-side via Puppeteer'],
                         [FileUp,        'text-teal-400',    'Import investigations — file picker or drag-and-drop with animated overlay'],
                         [GripHorizontal,'text-slate-400',   'Floating action dock — Resume All, Restart, Import, and New in one toolbar'],
+                        [CalendarClock, 'text-indigo-400',   'Recurring schedules — automated stamp health checks with verdict tracking'],
+                        [BookOpen,      'text-orange-400',   'Query bank — save and reuse investigation templates across forms'],
+                        [BarChart3,     'text-cyan-400',     'Dashboard analytics — trend, issue donut, duration histogram, and success rate charts'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
                             <Icon className={`w-4 h-4 ${color} shrink-0`} />

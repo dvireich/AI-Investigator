@@ -12,6 +12,7 @@ export type CreateInvestigationFn = (params: {
     timeRange: string;
     issueType?: string;
     productId?: string;
+    model?: string;
     maxSteps?: number;
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
@@ -23,19 +24,21 @@ export type CreateInvestigationFn = (params: {
  */
 export type GetInvestigationResultFn = (investigationId: string) => {
     status: string;
-    verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'paused' | 'completed' | 'unknown';
     finalReport?: string;
 } | undefined;
 
 export interface SchedulerConfig {
     maxConcurrentScheduledInvestigations: number;
     scheduledInvestigationMaxSteps: number;
+    globalMaxSteps: number;        // from settings.maxSteps — 0 means unlimited
     defaultTimeRange: string;
 }
 
 const DEFAULT_CONFIG: SchedulerConfig = {
     maxConcurrentScheduledInvestigations: 2,
     scheduledInvestigationMaxSteps: 20,
+    globalMaxSteps: 50,
     defaultTimeRange: 'ago(1h)',
 };
 
@@ -147,7 +150,12 @@ export class Scheduler extends EventEmitter {
 
     private async executeSchedule(schedule: ScheduleDefinition): Promise<void> {
         const timeRange = schedule.timeRange || this.config.defaultTimeRange;
-        const maxSteps = schedule.maxSteps || this.config.scheduledInvestigationMaxSteps;
+        // Priority: schedule-level maxSteps > scheduledInvestigationMaxSteps (if != default) > global maxSteps
+        // If global maxSteps is 0 (unlimited), honour that unless the schedule explicitly overrides.
+        const maxSteps = schedule.maxSteps
+            ?? (this.config.scheduledInvestigationMaxSteps !== DEFAULT_CONFIG.scheduledInvestigationMaxSteps
+                ? this.config.scheduledInvestigationMaxSteps
+                : this.config.globalMaxSteps);
 
         // Build the query with a scheduling preamble so the agent knows to be concise
         const preamble = [
@@ -171,6 +179,7 @@ export class Scheduler extends EventEmitter {
                 timeRange,
                 issueType: schedule.issueType,
                 productId: schedule.productId,
+                model: schedule.model,
                 maxSteps,
                 source: 'scheduled',
                 scheduleId: schedule.id,
@@ -209,7 +218,7 @@ export class Scheduler extends EventEmitter {
         const result = this.getInvestigationResult(schedule.activeInvestigationId);
         if (!result) return; // investigation still running or not found
 
-        const terminal = ['completed', 'failed', 'aborted'].includes(result.status);
+        const terminal = ['completed', 'failed', 'aborted', 'paused'].includes(result.status);
         if (!terminal) return; // still running
 
         this.activeCount = Math.max(0, this.activeCount - 1);
@@ -219,6 +228,11 @@ export class Scheduler extends EventEmitter {
 
         if (result.status === 'failed' || result.status === 'aborted') {
             verdict = 'error';
+        } else if (result.status === 'paused') {
+            verdict = verdict || 'paused'; // hit max steps — not an error, just incomplete
+        } else if (result.status === 'completed' && (!verdict || verdict === 'unknown')) {
+            // Non-health-check investigation completed successfully — no health verdict expected
+            verdict = 'completed';
         }
 
         // Record history
@@ -256,7 +270,7 @@ export class Scheduler extends EventEmitter {
         const result = this.getInvestigationResult(schedule.activeEscalationId);
         if (!result) return;
 
-        const terminal = ['completed', 'failed', 'aborted'].includes(result.status);
+        const terminal = ['completed', 'failed', 'aborted', 'paused'].includes(result.status);
         if (!terminal) return;
 
         this.activeCount = Math.max(0, this.activeCount - 1);
@@ -286,6 +300,7 @@ export class Scheduler extends EventEmitter {
                 timeRange,
                 issueType: schedule.issueType,
                 productId: schedule.productId,
+                model: schedule.model,
                 // No maxSteps override — full investigation
                 source: 'scheduled',
                 scheduleId: schedule.id,

@@ -1,5 +1,21 @@
 import type { ScheduleDefinition, ScheduleHistoryEntry } from './types/schedule';
 
+export interface SavedQuery {
+    id: string;
+    name: string;
+    stamp?: string;
+    query?: string;
+    issueType?: string;
+    trackingId?: string;
+    timeRange?: string;
+    timeMode?: 'preset' | 'custom';
+    model?: string;
+    productId?: string;
+    intervalMinutes?: number;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface Product {
     id: string;
     name: string;
@@ -656,5 +672,44 @@ export const api = {
 
     stopScheduler: async (): Promise<void> => {
         await fetch(`${API_URL}/scheduler/stop`, { method: 'POST' });
+    },
+
+    // ── Query Bank ──────────────────────────────────────────────────────
+
+    getSavedQueries: async (): Promise<SavedQuery[]> => {
+        const response = await fetch(`${API_URL}/query-bank`);
+        if (!response.ok) throw new Error('Failed to fetch saved queries');
+        return response.json();
+    },
+
+    createSavedQuery: async (data: Omit<SavedQuery, 'id' | 'createdAt' | 'updatedAt'>): Promise<SavedQuery> => {
+        const response = await fetch(`${API_URL}/query-bank`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to save query');
+        }
+        return response.json();
+    },
+
+    updateSavedQuery: async (id: string, partial: Partial<SavedQuery>): Promise<SavedQuery> => {
+        const response = await fetch(`${API_URL}/query-bank/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(partial),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to update saved query');
+        }
+        return response.json();
+    },
+
+    deleteSavedQuery: async (id: string): Promise<void> => {
+        const response = await fetch(`${API_URL}/query-bank/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('Failed to delete saved query');
     },
 };

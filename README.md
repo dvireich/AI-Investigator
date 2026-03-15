@@ -49,6 +49,9 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Share & Export** | Export investigations as JSON files for sharing; import them on any dashboard instance with file picker or drag-and-drop |
 | **PDF Reports** | One-click PDF export of final reports with styled Markdown rendering via Puppeteer |
 | **ICM Integration** | Start investigations from IcM incidents with auto-extracted context (stamp, time range, severity) |
+| **Scheduled Investigations** | Recurring automated health checks with configurable intervals, verdict tracking, and run history |
+| **Query Bank** | Save and reuse investigation configurations as named templates across forms and schedules |
+| **Dashboard Analytics** | Interactive charts — investigation trend, issue type donut, duration histogram, and success rate |
 | **Multi-Product Support** | Configure multiple investigation targets with independent paths, prompts, and knowledge bases |
 
 ---
@@ -245,6 +248,30 @@ Import previously exported investigations via the **Import Investigation** butto
 
 ---
 
+### 16. Scheduled Investigations
+
+Set up recurring automated health checks with configurable intervals. The Schedules page shows all schedules as cards with live verdict badges (healthy / warning / critical / error), next-run countdown, and full run history. A floating dock lets you start/stop the scheduler and create new schedules.
+
+![Schedules Page](docs/screenshots/schedules.png)
+
+---
+
+### 17. New / Edit Schedule
+
+Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — stamp, issue type, time range, model, max steps, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
+
+![Schedule Form](docs/screenshots/schedule-form.png)
+
+---
+
+### 18. Query Bank
+
+Save investigation configurations as reusable templates. Access the Query Bank from the New Investigation form to instantly load a saved stamp, query, time range, issue type, and model — or use them when creating schedules.
+
+![Query Bank](docs/screenshots/query-bank.png)
+
+---
+
 <!-- ### 13. GitHub Copilot Authentication
 
 Secure OAuth device flow — enter the code on GitHub, and you're connected.
@@ -378,6 +405,42 @@ The main dashboard provides a rich interface for managing all investigations:
   - **File Picker** — Standard file dialog via the Import button in the action dock
   - **Drag & Drop** — Drag a `.json` file anywhere onto the dashboard to trigger a full-screen animated drop zone with visual feedback
 - **Share Buttons** — Sky-blue Share (JSON) and violet PDF buttons appear in the investigation detail sidebar for completed, paused, failed, and aborted investigations
+
+### 📅 Scheduled Investigations
+
+Automate recurring stamp health checks with a built-in scheduler:
+
+- **Create Schedules** — Define stamp, query, recurrence interval (5min / 15min / 30min / 1h / 4h / 12h / 24h), model, max steps, time range, and issue type
+- **Multi-Step Wizard** — Schedule creation form with product selection, query bank integration, and interval presets
+- **Scheduler Toggle** — Start/stop the scheduler from the floating dock on the Schedules page
+- **Verdict Tracking** — Each run produces a verdict: `healthy`, `warning`, `critical`, `error`, `paused`, or `unknown`. Color-coded badges displayed on schedule cards
+- **Run History** — Expandable history panel per schedule showing all past runs with timestamps, verdicts, and links to investigation details
+- **Inline Editing** — Edit stamp, time range, model, and issue type directly on the schedule card without opening the form
+- **Run Now** — Manually trigger a schedule immediately, bypassing the interval timer
+- **Enable / Disable** — Toggle individual schedules on or off without deleting them
+- **Cascade Delete** — Deleting a schedule also removes all its associated investigations from memory and disk
+- **Concurrent Limits** — Configurable maximum concurrent scheduled investigations (default: 2)
+- **Next Run Countdown** — Live countdown timer showing when the next scheduled run will trigger
+
+### 📚 Query Bank
+
+Save and reuse investigation configurations as named templates:
+
+- **Save Query** — Store any combination of stamp, query, issue type, time range, model, and product as a named preset
+- **Load Query** — Instantly populate the New Investigation form from a saved query via a dropdown picker
+- **Update / Delete** — Edit or remove saved queries; updates propagate to the picker immediately
+- **Schedule Integration** — Query Bank entries are available when creating new schedules
+- **Persistent Storage** — Saved as `query-bank.json` alongside investigation artifacts
+
+### 📊 Dashboard Analytics
+
+Interactive charts provide at-a-glance operational intelligence:
+
+- **Investigation Trend** — Line chart showing investigation counts over time (grouped by day)
+- **Issue Type Distribution** — Donut chart breaking down investigations by issue type
+- **Duration Distribution** — Histogram of investigation durations
+- **Success Rate** — Animated donut chart in the statistics bar with percentage display
+- **Clickable Stats Tiles** — Four animated tiles (Active, Done, Failed, Success Rate) — click to filter the dashboard
 
 ### 🧠 Context Management
 
@@ -777,6 +840,31 @@ Each product in the `products` array has:
 | `GET` | `/api/products/:id/validate` | Validate product paths (existence, absolute path check) |
 | `POST` | `/api/products/:id/clone` | Clone a product configuration |
 
+### Schedules
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/schedules` | List all schedules (with scheduler status) |
+| `POST` | `/api/schedules` | Create a new schedule |
+| `PUT` | `/api/schedules/:id` | Update a schedule |
+| `DELETE` | `/api/schedules/:id` | Delete schedule + cascade-delete investigations |
+| `POST` | `/api/schedules/:id/run-now` | Trigger an immediate run |
+| `POST` | `/api/schedules/:id/enable` | Enable a schedule |
+| `POST` | `/api/schedules/:id/disable` | Disable a schedule |
+| `GET` | `/api/schedules/:id/history` | Get run history for a schedule |
+| `POST` | `/api/scheduler/start` | Start the scheduler engine |
+| `POST` | `/api/scheduler/stop` | Stop the scheduler engine |
+| `GET` | `/api/scheduler/status` | Check if the scheduler is running |
+
+### Query Bank
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/query-bank` | List all saved queries |
+| `POST` | `/api/query-bank` | Create a saved query |
+| `PUT` | `/api/query-bank/:id` | Update a saved query |
+| `DELETE` | `/api/query-bank/:id` | Delete a saved query |
+
 ### Auth & System
 
 | Method | Endpoint | Description |
@@ -858,29 +946,43 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
     │   ├── src/
     │   │   ├── server.ts             # Express + WebSocket server
     │   │   ├── pdfRenderer.ts        # PDF report generation (Puppeteer + Markdown)
-    │   │   └── agent/
-    │   │       ├── Runner.ts         # Core agent loop + retrospective
-    │   │       ├── CopilotClient.ts  # GitHub OAuth + token management
-    │   │       ├── Tools.ts          # KQL execution (Kusto CLI + MCP)
-    │   │       └── RetrospectAgent.ts # (Legacy placeholder)
+    │   │   ├── agent/
+    │   │   │   ├── Runner.ts         # Core agent loop + retrospective
+    │   │   │   ├── CopilotClient.ts  # GitHub OAuth + token management
+    │   │   │   ├── Tools.ts          # KQL execution (Kusto CLI + MCP)
+    │   │   │   └── RetrospectAgent.ts # (Legacy placeholder)
+    │   │   ├── schedules/
+    │   │   │   ├── Scheduler.ts      # Recurring investigation scheduler engine
+    │   │   │   └── ScheduleStore.ts  # Persistent schedule definitions + history
+    │   │   └── querybank/
+    │   │       └── QueryBankStore.ts  # Saved query template storage
     │   └── trigger_inv.js            # Dev utility: test investigation trigger
     ├── frontend/
     │   ├── public/
     │   │   └── favicon.svg           # Custom AI Investigator icon
     │   └── src/
-    │       ├── App.tsx               # Router configuration (/, /new, /investigation/:id, /settings, /about)
+    │       ├── App.tsx               # Router configuration (/, /new, /investigation/:id, /schedules, /settings, /about)
     │       ├── api.ts                # API client (all endpoints)
-    │       ├── constants.ts          # Time presets + investigation modes
+    │       ├── constants.ts          # Time presets + schedule intervals + investigation modes
     │       ├── types/
     │       │   ├── index.ts          # Core type definitions
-    │       │   └── product.ts        # Product type definitions
+    │       │   ├── product.ts        # Product type definitions
+    │       │   └── schedule.ts       # Schedule + history type definitions
     │       ├── components/
     │       │   ├── Layout.tsx        # App shell, nav, auth, branding
-    │       │   └── FileBrowserModal.tsx
+    │       │   ├── FileBrowserModal.tsx
+    │       │   ├── Toast.tsx         # Toast notifications + confirm dialogs
+    │       │   └── charts/           # Dashboard analytics (recharts)
+    │       │       ├── InvestigationTrend.tsx    # Line chart of investigations over time
+    │       │       ├── IssueTypeDonut.tsx        # Issue type distribution donut
+    │       │       ├── DurationDistribution.tsx  # Duration histogram
+    │       │       └── SuccessRateDonut.tsx      # Success rate pie chart
     │       └── pages/
-    │           ├── Dashboard.tsx         # Investigation cards grid/list
-    │           ├── NewInvestigation.tsx   # Investigation launch form (Standard + ICM)
+    │           ├── Dashboard.tsx         # Investigation cards grid/list + analytics charts
+    │           ├── NewInvestigation.tsx   # Investigation launch form (Standard + ICM) + query bank
     │           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect
+    │           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
+    │           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
     │           ├── Settings.tsx          # Configuration management (4 tabs)
     │           └── About.tsx             # Feature showcase + credits
     └── docs/
@@ -935,7 +1037,7 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 26 files in `docs/screenshots/`:
+The capture script produces these 29 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
@@ -965,6 +1067,9 @@ The capture script produces these 26 files in `docs/screenshots/`:
 | 24 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
 | 25 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
 | 26 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
+| 27 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
+| 28 | `schedule-form.png` | Schedule creation wizard with query bank |
+| 29 | `query-bank.png` | New Investigation — query bank dropdown |
 
 ### Architecture
 

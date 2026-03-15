@@ -2,7 +2,7 @@
  * Automated screenshot capture for the AI Investigator README.
  *
  * Launches a mock API server and the Vite dev server, then uses Playwright
- * to navigate every page/state and capture 26 screenshots to docs/screenshots/.
+ * to navigate every page/state and capture 29 screenshots to docs/screenshots/.
  *
  * Usage:
  *   node capture.js              → full run (starts mock + Vite, captures all)
@@ -528,6 +528,67 @@ async function captureMobileSettings(page) {
 }
 
 // ---------------------------------------------------------------------------
+// Schedules & Query Bank screenshots
+// ---------------------------------------------------------------------------
+
+async function captureSchedules(page) {
+    console.log('\n📸 Schedules page...');
+    await resetMock();
+    await page.goto(`${VITE_URL}/schedules`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('header', { timeout: 10000, state: 'attached' });
+    await page.waitForTimeout(1500);
+
+    // Expand the first schedule to show history
+    const firstSchedule = page.locator('[class*="cursor-pointer"]').first();
+    if (await firstSchedule.isVisible()) {
+        await firstSchedule.click();
+        await page.waitForTimeout(800);
+    }
+
+    await screenshot(page, 'schedules');
+}
+
+async function captureScheduleForm(page) {
+    console.log('\n📸 Schedule Form...');
+    await resetMock();
+    await page.goto(`${VITE_URL}/schedules/new`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('header', { timeout: 10000, state: 'attached' });
+    await page.waitForTimeout(1200);
+
+    // Fill in the schedule name
+    const nameInput = page.locator('input[placeholder*="name"], input[placeholder*="Name"]').first();
+    if (await nameInput.isVisible()) {
+        await nameInput.fill('EUS2P Hourly Health Check');
+    }
+
+    // Fill stamp
+    const stampInput = page.locator('input[placeholder*="stamp"], input[placeholder*="Stamp"], input[placeholder*="application"]').first();
+    if (await stampInput.isVisible()) {
+        await stampInput.fill('oi-tds-prd-eus2p-01');
+    }
+
+    await page.waitForTimeout(400);
+    await screenshot(page, 'schedule-form');
+}
+
+async function captureQueryBank(page) {
+    console.log('\n📸 Query Bank...');
+    await resetMock();
+    await page.goto(`${VITE_URL}/new`, { waitUntil: 'networkidle' });
+    await page.waitForSelector('header', { timeout: 10000, state: 'attached' });
+    await page.waitForTimeout(1200);
+
+    // Click the Query Bank button/dropdown to open it
+    const queryBankBtn = page.locator('button:has-text("Query Bank"), button:has-text("Saved"), button:has-text("Load"), [title*="Query Bank"], [title*="query bank"], [title*="saved"]').first();
+    if (await queryBankBtn.isVisible()) {
+        await queryBankBtn.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'query-bank');
+}
+
+// ---------------------------------------------------------------------------
 // Vite dev server management
 // ---------------------------------------------------------------------------
 
@@ -662,6 +723,11 @@ async function main() {
         await captureShareExportButtons(page);
         await captureDragDropImport(page);
 
+        // Schedules & Query Bank
+        await captureSchedules(page);
+        await captureScheduleForm(page);
+        await captureQueryBank(page);
+
         // Mobile screenshots
         await captureMobileDashboard(page);
         await captureMobileInvestigationDetail(page);
@@ -670,7 +736,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 26 screenshots captured successfully!');
+        console.log('  ✅ All 29 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

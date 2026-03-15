@@ -10,6 +10,7 @@ import * as path from 'path';
 import { spawn } from 'child_process';
 import { ScheduleStore, ScheduleDefinition } from './schedules/ScheduleStore';
 import { Scheduler, SchedulerConfig } from './schedules/Scheduler';
+import { QueryBankStore, SavedQuery } from './querybank/QueryBankStore';
 
 const app = express();
 const port = 3000;
@@ -51,12 +52,23 @@ function ensureDirectoryExists(dir: string) {
     }
 }
 
+/**
+ * Resolve the global (non-product) investigations base directory.
+ * Must match Runner.saveArtifacts() which uses:
+ *   config.investigationsPath || path.join(this.getRepoRoot(), 'investigations')
+ * Previously this fell back to process.cwd()/investigations which is the backend/
+ * directory — NOT where the Runner saves files.
+ */
+function getGlobalInvestigationsDir(): string {
+    return config.investigationsPath || path.join(config.repoRoot || defaultRepoRoot, 'investigations');
+}
+
 function loadHistory() {
     // Collect all investigation directories to scan
     const dirsToScan: { dir: string; productId?: string }[] = [];
     
     // Add global/default investigations path
-    const globalDir = config.investigationsPath || path.join(process.cwd(), 'investigations');
+    const globalDir = getGlobalInvestigationsDir();
     dirsToScan.push({ dir: globalDir });
     
     // Add each product's investigations path
@@ -1015,7 +1027,7 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
         trackingId,
         issueType,
         incidentId,
-        model,
+        model: model || effectiveConfig.model,
         productId,
         source: source || 'manual',
         scheduleId,
@@ -1220,6 +1232,11 @@ app.post('/api/investigations/:id/action', async (req, res) => {
 
             runner.resume(); // Ensure status is updated to 'running'
 
+            // Re-link to schedule if this is a scheduled investigation
+            if (state.scheduleId && scheduleStore) {
+                scheduleStore.update(state.scheduleId, { activeInvestigationId: id });
+            }
+
             // Restart execution loop
             // Use stored query or default
             const query = state.query || "Resume investigation";
@@ -1304,7 +1321,14 @@ app.post('/api/investigations/:id/action', async (req, res) => {
     if (!runner) return res.status(404).json({ error: 'Runner not found' });
 
     if (action === 'pause') runner.pause();
-    if (action === 'resume') runner.resume();
+    if (action === 'resume') {
+        runner.resume();
+        // Re-link to schedule if this is a scheduled investigation
+        const st = (runner as any).state as InvestigationState;
+        if (st?.scheduleId && scheduleStore) {
+            scheduleStore.update(st.scheduleId, { activeInvestigationId: id });
+        }
+    }
     if (action === 'abort') runner.abort();
     if (action === 'intervene' && message) {
         runner.intervene(message);
@@ -1543,12 +1567,18 @@ app.patch('/api/investigations/:id/title', async (req, res) => {
 app.delete('/api/investigations/:id', async (req, res) => {
     const id = req.params.id;
 
-    // Don't allow deleting running investigations
+    // If the investigation is running, abort it first
     const runner = runners.get(id);
     if (runner) {
         const state = (runner as any).state;
         if (state.status === 'running') {
-            return res.status(400).json({ error: 'Cannot delete a running investigation. Abort it first.' });
+            try {
+                (runner as any).abort();
+                state.status = 'aborted';
+                broadcast(id, 'status', { status: 'aborted' });
+            } catch (e: any) {
+                console.error(`[Delete] Failed to abort running investigation ${id}:`, e.message);
+            }
         }
         runners.delete(id);
     }
@@ -1559,7 +1589,7 @@ app.delete('/api/investigations/:id', async (req, res) => {
     }
 
     // Determine the correct investigations directory based on productId
-    let investigationsDir = config.investigationsPath || path.join(process.cwd(), 'investigations');
+    let investigationsDir = getGlobalInvestigationsDir();
     if (investigation.productId) {
         const product = (config.products || []).find((p: Product) => p.id === investigation.productId);
         if (product && product.investigationsPath) {
@@ -1613,7 +1643,7 @@ app.get('/api/investigations/:id/export', async (req, res) => {
     }
 
     // Resolve the investigations directory
-    let investigationsDir = config.investigationsPath || path.join(process.cwd(), 'investigations');
+    let investigationsDir = getGlobalInvestigationsDir();
     if (investigation.productId) {
         const product = (config.products || []).find((p: Product) => p.id === investigation.productId);
         if (product && product.investigationsPath) {
@@ -1683,7 +1713,7 @@ app.post('/api/investigations/import', async (req, res) => {
     if (!Array.isArray(state.logs)) state.logs = [];
 
     // Determine investigations directory
-    let investigationsDir = config.investigationsPath || path.join(process.cwd(), 'investigations');
+    let investigationsDir = getGlobalInvestigationsDir();
     if (state.productId) {
         const product = (config.products || []).find((p: Product) => p.id === state.productId);
         if (product && product.investigationsPath) {
@@ -2096,17 +2126,19 @@ function getScheduleInvestigationsPath(): string {
         const first = config.products.find(p => p.investigationsPath);
         if (first) return first.investigationsPath;
     }
-    return path.join(process.cwd(), 'investigations');
+    return getGlobalInvestigationsDir();
 }
 
 let scheduleStore: ScheduleStore | null = null;
 let scheduler: Scheduler | null = null;
+let queryBankStore: QueryBankStore | null = null;
 
 function initScheduler(): void {
     const invPath = getScheduleInvestigationsPath();
     ensureDirectoryExists(invPath);
 
     scheduleStore = new ScheduleStore(invPath);
+    queryBankStore = new QueryBankStore(invPath);
     scheduler = new Scheduler(
         scheduleStore,
         // createInvestigation adapter for Scheduler
@@ -2132,6 +2164,7 @@ function initScheduler(): void {
         {
             maxConcurrentScheduledInvestigations: config.maxConcurrentScheduledInvestigations,
             scheduledInvestigationMaxSteps: config.scheduledInvestigationMaxSteps,
+            globalMaxSteps: config.maxSteps,
             defaultTimeRange: config.defaultTimeRange,
         },
     );
@@ -2160,14 +2193,61 @@ function initScheduler(): void {
 // Schedule CRUD endpoints
 app.get('/api/schedules', (_req, res) => {
     if (!scheduleStore) return res.json([]);
+
+    // Auto-settle any schedules with stale activeInvestigationId
+    const schedules = scheduleStore.getAll();
+    for (const sched of schedules) {
+        // ── Fix already-settled verdicts that were incorrectly set to 'error' ──
+        // Before the 'paused' verdict was introduced, paused investigations were
+        // mapped to 'error'. Correct them by checking the actual investigation.
+        if (!sched.activeInvestigationId && sched.lastVerdict === 'error' && sched.lastInvestigationId) {
+            const inv = history.get(sched.lastInvestigationId);
+            if (inv && inv.status === 'paused') {
+                scheduleStore.update(sched.id, { lastVerdict: inv.verdict || 'paused' });
+            }
+            continue;
+        }
+
+        if (!sched.activeInvestigationId) continue;
+
+        // Check the actual investigation status
+        let state: InvestigationState | undefined;
+        if (runners.has(sched.activeInvestigationId)) {
+            state = (runners.get(sched.activeInvestigationId) as any).state;
+        } else if (history.has(sched.activeInvestigationId)) {
+            state = history.get(sched.activeInvestigationId);
+        }
+
+        if (!state) {
+            // Investigation not found at all — clean up the stale reference
+            scheduleStore.update(sched.id, {
+                activeInvestigationId: undefined,
+                lastVerdict: sched.lastVerdict || 'error',
+            });
+        } else if (['paused', 'completed', 'failed', 'aborted'].includes(state.status)) {
+            // Investigation is in a terminal state — settle it now
+            const verdict = state.status === 'paused'
+                ? (state.verdict || 'paused')   // hit max steps — not an error
+                : (state.verdict || 'error');
+            scheduleStore.update(sched.id, {
+                activeInvestigationId: undefined,
+                lastVerdict: verdict,
+            });
+        }
+    }
+
     res.json(scheduleStore.getAll());
 });
 
 app.post('/api/schedules', (req, res) => {
     if (!scheduleStore || !scheduler) {
-        return res.status(500).json({ error: 'Scheduler not initialized' });
+        // Attempt lazy initialization if not yet ready
+        try { initScheduler(); } catch (err) { /* ignore */ }
+        if (!scheduleStore || !scheduler) {
+            return res.status(500).json({ error: 'Scheduler not initialized' });
+        }
     }
-    const { name, stamp, query, intervalMinutes, productId, maxSteps, timeRange, issueType, autoEscalate, escalationQuery, enabled } = req.body;
+    const { name, stamp, query, intervalMinutes, productId, model, maxSteps, timeRange, issueType, autoEscalate, escalationQuery, enabled } = req.body;
     if (!name || !stamp || !query) {
         return res.status(400).json({ error: 'name, stamp, and query are required' });
     }
@@ -2178,6 +2258,7 @@ app.post('/api/schedules', (req, res) => {
         query,
         intervalMinutes: intervalMinutes || 15,
         productId,
+        model,
         maxSteps,
         timeRange,
         issueType,
@@ -2200,9 +2281,88 @@ app.put('/api/schedules/:id', (req, res) => {
 
 app.delete('/api/schedules/:id', (req, res) => {
     if (!scheduleStore) return res.status(500).json({ error: 'Scheduler not initialized' });
-    const deleted = scheduleStore.delete(req.params.id);
+
+    const scheduleId = req.params.id;
+    const schedule = scheduleStore.get(scheduleId);
+
+    // Collect ALL investigation IDs belonging to this schedule from both history AND runners
+    const investigationIds = new Set<string>();
+
+    // Scan history
+    for (const [id, state] of history.entries()) {
+        if (state.scheduleId === scheduleId) {
+            investigationIds.add(id);
+        }
+    }
+
+    // Scan runners (may have active investigations not yet in history)
+    for (const [id, runner] of runners.entries()) {
+        const st = (runner as any).state as InvestigationState | undefined;
+        if (st?.scheduleId === scheduleId) {
+            investigationIds.add(id);
+        }
+    }
+
+    // Also include the schedule's activeInvestigationId (safety net)
+    if (schedule?.activeInvestigationId) {
+        investigationIds.add(schedule.activeInvestigationId);
+    }
+
+    for (const invId of investigationIds) {
+        // Abort if still running
+        const runner = runners.get(invId);
+        if (runner) {
+            try {
+                (runner as any).abort();
+                const st = (runner as any).state;
+                if (st) st.status = 'aborted';
+            } catch (e: any) {
+                console.error(`[Delete Schedule] Failed to abort investigation ${invId}:`, e.message);
+            }
+            runners.delete(invId);
+        }
+
+        // Determine disk path from history or runner state
+        const inv = history.get(invId) || (runner ? (runner as any).state : undefined);
+        if (inv) {
+            // Delete from disk
+            let investigationsDir = getGlobalInvestigationsDir();
+            if (inv.productId) {
+                const product = (config.products || []).find((p: Product) => p.id === inv.productId);
+                if (product && product.investigationsPath) {
+                    investigationsDir = product.investigationsPath;
+                }
+            }
+            const safeId = invId.replace(/[^a-zA-Z0-9]/g, '');
+            try {
+                const entries = fs.readdirSync(investigationsDir);
+                const match = entries.find(e => e.endsWith(`_${safeId}`));
+                if (match) {
+                    fs.rmSync(path.join(investigationsDir, match), { recursive: true, force: true });
+                    console.log(`[Delete Schedule] Deleted investigation directory: ${match}`);
+                } else {
+                    console.warn(`[Delete Schedule] No directory found ending with _${safeId} in ${investigationsDir}`);
+                }
+            } catch (e: any) {
+                console.error(`[Delete Schedule] Failed to delete investigation directory for ${invId}:`, e.message);
+            }
+
+            const jsonPath = path.join(investigationsDir, `${invId}.json`);
+            if (fs.existsSync(jsonPath)) {
+                try { fs.unlinkSync(jsonPath); } catch { /* best effort */ }
+            }
+        }
+
+        history.delete(invId);
+        broadcast(invId, 'status', { status: 'deleted' });
+    }
+
+    const deletedCount = investigationIds.size;
+    console.log(`[Delete Schedule] Deleted ${deletedCount} related investigation(s) for schedule ${scheduleId}.`);
+
+    const deleted = scheduleStore.delete(scheduleId);
     if (!deleted) return res.status(404).json({ error: 'Schedule not found' });
-    res.json({ success: true });
+    res.json({ success: true, deletedInvestigations: deletedCount });
 });
 
 app.post('/api/schedules/:id/run-now', async (req, res) => {
@@ -2234,6 +2394,17 @@ app.get('/api/schedules/:id/history', (req, res) => {
     if (!scheduleStore) return res.status(500).json({ error: 'Scheduler not initialized' });
     const maxEntries = req.query.maxEntries ? parseInt(req.query.maxEntries as string, 10) : undefined;
     const entries = scheduleStore.getHistory(req.params.id, maxEntries);
+
+    // Correct legacy 'error' verdicts that were actually 'paused' investigations
+    for (const entry of entries) {
+        if (entry.verdict === 'error' && entry.investigationId) {
+            const inv = history.get(entry.investigationId);
+            if (inv && inv.status === 'paused') {
+                entry.verdict = inv.verdict || 'paused';
+            }
+        }
+    }
+
     res.json(entries);
 });
 
@@ -2251,6 +2422,35 @@ app.post('/api/scheduler/stop', (_req, res) => {
 
 app.get('/api/scheduler/status', (_req, res) => {
     res.json({ running: scheduler?.isRunning() || false });
+});
+
+// ── Query Bank ───────────────────────────────────────────────────────────────
+
+app.get('/api/query-bank', (_req, res) => {
+    if (!queryBankStore) return res.json([]);
+    res.json(queryBankStore.getAll());
+});
+
+app.post('/api/query-bank', (req, res) => {
+    if (!queryBankStore) return res.status(500).json({ error: 'Query bank not initialized' });
+    const { name, stamp, query, issueType, trackingId, timeRange, timeMode, model, productId, intervalMinutes } = req.body;
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    const saved = queryBankStore.create({ name, stamp, query, issueType, trackingId, timeRange, timeMode, model, productId, intervalMinutes });
+    res.json(saved);
+});
+
+app.put('/api/query-bank/:id', (req, res) => {
+    if (!queryBankStore) return res.status(500).json({ error: 'Query bank not initialized' });
+    const updated = queryBankStore.update(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Saved query not found' });
+    res.json(updated);
+});
+
+app.delete('/api/query-bank/:id', (req, res) => {
+    if (!queryBankStore) return res.status(500).json({ error: 'Query bank not initialized' });
+    const deleted = queryBankStore.delete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Saved query not found' });
+    res.json({ success: true });
 });
 
 server.listen(port, () => {

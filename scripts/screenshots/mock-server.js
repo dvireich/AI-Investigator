@@ -256,6 +256,191 @@ app.get('/api/mcp/status', (_req, res) => {
     res.json({ server: 'kusto-cli', connected: true });
 });
 
+// ---- Schedules ----
+
+let mockSchedules = [
+    {
+        id: 'sched-1',
+        name: 'EUS2P Health Check',
+        enabled: true,
+        stamp: 'oi-tds-prd-eus2p-01',
+        query: 'Check pipeline latency and queue health for the past hour.',
+        intervalMinutes: 60,
+        productId: 'teleduct',
+        model: 'claude-opus-4.6',
+        maxSteps: 20,
+        timeRange: 'ago(1h)',
+        issueType: 'Latency / Performance',
+        autoEscalate: false,
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        lastRunAt: new Date(Date.now() - 3600000).toISOString(),
+        nextRunAt: new Date(Date.now() + 900000).toISOString(),
+        lastVerdict: 'healthy',
+        lastInvestigationId: '1710000000001',
+        consecutiveCriticalCount: 0,
+    },
+    {
+        id: 'sched-2',
+        name: 'WUS2 Latency Monitor',
+        enabled: true,
+        stamp: 'oi-tds-prd-wus2p-01',
+        query: 'Monitor P95 latency and error rates across all processing services.',
+        intervalMinutes: 30,
+        productId: 'teleduct',
+        model: 'gpt-4o',
+        maxSteps: 15,
+        timeRange: 'ago(30m)',
+        issueType: 'Latency / Performance',
+        autoEscalate: false,
+        createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+        lastRunAt: new Date(Date.now() - 1200000).toISOString(),
+        nextRunAt: new Date(Date.now() + 600000).toISOString(),
+        lastVerdict: 'warning',
+        lastInvestigationId: '1710000000002',
+        consecutiveCriticalCount: 0,
+    },
+    {
+        id: 'sched-3',
+        name: 'NEU Error Patrol',
+        enabled: false,
+        stamp: 'oi-tds-prd-neup-01',
+        query: 'Check for error spikes and dead letter queue growth.',
+        intervalMinutes: 240,
+        productId: 'teleduct',
+        model: 'claude-opus-4.6',
+        maxSteps: 25,
+        timeRange: 'ago(4h)',
+        issueType: 'Error / Failure Rate',
+        autoEscalate: false,
+        createdAt: new Date(Date.now() - 14 * 86400000).toISOString(),
+        lastRunAt: new Date(Date.now() - 86400000).toISOString(),
+        lastVerdict: 'critical',
+        lastInvestigationId: '1710000000003',
+        consecutiveCriticalCount: 2,
+    },
+];
+
+let mockSchedulerRunning = true;
+
+const mockScheduleHistory = {
+    'sched-1': [
+        { timestamp: new Date(Date.now() - 3600000).toISOString(), verdict: 'healthy', investigationId: '1710000000001', summary: 'P95 latency 2s. All queues healthy.' },
+        { timestamp: new Date(Date.now() - 7200000).toISOString(), verdict: 'healthy', investigationId: '1710000000010', summary: 'No issues detected.' },
+        { timestamp: new Date(Date.now() - 10800000).toISOString(), verdict: 'warning', investigationId: '1710000000011', summary: 'Slight latency increase on ProcessingService.' },
+    ],
+    'sched-2': [
+        { timestamp: new Date(Date.now() - 1200000).toISOString(), verdict: 'warning', investigationId: '1710000000002', summary: 'P95 elevated at 8s (threshold 5s).' },
+        { timestamp: new Date(Date.now() - 3000000).toISOString(), verdict: 'healthy', investigationId: '1710000000020', summary: 'All metrics within SLO.' },
+    ],
+    'sched-3': [
+        { timestamp: new Date(Date.now() - 86400000).toISOString(), verdict: 'critical', investigationId: '1710000000003', summary: 'DLQ overflow detected — 15K messages.' },
+        { timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), verdict: 'critical', investigationId: '1710000000030', summary: 'Processing failures persisting.' },
+    ],
+};
+
+app.get('/api/schedules', (_req, res) => {
+    res.json(mockSchedules);
+});
+
+app.post('/api/schedules', (req, res) => {
+    res.json({ id: 'sched-new', ...req.body });
+});
+
+app.put('/api/schedules/:id', (req, res) => {
+    res.json({ success: true });
+});
+
+app.delete('/api/schedules/:id', (req, res) => {
+    res.json({ success: true });
+});
+
+app.post('/api/schedules/:id/run-now', (req, res) => {
+    res.json({ success: true, investigationId: Date.now().toString() });
+});
+
+app.post('/api/schedules/:id/enable', (req, res) => {
+    res.json({ success: true });
+});
+
+app.post('/api/schedules/:id/disable', (req, res) => {
+    res.json({ success: true });
+});
+
+app.get('/api/schedules/:id/history', (req, res) => {
+    res.json(mockScheduleHistory[req.params.id] || []);
+});
+
+app.post('/api/scheduler/start', (_req, res) => {
+    mockSchedulerRunning = true;
+    res.json({ success: true });
+});
+
+app.post('/api/scheduler/stop', (_req, res) => {
+    mockSchedulerRunning = false;
+    res.json({ success: true });
+});
+
+app.get('/api/scheduler/status', (_req, res) => {
+    res.json({ running: mockSchedulerRunning });
+});
+
+// ---- Query Bank ----
+
+const mockQueryBank = [
+    {
+        id: 'qb-1',
+        name: 'EUS2P Latency Check',
+        stamp: 'oi-tds-prd-eus2p-01',
+        query: 'Check pipeline latency and queue health.',
+        issueType: 'Latency / Performance',
+        timeRange: 'ago(1h)',
+        model: 'claude-opus-4.6',
+        productId: 'teleduct',
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 86400000).toISOString(),
+    },
+    {
+        id: 'qb-2',
+        name: 'WUS2 Error Discovery',
+        stamp: 'oi-tds-prd-wus2p-01',
+        query: 'Discover and classify errors across processing services in the past 6 hours.',
+        issueType: 'Error / Failure Rate',
+        timeRange: 'ago(6h)',
+        model: 'gpt-4o',
+        productId: 'teleduct',
+        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+    },
+    {
+        id: 'qb-3',
+        name: 'NEU DLQ Audit',
+        stamp: 'oi-tds-prd-neup-01',
+        query: 'Audit dead letter queue growth and identify permanent failure patterns.',
+        issueType: 'Data Loss / Inconsistency',
+        timeRange: 'ago(4h)',
+        model: 'claude-opus-4.6',
+        createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+    },
+];
+
+app.get('/api/query-bank', (_req, res) => {
+    res.json(mockQueryBank);
+});
+
+app.post('/api/query-bank', (req, res) => {
+    res.json({ id: 'qb-new', ...req.body });
+});
+
+app.put('/api/query-bank/:id', (req, res) => {
+    res.json({ success: true });
+});
+
+app.delete('/api/query-bank/:id', (req, res) => {
+    res.json({ success: true });
+});
+
+
 // ---------------------------------------------------------------------------
 // Control API — used by capture.js to swap state between screenshots
 // ---------------------------------------------------------------------------

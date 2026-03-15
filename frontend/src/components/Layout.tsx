@@ -2,6 +2,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { LayoutDashboard, PlusCircle, Settings, Info, Menu, X, Clock } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
+import { useToast } from './Toast';
 
 interface GitHubUser {
     login: string;
@@ -10,6 +11,7 @@ interface GitHubUser {
 }
 
 export const Layout = () => {
+    const { toast } = useToast();
     const location = useLocation();
     const [authenticated, setAuthenticated] = useState(false);
     const [user, setUser] = useState<GitHubUser | null>(null);
@@ -60,7 +62,7 @@ export const Layout = () => {
                         setAuthenticated(true);
                         // Fetch user info after successful login
                         checkAuth();
-                        alert("Successfully logged in to GitHub Copilot!");
+                        toast('success', 'Successfully logged in to GitHub Copilot!');
                     }
                 } catch (e: any) {
                     const errMsg = e?.response?.data?.error || e?.message || '';
@@ -68,7 +70,7 @@ export const Layout = () => {
                         clearInterval(poller);
                         loginPollerRef.current = null;
                         setShowLoginModal(false);
-                        alert('Login session expired. Please try again.');
+                        toast('warning', 'Login session expired. Please try again.');
                     } else if (errMsg === 'slow_down') {
                         // Back off - skip this poll cycle
                     }
@@ -77,7 +79,7 @@ export const Layout = () => {
             }, (data.interval + 1) * 1000);
             loginPollerRef.current = poller;
 
-        } catch (e) { alert("Failed to start login"); }
+        } catch (e) { toast('error', 'Failed to start login'); }
     };
 
     return (

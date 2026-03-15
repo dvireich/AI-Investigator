@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy } from 'lucide-react';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult } from '../api';
+import { useToast } from '../components/Toast';
 import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
 
@@ -58,6 +59,7 @@ const PathItem = ({ icon: Icon, label, value, color, validation }: { icon: any; 
 };
 
 export const Settings = () => {
+    const { confirm } = useToast();
     const [activeTab, setActiveTab] = useState('agent');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -464,7 +466,13 @@ export const Settings = () => {
                                                                     setError('Cannot delete the last product');
                                                                     return;
                                                                 }
-                                                                if (confirm(`Delete "${product.name}"?`)) {
+                                                                const ok = await confirm({
+                                                                    title: 'Delete Product',
+                                                                    message: `This will permanently delete "${product.name}". This action cannot be undone.`,
+                                                                    confirmLabel: 'Delete',
+                                                                    variant: 'danger',
+                                                                });
+                                                                if (ok) {
                                                                     try {
                                                                         await api.deleteProduct(product.id);
                                                                         await loadProducts();

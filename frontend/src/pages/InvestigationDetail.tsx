@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation } from '../api';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown } from 'lucide-react';
+import { useToast } from '../components/Toast';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -262,7 +263,7 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
             if (data.action?.result) setFullActionResult(data.action.result);
         } catch (e) {
             console.error(e);
-            alert("Failed to load details");
+            toast('error', 'Failed to load details');
         } finally {
             setLoading(false);
         }
@@ -589,6 +590,7 @@ const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedb
 });
 
 export const InvestigationDetail = () => {
+    const { toast } = useToast();
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const [investigation, setInvestigation] = useState<Investigation | null>(null);
@@ -846,7 +848,7 @@ export const InvestigationDetail = () => {
             await api.updateProposal(investigation.id, proposalId, status);
             await fetchInvestigation();
         } catch (err: any) {
-            alert('Failed to update proposal: ' + err.message);
+            toast('error', 'Failed to update proposal: ' + err.message);
         }
     }, [investigation?.id]);
 
@@ -858,10 +860,10 @@ export const InvestigationDetail = () => {
             const result = await api.applyProposals(investigation.id);
             await fetchInvestigation();
             if (result.errors?.length > 0) {
-                alert(`Applied ${result.applied.length} changes. Errors:\n${result.errors.join('\n')}`);
+                toast('warning', `Applied ${result.applied.length} changes. Errors:\n${result.errors.join('\n')}`);
             }
         } catch (err: any) {
-            alert('Failed to apply proposals: ' + err.message);
+            toast('error', 'Failed to apply proposals: ' + err.message);
         } finally {
             setApplyingProposals(false);
         }
@@ -875,7 +877,7 @@ export const InvestigationDetail = () => {
             await new Promise(r => setTimeout(r, 500));
             await fetchInvestigation();
         } catch (e: any) {
-            alert(`Action failed: ${e.message}`);
+            toast('error', `Action failed: ${e.message}`);
         } finally {
             setActingAction(null);
         }
@@ -889,7 +891,7 @@ export const InvestigationDetail = () => {
             await new Promise(r => setTimeout(r, 500));
             await fetchInvestigation();
         } catch (e: any) {
-            alert(`Action failed: ${e.message}`);
+            toast('error', `Action failed: ${e.message}`);
         } finally {
             setActingAction(null);
         }
@@ -959,7 +961,8 @@ export const InvestigationDetail = () => {
     const isActive = investigation.status === 'running' || investigation.status === 'paused';
 
     return (
-        <div className="h-[calc(100dvh-7rem)] overflow-hidden grid grid-cols-1 lg:grid-cols-12 grid-rows-[auto_1fr] lg:grid-rows-1 gap-2 lg:gap-6 pb-2">
+        <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 pt-3 sm:pt-6 pb-1 px-3 sm:px-6 md:px-12 z-0">
+        <div className="h-full max-w-[1600px] mx-auto overflow-hidden grid grid-cols-1 lg:grid-cols-12 grid-rows-[auto_1fr] lg:grid-rows-1 gap-1 lg:gap-6">
 
             {/* Connection Lost / Reconnecting Overlay */}
             {(!wsConnected || wsJustReconnected) && (
@@ -1013,14 +1016,14 @@ export const InvestigationDetail = () => {
             )}
 
             {/* Sidebar: Status & Info */}
-            <div className="lg:col-span-3 flex flex-col gap-2 lg:gap-4 lg:overflow-y-auto lg:pr-2 custom-scrollbar shrink-0">
+            <div className="lg:col-span-3 flex flex-col gap-1 lg:gap-4 lg:overflow-y-auto lg:pr-2 custom-scrollbar shrink-0">
                 {/* Status Card */}
-                <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl lg:rounded-3xl p-3 lg:p-6 shadow-2xl border border-white/[0.06] relative overflow-hidden group shrink-0">
+                <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl lg:rounded-3xl p-1.5 lg:p-6 shadow-2xl border border-white/[0.06] relative overflow-hidden group shrink-0">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
 
                     {/* Mobile: horizontal row | Desktop: vertical centered */}
-                    <div className="flex items-center gap-3 lg:flex-col lg:items-center lg:justify-center lg:mb-8">
-                        <div className={`relative w-10 h-10 lg:w-20 lg:h-20 rounded-full flex items-center justify-center shrink-0 lg:mb-4 transition-all duration-500 ${
+                    <div className="flex items-center gap-2 lg:gap-3 lg:flex-col lg:items-center lg:justify-center lg:mb-8">
+                        <div className={`relative w-7 h-7 lg:w-20 lg:h-20 rounded-full flex items-center justify-center shrink-0 lg:mb-4 transition-all duration-500 ${
                             investigation.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400 ring-2 lg:ring-4 ring-emerald-500/20' :
                             investigation.status === 'running' ? 'bg-green-500/20 text-green-400 ring-2 lg:ring-4 ring-green-500/20' :
                             investigation.status === 'paused' ? 'bg-amber-500/20 text-amber-400 ring-2 lg:ring-4 ring-amber-500/20' :
@@ -1030,16 +1033,25 @@ export const InvestigationDetail = () => {
                             }`}>
                             {investigation.status === 'running' && <div className="absolute inset-0 rounded-full border-2 lg:border-4 border-green-500/30 animate-ping"></div>}
                             {investigation.status === 'completed' && <div className="absolute inset-0 rounded-full border-2 border-emerald-500/30"></div>}
-                            <Activity className={`w-5 h-5 lg:w-8 lg:h-8 ${investigation.status === 'running' ? 'animate-pulse' : ''}`} />
+                            <Activity className={`w-3.5 h-3.5 lg:w-8 lg:h-8 ${investigation.status === 'running' ? 'animate-pulse' : ''}`} />
                         </div>
 
                         <div className="flex-1 min-w-0 lg:text-center">
-                            <h2 className="text-base lg:text-2xl font-black text-slate-100 tracking-tight capitalize">{investigation.status}</h2>
-                            <p className="text-slate-500 text-xs lg:text-sm font-medium truncate lg:whitespace-normal">
+                            <h2 className="text-sm lg:text-2xl font-black text-slate-100 tracking-tight capitalize leading-tight">{investigation.status}</h2>
+                            <p className="text-slate-500 text-[10px] lg:text-sm font-medium truncate lg:whitespace-normal">
                                 <span className="lg:hidden">
                                     {investigation.stamp || 'Investigation'}
+                                    {investigation.timeRange && (
+                                        <span className="text-slate-600 ml-1">· {investigation.timeRange}</span>
+                                    )}
+                                    {investigation.model && (
+                                        <span className="text-slate-600 ml-1">· {investigation.model}</span>
+                                    )}
+                                    {investigation.issueType && (
+                                        <span className="text-slate-600 ml-1">· {investigation.issueType}</span>
+                                    )}
                                     {investigation.status === 'running' && (
-                                        <span className="text-slate-400 ml-1.5">
+                                        <span className="text-slate-400 ml-1">
                                             · <DurationTimer
                                                 startTime={Number(investigation.id)}
                                                 status={investigation.status}
@@ -1170,6 +1182,8 @@ export const InvestigationDetail = () => {
                     </div>
                 </div>
 
+
+
                 {/* Info Card — collapsible on mobile, always visible on desktop */}
                 <div className={`${mobileSidebarExpanded ? 'block' : 'hidden'} lg:block bg-slate-900/50 backdrop-blur-md rounded-2xl p-5 shadow-lg border border-white/[0.06] text-sm shrink-0`}>
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Details</h3>
@@ -1231,29 +1245,48 @@ export const InvestigationDetail = () => {
                                 </div>
                             </div>
                         )}
-                        {investigation.model && (
-                            <div className="flex items-start group/model">
-                                <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center mr-3 shrink-0 border border-indigo-500/20 group-hover/model:bg-indigo-500/20 group-hover/model:scale-105 transition-all">
-                                    <Cpu className="w-4 h-4" />
-                                </div>
-                                <div className="w-full min-w-0">
-                                    <span className="block text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">Model</span>
-                                    <ModelSelector
-                                        currentModel={investigation.model}
-                                        availableModels={availableModels}
-                                        onSelect={async (model) => {
-                                            if (!investigation) return;
-                                            try {
-                                                await api.updateModel(investigation.id, model);
-                                                fetchInvestigation();
-                                            } catch (err: any) {
-                                                alert("Failed to change model: " + err.message);
-                                            }
-                                        }}
-                                    />
+                        {/* Source indicator */}
+                        {investigation.source === 'scheduled' && (
+                            <div className="flex items-start">
+                                <Calendar className="w-4 h-4 text-blue-400 mr-2 mt-0.5" />
+                                <div>
+                                    <span className="block text-slate-500 text-xs">Source</span>
+                                    <button
+                                        onClick={() => navigate('/schedules')}
+                                        className="font-medium text-blue-400 hover:text-blue-300 transition-colors text-sm"
+                                    >
+                                        Scheduled
+                                    </button>
                                 </div>
                             </div>
                         )}
+                        {(() => {
+                            const displayModel = investigation.model || investigation.logs?.find(l => typeof l === 'string' && l.includes('Calling LLM ('))?.match(/Calling LLM \(([^)]+)\)/)?.[1];
+                            if (!displayModel) return null;
+                            return (
+                                <div className="flex items-start group/model">
+                                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center mr-3 shrink-0 border border-indigo-500/20 group-hover/model:bg-indigo-500/20 group-hover/model:scale-105 transition-all">
+                                        <Cpu className="w-4 h-4" />
+                                    </div>
+                                    <div className="w-full min-w-0">
+                                        <span className="block text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">Model</span>
+                                        <ModelSelector
+                                            currentModel={displayModel}
+                                            availableModels={availableModels}
+                                            onSelect={async (model) => {
+                                                if (!investigation) return;
+                                                try {
+                                                    await api.updateModel(investigation.id, model);
+                                                    fetchInvestigation();
+                                                } catch (err: any) {
+                                                    toast('error', 'Failed to change model: ' + err.message);
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
                 </div>
 
@@ -1284,27 +1317,27 @@ export const InvestigationDetail = () => {
                     </div>
 
                     {/* Integrated Tab Bar (Below Banner) */}
-                    <div className="flex items-center gap-1 p-0.5 rounded-lg bg-slate-800/50 border border-slate-700/50 w-full">
+                    <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-800/50 border border-slate-700/50 w-full shrink-0">
                         <button
                             onClick={() => setActiveTab('live')}
-                            className={`flex-1 px-2 sm:px-4 py-2 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'live' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'}`}
+                            className={`flex-1 px-2 sm:px-4 py-1.5 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'live' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'}`}
                         >
-                            <Terminal className="w-4 h-4" /> <span className="hidden sm:inline">Live Session</span><span className="sm:hidden">Live</span>
+                            <Terminal className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Live Session</span><span className="sm:hidden">Live</span>
                         </button>
                         <button
                             onClick={() => setActiveTab('report')}
                             disabled={!investigation.finalReport}
-                            className={`flex-1 px-2 sm:px-4 py-2 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'report' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'} ${!investigation.finalReport ? 'opacity-40 cursor-not-allowed' : ''}`}
+                            className={`flex-1 px-2 sm:px-4 py-1.5 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'report' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'} ${!investigation.finalReport ? 'opacity-40 cursor-not-allowed' : ''}`}
                         >
-                            <FileText className="w-4 h-4" /> <span className="hidden sm:inline">Final Report</span><span className="sm:hidden">Report</span>
+                            <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Final Report</span><span className="sm:hidden">Report</span>
                             {investigation.finalReport && <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 ml-1.5 animate-pulse"></span>}
                         </button>
                         {['completed', 'failed', 'aborted'].includes(investigation.status) && (
                             <button
                                 onClick={() => setActiveTab('retrospect' as any)}
-                                className={`flex-1 px-2 sm:px-4 py-2 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'retrospect' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'}`}
+                                className={`flex-1 px-2 sm:px-4 py-1.5 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'retrospect' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'}`}
                             >
-                                <MessageSquare className="w-4 h-4" /> <span className="hidden sm:inline">Retrospect</span><span className="sm:hidden">Retro</span>
+                                <MessageSquare className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Retrospect</span><span className="sm:hidden">Retro</span>
                             </button>
                         )}
                     </div>
@@ -1330,7 +1363,7 @@ export const InvestigationDetail = () => {
                                                 try {
                                                     await api.compactInvestigation(investigation.id);
                                                     window.location.reload();
-                                                } catch (e: any) { alert("Failed: " + e.message); }
+                                                } catch (e: any) { toast('error', 'Failed: ' + e.message); }
                                             }}
                                             id="btn-summarize"
                                             className="px-2 py-0.5 bg-red-500/20 hover:bg-red-500/30 text-red-300 text-[10px] font-bold rounded border border-red-500/30"
@@ -1399,7 +1432,7 @@ export const InvestigationDetail = () => {
                             </div>
 
                             {/* Input Area */}
-                            <div className="p-3 border-t border-slate-800 bg-slate-950/30 backdrop-blur-sm z-20">
+                            <div className="p-2 border-t border-slate-800 bg-slate-950/30 backdrop-blur-sm z-20">
                                 <InterventionInput onSend={handleIntervention} status={investigation.status} />
                             </div>
                         </div>
@@ -1721,7 +1754,7 @@ export const InvestigationDetail = () => {
                                                 await api.sendRetrospectMessage(investigation.id, val);
                                                 await fetchInvestigation();
                                             } catch (err: any) {
-                                                alert(err.message);
+                                                toast('error', err.message);
                                             } finally {
                                                 setIsRetrospectThinking(false);
                                                 setRetroToolActivity(null);
@@ -1782,7 +1815,7 @@ export const InvestigationDetail = () => {
                                                         try {
                                                             await api.completeRetrospect(investigation.id, !isRetroCompleted);
                                                             await fetchInvestigation();
-                                                        } catch (err: any) { alert(err.message); }
+                                                        } catch (err: any) { toast('error', err.message); }
                                                     }}
                                                     className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${
                                                         isRetroCompleted
@@ -2062,6 +2095,7 @@ export const InvestigationDetail = () => {
                     )
                 }
             </div>
+        </div>
         </div>
     );
 };
