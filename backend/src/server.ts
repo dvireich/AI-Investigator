@@ -8,6 +8,8 @@ import { renderPdf } from './pdfRenderer';
 import * as fs from 'fs';
 import * as path from 'path';
 import { spawn } from 'child_process';
+import { ScheduleStore, ScheduleDefinition } from './schedules/ScheduleStore';
+import { Scheduler, SchedulerConfig } from './schedules/Scheduler';
 
 const app = express();
 const port = 3000;
@@ -274,6 +276,9 @@ let config: {
     icmScriptsPath: string; // Internal — resolved automatically, not user-configurable
     products: Product[];
     activeProductId: string;
+    // Scheduled investigation settings
+    maxConcurrentScheduledInvestigations: number;
+    scheduledInvestigationMaxSteps: number;
 } = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
@@ -291,7 +296,9 @@ let config: {
     investigationsPath: '',
     icmScriptsPath: path.resolve(__dirname, '..', '..', 'scripts', 'icm'),
     products: [],
-    activeProductId: ''
+    activeProductId: '',
+    maxConcurrentScheduledInvestigations: 2,
+    scheduledInvestigationMaxSteps: 20,
 };
 
 // Load config from disk if exists
@@ -939,44 +946,39 @@ app.post('/api/icm/:incidentId/read', async (req, res) => {
 });
 // --- End ICM Endpoints ---------------------------------------------------
 
-app.post('/api/investigations', async (req, res) => {
-    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId } = req.body;
+// ── Shared investigation creation logic ──────────────────────────────────
+// Used by both POST /api/investigations and the Scheduler.
 
-    // Validate required fields - stamp and timeRange are optional when incidentId is provided
-    if (!incidentId) {
-        if (!stamp || typeof stamp !== 'string') {
-            return res.status(400).json({ error: 'stamp is required and must be a string (or provide incidentId)' });
-        }
-        if (!timeRange || typeof timeRange !== 'string') {
-            return res.status(400).json({ error: 'timeRange is required and must be a string (or provide incidentId)' });
-        }
-    }
+interface CreateInvestigationParams {
+    query?: string;
+    stamp?: string;
+    timeRange?: string;
+    trackingId?: string;
+    issueType?: string;
+    incidentId?: string;
+    model?: string;
+    productId?: string;
+    maxSteps?: number;
+    source?: 'manual' | 'scheduled';
+    scheduleId?: string;
+}
 
-    // Enforce max concurrent investigations
-    const runningCount = Array.from(runners.values()).filter(r => !(r as any)._isTemporary && (r as any).state.status === 'running').length;
-    if (runningCount >= config.maxConcurrentInvestigations) {
-        return res.status(429).json({ error: `Maximum concurrent investigations (${config.maxConcurrentInvestigations}) reached. Wait for one to complete or pause an active investigation.` });
-    }
+function createInvestigation(params: CreateInvestigationParams): { id: string; runner: AgentRunner } {
+    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, maxSteps, source, scheduleId } = params;
 
     // Determine which config to use (product-specific or global)
-    let effectiveConfig = config;
+    let effectiveConfig: typeof config = config;
     if (productId && config.products && config.products.length > 0) {
         const product = config.products.find(p => p.id === productId);
         if (product) {
-            // Validate product paths before starting
             const validation = validateProductPaths(product);
             if (!validation.valid) {
                 const issues = validation.paths
                     .filter(p => p.error)
                     .map(p => `${p.label}: ${p.error}`)
                     .join('; ');
-                return res.status(400).json({
-                    error: `Product "${product.name}" has path issues that must be fixed before starting an investigation: ${issues}`,
-                    pathErrors: validation.paths.filter(p => p.error)
-                });
+                throw new Error(`Product "${product.name}" has path issues: ${issues}`);
             }
-
-            // Merge product-specific paths into the config
             effectiveConfig = {
                 ...config,
                 repoRoot: product.repoRoot || config.repoRoot,
@@ -986,6 +988,11 @@ app.post('/api/investigations', async (req, res) => {
                 investigationsPath: product.investigationsPath || config.investigationsPath
             };
         }
+    }
+
+    // Apply maxSteps override if provided
+    if (maxSteps !== undefined) {
+        effectiveConfig = { ...effectiveConfig, maxSteps };
     }
 
     // Construct the user query for the agent
@@ -1002,27 +1009,24 @@ app.post('/api/investigations', async (req, res) => {
     fullQuery += `\n\nUser Question/Context: ${query || (incidentId ? 'Investigate this IcM incident. Extract context and route to the correct investigation guide.' : 'Start general investigation based on provided tracking ID or issue.')}`;
 
     const runner = new AgentRunner(effectiveConfig, {
-        query: fullQuery, // Store the full constructed query for resumption
+        query: fullQuery,
         stamp,
         timeRange,
         trackingId,
         issueType,
         incidentId,
         model,
-        productId
+        productId,
+        source: source || 'manual',
+        scheduleId,
     });
 
-    // Typescript workaround for private state
     const id = (runner as any).state.id;
     runners.set(id, runner);
-
-    // Attach event listeners for broadcasting
     attachRunnerListeners(runner, id);
 
     // Start asynchronously
     runner.start(fullQuery).then(() => {
-        // Only remove if it actually finished (completed/failed/aborted)
-        // If it's just paused, keep it in runners map so we can resume/compact it
         const finalState = (runner as any).state;
         history.set(id, finalState);
 
@@ -1042,7 +1046,34 @@ app.post('/api/investigations', async (req, res) => {
         runners.delete(id);
     });
 
-    res.json({ id, status: 'running' });
+    return { id, runner };
+}
+
+app.post('/api/investigations', async (req, res) => {
+    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId } = req.body;
+
+    // Validate required fields - stamp and timeRange are optional when incidentId is provided
+    if (!incidentId) {
+        if (!stamp || typeof stamp !== 'string') {
+            return res.status(400).json({ error: 'stamp is required and must be a string (or provide incidentId)' });
+        }
+        if (!timeRange || typeof timeRange !== 'string') {
+            return res.status(400).json({ error: 'timeRange is required and must be a string (or provide incidentId)' });
+        }
+    }
+
+    // Enforce max concurrent investigations (only count manual/non-temporary)
+    const runningCount = Array.from(runners.values()).filter(r => !(r as any)._isTemporary && (r as any).state.status === 'running').length;
+    if (runningCount >= config.maxConcurrentInvestigations) {
+        return res.status(429).json({ error: `Maximum concurrent investigations (${config.maxConcurrentInvestigations}) reached. Wait for one to complete or pause an active investigation.` });
+    }
+
+    try {
+        const { id } = createInvestigation({ query, stamp, timeRange, trackingId, issueType, incidentId, model, productId });
+        res.json({ id, status: 'running' });
+    } catch (err: any) {
+        return res.status(400).json({ error: err.message });
+    }
 });
 
 app.get('/api/investigations', (req, res) => {
@@ -1068,6 +1099,9 @@ app.get('/api/investigations', (req, res) => {
         model: s.model,
         productId: s.productId,
         productName: s.productId ? productMap.get(s.productId) || 'Unknown' : undefined,
+        source: s.source,
+        scheduleId: s.scheduleId,
+        verdict: s.verdict,
         pausedAt: s.pausedAt,
         totalPausedTime: s.totalPausedTime,
         thoughts: s.thoughts.slice(-1), // Only last thought for preview
@@ -2053,6 +2087,178 @@ app.post('/api/investigations/:id/mcp/restart', async (req, res) => {
     }
 });
 
+// ── Scheduled Investigations ─────────────────────────────────────────────
+
+// Determine the base investigations path (global or first product with one)
+function getScheduleInvestigationsPath(): string {
+    if (config.investigationsPath) return config.investigationsPath;
+    if (config.products?.length > 0) {
+        const first = config.products.find(p => p.investigationsPath);
+        if (first) return first.investigationsPath;
+    }
+    return path.join(process.cwd(), 'investigations');
+}
+
+let scheduleStore: ScheduleStore | null = null;
+let scheduler: Scheduler | null = null;
+
+function initScheduler(): void {
+    const invPath = getScheduleInvestigationsPath();
+    ensureDirectoryExists(invPath);
+
+    scheduleStore = new ScheduleStore(invPath);
+    scheduler = new Scheduler(
+        scheduleStore,
+        // createInvestigation adapter for Scheduler
+        async (params) => {
+            const result = createInvestigation(params);
+            return { id: result.id };
+        },
+        // getInvestigationResult adapter for Scheduler
+        (investigationId: string) => {
+            let state: InvestigationState | undefined;
+            if (runners.has(investigationId)) {
+                state = (runners.get(investigationId) as any).state;
+            } else if (history.has(investigationId)) {
+                state = history.get(investigationId);
+            }
+            if (!state) return undefined;
+            return {
+                status: state.status,
+                verdict: state.verdict,
+                finalReport: state.finalReport,
+            };
+        },
+        {
+            maxConcurrentScheduledInvestigations: config.maxConcurrentScheduledInvestigations,
+            scheduledInvestigationMaxSteps: config.scheduledInvestigationMaxSteps,
+            defaultTimeRange: config.defaultTimeRange,
+        },
+    );
+
+    // Broadcast schedule updates via WebSocket to all connected clients
+    scheduler.on('schedule-update', (data) => {
+        // Broadcast to a special 'schedules' channel
+        const clientSet = clients.get('schedules');
+        if (clientSet) {
+            clientSet.forEach(ws => {
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'schedule-update', data }));
+                }
+            });
+        }
+    });
+
+    // Auto-start if any schedules are enabled
+    const enabledCount = scheduleStore.getAll().filter(s => s.enabled).length;
+    if (enabledCount > 0) {
+        scheduler.start();
+        console.log(`[Scheduler] Auto-started with ${enabledCount} enabled schedule(s).`);
+    }
+}
+
+// Schedule CRUD endpoints
+app.get('/api/schedules', (_req, res) => {
+    if (!scheduleStore) return res.json([]);
+    res.json(scheduleStore.getAll());
+});
+
+app.post('/api/schedules', (req, res) => {
+    if (!scheduleStore || !scheduler) {
+        return res.status(500).json({ error: 'Scheduler not initialized' });
+    }
+    const { name, stamp, query, intervalMinutes, productId, maxSteps, timeRange, issueType, autoEscalate, escalationQuery, enabled } = req.body;
+    if (!name || !stamp || !query) {
+        return res.status(400).json({ error: 'name, stamp, and query are required' });
+    }
+    const schedule = scheduleStore.create({
+        name,
+        enabled: enabled !== false,
+        stamp,
+        query,
+        intervalMinutes: intervalMinutes || 15,
+        productId,
+        maxSteps,
+        timeRange,
+        issueType,
+        autoEscalate: autoEscalate !== false,
+        escalationQuery,
+    });
+    // Start scheduler if not already running and schedule is enabled
+    if (schedule.enabled && !scheduler.isRunning()) {
+        scheduler.start();
+    }
+    res.json(schedule);
+});
+
+app.put('/api/schedules/:id', (req, res) => {
+    if (!scheduleStore) return res.status(500).json({ error: 'Scheduler not initialized' });
+    const updated = scheduleStore.update(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Schedule not found' });
+    res.json(updated);
+});
+
+app.delete('/api/schedules/:id', (req, res) => {
+    if (!scheduleStore) return res.status(500).json({ error: 'Scheduler not initialized' });
+    const deleted = scheduleStore.delete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Schedule not found' });
+    res.json({ success: true });
+});
+
+app.post('/api/schedules/:id/run-now', async (req, res) => {
+    if (!scheduler) return res.status(500).json({ error: 'Scheduler not initialized' });
+    try {
+        await scheduler.runNow(req.params.id);
+        res.json({ success: true });
+    } catch (err: any) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+app.post('/api/schedules/:id/enable', (req, res) => {
+    if (!scheduleStore || !scheduler) return res.status(500).json({ error: 'Scheduler not initialized' });
+    const updated = scheduleStore.update(req.params.id, { enabled: true });
+    if (!updated) return res.status(404).json({ error: 'Schedule not found' });
+    if (!scheduler.isRunning()) scheduler.start();
+    res.json(updated);
+});
+
+app.post('/api/schedules/:id/disable', (req, res) => {
+    if (!scheduleStore || !scheduler) return res.status(500).json({ error: 'Scheduler not initialized' });
+    const updated = scheduleStore.update(req.params.id, { enabled: false });
+    if (!updated) return res.status(404).json({ error: 'Schedule not found' });
+    res.json(updated);
+});
+
+app.get('/api/schedules/:id/history', (req, res) => {
+    if (!scheduleStore) return res.status(500).json({ error: 'Scheduler not initialized' });
+    const maxEntries = req.query.maxEntries ? parseInt(req.query.maxEntries as string, 10) : undefined;
+    const entries = scheduleStore.getHistory(req.params.id, maxEntries);
+    res.json(entries);
+});
+
+app.post('/api/scheduler/start', (_req, res) => {
+    if (!scheduler) return res.status(500).json({ error: 'Scheduler not initialized' });
+    scheduler.start();
+    res.json({ running: true });
+});
+
+app.post('/api/scheduler/stop', (_req, res) => {
+    if (!scheduler) return res.status(500).json({ error: 'Scheduler not initialized' });
+    scheduler.stop();
+    res.json({ running: false });
+});
+
+app.get('/api/scheduler/status', (_req, res) => {
+    res.json({ running: scheduler?.isRunning() || false });
+});
+
 server.listen(port, () => {
     console.log(`Server running at http://localhost:${port}`);
+    // Initialize the scheduler after the server is up
+    try {
+        initScheduler();
+    } catch (err) {
+        console.error('[Scheduler] Failed to initialize:', err);
+    }
 });

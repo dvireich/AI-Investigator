@@ -70,6 +70,13 @@ export default {
                     '0%': { backgroundPosition: '0% 0%' },
                     '100%': { backgroundPosition: '200% 0%' },
                 },
+                'flicker-red': {
+                    '0%':   { boxShadow: '0 0 8px 2px rgba(239,68,68,0.4)',  borderColor: 'rgba(239,68,68,0.5)' },
+                    '25%':  { boxShadow: '0 0 18px 6px rgba(239,68,68,0.6)', borderColor: 'rgba(239,68,68,0.7)' },
+                    '50%':  { boxShadow: '0 0 4px 1px rgba(239,68,68,0.2)',  borderColor: 'rgba(239,68,68,0.3)' },
+                    '75%':  { boxShadow: '0 0 22px 8px rgba(239,68,68,0.7)', borderColor: 'rgba(239,68,68,0.8)' },
+                    '100%': { boxShadow: '0 0 8px 2px rgba(239,68,68,0.4)',  borderColor: 'rgba(239,68,68,0.5)' },
+                },
             },
             animation: {
                 shimmer: 'shimmer 2s linear infinite',
@@ -82,6 +89,7 @@ export default {
                 'dropzone-icon': 'dropzone-icon 2s ease-in-out infinite',
                 'dropzone-ring': 'dropzone-ring 1.5s ease-out infinite',
                 'border-dance': 'border-dance 3s linear infinite',
+                'flicker-red': 'flicker-red 0.8s ease-in-out infinite',
             },
         },
     },

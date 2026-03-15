@@ -13,6 +13,17 @@ export const TIME_PRESETS = [
 export const INVESTIGATION_MODES = [
     { label: 'Standard Investigation', value: 'standard', description: 'Investigate by stamp, time range, and issue type' },
     { label: 'ICM Incident', value: 'icm', description: 'Start from an IcM incident - auto-extracts context' },
+    { label: 'Scheduled', value: 'scheduled', description: 'Periodic automated investigation on a schedule' },
 ] as const;
 
 export type InvestigationMode = typeof INVESTIGATION_MODES[number]['value'];
+
+export const SCHEDULE_INTERVAL_PRESETS = [
+    { label: 'Every 5 min', value: 5 },
+    { label: 'Every 15 min', value: 15 },
+    { label: 'Every 30 min', value: 30 },
+    { label: 'Every hour', value: 60 },
+    { label: 'Every 4 hours', value: 240 },
+    { label: 'Every 12 hours', value: 720 },
+    { label: 'Every 24 hours', value: 1440 },
+];

@@ -1,0 +1,158 @@
+import * as fs from 'fs';
+import * as path from 'path';
+
+// ── Data model ──────────────────────────────────────────────────────────────
+
+export interface ScheduleDefinition {
+    id: string;
+    name: string;
+    enabled: boolean;
+
+    // Investigation params
+    stamp: string;
+    query: string;                     // Free-form investigation query
+    intervalMinutes: number;           // Default 15
+    productId?: string;
+    maxSteps?: number;                 // Constrain agent steps (default 20)
+    timeRange?: string;                // KQL time range per run (default "ago(1h)")
+    issueType?: string;
+
+    // Escalation
+    autoEscalate: boolean;             // Auto-launch full investigation on "critical"
+    escalationQuery?: string;          // Optional override query for escalated run
+
+    // Runtime state (updated by Scheduler)
+    createdAt: string;
+    lastRunAt?: string;
+    nextRunAt?: string;
+    lastVerdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    lastInvestigationId?: string;
+    activeInvestigationId?: string;    // For dedup — set while investigation is running
+    activeEscalationId?: string;       // Escalated investigation ID (if any)
+    consecutiveCriticalCount?: number; // Track consecutive critical verdicts
+}
+
+export interface ScheduleHistoryEntry {
+    timestamp: string;
+    verdict: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    investigationId: string;
+    summary?: string;
+}
+
+// ── Store ───────────────────────────────────────────────────────────────────
+
+export class ScheduleStore {
+    private schedules: Map<string, ScheduleDefinition> = new Map();
+    private schedulesFilePath: string;
+    private historyDir: string;
+    private historyRetentionDays: number;
+
+    constructor(investigationsPath: string, historyRetentionDays: number = 7) {
+        const schedulesDir = path.join(investigationsPath, 'schedules');
+        if (!fs.existsSync(schedulesDir)) {
+            fs.mkdirSync(schedulesDir, { recursive: true });
+        }
+        this.schedulesFilePath = path.join(schedulesDir, 'schedules.json');
+        this.historyDir = schedulesDir;
+        this.historyRetentionDays = historyRetentionDays;
+        this.load();
+    }
+
+    // ── CRUD ──────────────────────────────────────────────────────────────
+
+    getAll(): ScheduleDefinition[] {
+        return Array.from(this.schedules.values());
+    }
+
+    get(id: string): ScheduleDefinition | undefined {
+        return this.schedules.get(id);
+    }
+
+    create(def: Omit<ScheduleDefinition, 'id' | 'createdAt'>): ScheduleDefinition {
+        const schedule: ScheduleDefinition = {
+            ...def,
+            id: Date.now().toString(),
+            createdAt: new Date().toISOString(),
+        };
+        this.schedules.set(schedule.id, schedule);
+        this.save();
+        return schedule;
+    }
+
+    update(id: string, partial: Partial<ScheduleDefinition>): ScheduleDefinition | undefined {
+        const existing = this.schedules.get(id);
+        if (!existing) return undefined;
+        const updated = { ...existing, ...partial, id }; // id is immutable
+        this.schedules.set(id, updated);
+        this.save();
+        return updated;
+    }
+
+    delete(id: string): boolean {
+        const deleted = this.schedules.delete(id);
+        if (deleted) this.save();
+        return deleted;
+    }
+
+    // ── History ───────────────────────────────────────────────────────────
+
+    getHistory(scheduleId: string, maxEntries?: number): ScheduleHistoryEntry[] {
+        const filePath = this.historyFilePath(scheduleId);
+        if (!fs.existsSync(filePath)) return [];
+        try {
+            const entries: ScheduleHistoryEntry[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+            if (maxEntries) return entries.slice(-maxEntries);
+            return entries;
+        } catch {
+            return [];
+        }
+    }
+
+    appendHistory(scheduleId: string, entry: ScheduleHistoryEntry): void {
+        const filePath = this.historyFilePath(scheduleId);
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+        let entries: ScheduleHistoryEntry[] = [];
+        if (fs.existsSync(filePath)) {
+            try { entries = JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { /* empty */ }
+        }
+        entries.push(entry);
+
+        // Prune old entries
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - this.historyRetentionDays);
+        entries = entries.filter(e => new Date(e.timestamp) >= cutoff);
+
+        fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf-8');
+    }
+
+    // ── Persistence ───────────────────────────────────────────────────────
+
+    private save(): void {
+        const data = Array.from(this.schedules.values());
+        const tmpPath = this.schedulesFilePath + '.tmp';
+        fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf-8');
+        fs.renameSync(tmpPath, this.schedulesFilePath);
+    }
+
+    private load(): void {
+        if (!fs.existsSync(this.schedulesFilePath)) return;
+        try {
+            const data: ScheduleDefinition[] = JSON.parse(fs.readFileSync(this.schedulesFilePath, 'utf-8'));
+            for (const def of data) {
+                // Clear transient runtime state on load — the scheduler will re-evaluate
+                def.activeInvestigationId = undefined;
+                def.activeEscalationId = undefined;
+                this.schedules.set(def.id, def);
+            }
+            console.log(`[ScheduleStore] Loaded ${this.schedules.size} schedule(s) from disk.`);
+        } catch (err) {
+            console.error('[ScheduleStore] Failed to load schedules:', err);
+        }
+    }
+
+    private historyFilePath(scheduleId: string): string {
+        return path.join(this.historyDir, scheduleId, 'history.json');
+    }
+}

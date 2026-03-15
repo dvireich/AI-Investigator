@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert } from 'lucide-react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -128,6 +128,11 @@ export const About = () => (
                         bg="bg-slate-900/60 border-slate-800 hover:border-teal-500/20"
                         title="Auto-discovery onboarding"
                         desc="Drop a .investigator.json manifest at any repo root for one-click product setup. Auto-scans for agent files, docs, and prompts when no manifest is found." />
+                    <FeatureCard icon={<Share2 className="w-4 h-4" />}
+                        color="bg-sky-500/10 border border-sky-500/20 text-sky-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-sky-500/20"
+                        title="Share, export & import"
+                        desc="Export investigations as portable JSON or styled PDF reports. Import them back with a file picker or by dragging and dropping onto the dashboard — complete with an animated drop zone." />
                 </div>
             </section>
 
@@ -176,6 +181,10 @@ export const About = () => (
                         [Globe,         'text-brand-400',   'Configurable model, timeout, knowledge base path, and stamp'],
                         [Lock,          'text-emerald-400', 'Azure CLI inline auth — in-app login prompt when Kusto auth expires mid-investigation'],
                         [Code2,         'text-pink-400',    'Inline diff viewer with LCS-based line-level change highlighting'],
+                        [Share2,        'text-sky-400',     'Export as JSON — download any investigation as a portable state file'],
+                        [FileDown,      'text-violet-400',  'Export as PDF — styled reports generated server-side via Puppeteer'],
+                        [FileUp,        'text-teal-400',    'Import investigations — file picker or drag-and-drop with animated overlay'],
+                        [GripHorizontal,'text-slate-400',   'Floating action dock — Resume All, Restart, Import, and New in one toolbar'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
                             <Icon className={`w-4 h-4 ${color} shrink-0`} />
@@ -189,7 +198,7 @@ export const About = () => (
             <section>
                 <SectionHeader icon={<Code2 className="w-4 h-4 text-brand-400" />} title="Tech stack" />
                 <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <TechPill label="Backend"  value="Node.js + TypeScript + Express" color="bg-brand-500" />
+                    <TechPill label="Backend"  value="Node.js + TypeScript + Express + Puppeteer" color="bg-brand-500" />
                     <TechPill label="Frontend" value="React + Vite + TailwindCSS"     color="bg-sky-500" />
                     <TechPill label="AI"       value="GitHub Copilot API"             color="bg-purple-500" />
                     <TechPill label="Auth"     value="GitHub Device-flow OAuth"       color="bg-emerald-500" />

@@ -5,6 +5,8 @@ import { NewInvestigation } from './pages/NewInvestigation';
 import { InvestigationDetail } from './pages/InvestigationDetail';
 import { Settings } from './pages/Settings';
 import { About } from './pages/About';
+import { Schedules } from './pages/Schedules';
+import { ScheduleForm } from './pages/ScheduleForm';
 
 function App() {
   return (
@@ -14,6 +16,9 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="new" element={<NewInvestigation />} />
           <Route path="investigation/:id" element={<InvestigationDetail />} />
+          <Route path="schedules" element={<Schedules />} />
+          <Route path="schedules/new" element={<ScheduleForm />} />
+          <Route path="schedules/:id/edit" element={<ScheduleForm />} />
           <Route path="settings" element={<Settings />} />
           <Route path="about" element={<About />} />
         </Route>

@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Settings, Info, Menu, X } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, Settings, Info, Menu, X, Clock } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
 
@@ -104,6 +104,7 @@ export const Layout = () => {
                     <nav className="hidden md:flex items-center space-x-1 ml-6">
                         <NavLink to="/" icon={<LayoutDashboard size={18} />} label="Investigations" active={location.pathname === '/'} />
                         <NavLink to="/new" icon={<PlusCircle size={18} />} label="New" active={location.pathname === '/new'} />
+                        <NavLink to="/schedules" icon={<Clock size={18} />} label="Schedules" active={location.pathname === '/schedules'} />
                         <NavLink to="/about" icon={<Info size={18} />} label="About" active={location.pathname === '/about'} />
                     </nav>
                 </div>
@@ -160,6 +161,7 @@ export const Layout = () => {
                         <nav className="flex flex-col p-3 gap-1">
                             <MobileNavLink to="/" icon={<LayoutDashboard size={18} />} label="Investigations" active={location.pathname === '/'} />
                             <MobileNavLink to="/new" icon={<PlusCircle size={18} />} label="New Investigation" active={location.pathname === '/new'} />
+                            <MobileNavLink to="/schedules" icon={<Clock size={18} />} label="Schedules" active={location.pathname === '/schedules'} />
                             <MobileNavLink to="/about" icon={<Info size={18} />} label="About" active={location.pathname === '/about'} />
                             <MobileNavLink to="/settings" icon={<Settings size={18} />} label="Settings" active={location.pathname === '/settings'} />
                         </nav>

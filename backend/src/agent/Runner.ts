@@ -68,6 +68,10 @@ export interface InvestigationState {
     finalReport?: string;
     retrospect?: RetrospectState;
     contestCount?: number;
+    // Scheduled investigation fields
+    source?: 'manual' | 'scheduled';
+    scheduleId?: string;
+    verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
 }
 
 export class AgentRunner extends EventEmitter {
@@ -244,15 +248,48 @@ export class AgentRunner extends EventEmitter {
                     if (isActualError) {
                         consecutiveLLMErrors++;
                         this.log(`LLM error detected (${consecutiveLLMErrors}/${maxConsecutiveErrors}): ${thoughtStr.substring(0, 100)}`);
+
+                        // On timeout errors, attempt auto-compaction before retrying
+                        const isTimeout = thoughtStr.includes('timed out') || thoughtStr.includes('timeout');
+                        if (isTimeout && consecutiveLLMErrors < maxConsecutiveErrors) {
+                            // Exponential backoff: 5s, 15s, 45s
+                            const backoffMs = 5000 * Math.pow(3, consecutiveLLMErrors - 1);
+                            const backoffSec = Math.round(backoffMs / 1000);
+                            this.log(`Timeout detected. Waiting ${backoffSec}s before retry...`);
+                            const retryMsg = `System: LLM request timed out (attempt ${consecutiveLLMErrors}/${maxConsecutiveErrors}). Waiting ${backoffSec}s then attempting auto-compaction before retry...`;
+                            this.state.thoughts.push(retryMsg);
+                            this.state.actions.push(null as any);
+                            this.emit('thought', retryMsg);
+
+                            await new Promise(resolve => setTimeout(resolve, backoffMs));
+
+                            // Try compacting history to reduce context size
+                            const compacted = await this.compactHistory(systemPrompt, userQuery, this.state.thoughts);
+                            if (compacted) {
+                                const compactMsg = `System: History compacted successfully. Retrying LLM call with reduced context.`;
+                                this.state.thoughts.push(compactMsg);
+                                this.state.actions.push(null as any);
+                                this.emit('thought', compactMsg);
+                            } else {
+                                this.log(`Auto-compaction was not possible (not enough history or already compact).`);
+                            }
+                            continue;
+                        }
                         
                         if (consecutiveLLMErrors >= maxConsecutiveErrors) {
-                            this.log(`Max consecutive LLM errors reached. Failing investigation.`);
-                            this.state.status = 'failed';
-                            this.emit('status', { status: 'failed' });
-                            this.state.thoughts.push(`System: Investigation failed due to repeated LLM errors. Last error: ${thoughtStr}`);
+                            // Auto-pause instead of failing — give the user a chance to
+                            // manually summarize or adjust before losing the investigation
+                            this.log(`Max consecutive LLM errors reached. Auto-pausing investigation.`);
+                            const pauseMsg = `System: Investigation auto-paused after ${maxConsecutiveErrors} consecutive LLM errors. ` +
+                                `Last error: ${thoughtStr.substring(0, 150)}. ` +
+                                `You can try: (1) Click "Summarize" to compact history, then Resume, or ` +
+                                `(2) Switch to a different model, then Resume.`;
+                            this.state.thoughts.push(pauseMsg);
                             this.state.actions.push(null as any);
-                            await this.saveArtifacts();
-                            break;
+                            this.emit('thought', pauseMsg);
+                            this.pause();
+                            consecutiveLLMErrors = 0; // Reset so resume gets fresh attempts
+                            continue;
                         }
                         // Continue to let it retry
                         continue;
@@ -275,6 +312,11 @@ export class AgentRunner extends EventEmitter {
                         this.log(`[DEBUG] Finish tool called with args: ${JSON.stringify(step.action.args)}`);
                         // Extract report from args
                         const report = step.action.args.report || step.action.args.summary || "Investigation Completed via finish tool.";
+
+                        // Extract verdict if provided (used by scheduled health checks)
+                        if (step.action.args.verdict) {
+                            this.state.verdict = step.action.args.verdict;
+                        }
 
                         this.state.finalReport = report;
                         this.state.thoughts.push(`Observation: Report Generated.`);
@@ -1715,7 +1757,10 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                     };
                 }
 
-                this.log(`LLM Error: ${error.message}`);
+                // For timeout errors, include hint about context size
+                const isTimeout = error.message?.includes('timed out') || error.message?.includes('timeout') || error.code === 'ETIMEDOUT';
+                const hint = isTimeout ? ' The context may be too large — auto-compaction will be attempted on retry.' : '';
+                this.log(`LLM Error: ${error.message}${hint}`);
                 return {
                     thought: `Critical LLM Error: ${error.message}`,
                     isFinal: true

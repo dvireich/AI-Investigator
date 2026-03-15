@@ -1,3 +1,5 @@
+import type { ScheduleDefinition, ScheduleHistoryEntry } from './types/schedule';
+
 export interface Product {
     id: string;
     name: string;
@@ -81,6 +83,10 @@ export interface Investigation {
     finalReport?: string;
     retrospect?: RetrospectState;
     contestCount?: number;
+    // Scheduled investigation fields
+    source?: 'manual' | 'scheduled';
+    scheduleId?: string;
+    verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
 }
 
 export interface IcmIncidentPreview {
@@ -570,5 +576,85 @@ export const api = {
 
         if (!result) throw new Error('No result received from ICM script');
         return result;
-    }
+    },
+
+    // ── Schedules ──────────────────────────────────────────────────────
+
+    getSchedules: async (): Promise<ScheduleDefinition[]> => {
+        const response = await fetch(`${API_URL}/schedules`);
+        if (!response.ok) throw new Error('Failed to fetch schedules');
+        return response.json();
+    },
+
+    createSchedule: async (def: Partial<ScheduleDefinition>): Promise<ScheduleDefinition> => {
+        const response = await fetch(`${API_URL}/schedules`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(def),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to create schedule');
+        }
+        return response.json();
+    },
+
+    updateSchedule: async (id: string, partial: Partial<ScheduleDefinition>): Promise<ScheduleDefinition> => {
+        const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(partial),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to update schedule');
+        }
+        return response.json();
+    },
+
+    deleteSchedule: async (id: string): Promise<void> => {
+        const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('Failed to delete schedule');
+    },
+
+    runScheduleNow: async (id: string): Promise<void> => {
+        const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}/run-now`, { method: 'POST' });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to run schedule');
+        }
+    },
+
+    enableSchedule: async (id: string): Promise<ScheduleDefinition> => {
+        const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}/enable`, { method: 'POST' });
+        if (!response.ok) throw new Error('Failed to enable schedule');
+        return response.json();
+    },
+
+    disableSchedule: async (id: string): Promise<ScheduleDefinition> => {
+        const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}/disable`, { method: 'POST' });
+        if (!response.ok) throw new Error('Failed to disable schedule');
+        return response.json();
+    },
+
+    getScheduleHistory: async (id: string, maxEntries?: number): Promise<ScheduleHistoryEntry[]> => {
+        const params = maxEntries ? `?maxEntries=${maxEntries}` : '';
+        const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}/history${params}`);
+        if (!response.ok) throw new Error('Failed to fetch schedule history');
+        return response.json();
+    },
+
+    getSchedulerStatus: async (): Promise<{ running: boolean }> => {
+        const response = await fetch(`${API_URL}/scheduler/status`);
+        if (!response.ok) throw new Error('Failed to get scheduler status');
+        return response.json();
+    },
+
+    startScheduler: async (): Promise<void> => {
+        await fetch(`${API_URL}/scheduler/start`, { method: 'POST' });
+    },
+
+    stopScheduler: async (): Promise<void> => {
+        await fetch(`${API_URL}/scheduler/stop`, { method: 'POST' });
+    },
 };

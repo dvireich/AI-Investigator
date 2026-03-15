@@ -460,11 +460,12 @@ export class ToolManager {
             },
             {
                 name: "finish",
-                description: "Complete the investigation with a summary.",
+                description: "Complete the investigation with a summary. For scheduled health checks, include a verdict.",
                 inputSchema: {
                     type: "object",
                     properties: {
-                        summary: { type: "string", description: "Final summary of the investigation." }
+                        summary: { type: "string", description: "Final summary of the investigation." },
+                        verdict: { type: "string", enum: ["healthy", "warning", "critical"], description: "Health verdict for scheduled checks. Use 'healthy' if no issues, 'warning' for minor concerns, 'critical' for urgent issues." }
                     },
                     required: ["summary"]
                 }

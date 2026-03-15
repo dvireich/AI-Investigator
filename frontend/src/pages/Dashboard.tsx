@@ -115,6 +115,7 @@ export const Dashboard = () => {
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted'>('all');
     const [productFilter, setProductFilter] = useState<string>('all');
+    const [sourceFilter, setSourceFilter] = useState<'all' | 'manual' | 'scheduled'>('all');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingTitle, setEditingTitle] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -386,6 +387,7 @@ export const Dashboard = () => {
     const filtered = investigations
         .filter(inv => filter === 'all' || inv.status === filter)
         .filter(inv => productFilter === 'all' || inv.productId === productFilter)
+        .filter(inv => sourceFilter === 'all' || (inv.source || 'manual') === sourceFilter)
         .filter(inv => {
             if (!search) return true;
             const s = search.toLowerCase();
@@ -741,6 +743,25 @@ export const Dashboard = () => {
                             }`} />
                         </div>
                     )}
+                    {/* Source filter (manual vs scheduled) */}
+                    <div className="relative">
+                        <select
+                            value={sourceFilter}
+                            onChange={(e) => setSourceFilter(e.target.value as typeof sourceFilter)}
+                            className={`appearance-none pl-7 pr-6 py-2 border rounded-xl text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all ${
+                                sourceFilter !== 'all'
+                                    ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
+                                    : 'bg-slate-900/60 border-slate-700/50 text-slate-400'
+                            }`}
+                        >
+                            <option value="all">All Sources</option>
+                            <option value="manual">Manual</option>
+                            <option value="scheduled">Scheduled</option>
+                        </select>
+                        <Clock className={`absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none ${
+                            sourceFilter !== 'all' ? 'text-cyan-500' : 'text-slate-400'
+                        }`} />
+                    </div>
                     <div className="relative">
                         <select
                             value={sortOrder}
@@ -795,7 +816,7 @@ export const Dashboard = () => {
             </div>
 
             {/* Results count */}
-            {(search || filter !== 'all' || productFilter !== 'all') && sorted.length > 0 && (
+            {(search || filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all') && sorted.length > 0 && (
                 <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
                     <span>{sorted.length} {sorted.length === 1 ? 'investigation' : 'investigations'}</span>
                     {search && <><span>matching</span> <span className="font-bold text-slate-300">"{search}"</span></>}
@@ -806,6 +827,18 @@ export const Dashboard = () => {
                             <button 
                                 onClick={() => setProductFilter('all')} 
                                 className="ml-0.5 hover:text-purple-300"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </span>
+                    )}
+                    {sourceFilter !== 'all' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-full font-bold">
+                            <Clock className="w-3 h-3" />
+                            {sourceFilter === 'scheduled' ? 'Scheduled' : 'Manual'}
+                            <button
+                                onClick={() => setSourceFilter('all')}
+                                className="ml-0.5 hover:text-cyan-300"
                             >
                                 <X className="w-3 h-3" />
                             </button>
