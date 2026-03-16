@@ -215,7 +215,7 @@ export const Layout = () => {
             )}
 
             {/* Main Content */}
-            <main className="pt-18 sm:pt-24 px-3 sm:px-6 md:px-12 max-w-[1600px] mx-auto animate-slide-up">
+            <main className="pt-28 sm:pt-32 px-3 sm:px-6 md:px-12 max-w-[1600px] mx-auto animate-slide-up">
                 <Outlet />
             </main>
         </div>

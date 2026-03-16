@@ -565,7 +565,7 @@ export const Dashboard = () => {
 
     const mainContent = (
         <div
-            className="space-y-4 md:space-y-6 animate-fade-in pt-14"
+            className="space-y-4 md:space-y-6 animate-fade-in"
         >
 
             {/* Toast notifications */}
@@ -649,7 +649,7 @@ export const Dashboard = () => {
                     <div className={`text-2xl sm:text-3xl font-black tabular-nums ${failedCount > 0 ? 'text-red-400' : 'text-slate-100'}`}>{failedDisplay}</div>
                     <div className="text-slate-500 text-xs mt-1">{failedCount > 0 ? 'Need review' : 'All clear'}</div>
                 </button>
-                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5">
+                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5">
                     <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <TrendingUp className={`w-4 h-4 ${successRateValue >= 80 ? 'text-emerald-400' : 'text-slate-500'}`} />
                         <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Success rate</span>
@@ -1339,36 +1339,40 @@ export const Dashboard = () => {
     const portalContent = createPortal(
         <>
             {/* Floating Top Dock */}
-            <div className="fixed top-14 sm:top-16 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-2.5 py-2 rounded-b-2xl bg-slate-900/80 backdrop-blur-xl border-b border-x border-white/[0.06] shadow-lg shadow-black/20">
+            <div className="fixed top-14 sm:top-16 left-1/2 -translate-x-1/2 z-40 flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1.5 sm:py-2 rounded-b-2xl bg-slate-900/80 backdrop-blur-xl border-b border-x border-white/[0.06] shadow-lg shadow-black/20 max-w-[calc(100vw-1rem)] overflow-x-auto scrollbar-hide">
                 {pausedCount > 0 && (
                     <button
                         onClick={handleResumeAll}
-                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/30 transition-all whitespace-nowrap"
+                        className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/30 transition-all whitespace-nowrap"
                     >
-                        <Play className="w-4 h-4" />
-                        Resume All
+                        <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                        <span className="hidden xs:inline">Resume All</span>
+                        <span className="xs:hidden">Resume</span>
                     </button>
                 )}
                 <button
                     onClick={handleRestartServer}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] hover:border-white/[0.12] transition-all whitespace-nowrap"
+                    className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.06] hover:border-white/[0.12] transition-all whitespace-nowrap"
                 >
-                    <RefreshCw className="w-4 h-4" />
-                    Restart Server
+                    <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">Restart Server</span>
+                    <span className="sm:hidden">Restart</span>
                 </button>
                 <button
                     onClick={() => importFileRef.current?.click()}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 hover:border-sky-500/30 transition-all whitespace-nowrap"
+                    className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-sky-300 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 hover:border-sky-500/30 transition-all whitespace-nowrap"
                 >
-                    <FileUp className="w-4 h-4" />
-                    Import Investigation
+                    <FileUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">Import Investigation</span>
+                    <span className="sm:hidden">Import</span>
                 </button>
                 <Link
                     to="/new"
-                    className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 shadow-lg shadow-brand-500/20 hover:shadow-brand-500/30 transition-all whitespace-nowrap"
+                    className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-white bg-brand-600 hover:bg-brand-500 shadow-lg shadow-brand-500/20 hover:shadow-brand-500/30 transition-all whitespace-nowrap"
                 >
-                    <Play className="w-4 h-4" />
-                    New Investigation
+                    <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                    <span className="hidden sm:inline">New Investigation</span>
+                    <span className="sm:hidden">New</span>
                 </Link>
             </div>
 

@@ -258,7 +258,7 @@ Set up recurring automated health checks with configurable intervals. The Schedu
 
 ### 17. New / Edit Schedule
 
-Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — stamp, issue type, time range, model, max steps, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
+Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — stamp, issue type, time range, model, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
 
 ![Schedule Form](docs/screenshots/schedule-form.png)
 
@@ -410,7 +410,7 @@ The main dashboard provides a rich interface for managing all investigations:
 
 Automate recurring stamp health checks with a built-in scheduler:
 
-- **Create Schedules** — Define stamp, query, recurrence interval (5min / 15min / 30min / 1h / 4h / 12h / 24h), model, max steps, time range, and issue type
+- **Create Schedules** — Define stamp, query, recurrence interval (5min / 15min / 30min / 1h / 4h / 12h / 24h), model, time range, and issue type
 - **Multi-Step Wizard** — Schedule creation form with product selection, query bank integration, and interval presets
 - **Scheduler Toggle** — Start/stop the scheduler from the floating dock on the Schedules page
 - **Verdict Tracking** — Each run produces a verdict: `healthy`, `warning`, `critical`, `error`, `paused`, or `unknown`. Color-coded badges displayed on schedule cards
@@ -813,6 +813,7 @@ Each product in the `products` array has:
 | `PATCH` | `/api/investigations/:id/title` | Rename investigation title |
 | `GET` | `/api/investigations/:id/export` | Export investigation as portable JSON |
 | `POST` | `/api/investigations/import` | Import investigation from exported JSON |
+| `POST` | `/api/investigations/resume-all` | Bulk resume all paused investigations |
 | `GET` | `/api/investigations/:id/pdf` | Export final report as styled PDF (Puppeteer) |
 
 ### Retrospective
@@ -876,6 +877,7 @@ Each product in the `products` array has:
 | `POST` | `/api/auth/azure-login` | Spawn Azure CLI login in terminal window |
 | `GET` | `/api/auth/azure-status` | Check Azure CLI authentication status |
 | `GET` | `/api/health` | Health check endpoint |
+| `POST` | `/api/server/restart` | Graceful server restart (process respawn) |
 | `GET` | `/api/me` | Get OS username |
 | `GET` | `/api/models` | List available LLM models |
 | `GET/POST` | `/api/settings` | Get / Save configuration |
