@@ -973,10 +973,11 @@ interface CreateInvestigationParams {
     maxSteps?: number;
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
+    title?: string;
 }
 
 function createInvestigation(params: CreateInvestigationParams): { id: string; runner: AgentRunner } {
-    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, maxSteps, source, scheduleId } = params;
+    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, maxSteps, source, scheduleId, title } = params;
 
     // Determine which config to use (product-specific or global)
     let effectiveConfig: typeof config = config;
@@ -1031,6 +1032,7 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
         productId,
         source: source || 'manual',
         scheduleId,
+        title,
     });
 
     const id = (runner as any).state.id;
@@ -1062,7 +1064,7 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
 }
 
 app.post('/api/investigations', async (req, res) => {
-    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId } = req.body;
+    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, title } = req.body;
 
     // Validate required fields - stamp and timeRange are optional when incidentId is provided
     if (!incidentId) {
@@ -1074,14 +1076,16 @@ app.post('/api/investigations', async (req, res) => {
         }
     }
 
-    // Enforce max concurrent investigations (only count manual/non-temporary)
-    const runningCount = Array.from(runners.values()).filter(r => !(r as any)._isTemporary && (r as any).state.status === 'running').length;
-    if (runningCount >= config.maxConcurrentInvestigations) {
-        return res.status(429).json({ error: `Maximum concurrent investigations (${config.maxConcurrentInvestigations}) reached. Wait for one to complete or pause an active investigation.` });
+    // Enforce max concurrent investigations (only count manual/non-temporary); 0 = unlimited
+    if (config.maxConcurrentInvestigations > 0) {
+        const runningCount = Array.from(runners.values()).filter(r => !(r as any)._isTemporary && (r as any).state.status === 'running').length;
+        if (runningCount >= config.maxConcurrentInvestigations) {
+            return res.status(429).json({ error: `Maximum concurrent investigations (${config.maxConcurrentInvestigations}) reached. Wait for one to complete or pause an active investigation.` });
+        }
     }
 
     try {
-        const { id } = createInvestigation({ query, stamp, timeRange, trackingId, issueType, incidentId, model, productId });
+        const { id } = createInvestigation({ query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, title });
         res.json({ id, status: 'running' });
     } catch (err: any) {
         return res.status(400).json({ error: err.message });
@@ -1357,9 +1361,11 @@ app.post('/api/investigations/resume-all', async (req, res) => {
         return res.json({ resumed: 0, skipped: 0, ids: [] });
     }
 
-    // Respect maxConcurrentInvestigations — count currently running
+    // Respect maxConcurrentInvestigations — count currently running; 0 = unlimited
     const currentlyRunning = Array.from(runners.values()).filter(r => (r as any).state?.status === 'running').length;
-    const slotsAvailable = Math.max(0, config.maxConcurrentInvestigations - currentlyRunning);
+    const slotsAvailable = config.maxConcurrentInvestigations === 0
+        ? paused.length
+        : Math.max(0, config.maxConcurrentInvestigations - currentlyRunning);
 
     const toResume = paused.slice(0, slotsAvailable);
     const skipped = paused.length - toResume.length;

@@ -583,6 +583,30 @@ export const Settings = () => {
                                     <p className="text-xs text-slate-500">Controls the maximum number of reasoning steps before the agent pauses for safety. Set to 0 for no limit.</p>
                                 </div>
 
+                                {/* Max Concurrent Investigations */}
+                                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-sm font-bold text-slate-300 block">Max Concurrent Investigations</label>
+                                        <span className={`text-xs font-mono px-2 py-1 rounded ${(config.maxConcurrentInvestigations ?? 3) === 0 ? 'bg-brand-500/20 text-brand-400' : 'bg-slate-700 text-slate-300'}`}>
+                                            {(config.maxConcurrentInvestigations ?? 3) === 0 ? '∞ Unlimited' : config.maxConcurrentInvestigations ?? 3}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
+                                        <input
+                                            type="range"
+                                            min="0"
+                                            max="10"
+                                            step="1"
+                                            value={config.maxConcurrentInvestigations ?? 3}
+                                            onChange={(e) => handleChange('maxConcurrentInvestigations', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500"
+                                        />
+                                        <span className="text-[10px] text-slate-500 font-bold w-4">10</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500">Maximum number of investigations that can run simultaneously. Set to <strong className="text-slate-400">∞</strong> for unlimited. New investigations will be rejected if a numeric limit is reached. Default: 3.</p>
+                                </div>
+
                                 {/* Retrospective Timeout */}
                                 <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
                                     <div className="flex justify-between items-center">

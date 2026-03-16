@@ -190,7 +190,8 @@ export const NewInvestigation = () => {
         trackingId: '',
         issueType: '',
         query: '',
-        model: 'gpt-4o'
+        model: 'gpt-4o',
+        title: ''
     });
 
     // ── Query Bank State ──────────────────────────────────────────────────
@@ -302,6 +303,7 @@ export const NewInvestigation = () => {
             try {
                 const payload: any = {
                     ...formData,
+                    title: formData.title.trim() || undefined,
                     incidentId: incidentId.trim(),
                     timeRange: icmPreview?.timeRange || timePreset,
                     productId: selectedProductId || undefined
@@ -356,6 +358,7 @@ export const NewInvestigation = () => {
         try {
             const payload = {
                 ...formData,
+                title: formData.title.trim() || undefined,
                 timeRange: effectiveTimeRange,
                 productId: selectedProductId || undefined
             };
@@ -695,6 +698,19 @@ export const NewInvestigation = () => {
                             ))}
                         </div>
                     </div>
+                </div>
+
+                {/* Investigation Name (Optional) */}
+                <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] flex items-center px-4 py-3 gap-3">
+                    <Pencil className="w-4 h-4 text-slate-400 shrink-0" />
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 shrink-0">Name</span>
+                    <input
+                        type="text"
+                        placeholder="Optional — auto-generated if empty"
+                        className="flex-1 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/50 text-sm font-medium text-slate-200 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
+                        value={formData.title}
+                        onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    />
                 </div>
 
                 {/* ICM Incident Card (only in ICM mode) */}

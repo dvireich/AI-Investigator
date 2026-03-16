@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -614,6 +614,10 @@ export const InvestigationDetail = () => {
     const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [mobileSidebarExpanded, setMobileSidebarExpanded] = useState(false);
     const [exporting, setExporting] = useState<'share' | 'pdf' | null>(null);
+    const [editingTitle, setEditingTitle] = useState(false);
+    const [titleDraft, setTitleDraft] = useState('');
+    const [savingTitle, setSavingTitle] = useState(false);
+    const titleInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         api.listModels()
@@ -868,6 +872,32 @@ export const InvestigationDetail = () => {
             setApplyingProposals(false);
         }
     }, [investigation?.id]);
+
+    const startEditingTitle = () => {
+        setTitleDraft(investigation?.title || '');
+        setEditingTitle(true);
+        setTimeout(() => titleInputRef.current?.focus(), 50);
+    };
+
+    const saveTitle = async () => {
+        if (!id) return;
+        const newTitle = titleDraft.trim();
+        setSavingTitle(true);
+        try {
+            await api.updateTitle(id, newTitle);
+            await fetchInvestigation();
+            setEditingTitle(false);
+        } catch (err) {
+            console.error('Failed to update title:', err);
+        } finally {
+            setSavingTitle(false);
+        }
+    };
+
+    const cancelEditingTitle = () => {
+        setEditingTitle(false);
+        setTitleDraft('');
+    };
 
     const handleAction = async (action: string, message?: string) => {
         if (!id) return;
@@ -1186,6 +1216,55 @@ export const InvestigationDetail = () => {
 
                 {/* Info Card — collapsible on mobile, always visible on desktop */}
                 <div className={`${mobileSidebarExpanded ? 'block' : 'hidden'} lg:block bg-slate-900/50 backdrop-blur-md rounded-2xl p-5 shadow-lg border border-white/[0.06] text-sm shrink-0`}>
+                    {/* Editable Investigation Name */}
+                    <div className="mb-4 pb-4 border-b border-white/[0.06]">
+                        <span className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1.5">Name</span>
+                        {editingTitle ? (
+                            <div className="flex items-center gap-1.5">
+                                <input
+                                    ref={titleInputRef}
+                                    type="text"
+                                    className="flex-1 px-2 py-1 rounded-lg border border-brand-500/40 bg-slate-800/60 text-sm font-medium text-slate-100 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
+                                    value={titleDraft}
+                                    onChange={(e) => setTitleDraft(e.target.value)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter') saveTitle();
+                                        if (e.key === 'Escape') cancelEditingTitle();
+                                    }}
+                                    placeholder="Enter investigation name"
+                                    disabled={savingTitle}
+                                />
+                                <button
+                                    onClick={saveTitle}
+                                    disabled={savingTitle}
+                                    className="p-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                                    title="Save"
+                                >
+                                    {savingTitle ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                                </button>
+                                <button
+                                    onClick={cancelEditingTitle}
+                                    disabled={savingTitle}
+                                    className="p-1 rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                                    title="Cancel"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={startEditingTitle}
+                                className="group/title flex items-center gap-2 w-full text-left"
+                                title="Click to edit investigation name"
+                            >
+                                <span className="font-semibold text-slate-200 truncate flex-1">
+                                    {investigation.title || <span className="text-slate-500 italic font-normal">Untitled</span>}
+                                </span>
+                                <Pencil className="w-3.5 h-3.5 text-slate-600 group-hover/title:text-brand-400 transition-colors shrink-0" />
+                            </button>
+                        )}
+                    </div>
+
                     <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Details</h3>
                     <div className="space-y-3">
                         {investigation.status === 'running' && (
