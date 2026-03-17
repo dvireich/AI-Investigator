@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, TrendingUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp } from 'lucide-react';
-import { InvestigationTrend } from '../components/charts/InvestigationTrend';
-import { IssueTypeDonut } from '../components/charts/IssueTypeDonut';
-import { DurationDistribution } from '../components/charts/DurationDistribution';
+import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag } from 'lucide-react';
+import { KpiBar } from '../components/charts/KpiBar';
+import { getSelectedWidgetIds, getWidgetById } from '../components/charts/widgetRegistry';
 
 /** Mini 5-segment step depth bar */
 const StepBar = ({ count, color }: { count: number; color: string }) => {
@@ -118,13 +117,33 @@ export const Dashboard = () => {
     const [filter, setFilter] = useState<'all' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted'>('all');
     const [productFilter, setProductFilter] = useState<string>('all');
     const [sourceFilter, setSourceFilter] = useState<'all' | 'manual' | 'scheduled'>('all');
+    const [tagFilter, setTagFilter] = useState<string>('all');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingTitle, setEditingTitle] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
         (localStorage.getItem('inv-view') as 'grid' | 'list') ?? 'grid'
     );
-    const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'steps'>('newest');
+
+    // Apply server-side defaults when localStorage hasn't been set yet (single API call)
+    useEffect(() => {
+        const needsView = !localStorage.getItem('inv-view');
+        const needsSort = !localStorage.getItem('inv-sort');
+        if (!needsView && !needsSort) return;
+        api.getSettings().then((settings: any) => {
+            if (needsView && (settings.defaultView === 'grid' || settings.defaultView === 'list')) {
+                setViewMode(settings.defaultView);
+                localStorage.setItem('inv-view', settings.defaultView);
+            }
+            if (needsSort && ['newest', 'oldest', 'steps', 'modified'].includes(settings.defaultSortOrder)) {
+                setSortOrder(settings.defaultSortOrder);
+                localStorage.setItem('inv-sort', settings.defaultSortOrder);
+            }
+        }).catch(() => {});
+    }, []);
+    const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'steps' | 'modified'>(() =>
+        (localStorage.getItem('inv-sort') as 'newest' | 'oldest' | 'steps' | 'modified') ?? 'newest'
+    );
     const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
     const [toasts, setToasts] = useState<Toast[]>([]);
     const [copiedTrackingId, setCopiedTrackingId] = useState<string | null>(null);
@@ -232,7 +251,8 @@ export const Dashboard = () => {
                 // Stale detection: use actual thoughtCount from API (list endpoint
                 // only returns the last thought for preview, so .length is always 0|1)
                 const count = inv.thoughtCount ?? inv.thoughts?.length ?? 0;
-                if (!lta[inv.id] || lta[inv.id].count !== count) {
+                const justBecameRunning = inv.status === 'running' && was && was !== 'running';
+                if (!lta[inv.id] || lta[inv.id].count !== count || justBecameRunning) {
                     lta[inv.id] = { count, seenAt: Date.now() };
                 }
             });
@@ -399,18 +419,26 @@ export const Dashboard = () => {
     };
 
     // Get unique products from investigations
-    const uniqueProducts = Array.from(
+    const uniqueProducts = useMemo(() => Array.from(
         new Map(
             investigations
                 .filter(inv => inv.productId && inv.productName)
                 .map(inv => [inv.productId!, { id: inv.productId!, name: inv.productName! }])
         ).values()
-    ).sort((a, b) => a.name.localeCompare(b.name));
+    ).sort((a, b) => a.name.localeCompare(b.name)), [investigations]);
 
-    const filtered = investigations
+    // Get unique tags from all investigations
+    const uniqueTags = useMemo(() => Array.from(
+        new Set(
+            investigations.flatMap(inv => inv.tags || [])
+        )
+    ).sort(), [investigations]);
+
+    const filtered = useMemo(() => investigations
         .filter(inv => filter === 'all' || inv.status === filter)
         .filter(inv => productFilter === 'all' || inv.productId === productFilter)
         .filter(inv => sourceFilter === 'all' || (inv.source || 'manual') === sourceFilter)
+        .filter(inv => tagFilter === 'all' || (inv.tags || []).includes(tagFilter))
         .filter(inv => {
             if (!search) return true;
             const s = search.toLowerCase();
@@ -421,13 +449,14 @@ export const Dashboard = () => {
                 (inv.issueType || '').toLowerCase().includes(s) ||
                 (inv.incidentId || '').toLowerCase().includes(s) ||
                 (inv.productName || '').toLowerCase().includes(s) ||
+                (inv.tags || []).some(t => t.toLowerCase().includes(s)) ||
                 inv.id.toLowerCase().includes(s) ||
                 inv.thoughts.some(t => typeof t === 'string' && t.toLowerCase().includes(s))
             );
-        });
+        }), [investigations, filter, productFilter, sourceFilter, tagFilter, search]);
 
     // Sort: Pinned first, then Running/Paused, then by selected order
-    const sorted = [...filtered].sort((a, b) => {
+    const sorted = useMemo(() => [...filtered].sort((a, b) => {
         const aPinned = pinnedIds.has(a.id);
         const bPinned = pinnedIds.has(b.id);
         if (aPinned && !bPinned) return -1;
@@ -438,8 +467,9 @@ export const Dashboard = () => {
         if (!aActive && bActive) return 1;
         if (sortOrder === 'oldest') return a.id.localeCompare(b.id);
         if (sortOrder === 'steps') return (b.thoughts?.length ?? 0) - (a.thoughts?.length ?? 0);
+        if (sortOrder === 'modified') return (b.lastModified ?? Number(b.id) ?? 0) - (a.lastModified ?? Number(a.id) ?? 0);
         return b.id.localeCompare(a.id); // newest
-    });
+    }), [filtered, pinnedIds, sortOrder]);
 
     // Refs so the keyboard handler always sees the latest values without re-registering
     const sortedRef = useRef(sorted);
@@ -474,14 +504,13 @@ export const Dashboard = () => {
     const completedCount = investigations.filter(i => i.status === 'completed').length;
     const failedCount = investigations.filter(i => i.status === 'failed').length;
     const abortedCount = investigations.filter(i => i.status === 'aborted').length;
-    const successRateValue = investigations.length > 0
-        ? Math.round(completedCount / Math.max(1, completedCount + failedCount + abortedCount) * 100) : 0;
+    const totalCount = investigations.length;
 
     // Animated count-up values for stat tiles (animate on first load)
     const activeDisplay    = useCountUp(activeCount);
     const completedDisplay = useCountUp(completedCount);
     const failedDisplay    = useCountUp(failedCount);
-    const successDisplay   = useCountUp(successRateValue);
+    const totalDisplay     = useCountUp(totalCount);
 
     const getLaunchTime = (inv: Investigation) => {
         if (isNaN(Number(inv.id))) return 'Legacy';
@@ -489,21 +518,26 @@ export const Dashboard = () => {
     };
 
     const getDateGroup = (inv: Investigation): string => {
-        if (isNaN(Number(inv.id))) return 'Older';
-        const d = Number(inv.id);
+        // When sorting by modified, group by modification time instead of creation time
+        const ts = sortOrder === 'modified'
+            ? (inv.lastModified ?? Number(inv.id))
+            : Number(inv.id);
+        if (isNaN(ts)) return 'Older';
         const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
         const yestStart  = new Date(todayStart.getTime() - 86400000);
         const weekStart  = new Date(todayStart.getTime() - 6 * 86400000);
-        if (d >= todayStart.getTime()) return 'Today';
-        if (d >= yestStart.getTime())  return 'Yesterday';
-        if (d >= weekStart.getTime())  return 'This week';
+        if (ts >= todayStart.getTime()) return 'Today';
+        if (ts >= yestStart.getTime())  return 'Yesterday';
+        if (ts >= weekStart.getTime())  return 'This week';
         return 'Older';
     };
     void getLaunchTime; // used in title attributes
 
     const getRelativeTime = (inv: Investigation) => {
-        if (isNaN(Number(inv.id))) return 'Legacy';
-        const ms = Date.now() - Number(inv.id);
+        // When sorting by last modified, show time relative to modification
+        const base = sortOrder === 'modified' ? (inv.lastModified ?? Number(inv.id)) : Number(inv.id);
+        if (isNaN(base)) return 'Legacy';
+        const ms = Date.now() - base;
         const sec = Math.floor(ms / 1000);
         if (sec < 60) return 'just now';
         const min = Math.floor(sec / 60);
@@ -512,7 +546,7 @@ export const Dashboard = () => {
         if (hr < 24) return `${hr}h ago`;
         const days = Math.floor(hr / 24);
         if (days < 30) return `${days}d ago`;
-        return new Date(Number(inv.id)).toLocaleDateString();
+        return new Date(base).toLocaleDateString();
     };
 
     const getLastThought = (inv: Investigation) => {
@@ -523,13 +557,13 @@ export const Dashboard = () => {
     };
 
     const pausedCount = investigations.filter(i => i.status === 'paused').length;
-    const statusFilters: { key: typeof filter; label: string; count: number; color: string }[] = [
-        { key: 'all',       label: 'All',       count: investigations.length,                                           color: 'text-slate-400' },
-        { key: 'running',   label: 'Running',   count: investigations.filter(i => i.status === 'running').length,       color: 'text-blue-400' },
-        { key: 'paused',    label: 'Paused',    count: pausedCount,                                                     color: 'text-amber-400' },
-        { key: 'completed', label: 'Completed', count: completedCount,                                                  color: 'text-emerald-400' },
-        { key: 'failed',    label: 'Failed',    count: failedCount,                                                     color: 'text-red-400' },
-        { key: 'aborted',   label: 'Aborted',   count: abortedCount,                                                    color: 'text-slate-500' },
+    const statusFilters: { key: typeof filter; label: string; shortLabel: string; count: number; color: string }[] = [
+        { key: 'all',       label: 'All',       shortLabel: 'All',    count: investigations.length,                                           color: 'text-slate-400' },
+        { key: 'running',   label: 'Running',   shortLabel: 'Run',    count: investigations.filter(i => i.status === 'running').length,       color: 'text-blue-400' },
+        { key: 'paused',    label: 'Paused',    shortLabel: 'Pause',  count: pausedCount,                                                     color: 'text-amber-400' },
+        { key: 'completed', label: 'Completed', shortLabel: 'Done',   count: completedCount,                                                  color: 'text-emerald-400' },
+        { key: 'failed',    label: 'Failed',    shortLabel: 'Fail',   count: failedCount,                                                     color: 'text-red-400' },
+        { key: 'aborted',   label: 'Aborted',   shortLabel: 'Abort',  count: abortedCount,                                                    color: 'text-slate-500' },
     ];
 
     const toggleView = (mode: 'grid' | 'list') => {
@@ -649,16 +683,16 @@ export const Dashboard = () => {
                     <div className={`text-2xl sm:text-3xl font-black tabular-nums ${failedCount > 0 ? 'text-red-400' : 'text-slate-100'}`}>{failedDisplay}</div>
                     <div className="text-slate-500 text-xs mt-1">{failedCount > 0 ? 'Need review' : 'All clear'}</div>
                 </button>
-                <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5">
+                <button onClick={() => { setFilter(null); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5">
                     <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
-                        <TrendingUp className={`w-4 h-4 ${successRateValue >= 80 ? 'text-emerald-400' : 'text-slate-500'}`} />
-                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Success rate</span>
+                        <BarChart3 className="w-4 h-4 text-slate-400" />
+                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Total</span>
                     </div>
-                    <div className={`text-2xl sm:text-3xl font-black tabular-nums ${successRateValue >= 80 ? 'text-emerald-400' : 'text-slate-100'}`}>
-                        {investigations.length > 0 ? `${successDisplay}%` : '--'}
+                    <div className="text-2xl sm:text-3xl font-black tabular-nums text-slate-100">
+                        {totalDisplay}
                     </div>
                     <div className="text-slate-500 text-xs mt-1">
-                        {completedCount + failedCount + abortedCount} resolved
+                        All investigations
                     </div>
                 </button>
             </div>
@@ -675,34 +709,36 @@ export const Dashboard = () => {
                 </button>
             )}
 
-            {/* Analytics Section */}
+            {/* KPI Bar — always visible when analytics expanded */}
             {investigations.length > 0 && (
-                <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 transition-all duration-300 ease-in-out origin-top ${showAnalytics ? 'max-h-[500px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-95 overflow-hidden pointer-events-none'}`}>
-                    <div className="glass-card p-4 chart-enter">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">14-Day Trend</div>
-                        <div className="h-36">
-                            <InvestigationTrend investigations={investigations} />
-                        </div>
-                    </div>
-                    <div className="glass-card p-4 chart-enter">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">Issue Types</div>
-                        <div className="h-36">
-                            <IssueTypeDonut investigations={investigations} />
-                        </div>
-                    </div>
-                    <div className="glass-card p-4 chart-enter">
-                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">Duration Distribution</div>
-                        <div className="h-36">
-                            <DurationDistribution investigations={investigations} />
-                        </div>
-                    </div>
+                <div className={`transition-all duration-300 ease-in-out origin-top ${showAnalytics ? 'max-h-[400px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-95 overflow-hidden pointer-events-none'}`}>
+                    <KpiBar investigations={investigations} />
+                </div>
+            )}
+
+            {/* Analytics Charts — 3 configurable widgets */}
+            {investigations.length > 0 && (
+                <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 transition-all duration-300 ease-in-out origin-top ${showAnalytics ? 'max-h-[1200px] md:max-h-[500px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-95 overflow-hidden pointer-events-none'}`}>
+                    {getSelectedWidgetIds().map(widgetId => {
+                        const widget = getWidgetById(widgetId);
+                        if (!widget) return null;
+                        const WidgetComponent = widget.component;
+                        return (
+                            <div key={widgetId} className="glass-card p-4 chart-enter">
+                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">{widget.name}</div>
+                                <div className="h-36">
+                                    <WidgetComponent investigations={investigations} />
+                                </div>
+                            </div>
+                        );
+                    })}
                 </div>
             )}
 
             {/* Filters & Search */}
-            <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center sticky top-16 z-10 bg-surface/80 backdrop-blur-xl py-2 -mx-4 px-4 border-b border-white/[0.04]">
+            <div className="flex flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-center sticky top-16 z-10 bg-surface/80 backdrop-blur-xl py-2 -mx-4 px-4 border-b border-white/[0.04]">
                 {/* Search */}
-                <div className="relative flex-1 max-w-xs group">
+                <div className="relative flex-1 sm:max-w-xs group">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4 group-focus-within:text-brand-400 transition-colors" />
                     <input
                         ref={searchRef}
@@ -721,32 +757,39 @@ export const Dashboard = () => {
                 </div>
 
                 {/* Status tabs */}
-                <div className="flex items-center gap-0.5 bg-slate-900/60 border border-slate-700/50 rounded-xl p-1 shadow-sm overflow-x-auto shrink-0">
-                    {statusFilters.map(({ key, label, count, color }) => (
+                <div className="flex items-center gap-0.5 bg-slate-900/60 border border-slate-700/50 rounded-xl p-1 shadow-sm sm:shrink-0 min-w-0 w-full sm:w-auto">
+                    {statusFilters.map(({ key, label, shortLabel, count, color }) => {
+                        // On mobile, hide zero-count tabs (except All) to save space
+                        const hideOnMobile = key !== 'all' && count === 0;
+                        return (
                         <button
                             key={key}
                             onClick={() => setFilter(key)}
-                            className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap ${
+                            className={`flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all whitespace-nowrap ${
+                                hideOnMobile ? 'hidden sm:flex' : ''
+                            } ${
                                 filter === key ? 'bg-brand-500/15 text-brand-300 border border-brand-500/20 shadow-sm' : 'text-slate-500 hover:bg-slate-800/60 hover:text-slate-300 border border-transparent'
                             }`}
                         >
-                            {label}
+                            <span className="sm:hidden">{shortLabel}</span>
+                            <span className="hidden sm:inline">{label}</span>
                             {count > 0 && (
-                                <span className={`text-[10px] font-black px-1 rounded ${filter === key ? 'text-brand-400' : color}`}>{count}</span>
+                                <span className={`text-[10px] font-black px-0.5 sm:px-1 rounded ${filter === key ? 'text-brand-400' : color}`}>{count}</span>
                             )}
                         </button>
-                    ))}
+                        );
+                    })}
                 </div>
 
                 {/* Sort & View */}
-                <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+                <div className="flex items-center gap-1.5 w-full sm:w-auto flex-wrap sm:shrink-0 sm:ml-auto">
                     {/* Product filter */}
                     {uniqueProducts.length > 0 && (
                         <div className="relative">
                             <select
                                 value={productFilter}
                                 onChange={(e) => setProductFilter(e.target.value)}
-                                className={`appearance-none pl-7 pr-6 py-2 border rounded-xl text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all ${
+                                className={`appearance-none pl-6 pr-4 py-1.5 sm:pl-7 sm:pr-6 sm:py-2 border rounded-xl text-[11px] sm:text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all min-w-0 ${
                                     productFilter !== 'all' 
                                         ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' 
                                         : 'bg-slate-900/60 border-slate-700/50 text-slate-400'
@@ -767,7 +810,7 @@ export const Dashboard = () => {
                         <select
                             value={sourceFilter}
                             onChange={(e) => setSourceFilter(e.target.value as typeof sourceFilter)}
-                            className={`appearance-none pl-7 pr-6 py-2 border rounded-xl text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all ${
+                            className={`appearance-none pl-6 pr-4 py-1.5 sm:pl-7 sm:pr-6 sm:py-2 border rounded-xl text-[11px] sm:text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all min-w-0 ${
                                 sourceFilter !== 'all'
                                     ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
                                     : 'bg-slate-900/60 border-slate-700/50 text-slate-400'
@@ -781,13 +824,35 @@ export const Dashboard = () => {
                             sourceFilter !== 'all' ? 'text-cyan-500' : 'text-slate-400'
                         }`} />
                     </div>
+                    {uniqueTags.length > 0 && (
+                        <div className="relative">
+                            <select
+                                value={tagFilter}
+                                onChange={(e) => setTagFilter(e.target.value)}
+                                className={`appearance-none pl-6 pr-4 py-1.5 sm:pl-7 sm:pr-6 sm:py-2 border rounded-xl text-[11px] sm:text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all min-w-0 ${
+                                    tagFilter !== 'all'
+                                        ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                                        : 'bg-slate-900/60 border-slate-700/50 text-slate-400'
+                                }`}
+                            >
+                                <option value="all">All Tags</option>
+                                {uniqueTags.map(tag => (
+                                    <option key={tag} value={tag}>{tag}</option>
+                                ))}
+                            </select>
+                            <Tag className={`absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none ${
+                                tagFilter !== 'all' ? 'text-emerald-500' : 'text-slate-400'
+                            }`} />
+                        </div>
+                    )}
                     <div className="relative">
                         <select
                             value={sortOrder}
-                            onChange={(e) => setSortOrder(e.target.value as typeof sortOrder)}
-                            className="appearance-none pl-7 pr-6 py-2 bg-slate-900/60 border border-slate-700/50 rounded-xl text-xs font-bold text-slate-400 shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all"
+                            onChange={(e) => { const v = e.target.value as typeof sortOrder; setSortOrder(v); localStorage.setItem('inv-sort', v); }}
+                            className="appearance-none pl-6 pr-4 py-1.5 sm:pl-7 sm:pr-6 sm:py-2 bg-slate-900/60 border border-slate-700/50 rounded-xl text-[11px] sm:text-xs font-bold text-slate-400 shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all min-w-0"
                         >
                             <option value="newest">Newest</option>
+                            <option value="modified">Last Modified</option>
                             <option value="oldest">Oldest</option>
                             <option value="steps">Most steps</option>
                         </select>
@@ -835,7 +900,7 @@ export const Dashboard = () => {
             </div>
 
             {/* Results count */}
-            {(search || filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all') && sorted.length > 0 && (
+            {(search || filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all' || tagFilter !== 'all') && sorted.length > 0 && (
                 <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
                     <span>{sorted.length} {sorted.length === 1 ? 'investigation' : 'investigations'}</span>
                     {search && <><span>matching</span> <span className="font-bold text-slate-300">"{search}"</span></>}
@@ -858,6 +923,18 @@ export const Dashboard = () => {
                             <button
                                 onClick={() => setSourceFilter('all')}
                                 className="ml-0.5 hover:text-cyan-300"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </span>
+                    )}
+                    {tagFilter !== 'all' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full font-bold">
+                            <Tag className="w-3 h-3" />
+                            {tagFilter}
+                            <button
+                                onClick={() => setTagFilter('all')}
+                                className="ml-0.5 hover:text-emerald-300"
                             >
                                 <X className="w-3 h-3" />
                             </button>
@@ -915,7 +992,7 @@ export const Dashboard = () => {
                             : 'bg-slate-800 text-slate-500';
 
                         return (
-                            <Link key={inv.id} to={`/investigation/${inv.id}`} className="group relative block animate-fade-in opacity-0" style={{ animationDelay: `${Math.min(sortedGridIdx * 50, 300)}ms`, animationFillMode: 'forwards' }} tabIndex={0}>
+                            <Link key={inv.id} to={`/investigation/${inv.id}`} className="group relative block animate-fade-in opacity-0" style={{ animationDelay: `${Math.min(sortedGridIdx * 25, 150)}ms`, animationFillMode: 'forwards' }} tabIndex={0}>
                                 <div className={`relative bg-slate-900/50 backdrop-blur-sm rounded-2xl border border-l-4 ${sc.accent} shadow-lg shadow-black/10 hover:shadow-xl hover:shadow-black/20 transition-all duration-200 h-full flex flex-col overflow-hidden hover:-translate-y-0.5 hover:bg-slate-900/60 ${focusedIdx === sortedGridIdx ? 'border-brand-400 ring-2 ring-brand-300/30' : 'border-white/[0.06]'}`}>
                                     {isRunning && (
                                         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-blue-400 to-transparent [background-size:200%_100%] animate-shimmer" />
@@ -1007,6 +1084,16 @@ export const Dashboard = () => {
                                                 {inv.issueType && (
                                                     <span className="inline-block text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full border border-brand-500/20">#{inv.issueType}</span>
                                                 )}
+                                                {(inv.tags || []).map(tag => (
+                                                    <span
+                                                        key={tag}
+                                                        className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-emerald-500/20 transition-colors"
+                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setTagFilter(tag); }}
+                                                        title={`Filter by tag "${tag}"`}
+                                                    >
+                                                        <Tag className="w-2.5 h-2.5" />{tag}
+                                                    </span>
+                                                ))}
                                             </div>
                                             {(inv.timeRange || inv.trackingId) && (
                                                 <div className="flex flex-wrap items-center gap-1.5">
@@ -1127,7 +1214,7 @@ export const Dashboard = () => {
 
                                         return (
                                             <Link key={inv.id} to={`/investigation/${inv.id}`}
-                                                style={{ animationDelay: `${Math.min(myIdx * 30, 300)}ms` }}
+                                                style={{ animationDelay: `${Math.min(myIdx * 15, 150)}ms` }}
                                                 className={`group flex items-center gap-3 px-4 py-3 transition-colors relative overflow-hidden animate-fade-in ${isFocused ? 'bg-brand-500/10' : 'hover:bg-slate-800/50'}`}>
                                                 {/* Left accent */}
                                                 <div className={`absolute left-0 top-0 bottom-0 w-0.5 ${sc.dot}`} />
@@ -1179,6 +1266,16 @@ export const Dashboard = () => {
                                                     {inv.issueType && (
                                                         <span className="text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-1.5 py-0.5 rounded-full border border-brand-500/20">#{inv.issueType}</span>
                                                     )}
+                                                    {(inv.tags || []).map(tag => (
+                                                        <span
+                                                            key={tag}
+                                                            className="inline-flex items-center gap-0.5 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-emerald-500/20 transition-colors"
+                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setTagFilter(tag); }}
+                                                            title={`Filter by tag "${tag}"`}
+                                                        >
+                                                            <Tag className="w-2.5 h-2.5" />{tag}
+                                                        </span>
+                                                    ))}
                                                     {inv.timeRange && (
                                                         <span className="text-[10px] font-mono text-slate-500 bg-slate-800/60 border border-slate-700/30 px-1.5 py-0.5 rounded-md" title={inv.timeRange}>
                                                             {formatTimeRange(inv.timeRange)}

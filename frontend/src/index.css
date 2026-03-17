@@ -99,6 +99,15 @@ body::before {
   background: rgba(100, 116, 139, 0.7);
 }
 
+/* Hidden scrollbar — keeps scroll functionality but hides the visual bar */
+.scrollbar-hidden {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+.scrollbar-hidden::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
+}
+
 /* Reconnect Overlay Animations */
 .reconnect-overlay-enter {
   animation: overlayFadeIn 0.3s ease-out forwards;

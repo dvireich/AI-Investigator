@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy } from 'lucide-react';
+import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3 } from 'lucide-react';
+import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult } from '../api';
 import { useToast } from '../components/Toast';
 import { TIME_PRESETS } from '../constants';
@@ -148,6 +149,14 @@ export const Settings = () => {
     const handleDefaultViewChange = (mode: 'grid' | 'list') => {
         setDefaultView(mode);
         localStorage.setItem('inv-view', mode);
+        handleChange('defaultView', mode);
+    };
+
+    const [defaultSortOrder, setDefaultSortOrder] = useState<'newest' | 'oldest' | 'steps' | 'modified'>('newest');
+    const handleDefaultSortOrderChange = (order: 'newest' | 'oldest' | 'steps' | 'modified') => {
+        setDefaultSortOrder(order);
+        localStorage.setItem('inv-sort', order);
+        handleChange('defaultSortOrder', order);
     };
 
     // File Browser State
@@ -163,7 +172,8 @@ export const Settings = () => {
         autoRefreshInterval: 30,
         defaultTimeRange: 'ago(1h)',
         notifications: true,
-        model: 'gpt-4-turbo'
+        model: 'gpt-4-turbo',
+        defaultView: 'grid' as 'grid' | 'list'
     });
 
     useEffect(() => {
@@ -222,6 +232,13 @@ export const Settings = () => {
             setLoading(true);
             const settings = await api.getSettings();
             setConfig(prev => ({ ...prev, ...settings }));
+            // Sync defaultView UI state from server config (source of truth)
+            if (settings.defaultView === 'grid' || settings.defaultView === 'list') {
+                setDefaultView(settings.defaultView);
+            }
+            if (['newest', 'oldest', 'steps', 'modified'].includes(settings.defaultSortOrder)) {
+                setDefaultSortOrder(settings.defaultSortOrder);
+            }
         } catch (err) {
             console.error("Failed to load settings:", err);
             setError("Failed to load settings from server.");
@@ -266,9 +283,37 @@ export const Settings = () => {
         }
     };
 
+    const [selectedWidgets, setSelectedWidgets] = useState<string[]>(getSelectedWidgetIds);
+    const [widgetSaveSuccess, setWidgetSaveSuccess] = useState(false);
+
+    const toggleWidget = (id: string) => {
+        setSelectedWidgets(prev => {
+            if (prev.includes(id)) {
+                if (prev.length <= 3) return prev; // minimum 3
+                return prev.filter(w => w !== id);
+            }
+            if (prev.length >= 3) {
+                // Replace the last one
+                return [...prev.slice(0, 2), id];
+            }
+            return [...prev, id];
+        });
+    };
+
+    const handleSaveWidgets = () => {
+        setSelectedWidgetIds(selectedWidgets);
+        setWidgetSaveSuccess(true);
+        setTimeout(() => setWidgetSaveSuccess(false), 3000);
+    };
+
+    const handleResetWidgets = () => {
+        setSelectedWidgets(DEFAULT_WIDGET_IDS);
+    };
+
     const tabs = [
         { id: 'products', label: 'Products', icon: <Package size={18} /> },
         { id: 'agent', label: 'Agent Behavior', icon: <Cpu size={18} /> },
+        { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
         { id: 'appearance', label: 'Appearance', icon: <Layout size={18} /> },
         { id: 'system', label: 'System', icon: <Monitor size={18} /> },
     ];
@@ -687,6 +732,26 @@ export const Settings = () => {
 
                             <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm flex items-center justify-between">
                                 <div>
+                                    <h3 className="font-semibold text-slate-200">Default Sort Order</h3>
+                                    <p className="text-sm text-slate-500">How investigations are sorted when you open the dashboard.</p>
+                                </div>
+                                <div className="flex items-center bg-slate-800 rounded-xl p-1 gap-1 border border-slate-700/40">
+                                    {([['newest', 'Newest'], ['modified', 'Last Modified'], ['oldest', 'Oldest'], ['steps', 'Most Steps']] as const).map(([value, label]) => (
+                                        <button
+                                            key={value}
+                                            onClick={() => handleDefaultSortOrderChange(value)}
+                                            className={`px-3 py-2 rounded-lg text-sm font-bold transition-all ${
+                                                defaultSortOrder === value ? 'bg-brand-500/20 text-brand-300 border border-brand-500/20' : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                                            }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm flex items-center justify-between">
+                                <div>
                                     <h3 className="font-semibold text-slate-200">Auto-refresh Interval</h3>
                                     <p className="text-sm text-slate-500">How often the dashboard updates in seconds.</p>
                                 </div>
@@ -699,6 +764,71 @@ export const Settings = () => {
                                     />
                                     <span className="text-slate-500 text-sm">sec</span>
                                 </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'analytics' && (
+                        <div className="space-y-8 animate-fade-in">
+                            <div>
+                                <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+                                    <BarChart3 className="text-brand-400" /> Analytics Widgets
+                                </h2>
+                                <p className="text-slate-400">Choose exactly <strong className="text-white">3 charts</strong> to display on the Dashboard analytics section.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                {WIDGET_REGISTRY.map(widget => {
+                                    const isSelected = selectedWidgets.includes(widget.id);
+                                    const selectionIndex = selectedWidgets.indexOf(widget.id);
+                                    return (
+                                        <button
+                                            key={widget.id}
+                                            onClick={() => toggleWidget(widget.id)}
+                                            className={`relative text-left p-4 rounded-xl border-2 transition-all ${
+                                                isSelected
+                                                    ? 'border-brand-500 bg-brand-500/10 shadow-lg shadow-brand-500/10'
+                                                    : 'border-slate-700/40 bg-slate-800/40 hover:border-slate-600/60 hover:bg-slate-800/60'
+                                            }`}
+                                        >
+                                            {isSelected && (
+                                                <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-brand-500 flex items-center justify-center text-white text-xs font-black">
+                                                    {selectionIndex + 1}
+                                                </div>
+                                            )}
+                                            <div className="font-bold text-sm text-white mb-1">{widget.name}</div>
+                                            <div className="text-xs text-slate-400 leading-relaxed">{widget.description}</div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+
+                            <div className="flex items-center gap-4 pt-4 border-t border-white/[0.06]">
+                                <div className="flex items-center gap-2 flex-1">
+                                    {widgetSaveSuccess && (
+                                        <span className="text-green-400 font-bold flex items-center animate-fade-in">
+                                            <CheckCircle2 className="w-5 h-5 mr-1" /> Widgets Saved!
+                                        </span>
+                                    )}
+                                    <span className="text-slate-500 text-xs">
+                                        {selectedWidgets.length}/3 selected
+                                        {selectedWidgets.length !== 3 && <span className="text-amber-400 ml-1">— select exactly 3</span>}
+                                    </span>
+                                </div>
+                                <button
+                                    className="px-4 py-2 text-slate-500 font-semibold hover:text-slate-300 transition-colors text-sm"
+                                    onClick={handleResetWidgets}
+                                >
+                                    Reset to Default
+                                </button>
+                                <button
+                                    onClick={handleSaveWidgets}
+                                    disabled={selectedWidgets.length !== 3}
+                                    className={`px-6 py-2.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold shadow-lg shadow-brand-500/20 transition-all active:scale-95 flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed`}
+                                >
+                                    <Save className="w-4 h-4" />
+                                    Save Widgets
+                                </button>
                             </div>
                         </div>
                     )}
@@ -737,8 +867,8 @@ export const Settings = () => {
 
                 </div>
 
-                {/* Footer Actions — hidden on Products tab (products save through their own modal) */}
-                {activeTab !== 'products' && (
+                {/* Footer Actions — hidden on Products and Analytics tabs (they have their own save UI) */}
+                {activeTab !== 'products' && activeTab !== 'analytics' && (
                 <div className="p-6 border-t border-white/[0.06] bg-slate-900/40 backdrop-blur-sm flex justify-between items-center gap-4">
                     <div className="flex items-center gap-2">
                         {saveSuccess && (

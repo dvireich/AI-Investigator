@@ -44,6 +44,18 @@ const wss = new WebSocketServer({ server });
 const runners = new Map<string, AgentRunner>();
 // Store past investigations
 const history = new Map<string, InvestigationState>();
+// Cache storage paths per investigation ID to avoid recompute on every poll
+const storagePathCache = new Map<string, string>();
+// Cached list response — invalidated when investigations change
+let cachedListJson: string | null = null;
+let cachedListEtag: string | null = null;
+let listCacheDirtyAt = 0;  // timestamp of last mutation
+
+function invalidateListCache() {
+    cachedListJson = null;
+    cachedListEtag = null;
+    listCacheDirtyAt = Date.now();
+}
 
 // function to ensure directory exists
 function ensureDirectoryExists(dir: string) {
@@ -61,6 +73,22 @@ function ensureDirectoryExists(dir: string) {
  */
 function getGlobalInvestigationsDir(): string {
     return config.investigationsPath || path.join(config.repoRoot || defaultRepoRoot, 'investigations');
+}
+
+/** Compute the on-disk storage path for a given investigation state. */
+function getInvestigationStoragePath(state: { id: string; stamp?: string; productId?: string }): string {
+    let baseDir: string;
+    if (state.productId && config.products?.length) {
+        const product = config.products.find(p => p.id === state.productId);
+        baseDir = product?.investigationsPath || getGlobalInvestigationsDir();
+    } else {
+        baseDir = getGlobalInvestigationsDir();
+    }
+    const startDate = !isNaN(Number(state.id)) ? new Date(Number(state.id)) : new Date();
+    const timestamp = startDate.toISOString().split('T')[0];
+    const safeStamp = (state.stamp || 'UnknownStamp').replace(/[^a-zA-Z0-9-]/g, '');
+    const safeId = String(state.id).replace(/[^a-zA-Z0-9]/g, '');
+    return path.join(baseDir, `${timestamp}_${safeStamp}_${safeId}`);
 }
 
 function loadHistory() {
@@ -101,6 +129,9 @@ function loadHistory() {
                         if (fs.existsSync(statePath)) {
                             const content = fs.readFileSync(statePath, 'utf-8');
                             const state = JSON.parse(content) as InvestigationState;
+                            // Track file modification time for sort-by-modified
+                            const stateFileStat = fs.statSync(statePath);
+                            (state as any)._lastModified = stateFileStat.mtimeMs;
 
                             // Force running investigations to pause on server restart
                             if (state.status === 'running') {
@@ -119,6 +150,8 @@ function loadHistory() {
                         // Legacy flat file support
                         const content = fs.readFileSync(fullPath, 'utf-8');
                         const state = JSON.parse(content) as InvestigationState;
+                        // Track file modification time for sort-by-modified
+                        (state as any)._lastModified = stat.mtimeMs;
 
                         if (state.status === 'running') {
                             state.status = 'paused';
@@ -291,6 +324,9 @@ let config: {
     // Scheduled investigation settings
     maxConcurrentScheduledInvestigations: number;
     scheduledInvestigationMaxSteps: number;
+    // UI preferences
+    defaultView: 'grid' | 'list';
+    defaultSortOrder: 'newest' | 'oldest' | 'steps' | 'modified';
 } = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
@@ -311,6 +347,8 @@ let config: {
     activeProductId: '',
     maxConcurrentScheduledInvestigations: 2,
     scheduledInvestigationMaxSteps: 20,
+    defaultView: 'grid',
+    defaultSortOrder: 'newest',
 };
 
 // Load config from disk if exists
@@ -367,7 +405,7 @@ app.post('/api/settings', (req, res) => {
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
             'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
             'notifications', 'investigationsPath', 'products', 'activeProductId',
-            'theme'
+            'theme', 'defaultView', 'defaultSortOrder'
         ]);
         const filtered = Object.fromEntries(
             Object.entries(newSettings).filter(([k]) => ALLOWED_KEYS.has(k))
@@ -1038,11 +1076,13 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
     const id = (runner as any).state.id;
     runners.set(id, runner);
     attachRunnerListeners(runner, id);
+    invalidateListCache();
 
     // Start asynchronously
     runner.start(fullQuery).then(() => {
         const finalState = (runner as any).state;
         history.set(id, finalState);
+        invalidateListCache();
 
         if (finalState.status === 'completed' || finalState.status === 'failed' || finalState.status === 'aborted') {
             runners.delete(id);
@@ -1058,6 +1098,7 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
             history.set(id, finalState);
         }
         runners.delete(id);
+        invalidateListCache();
     });
 
     return { id, runner };
@@ -1093,7 +1134,25 @@ app.post('/api/investigations', async (req, res) => {
 });
 
 app.get('/api/investigations', (req, res) => {
-    const active = Array.from(runners.values()).map(r => (r as any).state);
+    try {
+    // Check if any runners are active — if so, always rebuild (state changes constantly)
+    const hasActiveRunners = Array.from(runners.values()).some(r => (r as any).state?.status === 'running');
+
+    // If no active runners and cache is valid, use cached response
+    if (!hasActiveRunners && cachedListJson && cachedListEtag) {
+        const clientEtag = req.headers['if-none-match'];
+        if (clientEtag === cachedListEtag) {
+            return res.status(304).end();
+        }
+        res.setHeader('ETag', cachedListEtag);
+        res.setHeader('Content-Type', 'application/json');
+        return res.send(cachedListJson);
+    }
+
+    // Filter out runners with undefined/null state
+    const active = Array.from(runners.values())
+        .map(r => (r as any).state)
+        .filter((s): s is InvestigationState => s != null);
     const past = Array.from(history.values()).filter(p => !runners.has(p.id));
     const all = [...active, ...past];
 
@@ -1102,7 +1161,30 @@ app.get('/api/investigations', (req, res) => {
     (config.products || []).forEach((p: Product) => productMap.set(p.id, p.name));
 
     // Return lightweight summaries for list view, not full thoughts/actions
-    const summaries = all.map(s => ({
+    const summaries: any[] = [];
+    for (const s of all) {
+        try {
+        if (!s || !s.id) continue; // skip invalid entries
+        // For active runners, lastModified is now; for history, use file mtime or fall back to creation time
+        const isActive = runners.has(s.id);
+        const lastModified = isActive ? Date.now() : ((s as any)._lastModified || Number(s.id) || Date.now());
+        // Use cached storage path or compute and cache it
+        let storagePath = storagePathCache.get(s.id);
+        if (!storagePath) {
+            storagePath = getInvestigationStoragePath(s);
+            storagePathCache.set(s.id, storagePath);
+        }
+        // Extract last thought as a plain string preview (avoid serializing large objects)
+        // Use fullHistory when available for accurate count and latest thought
+        const allThoughts = (Array.isArray(s.fullHistory) && s.fullHistory.length > 0)
+            ? s.fullHistory
+            : (Array.isArray(s.thoughts) ? s.thoughts : []);
+        const thoughts = Array.isArray(s.thoughts) ? s.thoughts : [];
+        const lastThought = allThoughts.length > 0 ? allThoughts[allThoughts.length - 1] : undefined;
+        const thoughtPreview = lastThought
+            ? (typeof lastThought === 'string' ? lastThought : (lastThought as any).content || '')
+            : undefined;
+        summaries.push({
         id: s.id,
         status: s.status,
         title: s.title,
@@ -1115,13 +1197,17 @@ app.get('/api/investigations', (req, res) => {
         model: s.model,
         productId: s.productId,
         productName: s.productId ? productMap.get(s.productId) || 'Unknown' : undefined,
+        storagePath,
+        tags: s.tags || [],
         source: s.source,
         scheduleId: s.scheduleId,
         verdict: s.verdict,
+        contestCount: s.contestCount,
         pausedAt: s.pausedAt,
         totalPausedTime: s.totalPausedTime,
-        thoughts: s.thoughts.slice(-1), // Only last thought for preview
-        thoughtCount: s.thoughts.length, // Actual count for stale detection & step bar
+        lastModified,
+        thoughts: thoughtPreview ? [thoughtPreview] : [],
+        thoughtCount: allThoughts.length, // Actual count for stale detection & step bar (includes pre-compaction entries)
         actions: [],
         logs: [],
         retrospect: s.retrospect ? {
@@ -1131,8 +1217,25 @@ app.get('/api/investigations', (req, res) => {
             analysisFailed: s.retrospect.analysisFailed,
             completed: s.retrospect.completed
         } : undefined
-    }));
-    res.json(summaries);
+    });
+        } catch (itemErr) {
+            console.error(`Failed to build summary for investigation ${s?.id}:`, itemErr);
+        }
+    }
+    const json = JSON.stringify(summaries);
+
+    // Cache the response when no runners are active
+    if (!hasActiveRunners) {
+        cachedListJson = json;
+        cachedListEtag = `"${listCacheDirtyAt || Date.now()}"`;
+        res.setHeader('ETag', cachedListEtag);
+    }
+    res.setHeader('Content-Type', 'application/json');
+    res.send(json);
+    } catch (err: any) {
+        console.error('GET /api/investigations failed:', err);
+        res.status(500).json({ error: 'Failed to list investigations', details: err.message });
+    }
 });
 
 app.get('/api/investigations/:id', (req, res) => {
@@ -1148,10 +1251,18 @@ app.get('/api/investigations/:id', (req, res) => {
     if (!state) return res.status(404).send('Not found');
 
     // Create a lightweight copy for initial load performance
-    const lightweightState = { ...state };
+    const lightweightState = { ...state, storagePath: getInvestigationStoragePath(state) };
+
+    // Use fullHistory (uncompacted) for the UI when available, falling back to thoughts
+    const sourceThoughts = (state.fullHistory && state.fullHistory.length > 0)
+        ? state.fullHistory
+        : state.thoughts;
+    const sourceActions = (state.fullActions && state.fullActions.length > 0)
+        ? state.fullActions
+        : state.actions;
 
     // Truncate thoughts > 500 chars
-    lightweightState.thoughts = state.thoughts.map(t => {
+    lightweightState.thoughts = sourceThoughts.map((t: any) => {
         if (typeof t === 'string') {
             if (t.length > 500) {
                 return {
@@ -1177,7 +1288,7 @@ app.get('/api/investigations/:id', (req, res) => {
     });
 
     // Truncate action results > 500 chars
-    lightweightState.actions = state.actions.map(a => {
+    lightweightState.actions = sourceActions.map((a: any) => {
         if (!a) return a;
         const result = a.result;
         if (result) {
@@ -1188,6 +1299,11 @@ app.get('/api/investigations/:id', (req, res) => {
         }
         return a;
     });
+
+    // Don't send the raw fullHistory/fullActions to the client — they're already
+    // surfaced via lights.thoughts/actions above, and sending both would double the payload.
+    lightweightState.fullHistory = undefined;
+    lightweightState.fullActions = undefined;
 
     res.json(lightweightState);
 });
@@ -1206,17 +1322,26 @@ app.get('/api/investigations/:id/steps/:index', (req, res) => {
 
     if (!state) return res.status(404).send('Not found');
 
-    if (isNaN(index) || index < 0 || index >= state.thoughts.length) {
+    // Use fullHistory for step details when available
+    const thoughts = (state.fullHistory && state.fullHistory.length > 0)
+        ? state.fullHistory
+        : state.thoughts;
+    const actions = (state.fullActions && state.fullActions.length > 0)
+        ? state.fullActions
+        : state.actions;
+
+    if (isNaN(index) || index < 0 || index >= thoughts.length) {
         return res.status(400).json({ error: 'Invalid step index' });
     }
 
-    const thought = state.thoughts[index];
-    const action = state.actions[index];
+    const thought = thoughts[index];
+    const action = actions[index];
 
     res.json({ thought, action });
 });
 
 app.post('/api/investigations/:id/action', async (req, res) => {
+    invalidateListCache();
     const id = req.params.id;
     const { action, message } = req.body; // action: pause, resume, abort, intervene
 
@@ -1340,6 +1465,24 @@ app.post('/api/investigations/:id/action', async (req, res) => {
     if (action === 'contest' && message) {
         try {
             runner.contestReport(message);
+
+            // Restart the execution loop — the previous loop has already exited
+            // after the 'finish' tool's break. Without this, the investigation
+            // would be stuck in 'running' status with no active loop.
+            const query = (runner as any).state.query || 'Resume investigation';
+            runner.start(query).then(() => {
+                history.set(id, (runner as any).state);
+                const finalStatus = (runner as any).state.status;
+                if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'aborted') {
+                    runners.delete(id);
+                }
+            }).catch(err => {
+                console.error(`Runner ${id} failed after contest:`, err);
+                history.set(id, (runner as any).state);
+                runners.delete(id);
+            });
+
+            runner.log(`Investigation ${id} contested and resumed...`);
         } catch (e: any) {
             return res.status(400).json({ error: e.message });
         }
@@ -1350,6 +1493,8 @@ app.post('/api/investigations/:id/action', async (req, res) => {
 
 // Resume all paused investigations in one call
 app.post('/api/investigations/resume-all', async (req, res) => {
+    try {
+    invalidateListCache();
     const paused: string[] = [];
     for (const [id, state] of history.entries()) {
         if (state.status === 'paused' && !runners.has(id)) {
@@ -1398,6 +1543,10 @@ app.post('/api/investigations/resume-all', async (req, res) => {
 
     console.log(`Resume-all: ${resumed.length} resumed, ${skipped} skipped (max concurrent: ${config.maxConcurrentInvestigations})`);
     res.json({ resumed: resumed.length, skipped, ids: resumed });
+    } catch (err: any) {
+        console.error('POST /api/investigations/resume-all failed:', err);
+        res.status(500).json({ error: 'Failed to resume investigations', details: err.message });
+    }
 });
 
 // Graceful server restart — process manager (ts-node-dev --respawn) will restart automatically
@@ -1538,6 +1687,7 @@ app.post('/api/investigations/:id/retrospect/analyze', async (req, res) => {
 
 // --- Update investigation title ---
 app.patch('/api/investigations/:id/title', async (req, res) => {
+    invalidateListCache();
     const { id } = req.params;
     const { title } = req.body;
 
@@ -1569,8 +1719,44 @@ app.patch('/api/investigations/:id/title', async (req, res) => {
     return res.json({ ok: true, title });
 });
 
+// --- Update investigation tags ---
+app.patch('/api/investigations/:id/tags', async (req, res) => {
+    invalidateListCache();
+    const { id } = req.params;
+    const { tags } = req.body;
+
+    if (!Array.isArray(tags) || tags.some(t => typeof t !== 'string')) {
+        return res.status(400).json({ error: 'Tags must be an array of strings' });
+    }
+
+    // Deduplicate, trim, and remove empty tags
+    const cleanTags = [...new Set(tags.map((t: string) => t.trim()).filter(Boolean))];
+
+    const runner = runners.get(id);
+    if (runner) {
+        (runner as any).state.tags = cleanTags;
+        await (runner as any).saveArtifacts();
+        history.set(id, (runner as any).state);
+        return res.json({ ok: true, tags: cleanTags });
+    }
+
+    const state = history.get(id);
+    if (!state) return res.status(404).json({ error: 'Investigation not found' });
+
+    state.tags = cleanTags;
+    history.set(id, state);
+    try {
+        const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
+        await (tempRunner as any).saveArtifacts();
+    } catch (e: any) {
+        console.error(`Failed to persist tags for ${id}:`, e.message);
+    }
+    return res.json({ ok: true, tags: cleanTags });
+});
+
 // --- Delete investigation ---
 app.delete('/api/investigations/:id', async (req, res) => {
+    invalidateListCache();
     const id = req.params.id;
 
     // If the investigation is running, abort it first
@@ -1688,6 +1874,7 @@ app.get('/api/investigations/:id/export', async (req, res) => {
 
 // --- Import investigation (from shared JSON) ---
 app.post('/api/investigations/import', async (req, res) => {
+    invalidateListCache();
     const importedState = req.body;
 
     if (!importedState || typeof importedState !== 'object') {
@@ -2457,6 +2644,14 @@ app.delete('/api/query-bank/:id', (req, res) => {
     const deleted = queryBankStore.delete(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Saved query not found' });
     res.json({ success: true });
+});
+
+// Global error handler — catches unhandled errors in route handlers
+app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error(`Unhandled error on ${req.method} ${req.url}:`, err);
+    if (!res.headersSent) {
+        res.status(500).json({ error: 'Internal server error', details: err.message || String(err) });
+    }
 });
 
 server.listen(port, () => {

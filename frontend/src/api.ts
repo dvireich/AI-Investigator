@@ -99,6 +99,9 @@ export interface Investigation {
     finalReport?: string;
     retrospect?: RetrospectState;
     contestCount?: number;
+    tags?: string[];
+    storagePath?: string;
+    lastModified?: number;
     // Scheduled investigation fields
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
@@ -151,10 +154,25 @@ export const api = {
         return response.json();
     },
 
-    listInvestigations: async () => {
-        const response = await fetch(`${API_URL}/investigations`);
+    // ETag tracking for conditional polling
+    _listEtag: null as string | null,
+    _listCache: null as Investigation[] | null,
+
+    listInvestigations: async (): Promise<Investigation[]> => {
+        const headers: Record<string, string> = {};
+        if (api._listEtag) {
+            headers['If-None-Match'] = api._listEtag;
+        }
+        const response = await fetch(`${API_URL}/investigations`, { headers });
+        if (response.status === 304 && api._listCache) {
+            return api._listCache; // Not modified — return cached data
+        }
         if (!response.ok) throw new Error('Failed to list investigations');
-        return response.json();
+        const etag = response.headers.get('etag');
+        if (etag) api._listEtag = etag;
+        const data = await response.json();
+        api._listCache = data;
+        return data;
     },
 
     getInvestigation: async (id: string) => {
@@ -438,6 +456,16 @@ export const api = {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ title })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    updateTags: async (id: string, tags: string[]) => {
+        const res = await fetch(`${API_URL}/investigations/${id}/tags`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tags })
         });
         if (!res.ok) throw new Error(await res.text());
         return res.json();

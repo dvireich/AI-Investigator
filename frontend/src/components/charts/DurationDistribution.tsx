@@ -1,7 +1,7 @@
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 interface Props {
-    investigations: { id: string; status: string; thoughts?: any[]; thoughtCount?: number }[];
+    investigations: { id: string; status: string; lastModified?: number; thoughts?: any[]; thoughtCount?: number }[];
 }
 
 const BUCKETS = [
@@ -25,16 +25,23 @@ export const DurationDistribution = ({ investigations }: Props) => {
         );
     }
 
-    // Estimate duration: use ID timestamp as start. For completed, estimate via step count.
-    // Since we don't have exact end time on the list, approximate with step count * ~15s
+    // Use real duration: lastModified - id timestamp, with step-based fallback
     const data = BUCKETS.map(bucket => ({ name: bucket.label, count: 0, color: bucket.color }));
 
     finished.forEach(inv => {
-        const stepCount = inv.thoughtCount ?? inv.thoughts?.length ?? 0;
-        const estimatedDuration = stepCount * 15000; // ~15s per step avg
+        const startTs = Number(inv.id);
+        let duration: number;
+
+        if (inv.lastModified && inv.lastModified > startTs) {
+            duration = inv.lastModified - startTs;
+        } else {
+            // Fallback: estimate from step count
+            const stepCount = inv.thoughtCount ?? inv.thoughts?.length ?? 0;
+            duration = stepCount * 15000;
+        }
         
         for (let i = 0; i < BUCKETS.length; i++) {
-            if (estimatedDuration < BUCKETS[i].max) {
+            if (duration < BUCKETS[i].max) {
                 data[i].count++;
                 break;
             }

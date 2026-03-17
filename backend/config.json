@@ -26,5 +26,7 @@
   "activeProductId": "teleduct",
   "maxConcurrentScheduledInvestigations": 2,
   "scheduledInvestigationMaxSteps": 20,
+  "defaultView": "grid",
+  "defaultSortOrder": "modified",
   "theme": "light"
 }

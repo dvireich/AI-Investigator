@@ -53,6 +53,11 @@ export interface InvestigationState {
     thoughts: any[];
     actions: any[];
     logs: string[];
+    // Full uncompacted history — preserved across compactions for retrospect, UI, and reports.
+    // `thoughts` may be compacted (summarized) for LLM context window management,
+    // but `fullHistory`/`fullActions` always retain every original entry.
+    fullHistory?: any[];
+    fullActions?: any[];
     // Metadata
     title?: string;
     query?: string;
@@ -68,6 +73,7 @@ export interface InvestigationState {
     finalReport?: string;
     retrospect?: RetrospectState;
     contestCount?: number;
+    tags?: string[];
     // Scheduled investigation fields
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
@@ -84,6 +90,9 @@ export class AgentRunner extends EventEmitter {
     private copilotClient: CopilotClient;
     private openaiClient: OpenAI | null = null;
     private cachedCopilotToken: string | null = null;
+    // Tracks how many entries from `thoughts` have been archived into `fullHistory`.
+    // This allows us to sync incrementally without duplicating entries.
+    private fullHistorySyncCursor: number = 0;
 
     constructor(config: AgentConfig, initialMetadata: Partial<InvestigationState> = {}) {
         super();
@@ -100,9 +109,32 @@ export class AgentRunner extends EventEmitter {
             thoughts: [],
             actions: [],
             logs: [],
+            fullHistory: [],
+            fullActions: [],
             totalPausedTime: 0,
             ...initialMetadata
         };
+        // Ensure fullHistory/fullActions exist even when rehydrating from older state files
+        if (!this.state.fullHistory) this.state.fullHistory = [...this.state.thoughts];
+        if (!this.state.fullActions) this.state.fullActions = [...this.state.actions];
+        // Initialize sync cursor: if rehydrating, fullHistory is already populated
+        this.fullHistorySyncCursor = this.state.thoughts.length;
+    }
+
+    /**
+     * Sync any new entries from `thoughts`/`actions` into `fullHistory`/`fullActions`.
+     * This is called before compaction (to archive what's about to be removed)
+     * and before saveArtifacts (to ensure the saved state is complete).
+     * Entries are only appended once — tracked by `fullHistorySyncCursor`.
+     */
+    private syncFullHistory(): void {
+        const newEntries = this.state.thoughts.slice(this.fullHistorySyncCursor);
+        const newActions = this.state.actions.slice(this.fullHistorySyncCursor);
+        if (newEntries.length > 0) {
+            this.state.fullHistory!.push(...newEntries);
+            this.state.fullActions!.push(...newActions);
+            this.fullHistorySyncCursor = this.state.thoughts.length;
+        }
     }
 
     async start(userQuery: string) {
@@ -440,12 +472,22 @@ export class AgentRunner extends EventEmitter {
     }
 
     private buildRetrospectHistory(): string {
+        // Use fullHistory (uncompacted) for retrospect so it has the complete investigation record.
+        // Falls back to thoughts for backward compatibility with older state files.
+        this.syncFullHistory(); // Ensure any recent entries are captured
+        const thoughts = (this.state.fullHistory && this.state.fullHistory.length > 0)
+            ? this.state.fullHistory
+            : this.state.thoughts;
+        const actions = (this.state.fullActions && this.state.fullActions.length > 0)
+            ? this.state.fullActions
+            : this.state.actions;
+
         // Budget: ~12.5k tokens for history => ~50k chars max
         const MAX_HISTORY_CHARS = 50_000;
         const HEAD_TAIL_CHARS = 20_000; // 20k head + 20k tail = 40k when truncated
 
-        const history = this.state.thoughts.map((t, i) => {
-            const action = this.state.actions[i];
+        const history = thoughts.map((t: any, i: number) => {
+            const action = actions[i];
             let thoughtText = typeof t === 'string' ? t : t.content;
             // Truncate overly long thoughts (e.g., embedded large outputs)
             if (thoughtText.length > 500) {
@@ -1388,6 +1430,9 @@ Be thorough but focused. Only propose changes that would directly improve the ou
     }
 
     private async saveArtifacts() {
+        // Sync fullHistory before persisting so the saved state has the complete record
+        this.syncFullHistory();
+
         const fs = require('fs');
         const path = require('path');
         const baseDir = this.config.investigationsPath || path.join(this.getRepoRoot(), 'investigations');
@@ -1415,15 +1460,23 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         fs.writeFileSync(tmpPath, JSON.stringify(this.state, null, 2));
         fs.renameSync(tmpPath, jsonPath);
 
-        // Generate Markdown Report
+        // Generate Markdown Report — use fullHistory for complete record
         const extractThoughtText = (t: any): string => {
             if (typeof t === 'string') return t;
             if (t && typeof t === 'object' && t.content) return String(t.content);
             return JSON.stringify(t);
         };
 
+        // Use fullHistory for report if available, falling back to thoughts
+        const reportThoughts = (this.state.fullHistory && this.state.fullHistory.length > 0)
+            ? this.state.fullHistory
+            : this.state.thoughts;
+        const reportActions = (this.state.fullActions && this.state.fullActions.length > 0)
+            ? this.state.fullActions
+            : this.state.actions;
+
         const summaryText = this.state.finalReport
-            || (this.state.thoughts.length > 0 ? extractThoughtText(this.state.thoughts[this.state.thoughts.length - 1]) : 'No summary available.');
+            || (reportThoughts.length > 0 ? extractThoughtText(reportThoughts[reportThoughts.length - 1]) : 'No summary available.');
 
         const report = `# Investigation Report: ${this.state.id}\n\n` +
             `**Status**: ${this.state.status}\n` +
@@ -1433,8 +1486,8 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             `## Summary\n` +
             summaryText + `\n\n` +
             `## Execution Log\n\n` +
-            this.state.thoughts.map((t, i) => {
-                const action = this.state.actions[i];
+            reportThoughts.map((t: any, i: number) => {
+                const action = reportActions[i];
                 let entry = `### Step ${i + 1}\n**Thought**: ${extractThoughtText(t)}\n`;
                 if (action) {
                     entry += `**Action**: \`${action.tool}\`\n\`\`\`json\n${JSON.stringify(action.args, null, 2)}\n\`\`\`\n`;
@@ -1693,7 +1746,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 // Estimate payload size and proactively compact if too large
                 const payloadStr = JSON.stringify({ model, messages, tools: openAiTools, tool_choice: toolChoice });
                 const estimatedTokens = Math.ceil(payloadStr.length / 4); // Rough estimate: ~4 chars per token
-                const maxPayloadChars = 400000; // ~100K tokens safety threshold
+                const maxPayloadChars = 600000; // ~150K tokens safety threshold (raised from 400K to reduce premature compaction)
                 
                 if (payloadStr.length > maxPayloadChars) {
                     this.log(`Payload too large (${payloadStr.length} chars, ~${estimatedTokens} tokens). Attempting proactive compaction...`);
@@ -1810,6 +1863,9 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
     private async compactHistory(system: string, userQuery: string, history: any[]): Promise<boolean> {
         try {
+            // Archive all current entries to fullHistory BEFORE compaction discards them
+            this.syncFullHistory();
+
             if (!await this.copilotClient.isAuthenticated()) {
                 this.log("Cannot compact history: Copilot not authenticated.");
                 return false;
@@ -1831,8 +1887,11 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             }
             const openai = this.openaiClient;
 
-            // Keep the last few thoughts intact for immediate context
-            const keepRecent = 4;
+            // Keep more recent entries to preserve investigation context across contests.
+            // During a contest, 3 entries are added (user feedback, system notice, & contested report),
+            // so keepRecent=4 was preserving only 1 actual investigation thought.
+            // Increase to 12 so we retain meaningful investigation state after contests.
+            const keepRecent = 12;
             const olderThoughts = history.slice(0, -keepRecent);
             const recentThoughts = history.slice(-keepRecent);
 
@@ -1841,29 +1900,81 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 return false;
             }
 
-            // Build a summary of the older thoughts
-            const olderText = olderThoughts.map((h, i) => {
-                if (typeof h === 'string') return `[${i}] ${h.substring(0, 500)}`;
-                if (h && h.content) return `[${i}] ${String(h.content).substring(0, 500)}`;
-                return `[${i}] ${JSON.stringify(h).substring(0, 500)}`;
+            // Check if the first entry is already a compacted summary (System [Memory]).
+            // If so, extract it and feed it to the summarizer as "existing knowledge" to
+            // be preserved and expanded — NOT re-summarized into a lossy summary-of-summary.
+            let existingMemory = '';
+            let thoughtsToSummarize = olderThoughts;
+            const firstThought = olderThoughts[0];
+            const firstThoughtText = typeof firstThought === 'string'
+                ? firstThought
+                : (firstThought?.content ? String(firstThought.content) : '');
+
+            if (firstThoughtText.startsWith('System [Memory]:')) {
+                existingMemory = firstThoughtText;
+                // Skip the memory entry and the compaction notice that follows it
+                const skipCount = (olderThoughts.length > 1 &&
+                    typeof olderThoughts[1] === 'string' &&
+                    olderThoughts[1].startsWith('System: Context was automatically compacted'))
+                    ? 2 : 1;
+                thoughtsToSummarize = olderThoughts.slice(skipCount);
+
+                if (thoughtsToSummarize.length < 1) {
+                    this.log("Not enough new history beyond existing memory to compact.");
+                    return false;
+                }
+            }
+
+            // Build text for newer entries to summarize, with a more generous per-entry limit
+            // to preserve key findings from KQL observations and tool results.
+            const PER_ENTRY_LIMIT = 4000;
+            const olderText = thoughtsToSummarize.map((h: any, i: number) => {
+                if (typeof h === 'string') return `[${i}] ${h.substring(0, PER_ENTRY_LIMIT)}`;
+                if (h && h.content) return `[${i}] ${String(h.content).substring(0, PER_ENTRY_LIMIT)}`;
+                return `[${i}] ${JSON.stringify(h).substring(0, PER_ENTRY_LIMIT)}`;
             }).join('\n');
 
             const model = this.state.model || 'gpt-4o';
 
-            this.log(`Summarizing ${olderThoughts.length} older steps...`);
+            this.log(`Summarizing ${thoughtsToSummarize.length} older steps (existing memory: ${existingMemory ? 'yes' : 'no'})...`);
+
+            // Build the summarizer prompt — if we have an existing memory section,
+            // instruct the summarizer to MERGE rather than replace.
+            let summarizerSystem: string;
+            let summarizerUser: string;
+
+            if (existingMemory) {
+                summarizerSystem = 'You are a summarizer merging prior investigation knowledge with new findings. ' +
+                    'You MUST preserve ALL key facts, data points, proven causal chains, timestamps, node names, ' +
+                    'tracking IDs, metric values, and outstanding questions from the EXISTING MEMORY section. ' +
+                    'Then integrate new findings from the RECENT ACTIVITY section. ' +
+                    'If new findings contradict prior knowledge, note the update explicitly. ' +
+                    'Output a comprehensive merged summary. Preserve specific numbers, IDs, and timestamps. ' +
+                    'Output ONLY the summary, no preamble.';
+                summarizerUser = `Original investigation query: ${userQuery}\n\n` +
+                    `=== EXISTING MEMORY (MUST BE FULLY PRESERVED) ===\n${existingMemory}\n\n` +
+                    `=== RECENT ACTIVITY (MERGE INTO MEMORY) ===\n${olderText}`;
+            } else {
+                summarizerSystem = 'You are a summarizer. Condense the following investigation conversation history ' +
+                    'into a comprehensive summary. Preserve ALL key findings, tool results, data points, timestamps, ' +
+                    'node names, tracking IDs, metric values, proven causal chains, and decisions. ' +
+                    'Remove verbose tool outputs but keep their conclusions and specific data points. ' +
+                    'Output ONLY the summary, no preamble.';
+                summarizerUser = `Original investigation query: ${userQuery}\n\nConversation history to summarize:\n${olderText}`;
+            }
 
             const completion = await openai.chat.completions.create({
                 model: model,
                 messages: [
-                    { role: 'system', content: 'You are a summarizer. Condense the following investigation conversation history into a concise summary. Preserve key findings, tool results, data points, and decisions. Remove verbose tool outputs but keep their conclusions. Output ONLY the summary, no preamble.' },
-                    { role: 'user', content: `Original investigation query: ${userQuery}\n\nConversation history to summarize:\n${olderText}` }
+                    { role: 'system', content: summarizerSystem },
+                    { role: 'user', content: summarizerUser }
                 ]
             });
 
             const summary = completion.choices[0].message.content;
             if (!summary) throw new Error("Empty summary returned.");
 
-            const sysMsg = `System: Context was automatically compacted to stay within token limits. ${olderThoughts.length} older messages were summarized.`;
+            const sysMsg = `System: Context was automatically compacted to stay within token limits. ${thoughtsToSummarize.length} older messages were summarized.`;
 
             // Replace thoughts with compacted version — keep actions aligned
             const olderActions = this.state.actions.slice(0, -keepRecent);
@@ -1882,7 +1993,11 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             ];
 
             this.emit('thought', sysMsg);
-            this.log(`Compaction complete. Summarized ${olderThoughts.length} entries (${olderActions.length} actions compacted).`);
+            // Reset the sync cursor: the compacted `thoughts` array contains synthetic entries
+            // (summary + sysMsg) plus the keepRecent entries which are already in fullHistory.
+            // Set cursor to the new thoughts length so we don't re-archive these.
+            this.fullHistorySyncCursor = this.state.thoughts.length;
+            this.log(`Compaction complete. Summarized ${thoughtsToSummarize.length} entries (${olderActions.length} actions compacted). Existing memory ${existingMemory ? 'merged' : 'not present'}. Full history preserved: ${this.state.fullHistory!.length} entries.`);
 
             return true;
         } catch (err: any) {

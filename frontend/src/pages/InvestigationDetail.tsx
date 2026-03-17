@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -618,6 +618,9 @@ export const InvestigationDetail = () => {
     const [titleDraft, setTitleDraft] = useState('');
     const [savingTitle, setSavingTitle] = useState(false);
     const titleInputRef = useRef<HTMLInputElement>(null);
+    const [tagInput, setTagInput] = useState('');
+    const [addingTag, setAddingTag] = useState(false);
+    const tagInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         api.listModels()
@@ -1046,7 +1049,7 @@ export const InvestigationDetail = () => {
             )}
 
             {/* Sidebar: Status & Info */}
-            <div className="lg:col-span-3 flex flex-col gap-1 lg:gap-4 lg:overflow-y-auto lg:pr-2 custom-scrollbar shrink-0">
+            <div className="lg:col-span-3 flex flex-col gap-1 lg:gap-4 lg:overflow-y-auto scrollbar-hidden shrink-0">
                 {/* Status Card */}
                 <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl lg:rounded-3xl p-1.5 lg:p-6 shadow-2xl border border-white/[0.06] relative overflow-hidden group shrink-0">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
@@ -1265,91 +1268,183 @@ export const InvestigationDetail = () => {
                         )}
                     </div>
 
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4">Details</h3>
-                    <div className="space-y-3">
+                    {/* Tags */}
+                    <div className="mb-4 pb-4 border-b border-white/[0.06]">
+                        <span className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1.5">Tags</span>
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                            {(investigation.tags || []).map((tag) => (
+                                <span
+                                    key={tag}
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-brand-500/15 text-brand-300 text-xs font-medium border border-brand-500/20 group/tag"
+                                >
+                                    <Tag className="w-3 h-3" />
+                                    {tag}
+                                    <button
+                                        onClick={async () => {
+                                            const newTags = (investigation.tags || []).filter(t => t !== tag);
+                                            try {
+                                                await api.updateTags(investigation.id, newTags);
+                                                fetchInvestigation();
+                                            } catch (err) {
+                                                console.error('Failed to remove tag', err);
+                                            }
+                                        }}
+                                        className="ml-0.5 p-0.5 rounded-full hover:bg-red-500/30 hover:text-red-300 transition-colors opacity-0 group-hover/tag:opacity-100"
+                                        title={`Remove tag "${tag}"`}
+                                    >
+                                        <X className="w-2.5 h-2.5" />
+                                    </button>
+                                </span>
+                            ))}
+                            {(investigation.tags || []).length === 0 && !addingTag && (
+                                <span className="text-slate-600 text-xs italic">No tags</span>
+                            )}
+                        </div>
+                        {addingTag ? (
+                            <div className="flex items-center gap-1.5">
+                                <input
+                                    ref={tagInputRef}
+                                    type="text"
+                                    className="flex-1 px-2 py-1 rounded-lg border border-brand-500/40 bg-slate-800/60 text-xs text-slate-100 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
+                                    value={tagInput}
+                                    onChange={(e) => setTagInput(e.target.value)}
+                                    onKeyDown={async (e) => {
+                                        if (e.key === 'Enter' && tagInput.trim()) {
+                                            const newTags = [...new Set([...(investigation.tags || []), tagInput.trim()])];
+                                            try {
+                                                await api.updateTags(investigation.id, newTags);
+                                                setTagInput('');
+                                                fetchInvestigation();
+                                            } catch (err) {
+                                                console.error('Failed to add tag', err);
+                                            }
+                                        }
+                                        if (e.key === 'Escape') {
+                                            setAddingTag(false);
+                                            setTagInput('');
+                                        }
+                                    }}
+                                    placeholder="Type tag and press Enter"
+                                    autoFocus
+                                />
+                                <button
+                                    onClick={() => { setAddingTag(false); setTagInput(''); }}
+                                    className="p-1 rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                                    title="Cancel"
+                                >
+                                    <X className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => { setAddingTag(true); setTimeout(() => tagInputRef.current?.focus(), 50); }}
+                                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-slate-500 hover:text-brand-400 hover:bg-brand-500/10 transition-colors"
+                            >
+                                <Plus className="w-3 h-3" />
+                                Add tag
+                            </button>
+                        )}
+                    </div>
+
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Details</h3>
+                    <div className="space-y-2">
                         {investigation.status === 'running' && (
-                            <div className="flex items-start">
-                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5">
-                                    <Clock className="w-4 h-4 text-brand-500 animate-pulse" />
-                                </div>
-                                <div>
-                                    <span className="block text-slate-500 text-xs">Duration</span>
-                                    <span className="font-medium text-slate-200">
-                                        <DurationTimer
-                                            startTime={Number(investigation.id)}
-                                            status={investigation.status}
-                                            pausedAt={investigation.pausedAt}
-                                            totalPausedTime={investigation.totalPausedTime}
-                                        />
-                                    </span>
-                                </div>
+                            <div className="flex items-center gap-2">
+                                <Clock className="w-3.5 h-3.5 text-brand-500 animate-pulse shrink-0" />
+                                <span className="text-slate-500 text-xs">Duration</span>
+                                <span className="font-medium text-slate-200 text-xs ml-auto">
+                                    <DurationTimer
+                                        startTime={Number(investigation.id)}
+                                        status={investigation.status}
+                                        pausedAt={investigation.pausedAt}
+                                        totalPausedTime={investigation.totalPausedTime}
+                                    />
+                                </span>
                             </div>
                         )}
-                        <div className="flex items-start">
-                            <Clock className="w-4 h-4 text-slate-400 mr-2 mt-0.5" />
-                            <div>
-                                <span className="block text-slate-500 text-xs">Started</span>
-                                <span className="font-medium text-slate-200">{isNaN(Number(investigation.id)) ? 'Legacy' : new Date(parseInt(investigation.id)).toLocaleString()}</span>
-                            </div>
+                        <div className="flex items-center gap-2">
+                            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="text-slate-500 text-xs">Started</span>
+                            <span className="font-medium text-slate-200 text-xs ml-auto">{isNaN(Number(investigation.id)) ? 'Legacy' : new Date(parseInt(investigation.id)).toLocaleString()}</span>
                         </div>
                         {investigation.stamp && (
-                            <div className="flex items-start">
-                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5 rounded bg-blue-500/20 text-blue-400 font-bold text-[10px]">S</div>
-                                <div>
-                                    <span className="block text-slate-500 text-xs">Stamp</span>
-                                    <span className="font-medium text-slate-200">{investigation.stamp}</span>
-                                </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-3.5 h-3.5 flex items-center justify-center rounded bg-blue-500/20 text-blue-400 font-bold text-[9px] shrink-0">S</div>
+                                <span className="text-slate-500 text-xs">Stamp</span>
+                                <span className="font-medium text-slate-200 text-xs ml-auto truncate max-w-[60%] text-right">{investigation.stamp}</span>
                             </div>
                         )}
                         {investigation.timeRange && (
-                            <div className="flex items-start">
-                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5 rounded bg-purple-500/20 text-purple-400 font-bold text-[10px]">T</div>
-                                <div>
-                                    <span className="block text-slate-500 text-xs">Time Range</span>
-                                    <span className="font-medium text-slate-200" title={investigation.timeRange}>{formatTimeRange(investigation.timeRange)}</span>
-                                </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-3.5 h-3.5 flex items-center justify-center rounded bg-purple-500/20 text-purple-400 font-bold text-[9px] shrink-0">T</div>
+                                <span className="text-slate-500 text-xs">Time Range</span>
+                                <span className="font-medium text-slate-200 text-xs ml-auto" title={investigation.timeRange}>{formatTimeRange(investigation.timeRange)}</span>
                             </div>
                         )}
                         {investigation.query && (
-                            <div className="flex items-start">
-                                <div className="w-4 h-4 flex items-center justify-center mr-2 mt-0.5 rounded bg-slate-700 text-slate-400 font-bold text-[10px]">Q</div>
-                                <div className="min-w-0 flex-1">
-                                    <span className="block text-slate-500 text-xs">Query</span>
-                                    <button
-                                        onClick={() => setShowQueryModal(true)}
-                                        className="text-xs text-brand-400 font-bold hover:underline flex items-center mt-1 border border-brand-500/20 bg-brand-500/10 px-2 py-1 rounded transition-colors hover:bg-brand-500/20"
-                                    >
-                                        <FileText className="w-3 h-3 mr-1" /> View Full Query
-                                    </button>
-                                </div>
+                            <div className="flex items-center gap-2">
+                                <div className="w-3.5 h-3.5 flex items-center justify-center rounded bg-slate-700 text-slate-400 font-bold text-[9px] shrink-0">Q</div>
+                                <span className="text-slate-500 text-xs">Query</span>
+                                <button
+                                    onClick={() => setShowQueryModal(true)}
+                                    className="text-[11px] text-brand-400 font-bold hover:underline flex items-center ml-auto border border-brand-500/20 bg-brand-500/10 px-1.5 py-0.5 rounded transition-colors hover:bg-brand-500/20"
+                                >
+                                    <FileText className="w-3 h-3 mr-1" /> View
+                                </button>
                             </div>
                         )}
                         {/* Source indicator */}
                         {investigation.source === 'scheduled' && (
-                            <div className="flex items-start">
-                                <Calendar className="w-4 h-4 text-blue-400 mr-2 mt-0.5" />
-                                <div>
-                                    <span className="block text-slate-500 text-xs">Source</span>
-                                    <button
-                                        onClick={() => navigate('/schedules')}
-                                        className="font-medium text-blue-400 hover:text-blue-300 transition-colors text-sm"
-                                    >
-                                        Scheduled
-                                    </button>
-                                </div>
+                            <div className="flex items-center gap-2">
+                                <Calendar className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                                <span className="text-slate-500 text-xs">Source</span>
+                                <button
+                                    onClick={() => navigate('/schedules')}
+                                    className="font-medium text-blue-400 hover:text-blue-300 transition-colors text-xs ml-auto"
+                                >
+                                    Scheduled
+                                </button>
                             </div>
                         )}
-                        {(() => {
-                            const displayModel = investigation.model || investigation.logs?.find(l => typeof l === 'string' && l.includes('Calling LLM ('))?.match(/Calling LLM \(([^)]+)\)/)?.[1];
-                            if (!displayModel) return null;
-                            return (
-                                <div className="flex items-start group/model">
-                                    <div className="w-8 h-8 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center mr-3 shrink-0 border border-indigo-500/20 group-hover/model:bg-indigo-500/20 group-hover/model:scale-105 transition-all">
-                                        <Cpu className="w-4 h-4" />
+                        {/* System ID & Storage Path — collapsible */}
+                        <details className="group/details">
+                            <summary className="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-400 transition-colors text-[11px] font-medium select-none list-none [&::-webkit-details-marker]:hidden">
+                                <ChevronDown className="w-3 h-3 transition-transform group-open/details:rotate-180" />
+                                More details
+                            </summary>
+                            <div className="mt-2 space-y-2 pl-5">
+                                <div className="flex items-start gap-2">
+                                    <div className="w-3.5 h-3.5 flex items-center justify-center rounded bg-slate-700 text-slate-400 font-bold text-[9px] shrink-0 mt-0.5">#</div>
+                                    <div className="min-w-0 flex-1">
+                                        <span className="block text-slate-500 text-[10px]">System ID</span>
+                                        <span className="font-mono text-[11px] text-slate-300 select-all">{investigation.id}</span>
                                     </div>
-                                    <div className="w-full min-w-0">
-                                        <span className="block text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">Model</span>
-                                        <ModelSelector
+                                </div>
+                                {investigation.storagePath && (
+                                    <div className="flex items-start gap-2">
+                                        <FolderOpen className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                                        <div className="min-w-0 flex-1">
+                                            <span className="block text-slate-500 text-[10px]">Storage Path</span>
+                                            <span className="font-mono text-[10px] text-slate-400 break-all select-all" title={investigation.storagePath}>{investigation.storagePath}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </details>
+                    </div>
+
+                    {/* Model selector — separated for visual weight */}
+                    {(() => {
+                        const displayModel = investigation.model || investigation.logs?.find(l => typeof l === 'string' && l.includes('Calling LLM ('))?.match(/Calling LLM \(([^)]+)\)/)?.[1];
+                        if (!displayModel) return null;
+                        return (
+                            <div className="flex items-start group/model mt-4 pt-3 border-t border-white/[0.06]">
+                                <div className="w-7 h-7 rounded-lg bg-indigo-500/10 text-indigo-400 flex items-center justify-center mr-2.5 shrink-0 border border-indigo-500/20 group-hover/model:bg-indigo-500/20 group-hover/model:scale-105 transition-all">
+                                    <Cpu className="w-3.5 h-3.5" />
+                                </div>
+                                <div className="w-full min-w-0">
+                                    <span className="block text-slate-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">Model</span>
+                                    <ModelSelector
                                             currentModel={displayModel}
                                             availableModels={availableModels}
                                             onSelect={async (model) => {
@@ -1366,7 +1461,6 @@ export const InvestigationDetail = () => {
                                 </div>
                             );
                         })()}
-                    </div>
                 </div>
 
             </div>
@@ -1551,7 +1645,7 @@ export const InvestigationDetail = () => {
                                         </div>
 
                                         {/* Report Content */}
-                                        <div className="p-3 sm:p-8 lg:p-12">
+                                        <div className="p-3 sm:p-8 lg:p-12 overflow-hidden">
                                             <div className="prose prose-invert max-w-none 
                                                 prose-headings:font-bold prose-headings:text-slate-100 
                                                 prose-h1:text-3xl prose-h1:mb-6 prose-h1:pb-4 prose-h1:border-b prose-h1:border-slate-700/50
@@ -1562,13 +1656,26 @@ export const InvestigationDetail = () => {
                                                 prose-strong:text-slate-200
                                                 prose-code:text-brand-400 prose-code:bg-brand-500/10 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:before:content-none prose-code:after:content-none
                                                 prose-pre:bg-slate-950 prose-pre:text-slate-300 prose-pre:rounded-xl prose-pre:shadow-lg prose-pre:border prose-pre:border-slate-800
+                                                prose-pre:overflow-x-auto
                                                 prose-li:text-slate-300
                                                 prose-img:rounded-xl prose-img:shadow-md
                                                 prose-blockquote:border-l-4 prose-blockquote:border-brand-500 prose-blockquote:bg-brand-500/5 prose-blockquote:px-6 prose-blockquote:py-2 prose-blockquote:rounded-r-lg prose-blockquote:not-italic prose-blockquote:text-slate-300
                                                 prose-table:border-collapse prose-th:bg-slate-800/50 prose-th:text-slate-200 prose-th:border prose-th:border-slate-700 prose-th:px-3 prose-th:py-2
                                                 prose-td:border prose-td:border-slate-700/50 prose-td:px-3 prose-td:py-2 prose-td:text-slate-300
                                             ">
-                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                <ReactMarkdown
+                                                    remarkPlugins={[remarkGfm]}
+                                                    components={{
+                                                        table: ({ children, ...props }) => (
+                                                            <div className="overflow-x-auto -mx-1 px-1 my-4 rounded-lg border border-slate-700/50">
+                                                                <table {...props} className="min-w-full whitespace-nowrap">{children}</table>
+                                                            </div>
+                                                        ),
+                                                        pre: ({ children, ...props }) => (
+                                                            <pre {...props} className="overflow-x-auto bg-slate-950 text-slate-300 rounded-xl shadow-lg border border-slate-800 p-4">{children}</pre>
+                                                        ),
+                                                    }}
+                                                >
                                                     {investigation.finalReport}
                                                 </ReactMarkdown>
                                             </div>
