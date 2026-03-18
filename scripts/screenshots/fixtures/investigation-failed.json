@@ -1,18 +1,18 @@
 {
   "id": "1749770000000",
   "status": "failed",
-  "title": "Node crash investigation — oi-tds-prd-weu-01",
+  "title": "Node crash investigation — app-prd-weu-01",
   "createdBy": "agarcia",
-  "query": "Investigate node crashes on oi-tds-prd-weu-01",
-  "stamp": "oi-tds-prd-weu-01",
+  "query": "Investigate node crashes on app-prd-weu-01",
+  "stamp": "app-prd-weu-01",
   "timeRange": "ago(1h)",
   "issueType": "node-failure",
   "model": "claude-sonnet-4-20250514",
-  "productId": "teleduct",
-  "productName": "Teleduct",
+  "productId": "sample-product",
+  "productName": "sample-product",
   "thoughtCount": 4,
   "thoughts": [
-    "Starting investigation into node crashes on `oi-tds-prd-weu-01`. Let me query for critical-level traces in the past hour.",
+    "Starting investigation into node crashes on `app-prd-weu-01`. Let me query for critical-level traces in the past hour.",
     {
       "content": "The KQL query failed with an Azure authentication error. The Kusto CLI token appears to have expired. Let me try re-authenticating.",
       "type": "thought"
@@ -31,7 +31,7 @@
       "type": "tool_use",
       "name": "execute_kql_query",
       "input": {
-        "query": "TeleductTraces\n| where Stamp == 'oi-tds-prd-weu-01'\n| where TimeGenerated > ago(1h)\n| where Level == 'Critical'\n| take 10"
+        "query": "ServiceTraces\n| where Stamp == 'app-prd-weu-01'\n| where TimeGenerated > ago(1h)\n| where Level == 'Critical'\n| take 10"
       },
       "result": "Error: Azure CLI authentication failed — AADSTS70043: The refresh token has expired or is invalid."
     },
@@ -39,7 +39,7 @@
       "type": "tool_use",
       "name": "execute_kql_query",
       "input": {
-        "query": "TeleductTraces | where Stamp == 'oi-tds-prd-weu-01' | take 1"
+        "query": "ServiceTraces | where Stamp == 'app-prd-weu-01' | take 1"
       },
       "result": "Error: Azure CLI authentication failed — AADSTS70043: The refresh token has expired or is invalid."
     },

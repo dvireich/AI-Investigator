@@ -527,7 +527,7 @@ Drop a `.investigator.json` file at the root of any repository to enable **one-c
   "description": "What this product investigates",
   "systemPrompt": ".github/agents/MyAgent.agent.md",
   "knowledgeBase": "docs/investigations",
-  "workingDirectory": "tools/InvestigationDashboard/backend",
+  "workingDirectory": ".",
   "investigationsPath": "docs/investigations/AgentInvestigations"
 }
 ```
@@ -662,15 +662,91 @@ Includes a server-side **file browser** for selecting directories.
 ### Quick Start
 
 ```powershell
-# From the repository root
-.\tools\InvestigationDashboard\Setup-Dashboard.ps1   # Install dependencies + Kusto CLI + Playwright
-.\tools\InvestigationDashboard\Run-Dashboard.ps1      # Launch in App mode (default)
+# Clone the repo
+git clone https://github.com/<your-org>/AI-Investigator.git
+cd AI-Investigator
 
-# Or use the repo-root convenience launcher:
-.\Run-Investigation-Dashboard.ps1                     # Forwards to Run-Dashboard.ps1
+# Install dependencies + Kusto CLI + Playwright
+.\Setup-Dashboard.ps1
+
+# Launch in App mode (default)
+.\Run-Dashboard.ps1
 ```
 
 The dashboard opens automatically in an Edge standalone window at **http://localhost:5173**. Sign in with your GitHub account when prompted.
+
+### Setting Up Your Product
+
+AI Investigator is product-agnostic — point it at any repository to investigate that product's telemetry.
+
+#### 1. Prepare your product repository
+
+Create these in your product's repo:
+
+```
+your-product-repo/
+├── .github/agents/
+│   └── YourProduct_Investigation.agent.md   # Agent system prompt (investigation instructions)
+├── docs/investigations/                      # Knowledge base (investigation guides, methodology)
+│   ├── README.md                             # Investigation routing decision tree
+│   ├── latency-investigation.md              # Example guide
+│   └── ...
+└── investigations/                           # Where investigation artifacts will be saved
+```
+
+- **System Prompt** (`.agent.md`): Instructions for the AI agent — what your product is, which tables/metrics are available, investigation routing logic
+- **Knowledge Base**: Markdown guides the agent reads to learn investigation methodology
+- **Investigations Path**: Directory where state files and reports are persisted
+
+#### 2. Configure via the Settings UI
+
+1. Open the dashboard → **Settings** → **Products** tab
+2. Click **Add Product**
+3. Enter your product's repo root path — the **Auto-Discover** feature scans for agent prompts, knowledge base directories, and investigation paths automatically
+4. Review and adjust the discovered paths, then save
+
+Or use the discover API directly:
+
+```
+GET /api/products/discover?repoRoot=C:\Repositories\YourProduct
+```
+
+#### 3. Alternatively, edit config.json manually
+
+Copy `backend/config.sample.json` to `backend/config.json` and configure:
+
+```json
+{
+  "model": "claude-opus-4.6",
+  "maxSteps": 50,
+  "products": [
+    {
+      "id": "your-product",
+      "name": "Your Product",
+      "repoRoot": "C:/Repositories/YourProduct",
+      "systemPromptPath": "C:/Repositories/YourProduct/.github/agents/YourProduct_Investigation.agent.md",
+      "knowledgeBasePath": "C:/Repositories/YourProduct/docs/investigations",
+      "workingDirectory": "C:/Repositories/YourProduct",
+      "investigationsPath": "C:/Repositories/YourProduct/investigations"
+    }
+  ],
+  "activeProductId": "your-product"
+}
+```
+
+#### 4. Multiple products
+
+Add multiple products to investigate different systems from the same dashboard:
+
+```json
+"products": [
+  { "id": "frontend", "name": "Frontend Service", "repoRoot": "C:/Repos/frontend-service", ... },
+  { "id": "backend", "name": "Backend API", "repoRoot": "C:/Repos/backend-api", ... },
+  { "id": "infra", "name": "Infrastructure", "repoRoot": "C:/Repos/infra-platform", ... }
+]
+```
+
+Switch between products in the **New Investigation** form or **Settings** → **Products** → **Set Active**.
 
 ### Launch Modes
 
@@ -686,12 +762,12 @@ The dashboard opens automatically in an Edge standalone window at **http://local
 
 ```bash
 # Backend
-cd tools/InvestigationDashboard/backend
+cd backend
 npm install
 npm run dev          # Starts on http://localhost:3000
 
 # Frontend (separate terminal)
-cd tools/InvestigationDashboard/frontend
+cd frontend
 npm install
 npm run dev          # Starts on http://localhost:5173
 ```
@@ -699,7 +775,7 @@ npm run dev          # Starts on http://localhost:5173
 ### Stopping
 
 ```powershell
-.\tools\InvestigationDashboard\Stop-Dashboard.ps1
+.\Stop-Dashboard.ps1
 ```
 
 Cleans up all related processes: backend (port 3000), frontend (ports 5173–5180), Edge app windows, dev tunnel processes, and MCP Python processes.
@@ -958,71 +1034,69 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 
 ```
 .
-├── .investigator.json                # Product manifest for one-click onboarding
-└── tools/InvestigationDashboard/
-    ├── README.md                     # This file
-    ├── Run-Dashboard.ps1             # Launch services + dev tunnel (-NoTunnel, -Anonymous, -Classic)
-    ├── Setup-Dashboard.ps1           # Install dependencies + Kusto CLI + Playwright + devtunnel check
-    ├── Stop-Dashboard.ps1            # Kill dashboard + tunnel processes
-    ├── prompts/
-    │   └── RetrospectPrompt.md       # Retrospective prompt template
-    ├── scripts/
-    │   ├── icm/                       # Bundled ICM automation scripts (Playwright)
-    │   └── screenshots/               # Automated screenshot capture (see Taking Screenshots)
-    ├── backend/
-    │   ├── config.json               # Runtime configuration (git-ignored, user-specific)
-    │   ├── config.sample.json        # Template config for new setups
-    │   ├── .gitignore                # Ignores config.json + build artifacts
-    │   ├── src/
-    │   │   ├── server.ts             # Express + WebSocket server
-    │   │   ├── pdfRenderer.ts        # PDF report generation (Puppeteer + Markdown)
-    │   │   ├── agent/
-    │   │   │   ├── Runner.ts         # Core agent loop + retrospective
-    │   │   │   ├── CopilotClient.ts  # GitHub OAuth + token management
-    │   │   │   ├── Tools.ts          # KQL execution (Kusto CLI + MCP)
-    │   │   │   └── RetrospectAgent.ts # (Legacy placeholder)
-    │   │   ├── schedules/
-    │   │   │   ├── Scheduler.ts      # Recurring investigation scheduler engine
-    │   │   │   └── ScheduleStore.ts  # Persistent schedule definitions + history
-    │   │   └── querybank/
-    │   │       └── QueryBankStore.ts  # Saved query template storage
-    │   └── trigger_inv.js            # Dev utility: test investigation trigger
-    ├── frontend/
-    │   ├── public/
-    │   │   └── favicon.svg           # Custom AI Investigator icon
-    │   └── src/
-    │       ├── App.tsx               # Router configuration (/, /new, /investigation/:id, /schedules, /settings, /about)
-    │       ├── api.ts                # API client (all endpoints)
-    │       ├── constants.ts          # Time presets + schedule intervals + investigation modes
-    │       ├── types/
-    │       │   ├── index.ts          # Core type definitions
-    │       │   ├── product.ts        # Product type definitions
-    │       │   └── schedule.ts       # Schedule + history type definitions
-    │       ├── components/
-    │       │   ├── Layout.tsx        # App shell, nav, auth, branding
-    │       │   ├── FileBrowserModal.tsx
-    │       │   ├── Toast.tsx         # Toast notifications + confirm dialogs
-    │       │   └── charts/           # Dashboard analytics (recharts)
-    │       │       ├── InvestigationTrend.tsx    # Line chart of investigations over time
-    │       │       ├── IssueTypeDonut.tsx        # Issue type distribution donut
-    │       │       ├── DurationDistribution.tsx  # Duration histogram
-    │       │       ├── SuccessRateDonut.tsx      # Success rate pie chart
-    │       │       ├── StampActivity.tsx         # Top stamps stacked bar chart
-    │       │       ├── VerdictBreakdown.tsx      # Scheduled verdict donut chart
-    │       │       ├── ModelUsage.tsx            # Model usage horizontal bar chart
-    │       │       ├── ContestRate.tsx           # Contest rate donut chart
-    │       │       ├── KpiBar.tsx                # KPI summary bar (success %, avg duration, weekly count, contest %)
-    │       │       └── widgetRegistry.ts         # Widget registry, selection storage, defaults
-    │       └── pages/
-    │           ├── Dashboard.tsx         # Investigation cards grid/list + analytics charts
-    │           ├── NewInvestigation.tsx   # Investigation launch form (Standard + ICM) + query bank
-    │           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect
-    │           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
-    │           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
-    │           ├── Settings.tsx          # Configuration management (5 tabs: Products, Agent, Analytics, Appearance, System)
-    │           └── About.tsx             # Feature showcase + credits
-    └── docs/
-        └── screenshots/              # UI screenshots (see Visual Walkthrough)
+├── README.md                         # This file
+├── Run-Dashboard.ps1                 # Launch services + dev tunnel (-NoTunnel, -Anonymous, -Classic)
+├── Setup-Dashboard.ps1               # Install dependencies + Kusto CLI + Playwright + devtunnel check
+├── Stop-Dashboard.ps1                # Kill dashboard + tunnel processes
+├── prompts/
+│   └── RetrospectPrompt.md           # Retrospective prompt template
+├── scripts/
+│   ├── icm/                           # Bundled ICM automation scripts (Playwright)
+│   └── screenshots/                   # Automated screenshot capture (see Taking Screenshots)
+├── backend/
+│   ├── config.json               # Runtime configuration (git-ignored, user-specific)
+│   ├── config.sample.json        # Template config for new setups
+│   ├── .gitignore                # Ignores config.json + build artifacts
+│   ├── src/
+│   │   ├── server.ts             # Express + WebSocket server
+│   │   ├── pdfRenderer.ts        # PDF report generation (Puppeteer + Markdown)
+│   │   ├── agent/
+│   │   │   ├── Runner.ts         # Core agent loop + retrospective
+│   │   │   ├── CopilotClient.ts  # GitHub OAuth + token management
+│   │   │   ├── Tools.ts          # KQL execution (Kusto CLI + MCP)
+│   │   │   └── RetrospectAgent.ts # (Legacy placeholder)
+│   │   ├── schedules/
+│   │   │   ├── Scheduler.ts      # Recurring investigation scheduler engine
+│   │   │   └── ScheduleStore.ts  # Persistent schedule definitions + history
+│   │   └── querybank/
+│   │       └── QueryBankStore.ts  # Saved query template storage
+│   └── trigger_inv.js            # Dev utility: test investigation trigger
+├── frontend/
+│   ├── public/
+│   │   └── favicon.svg           # Custom AI Investigator icon
+│   └── src/
+│       ├── App.tsx               # Router configuration (/, /new, /investigation/:id, /schedules, /settings, /about)
+│       ├── api.ts                # API client (all endpoints)
+│       ├── constants.ts          # Time presets + schedule intervals + investigation modes
+│       ├── types/
+│       │   ├── index.ts          # Core type definitions
+│       │   ├── product.ts        # Product type definitions
+│       │   └── schedule.ts       # Schedule + history type definitions
+│       ├── components/
+│       │   ├── Layout.tsx        # App shell, nav, auth, branding
+│       │   ├── FileBrowserModal.tsx
+│       │   ├── Toast.tsx         # Toast notifications + confirm dialogs
+│       │   └── charts/           # Dashboard analytics (recharts)
+│       │       ├── InvestigationTrend.tsx    # Line chart of investigations over time
+│       │       ├── IssueTypeDonut.tsx        # Issue type distribution donut
+│       │       ├── DurationDistribution.tsx  # Duration histogram
+│       │       ├── SuccessRateDonut.tsx      # Success rate pie chart
+│       │       ├── StampActivity.tsx         # Top stamps stacked bar chart
+│       │       ├── VerdictBreakdown.tsx      # Scheduled verdict donut chart
+│       │       ├── ModelUsage.tsx            # Model usage horizontal bar chart
+│       │       ├── ContestRate.tsx           # Contest rate donut chart
+│       │       ├── KpiBar.tsx                # KPI summary bar (success %, avg duration, weekly count, contest %)
+│       │       └── widgetRegistry.ts         # Widget registry, selection storage, defaults
+│       └── pages/
+│           ├── Dashboard.tsx         # Investigation cards grid/list + analytics charts
+│           ├── NewInvestigation.tsx   # Investigation launch form (Standard + ICM) + query bank
+│           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect
+│           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
+│           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
+│           ├── Settings.tsx          # Configuration management (5 tabs: Products, Agent, Analytics, Appearance, System)
+│           └── About.tsx             # Feature showcase + credits
+└── docs/
+    └── screenshots/              # UI screenshots (see Visual Walkthrough)
 ```
 
 ---
@@ -1040,7 +1114,7 @@ All README screenshots are generated automatically using **Playwright** with a m
 
 ```bash
 # First time only — install screenshot tool dependencies + Chromium
-cd tools/InvestigationDashboard/scripts/screenshots
+cd scripts/screenshots
 npm install
 npx playwright install chromium
 

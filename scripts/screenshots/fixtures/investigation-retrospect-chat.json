@@ -1,20 +1,20 @@
 {
   "id": "1749780000000",
   "status": "completed",
-  "title": "Kusto ingestion errors — ax-tds-prd-neu-01",
+  "title": "Kusto ingestion errors — svc-prd-neu-01",
   "createdBy": "scheduler",
-  "query": "Investigate Kusto ingestion failures on ax-tds-prd-neu-01",
-  "stamp": "ax-tds-prd-neu-01",
+  "query": "Investigate Kusto ingestion failures on svc-prd-neu-01",
+  "stamp": "svc-prd-neu-01",
   "timeRange": "ago(3d)",
   "issueType": "kusto-errors",
   "model": "claude-sonnet-4-20250514",
-  "productId": "teleduct",
-  "productName": "Teleduct",
+  "productId": "sample-product",
+  "productName": "sample-product",
   "thoughtCount": 15,
   "thoughts": [],
   "actions": [],
   "logs": ["Investigation started", "Investigation completed"],
-  "finalReport": "# Kusto Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `ax-tds-prd-neu-01` peaked at 2,800 failures/hour.\n\n## Root Cause\n\nADX cluster capacity throttling during bulk backfill.",
+  "finalReport": "# Kusto Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `svc-prd-neu-01` peaked at 2,800 failures/hour.\n\n## Root Cause\n\nADX cluster capacity throttling during bulk backfill.",
   "retrospect": {
     "messages": [
       {
@@ -32,7 +32,7 @@
       },
       {
         "role": "tool-call",
-        "content": "Reading file: docs/telemetry-investigations/teleduct-kusto-error-investigation.md",
+        "content": "Reading file: docs/investigations/kusto-error-investigation.md",
         "toolName": "read_file"
       },
       {
@@ -56,7 +56,7 @@
       {
         "id": "prop-1",
         "type": "edit",
-        "filePath": "docs/telemetry-investigations/teleduct-kusto-error-investigation.md",
+        "filePath": "docs/investigations/kusto-error-investigation.md",
         "description": "Add ADX cluster capacity check as first diagnostic step",
         "content": "## Step 0: Check ADX Cluster Capacity\n\n```kql\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining\n```",
         "originalContent": "## Step 1: Identify Error Pattern",
@@ -65,7 +65,7 @@
       {
         "id": "prop-2",
         "type": "edit",
-        "filePath": "docs/telemetry-investigations/teleduct-kusto-error-investigation.md",
+        "filePath": "docs/investigations/kusto-error-investigation.md",
         "description": "Add IngestionCapacityExceeded to known error types",
         "content": "| IngestionCapacityExceeded | Cluster at capacity | Check .show capacity |",
         "status": "approved"
@@ -73,7 +73,7 @@
       {
         "id": "prop-3",
         "type": "create",
-        "filePath": "docs/telemetry-investigations/teleduct-bulk-operation-coordination.md",
+        "filePath": "docs/investigations/bulk-operation-coordination.md",
         "description": "Create bulk operation coordination runbook",
         "content": "# Bulk Operation Coordination Guide\n\n## Pre-Operation Checklist\n1. Check cluster utilization\n2. Schedule off-peak\n3. Set rate limits",
         "status": "pending"

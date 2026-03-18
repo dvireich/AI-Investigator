@@ -104,6 +104,35 @@ const Highlight = ({ text, term }: { text: string; term: string }) => {
 type Toast = { key: number; invId: string; invTitle: string; type: 'completed' | 'failed' };
 let _toastKey = 0;
 
+/**
+ * Self-contained inline title editor.
+ * Manages its own draft state so keystrokes don't re-render the entire Dashboard.
+ */
+const InlineCardTitle = ({ invId, initialTitle, onSaved, onCancel, className }: {
+    invId: string;
+    initialTitle: string;
+    onSaved: (invId: string, newTitle: string) => void;
+    onCancel: () => void;
+    className?: string;
+}) => {
+    const [draft, setDraft] = useState(initialTitle);
+    const save = () => {
+        const trimmed = draft.trim();
+        if (trimmed) onSaved(invId, trimmed);
+        else onCancel();
+    };
+    return (
+        <input autoFocus
+            className={className}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={save}
+            onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') onCancel(); }}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+        />
+    );
+};
+
 // Module-level storage for stale detection so it persists across navigation.
 // If this were inside a useRef, it would reset every time the Dashboard
 // unmounts (e.g. user clicks into an investigation and comes back), causing
@@ -120,7 +149,6 @@ export const Dashboard = () => {
     const [tagFilter, setTagFilter] = useState<string>('all');
     const [createdByFilter, setCreatedByFilter] = useState<string>('all');
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [editingTitle, setEditingTitle] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'grid' | 'list'>(() =>
         (localStorage.getItem('inv-view') as 'grid' | 'list') ?? 'grid'
@@ -294,20 +322,16 @@ export const Dashboard = () => {
         e.preventDefault();
         e.stopPropagation();
         setEditingId(inv.id);
-        setEditingTitle(inv.title || inv.query || '');
     };
 
-    const saveTitle = async (invId: string) => {
-        const trimmed = editingTitle.trim();
-        if (trimmed) {
-            try {
-                await api.updateTitle(invId, trimmed);
-                setInvestigations(prev => prev.map(inv =>
-                    inv.id === invId ? { ...inv, title: trimmed } : inv
-                ));
-            } catch (e) {
-                console.error('Failed to update title:', e);
-            }
+    const saveTitle = async (invId: string, newTitle: string) => {
+        try {
+            await api.updateTitle(invId, newTitle);
+            setInvestigations(prev => prev.map(inv =>
+                inv.id === invId ? { ...inv, title: newTitle } : inv
+            ));
+        } catch (e) {
+            console.error('Failed to update title:', e);
         }
         setEditingId(null);
     };
@@ -1080,13 +1104,12 @@ export const Dashboard = () => {
                                         {/* Title */}
                                         <div className="flex items-start gap-1">
                                             {editingId === inv.id ? (
-                                                <input autoFocus
+                                                <InlineCardTitle
+                                                    invId={inv.id}
+                                                    initialTitle={inv.title || inv.query || ''}
+                                                    onSaved={saveTitle}
+                                                    onCancel={() => setEditingId(null)}
                                                     className="flex-1 text-base font-bold text-slate-100 leading-tight bg-slate-800 border border-brand-500/40 rounded-lg px-2 py-1 outline-none focus:ring-2 focus:ring-brand-400"
-                                                    value={editingTitle}
-                                                    onChange={(e) => setEditingTitle(e.target.value)}
-                                                    onBlur={() => saveTitle(inv.id)}
-                                                    onKeyDown={(e) => { if (e.key === 'Enter') saveTitle(inv.id); if (e.key === 'Escape') setEditingId(null); }}
-                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                 />
                                             ) : (
                                                 <>
@@ -1286,13 +1309,12 @@ export const Dashboard = () => {
                                                 {/* Title */}
                                                 <div className="flex-1 min-w-0">
                                                     {editingId === inv.id ? (
-                                                        <input autoFocus
+                                                        <InlineCardTitle
+                                                            invId={inv.id}
+                                                            initialTitle={inv.title || inv.query || ''}
+                                                            onSaved={saveTitle}
+                                                            onCancel={() => setEditingId(null)}
                                                             className="w-full text-sm font-bold text-slate-100 bg-slate-800 border border-brand-500/40 rounded-lg px-2 py-0.5 outline-none focus:ring-2 focus:ring-brand-400"
-                                                            value={editingTitle}
-                                                            onChange={(e) => setEditingTitle(e.target.value)}
-                                                            onBlur={() => saveTitle(inv.id)}
-                                                            onKeyDown={(e) => { if (e.key === 'Enter') saveTitle(inv.id); if (e.key === 'Escape') setEditingId(null); }}
-                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                                                         />
                                                     ) : (
                                                         <span className="text-sm font-semibold text-slate-200 truncate block group-hover:text-brand-400 transition-colors">

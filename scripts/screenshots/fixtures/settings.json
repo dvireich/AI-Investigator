@@ -2,7 +2,7 @@
   "settings": {
     "model": "claude-sonnet-4-20250514",
     "maxSteps": 50,
-    "investigationsPath": "C:\\Repositories\\AM-Teleduct\\tools\\InvestigationDashboard\\investigations"
+    "investigationsPath": "C:\\Tools\\AI-Investigator\\investigations"
   },
   "models": [
     "claude-sonnet-4-20250514",
@@ -14,25 +14,25 @@
   ],
   "products": [
     {
-      "id": "teleduct",
-      "name": "Teleduct",
-      "repoRoot": "C:\\Repositories\\AM-Teleduct",
-      "systemPromptPath": "C:\\Repositories\\AM-Teleduct\\.github\\agents\\Teleduct_Investigation.agent.md",
-      "knowledgeBasePath": "C:\\Repositories\\AM-Teleduct\\docs\\telemetry-investigations",
-      "workingDirectory": "C:\\Repositories\\AM-Teleduct",
-      "investigationsPath": "C:\\Repositories\\AM-Teleduct\\tools\\InvestigationDashboard\\investigations"
+      "id": "sample-product",
+      "name": "sample-product",
+      "repoRoot": "C:\\Repositories\\MyProduct",
+      "systemPromptPath": "C:\\Repositories\\MyProduct\\.github\\agents\\MyProduct_Investigation.agent.md",
+      "knowledgeBasePath": "C:\\Repositories\\MyProduct\\docs\\telemetry-investigations",
+      "workingDirectory": "C:\\Repositories\\MyProduct",
+      "investigationsPath": "C:\\Tools\\AI-Investigator\\investigations"
     }
   ],
-  "activeProductId": "teleduct",
+  "activeProductId": "sample-product",
   "productValidations": {
-    "teleduct": {
+    "sample-product": {
       "valid": true,
       "paths": [
-        { "field": "repoRoot", "label": "Repository Root", "value": "C:\\Repositories\\AM-Teleduct", "isAbsolute": true, "exists": true, "error": null },
-        { "field": "systemPromptPath", "label": "System Prompt", "value": "C:\\Repositories\\AM-Teleduct\\.github\\agents\\Teleduct_Investigation.agent.md", "isAbsolute": true, "exists": true, "error": null },
-        { "field": "knowledgeBasePath", "label": "Knowledge Base", "value": "C:\\Repositories\\AM-Teleduct\\docs\\telemetry-investigations", "isAbsolute": true, "exists": true, "error": null },
-        { "field": "workingDirectory", "label": "Working Directory", "value": "C:\\Repositories\\AM-Teleduct", "isAbsolute": true, "exists": true, "error": null },
-        { "field": "investigationsPath", "label": "Investigations Path", "value": "C:\\Repositories\\AM-Teleduct\\tools\\InvestigationDashboard\\investigations", "isAbsolute": true, "exists": true, "error": null }
+        { "field": "repoRoot", "label": "Repository Root", "value": "C:\\Repositories\\MyProduct", "isAbsolute": true, "exists": true, "error": null },
+        { "field": "systemPromptPath", "label": "System Prompt", "value": "C:\\Repositories\\MyProduct\\.github\\agents\\MyProduct_Investigation.agent.md", "isAbsolute": true, "exists": true, "error": null },
+        { "field": "knowledgeBasePath", "label": "Knowledge Base", "value": "C:\\Repositories\\MyProduct\\docs\\telemetry-investigations", "isAbsolute": true, "exists": true, "error": null },
+        { "field": "workingDirectory", "label": "Working Directory", "value": "C:\\Repositories\\MyProduct", "isAbsolute": true, "exists": true, "error": null },
+        { "field": "investigationsPath", "label": "Investigations Path", "value": "C:\\Tools\\AI-Investigator\\investigations", "isAbsolute": true, "exists": true, "error": null }
       ]
     }
   }

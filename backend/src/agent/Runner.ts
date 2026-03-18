@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
-import { readFileSync, existsSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync, readdirSync } from 'fs';
+import { join, isAbsolute } from 'path';
 import { ToolManager } from './Tools';
 import { CopilotClient } from './CopilotClient';
 import OpenAI from 'openai';
@@ -217,7 +217,22 @@ export class AgentRunner extends EventEmitter {
 
         // ICM Directive: if this investigation was started from an IcM incident, instruct the agent
         if (this.state.incidentId) {
-            systemPrompt += `\n\n## ICM Incident Investigation\nThis investigation was initiated from IcM Incident ${this.state.incidentId}. Follow the ICM investigation guide (teleduct-icm-investigation.md):\n1. The incident context has already been extracted and is included in the user query below.\n2. Use the extracted stamp, time range, and symptom keywords to route to the correct specialized investigation guide.\n3. If stamp or time range is missing, attempt to extract them from the incident details in the query.\n4. Carry the IncidentId forward in all investigation state tracking.`;
+            // Dynamically discover ICM investigation guide from the knowledge base
+            let icmGuideHint = '';
+            const kbDir = this.config.knowledgeBasePath;
+            if (kbDir) {
+                try {
+                    const kbAbsPath = isAbsolute(kbDir) ? kbDir : join(this.config.repoRoot || '', kbDir);
+                    if (existsSync(kbAbsPath)) {
+                        const files = readdirSync(kbAbsPath);
+                        const icmGuide = files.find(f => /icm.*investigation/i.test(f) && f.endsWith('.md'));
+                        if (icmGuide) {
+                            icmGuideHint = ` Follow the ICM investigation guide (${icmGuide}).`;
+                        }
+                    }
+                } catch { /* ignore KB scan errors */ }
+            }
+            systemPrompt += `\n\n## ICM Incident Investigation\nThis investigation was initiated from IcM Incident ${this.state.incidentId}.${icmGuideHint}\n1. The incident context has already been extracted and is included in the user query below.\n2. Use the extracted stamp, time range, and symptom keywords to route to the correct specialized investigation guide.\n3. If stamp or time range is missing, attempt to extract them from the incident details in the query.\n4. Carry the IncidentId forward in all investigation state tracking.`;
         }
 
         // Main Loop
@@ -760,7 +775,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                     parameters: {
                         type: 'object',
                         properties: {
-                            path: { type: 'string', description: 'File path relative to repo root (e.g., docs/telemetry-investigations/README.md)' }
+                            path: { type: 'string', description: 'File path relative to repo root (e.g., docs/investigations/README.md)' }
                         },
                         required: ['path']
                     }
@@ -789,7 +804,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                         type: 'object',
                         properties: {
                             type: { type: 'string', enum: ['edit', 'create'], description: "'edit' to modify existing file, 'create' to make a new file" },
-                            filePath: { type: 'string', description: 'File path relative to repo root (e.g., docs/telemetry-investigations/my-guide.md)' },
+                            filePath: { type: 'string', description: 'File path relative to repo root (e.g., docs/investigations/my-guide.md)' },
                             description: { type: 'string', description: 'What this change does and why, prefixed with category tag like [Fix Wrong Info]' },
                             content: { type: 'string', description: 'The complete new file content. For edits, provide the FULL file with changes applied.' }
                         },
@@ -1479,6 +1494,14 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         const summaryText = this.state.finalReport
             || (reportThoughts.length > 0 ? extractThoughtText(reportThoughts[reportThoughts.length - 1]) : 'No summary available.');
 
+        // Cap thought text in report to prevent multi-MB reports when fullHistory has
+        // hundreds of entries (many with 72K+ char KQL observations). Full data is in state.json.
+        const MAX_REPORT_THOUGHT_CHARS = 2_000;
+        const capForReport = (text: string): string => {
+            if (text.length <= MAX_REPORT_THOUGHT_CHARS) return text;
+            return text.substring(0, MAX_REPORT_THOUGHT_CHARS) + `\n... [truncated ${text.length.toLocaleString()} chars]`;
+        };
+
         const report = `# Investigation Report: ${this.state.id}\n\n` +
             `**Status**: ${this.state.status}\n` +
             `**Stamp**: ${this.state.stamp || 'N/A'}\n` +
@@ -1489,7 +1512,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             `## Execution Log\n\n` +
             reportThoughts.map((t: any, i: number) => {
                 const action = reportActions[i];
-                let entry = `### Step ${i + 1}\n**Thought**: ${extractThoughtText(t)}\n`;
+                let entry = `### Step ${i + 1}\n**Thought**: ${capForReport(extractThoughtText(t))}\n`;
                 if (action) {
                     entry += `**Action**: \`${action.tool}\`\n\`\`\`json\n${JSON.stringify(action.args, null, 2)}\n\`\`\`\n`;
                     if (action.result) {
@@ -1630,7 +1653,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                     this.openaiClient = new OpenAI({
                         apiKey: token,
                         baseURL: "https://api.githubcopilot.com",
-                        timeout: 120_000,
+                        timeout: 180_000,
                         defaultHeaders: {
                             'Editor-Version': 'vscode/1.85.1',
                             'Editor-Plugin-Version': 'copilot/1.155.0',
@@ -1654,7 +1677,9 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 // Per-message size guard: even after compaction, individual messages
                 // can be oversized (e.g., a single KQL observation). Cap each message
                 // to prevent a single entry from blowing the token budget.
-                const MAX_MSG_CHARS = 80_000; // ~20K tokens per message
+                // NOTE: With keepRecent=12 entries surviving compaction, this cap must be
+                // low enough that 12 × MAX_MSG_CHARS stays well under maxPayloadChars (600K).
+                const MAX_MSG_CHARS = 30_000; // ~7.5K tokens per message, 12 × 30K = 360K < 600K
                 const capContent = (content: string): string => {
                     if (content.length <= MAX_MSG_CHARS) return content;
                     const headSize = Math.floor(MAX_MSG_CHARS * 0.6);
@@ -1945,16 +1970,36 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             let summarizerUser: string;
 
             if (existingMemory) {
-                summarizerSystem = 'You are a summarizer merging prior investigation knowledge with new findings. ' +
-                    'You MUST preserve ALL key facts, data points, proven causal chains, timestamps, node names, ' +
-                    'tracking IDs, metric values, and outstanding questions from the EXISTING MEMORY section. ' +
-                    'Then integrate new findings from the RECENT ACTIVITY section. ' +
-                    'If new findings contradict prior knowledge, note the update explicitly. ' +
-                    'Output a comprehensive merged summary. Preserve specific numbers, IDs, and timestamps. ' +
-                    'Output ONLY the summary, no preamble.';
+                // Cap the Memory summary to prevent unbounded growth through successive compactions.
+                // After many compaction cycles, the Memory can grow to 25K+ chars, which bloats
+                // every subsequent LLM call and causes timeouts. When oversized, instruct the
+                // summarizer to CONDENSE rather than just merge.
+                const MAX_MEMORY_CHARS = 12_000;
+                const isMemoryOversized = existingMemory.length > MAX_MEMORY_CHARS;
+
+                if (isMemoryOversized) {
+                    this.log(`Memory summary oversized (${existingMemory.length} chars > ${MAX_MEMORY_CHARS}). Requesting condensation.`);
+                    summarizerSystem = 'You are a summarizer that must CONDENSE an oversized investigation memory. ' +
+                        'The existing memory has grown too large through successive merges. Your job is to produce ' +
+                        'a SHORTER, more focused summary that preserves only the MOST CRITICAL findings: ' +
+                        'key conclusions, proven root causes, specific metric values that support conclusions, ' +
+                        'and outstanding questions. Remove redundant data points, intermediate query results, ' +
+                        'and exploratory steps that did not yield actionable findings. ' +
+                        'Also integrate any new findings from the RECENT ACTIVITY section. ' +
+                        'Target output: ~2000-3000 words maximum. ' +
+                        'Output ONLY the condensed summary, no preamble.';
+                } else {
+                    summarizerSystem = 'You are a summarizer merging prior investigation knowledge with new findings. ' +
+                        'You MUST preserve ALL key facts, data points, proven causal chains, timestamps, node names, ' +
+                        'tracking IDs, metric values, and outstanding questions from the EXISTING MEMORY section. ' +
+                        'Then integrate new findings from the RECENT ACTIVITY section. ' +
+                        'If new findings contradict prior knowledge, note the update explicitly. ' +
+                        'Output a comprehensive merged summary. Preserve specific numbers, IDs, and timestamps. ' +
+                        'Output ONLY the summary, no preamble.';
+                }
                 summarizerUser = `Original investigation query: ${userQuery}\n\n` +
-                    `=== EXISTING MEMORY (MUST BE FULLY PRESERVED) ===\n${existingMemory}\n\n` +
-                    `=== RECENT ACTIVITY (MERGE INTO MEMORY) ===\n${olderText}`;
+                    `=== EXISTING MEMORY (${isMemoryOversized ? 'CONDENSE — too large' : 'MUST BE FULLY PRESERVED'}) ===\n${existingMemory}\n\n` +
+                    `=== RECENT ACTIVITY (${isMemoryOversized ? 'INTEGRATE KEY FINDINGS ONLY' : 'MERGE INTO MEMORY'}) ===\n${olderText}`;
             } else {
                 summarizerSystem = 'You are a summarizer. Condense the following investigation conversation history ' +
                     'into a comprehensive summary. Preserve ALL key findings, tool results, data points, timestamps, ' +
@@ -1992,6 +2037,28 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 null as any, // placeholder aligned with sysMsg thought
                 ...recentActions
             ];
+
+            // Truncate observation entries in the recent section to prevent payload bloat.
+            // The full data is preserved in fullHistory (synced above) and summarized in Memory.
+            // Without this, 12 recent entries with 72K char KQL results would make any subsequent
+            // LLM call exceed the payload limit, causing a timeout-compaction death spiral.
+            const MAX_POST_COMPACT_OBS_CHARS = 6_000;
+            for (let i = 2; i < this.state.thoughts.length; i++) {
+                const t = this.state.thoughts[i];
+                if (t && typeof t === 'object' && t.role === 'user' &&
+                    typeof t.content === 'string' && t.content.startsWith('Observation:')) {
+                    if (t.content.length > MAX_POST_COMPACT_OBS_CHARS) {
+                        const headSize = Math.floor(MAX_POST_COMPACT_OBS_CHARS * 0.7);
+                        const tailSize = Math.floor(MAX_POST_COMPACT_OBS_CHARS * 0.2);
+                        this.state.thoughts[i] = {
+                            ...t,
+                            content: t.content.substring(0, headSize) +
+                                `\n\n... [OBSERVATION TRUNCATED: ${t.content.length.toLocaleString()} chars → ${MAX_POST_COMPACT_OBS_CHARS.toLocaleString()} chars for context management. Key data preserved in System Memory above. Full data in investigation history.] ...\n\n` +
+                                t.content.substring(t.content.length - tailSize)
+                        };
+                    }
+                }
+            }
 
             this.emit('thought', sysMsg);
             // Reset the sync cursor: the compacted `thoughts` array contains synthetic entries

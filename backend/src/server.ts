@@ -692,8 +692,8 @@ function autoDiscoverProduct(repoRoot: string): { product: Partial<Product>; sug
         } catch { /* ignore read errors */ }
     }
 
-    // Look for knowledge base directories
-    const kbCandidates = ['docs/telemetry-investigations', 'docs/investigations', 'docs', 'knowledge'];
+    // Look for knowledge base directories (ordered generic-first)
+    const kbCandidates = ['docs/investigations', 'docs', 'knowledge', 'docs/telemetry-investigations'];
     for (const candidate of kbCandidates) {
         const full = path.join(repoRoot, candidate);
         if (fs.existsSync(full) && fs.statSync(full).isDirectory()) {
@@ -703,11 +703,11 @@ function autoDiscoverProduct(repoRoot: string): { product: Partial<Product>; sug
         }
     }
 
-    // Look for investigations directory
+    // Look for investigations directory (ordered generic-first)
     const invCandidates = [
-        'docs/telemetry-investigations/Investigations/AgentInvestigations',
-        'docs/investigations/AgentInvestigations',
         'investigations',
+        'docs/investigations/AgentInvestigations',
+        'docs/telemetry-investigations/Investigations/AgentInvestigations',
     ];
     for (const candidate of invCandidates) {
         const full = path.join(repoRoot, candidate);
@@ -1905,11 +1905,24 @@ app.post('/api/investigations/import', async (req, res) => {
     const originalId = importedState.id;
     const newId = Date.now().toString();
 
+    // Resolve createdBy: preserve from export, then try GitHub login, fall back to OS username
+    let importCreatedBy = importedState.createdBy;
+    if (!importCreatedBy) {
+        try {
+            const ghUser = await copilotClient.getGitHubUser();
+            importCreatedBy = ghUser?.login;
+        } catch { /* ignore */ }
+    }
+    if (!importCreatedBy) {
+        importCreatedBy = require('os').userInfo().username;
+    }
+
     const state: InvestigationState = {
         ...importedState,
         id: newId,
         // Force terminal status — imported investigations should never be 'running'
         status: ['completed', 'failed', 'aborted'].includes(importedState.status) ? importedState.status : 'completed',
+        createdBy: importCreatedBy,
     };
 
     // Add an import note to thoughts

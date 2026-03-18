@@ -1,18 +1,18 @@
 {
   "id": "1749810000000",
   "status": "running",
-  "title": "Queue throttling analysis — ax-tds-prd-wus2-03",
+  "title": "Queue throttling analysis — svc-prd-wus2-03",
   "createdBy": "dvreich",
-  "query": "Investigate MessagingInfraThrottleException on ax-tds-prd-wus2-03",
-  "stamp": "ax-tds-prd-wus2-03",
+  "query": "Investigate MessagingInfraThrottleException on svc-prd-wus2-03",
+  "stamp": "svc-prd-wus2-03",
   "timeRange": "ago(2h)",
   "issueType": "throttling",
   "model": "claude-sonnet-4-20250514",
-  "productId": "teleduct",
-  "productName": "Teleduct",
+  "productId": "sample-product",
+  "productName": "sample-product",
   "thoughtCount": 8,
   "thoughts": [
-    "Starting investigation into MessagingInfraThrottleException on `ax-tds-prd-wus2-03`. I'll check the throttle exception distribution across nodes first.",
+    "Starting investigation into MessagingInfraThrottleException on `svc-prd-wus2-03`. I'll check the throttle exception distribution across nodes first.",
     {
       "content": "The throttling exceptions are concentrated on nodes `_Node_3` (47/5min) and `_Node_5` (31/5min). The queue depth is elevated at ~12,450 average with spikes to 28,300. Let me check if this correlates with increased incoming message volume or a processing slowdown.",
       "type": "thought"
@@ -44,7 +44,7 @@
       "type": "tool_use",
       "name": "execute_kql_query",
       "input": {
-        "query": "TeleductTraces\n| where Stamp == 'ax-tds-prd-wus2-03'\n| where TimeGenerated > ago(2h)\n| where Message has 'MessagingInfraThrottleException'\n| summarize ThrottleCount=count() by bin(TimeGenerated, 5m), NodeName\n| order by TimeGenerated desc, ThrottleCount desc"
+        "query": "ServiceTraces\n| where Stamp == 'svc-prd-wus2-03'\n| where TimeGenerated > ago(2h)\n| where Message has 'MessagingInfraThrottleException'\n| summarize ThrottleCount=count() by bin(TimeGenerated, 5m), NodeName\n| order by TimeGenerated desc, ThrottleCount desc"
       },
       "result": "| TimeGenerated           | NodeName | ThrottleCount |\n|-------------------------|----------|---------------|\n| 2025-06-13T14:15:00Z    | _Node_3  | 47            |\n| 2025-06-13T14:15:00Z    | _Node_5  | 31            |\n| 2025-06-13T14:15:00Z    | _Node_1  | 5             |\n| 2025-06-13T14:10:00Z    | _Node_3  | 52            |\n| 2025-06-13T14:10:00Z    | _Node_5  | 38            |"
     },
@@ -52,7 +52,7 @@
       "type": "tool_use",
       "name": "execute_kql_query",
       "input": {
-        "query": "TeleductMetrics\n| where Stamp == 'ax-tds-prd-wus2-03'\n| where TimeGenerated > ago(2h)\n| where MetricName == 'QueueDepth'\n| summarize AvgDepth=avg(Value), MaxDepth=max(Value) by bin(TimeGenerated, 5m)\n| order by TimeGenerated desc\n| take 10"
+        "query": "ServiceMetrics\n| where Stamp == 'svc-prd-wus2-03'\n| where TimeGenerated > ago(2h)\n| where MetricName == 'QueueDepth'\n| summarize AvgDepth=avg(Value), MaxDepth=max(Value) by bin(TimeGenerated, 5m)\n| order by TimeGenerated desc\n| take 10"
       },
       "result": "| TimeGenerated           | AvgDepth | MaxDepth |\n|-------------------------|----------|----------|\n| 2025-06-13T14:15:00Z    | 12450    | 28300    |\n| 2025-06-13T14:10:00Z    | 11800    | 25100    |\n| 2025-06-13T14:05:00Z    | 10200    | 22400    |"
     },
@@ -60,7 +60,7 @@
       "type": "tool_use",
       "name": "execute_kql_query",
       "input": {
-        "query": "TeleductTraces\n| where Stamp == 'ax-tds-prd-wus2-03'\n| where TimeGenerated > ago(24h)\n| where Message has 'VMSS scale'\n| project TimeGenerated, Message, NodeName"
+        "query": "ServiceTraces\n| where Stamp == 'svc-prd-wus2-03'\n| where TimeGenerated > ago(24h)\n| where Message has 'VMSS scale'\n| project TimeGenerated, Message, NodeName"
       },
       "result": "| TimeGenerated           | Message                                           | NodeName |\n|-------------------------|---------------------------------------------------|----------|\n| 2025-06-12T22:30:00Z    | VMSS scale-out: Added node _Node_7 to cluster     | _Node_7  |\n| 2025-06-12T22:30:00Z    | VMSS scale-out: Added node _Node_8 to cluster     | _Node_8  |"
     },
@@ -68,7 +68,7 @@
       "type": "tool_use",
       "name": "execute_kql_query",
       "input": {
-        "query": "TeleductMetrics\n| where Stamp == 'ax-tds-prd-wus2-03'\n| where TimeGenerated > ago(2h)\n| where MetricName == 'ActivePartitions'\n| summarize Partitions=max(Value) by NodeName\n| order by Partitions desc"
+        "query": "ServiceMetrics\n| where Stamp == 'svc-prd-wus2-03'\n| where TimeGenerated > ago(2h)\n| where MetricName == 'ActivePartitions'\n| summarize Partitions=max(Value) by NodeName\n| order by Partitions desc"
       },
       "result": "| NodeName | Partitions |\n|----------|------------|\n| _Node_3  | 12         |\n| _Node_5  | 10         |\n| _Node_1  | 8          |\n| _Node_2  | 6          |\n| _Node_4  | 6          |\n| _Node_6  | 6          |\n| _Node_7  | 0          |\n| _Node_8  | 0          |"
     }
