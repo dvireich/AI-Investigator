@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp } from 'lucide-react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2 } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -163,6 +163,21 @@ export const About = () => (
                         bg="bg-slate-900/60 border-slate-800 hover:border-fuchsia-500/20"
                         title="Settings Analytics tab"
                         desc="Pick which 3 analytics widgets appear on the dashboard from a registry of 8 chart types. Reset to defaults or swap charts instantly — selections persist in localStorage." />
+                    <FeatureCard icon={<Smartphone className="w-4 h-4" />}
+                        color="bg-violet-500/10 border border-violet-500/20 text-violet-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-violet-500/20"
+                        title="Remote access & mobile UI"
+                        desc="Built-in Dev Tunnel creates a secure public URL so you can manage investigations from your phone, tablet, or any browser. Fully responsive layout with hamburger nav, compact sidebar, and touch-friendly controls." />
+                    <FeatureCard icon={<Pin className="w-4 h-4" />}
+                        color="bg-yellow-500/10 border border-yellow-500/20 text-yellow-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-yellow-500/20"
+                        title="Pinning & tags"
+                        desc="Pin important investigations to the top of the dashboard and organize them with custom tags. Both persist across sessions and integrate with full-text search and filtering." />
+                    <FeatureCard icon={<Settings2 className="w-4 h-4" />}
+                        color="bg-stone-500/10 border border-stone-500/20 text-stone-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-stone-500/20"
+                        title="External config file"
+                        desc="Keep your team's config in your own repo and pass it at launch with --config. Version-controlled settings that survive re-clones and enable one-click team onboarding." />
                 </div>
             </section>
 
@@ -221,6 +236,9 @@ export const About = () => (
                         [TrendingUp,    'text-lime-400',     'KPI bar — success rate, avg duration, weekly count with delta, contest rate'],
                         [Users,         'text-pink-400',     'Created By tracking — auto-detected GitHub login or OS username on every investigation'],
                         [SlidersHorizontal, 'text-fuchsia-400', 'Analytics Settings tab — choose which 3 charts appear on the dashboard'],
+                        [Smartphone,        'text-violet-400',  'Remote access — Dev Tunnel with mobile-responsive UI, manage from any device'],
+                        [Pin,               'text-yellow-400',  'Pin & tag — pin investigations to top and organize with custom tags'],
+                        [Settings2,         'text-stone-400',   'External config — pass --config to load team settings from your own repo'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
                             <Icon className={`w-4 h-4 ${color} shrink-0`} />
@@ -266,13 +284,13 @@ export const About = () => (
                             </div>
                             <p className="text-slate-400 text-sm leading-relaxed max-w-lg">
                                 Conceived, designed, and built entirely by <span className="text-slate-200 font-semibold">dvreich</span> on
-                                the Azure Monitor Teleduct team. Born from real on-call pain — the goal was to turn
+                                the Azure Monitor team. Born from real on-call pain — the goal was to turn
                                 incident investigation from a manual spelunking exercise into a first-class,
                                 AI-accelerated experience that gets smarter with every run, and that any team
                                 can configure for their own domain.
                             </p>
                             <p className="text-slate-600 text-xs">
-                                Built with GitHub Copilot assistance &bull; AM-Teleduct repository &bull; {new Date().getFullYear()}
+                                Built with GitHub Copilot assistance &bull; {new Date().getFullYear()}
                             </p>
                         </div>
                         <ChevronRight className="w-5 h-5 text-slate-700 shrink-0 hidden md:block" />
@@ -283,7 +301,7 @@ export const About = () => (
         </div>
 
         <div className="border-t border-white/[0.06] py-6 text-center text-slate-500 text-xs">
-            AI Investigator &bull; AM-Teleduct &bull; Internal tool &bull; {new Date().getFullYear()}
+            AI Investigator &bull; Internal tool &bull; {new Date().getFullYear()}
         </div>
     </div>
 );
