@@ -285,9 +285,12 @@ function getEffectiveConfig(state?: Partial<InvestigationState>): typeof config 
 }
 
 // Config Persistence
-// Derive configFile from __dirname (compiled: dist/server.js -> backend/config.json)
-// or from process.cwd() as fallback
-const configFile = path.join(__dirname, '..', 'config.json');
+// Support --config <path> CLI argument to load config from an external file.
+// This allows teams to keep their config.json in their own repo.
+const configArgIndex = process.argv.indexOf('--config');
+const configFile = (configArgIndex !== -1 && process.argv[configArgIndex + 1])
+    ? path.resolve(process.argv[configArgIndex + 1])
+    : path.join(__dirname, '..', 'config.json');
 
 // Derive a sensible default repoRoot: climb from backend/src/ (dev) or backend/dist/ (prod) to repo root
 // Expected layout: <repoRoot>/tools/InvestigationDashboard/backend/src/server.ts (4 levels up)
