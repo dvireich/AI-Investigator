@@ -7,17 +7,27 @@
 #   .\Run-Dashboard.ps1 -NoTunnel          # App mode without dev tunnel (local only)
 #   .\Run-Dashboard.ps1 -Classic           # Classic mode (separate console windows) + dev tunnel
 #   .\Run-Dashboard.ps1 -Classic -NoTunnel # Classic mode without dev tunnel
+#   .\Run-Dashboard.ps1 -ConfigFile C:\Repos\MyProject\investigator-config.json
 
 param(
     [switch]$Classic,
     [switch]$NoTunnel,
-    [switch]$Anonymous
+    [switch]$Anonymous,
+    [string]$ConfigFile
 )
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BackendPort = 3000
 $FrontendPort = 5173
 $FrontendUrl = "http://localhost:$FrontendPort"
+
+# Build backend extra args for --config passthrough
+$backendExtra = ""
+if ($ConfigFile) {
+    $resolvedConfig = (Resolve-Path $ConfigFile -ErrorAction Stop).Path
+    $backendExtra = " -- --config `"$resolvedConfig`""
+    Write-Host "Using external config: $resolvedConfig" -ForegroundColor Cyan
+}
 
 # Auto-cleanup previous instances
 Write-Host "Cleaning up previous instances..." -ForegroundColor Yellow
@@ -31,7 +41,7 @@ if (-not $Classic) {
     Write-Host "Starting in App mode (hidden consoles)..." -ForegroundColor Magenta
 
     # Start Backend (hidden window)
-    $backendProc = Start-Process -FilePath "powershell" -ArgumentList "-WindowStyle", "Hidden", "-Command", "cd '$ScriptDir\backend'; npm.cmd run dev" -WindowStyle Hidden -PassThru
+    $backendProc = Start-Process -FilePath "powershell" -ArgumentList "-WindowStyle", "Hidden", "-Command", "cd '$ScriptDir\backend'; npm.cmd run dev$backendExtra" -WindowStyle Hidden -PassThru
     Write-Host "  Backend started (PID: $($backendProc.Id))" -ForegroundColor DarkGray
 
     # Start Frontend (hidden window)
@@ -113,7 +123,7 @@ if (-not $Classic) {
 
     # Start Backend
     Write-Host "Starting Backend..." -ForegroundColor Green
-    Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-Command", "cd '$ScriptDir\backend'; npm.cmd run dev"
+    Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-Command", "cd '$ScriptDir\backend'; npm.cmd run dev$backendExtra"
 
     # Wait a moment for backend to initialize
     Start-Sleep -Seconds 3
