@@ -1,28 +1,24 @@
 {
-  "repoRoot": "/path/to/your/repo",
-  "systemPromptPath": "/path/to/your/repo/.github/agents/YourAgent.md",
-  "knowledgeBasePath": "docs/investigations",
-  "mcpServers": [],
+  "model": "gpt-4o",
   "maxSteps": 50,
   "retrospectTimeoutMinutes": 10,
-  "model": "gpt-4o",
   "defaultTimeRange": "ago(1h)",
   "maxConcurrentInvestigations": 3,
   "maxConcurrentScheduledInvestigations": 2,
   "scheduledInvestigationMaxSteps": 20,
   "autoRefreshInterval": 30,
-  "workingDirectory": "/path/to/your/repo/tools/InvestigationDashboard/backend",
   "notifications": true,
-  "investigationsPath": "/path/to/your/repo/investigations",
+  "defaultView": "grid",
+  "defaultSortOrder": "newest",
   "products": [
     {
       "id": "my-product",
       "name": "My Product",
-      "repoRoot": "/path/to/your/repo",
-      "systemPromptPath": "/path/to/your/repo/.github/agents/YourAgent.md",
-      "knowledgeBasePath": "/path/to/your/repo/docs/investigations",
-      "workingDirectory": "/path/to/your/repo/tools/InvestigationDashboard/backend",
-      "investigationsPath": "/path/to/your/repo/investigations"
+      "repoRoot": "C:/Repositories/MyProduct",
+      "systemPromptPath": "C:/Repositories/MyProduct/.github/agents/MyProduct_Investigation.agent.md",
+      "knowledgeBasePath": "C:/Repositories/MyProduct/docs/investigations",
+      "workingDirectory": "C:/Repositories/MyProduct",
+      "investigationsPath": "C:/Repositories/MyProduct/investigations"
     }
   ],
   "activeProductId": "my-product"
