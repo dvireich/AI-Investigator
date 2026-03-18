@@ -19,7 +19,7 @@ export class ToolManager {
     private repoRoot: string;
 
     constructor() {
-        this.repoRoot = process.env.REPO_ROOT || path.resolve(process.cwd(), '../../..');
+        this.repoRoot = process.env.REPO_ROOT || path.resolve(process.cwd(), '..');
     }
 
     /**

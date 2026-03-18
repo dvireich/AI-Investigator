@@ -293,8 +293,8 @@ const configFile = (configArgIndex !== -1 && process.argv[configArgIndex + 1])
     : path.join(__dirname, '..', 'config.json');
 
 // Derive a sensible default repoRoot: climb from backend/src/ (dev) or backend/dist/ (prod) to repo root
-// Expected layout: <repoRoot>/tools/InvestigationDashboard/backend/src/server.ts (4 levels up)
-const defaultRepoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+// Expected layout: <repoRoot>/backend/src/server.ts (2 levels up)
+const defaultRepoRoot = path.resolve(__dirname, '..', '..');
 
 interface Product {
     id: string;

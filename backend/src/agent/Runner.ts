@@ -542,7 +542,7 @@ export class AgentRunner extends EventEmitter {
         const path = require('path');
         return this.config.repoRoot
             || process.env.REPO_ROOT
-            || path.resolve(process.cwd(), '../../..');
+            || path.resolve(process.cwd(), '..');
     }
 
     /**
