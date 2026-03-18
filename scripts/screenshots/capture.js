@@ -94,6 +94,12 @@ async function captureDashboardOverview(page) {
     await navigateTo(page, '/');
     // Wait for investigation cards to render
     await page.waitForTimeout(1200);
+    // Ensure grid view is active (more impressive than list view)
+    const gridBtn = page.locator('button[title*="Grid"], button[aria-label*="grid"], button:has(svg.lucide-layout-grid)').first();
+    if (await gridBtn.isVisible()) {
+        await gridBtn.click();
+        await page.waitForTimeout(600);
+    }
     await screenshot(page, 'dashboard-overview');
 }
 
