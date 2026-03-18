@@ -1,7 +1,45 @@
 # Investigation Dashboard Setup Script
-# Installs Kusto CLI + dependencies for both Backend and Frontend
+# Installs all dependencies: Node.js, Azure CLI, Kusto CLI, npm packages, Puppeteer, Playwright, Dev Tunnel
 
-Write-Host "Setting up Investigation Dashboard..." -ForegroundColor Cyan
+Write-Host "Setting up AI Investigator..." -ForegroundColor Cyan
+
+# --- Node.js ---
+Write-Host ""
+Write-Host "Checking for Node.js..." -ForegroundColor Yellow
+$nodeExe = (Get-Command "node" -ErrorAction SilentlyContinue).Source
+if ($nodeExe) {
+    $nodeVersion = & node --version 2>$null
+    Write-Host "Node.js found: $nodeExe ($nodeVersion)" -ForegroundColor Green
+} else {
+    Write-Host "Node.js not found. Installing via winget..." -ForegroundColor Yellow
+    winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $nodeExe = (Get-Command "node" -ErrorAction SilentlyContinue).Source
+    if ($nodeExe) {
+        Write-Host "Node.js installed: $nodeExe ($(& node --version))" -ForegroundColor Green
+    } else {
+        Write-Error "Node.js installation failed. Please install Node.js manually from https://nodejs.org and re-run this script."
+        exit 1
+    }
+}
+
+# --- Azure CLI ---
+Write-Host ""
+Write-Host "Checking for Azure CLI..." -ForegroundColor Yellow
+$azExe = (Get-Command "az" -ErrorAction SilentlyContinue).Source
+if ($azExe) {
+    Write-Host "Azure CLI found: $azExe" -ForegroundColor Green
+} else {
+    Write-Host "Azure CLI not found. Installing via winget..." -ForegroundColor Yellow
+    winget install Microsoft.AzureCLI --accept-source-agreements --accept-package-agreements
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    $azExe = (Get-Command "az" -ErrorAction SilentlyContinue).Source
+    if ($azExe) {
+        Write-Host "Azure CLI installed: $azExe" -ForegroundColor Green
+    } else {
+        Write-Warning "Azure CLI installation failed. Kusto authentication may not work until Azure CLI is installed manually."
+    }
+}
 
 # --- Kusto CLI ---
 Write-Host ""
