@@ -657,7 +657,7 @@ Includes a server-side **file browser** for selecting directories.
 | **.NET 8+ SDK** *(optional)* | For Kusto CLI auto-install from NuGet |
 | **Python 3.10+** *(optional)* | For MCP KQL Server fallback |
 
-> **Note:** `Setup-Dashboard.ps1` does not validate prerequisites — ensure Node.js, .NET, and Python are installed before running.
+> **Note:** `Setup-Dashboard.ps1` automatically installs Node.js and Azure CLI via `winget` if not found.
 
 ### Quick Start
 
@@ -747,6 +747,61 @@ Add multiple products to investigate different systems from the same dashboard:
 ```
 
 Switch between products in the **New Investigation** form or **Settings** → **Products** → **Set Active**.
+
+#### 5. External config file (recommended for teams)
+
+Instead of editing `backend/config.json` inside AI Investigator (which is gitignored and lost on re-clone), keep your config in **your own repo** and pass it at launch:
+
+```powershell
+.\Run-Dashboard.ps1 -ConfigFile C:\Repositories\YourProduct\investigator-config.json
+```
+
+This way your team's config is version-controlled alongside the product repo.
+
+**Example `investigator-config.json`** — create this file in your product repo:
+
+```json
+{
+  "model": "claude-opus-4.6",
+  "maxSteps": 50,
+  "defaultTimeRange": "ago(1h)",
+  "maxConcurrentInvestigations": 3,
+  "notifications": true,
+  "defaultView": "grid",
+  "defaultSortOrder": "modified",
+  "products": [
+    {
+      "id": "my-product",
+      "name": "My Product",
+      "repoRoot": "C:/Repositories/MyProduct",
+      "systemPromptPath": "C:/Repositories/MyProduct/.github/agents/MyProduct_Investigation.agent.md",
+      "knowledgeBasePath": "C:/Repositories/MyProduct/docs/investigations",
+      "workingDirectory": "C:/Repositories/MyProduct",
+      "investigationsPath": "C:/Repositories/MyProduct/investigations"
+    }
+  ],
+  "activeProductId": "my-product"
+}
+```
+
+Then create a launcher script in your product repo root to make it one-click:
+
+```powershell
+# Run-AI-Investigator.ps1 (in your product repo)
+param([switch]$Classic, [string]$ConfigFile)
+
+$ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+if (-not $ConfigFile) {
+    $ConfigFile = Join-Path $ScriptDir "investigator-config.json"
+}
+
+$InvestigatorRoot = $env:AI_INVESTIGATOR_ROOT
+if (-not $InvestigatorRoot) { $InvestigatorRoot = "C:\Repositories\AI-Investigator" }
+
+& "$InvestigatorRoot\Run-Dashboard.ps1" -ConfigFile $ConfigFile @PSBoundParameters
+```
+
+> **Note:** If `-ConfigFile` is not specified, AI Investigator falls back to its built-in `backend/config.json`. Settings changed via the UI are saved back to whichever config file was loaded.
 
 ### Launch Modes
 
