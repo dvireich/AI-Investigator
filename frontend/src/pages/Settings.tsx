@@ -165,7 +165,6 @@ export const Settings = () => {
     const [browserTarget, setBrowserTarget] = useState<keyof typeof config | null>(null);
 
     const [config, setConfig] = useState({
-        theme: 'light',
         maxConcurrentInvestigations: 3,
         maxSteps: 50,
         retrospectTimeoutMinutes: 10,

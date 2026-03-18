@@ -354,10 +354,31 @@ let config: {
     defaultSortOrder: 'newest',
 };
 
+// Track what's persisted on disk — prevents internal defaults from leaking into the config file.
+// Keys like repoRoot, workingDirectory are machine-specific runtime defaults that shouldn't
+// be saved unless the user's config file already contained them.
+let persistedConfig: Record<string, any> = {};
+
+// Keys that are internal/machine-specific defaults — don't auto-persist if not already in the file
+const INTERNAL_DEFAULT_KEYS = new Set([
+    'repoRoot', 'workingDirectory', 'systemPromptPath', 'knowledgeBasePath',
+    'investigationsPath', 'mcpServers',
+]);
+
+function saveConfigToDisk() {
+    const tmpFile = configFile + '.tmp';
+    // Never persist auto-resolved internal fields
+    const { icmScriptsPath: _icm, retrospectPromptPath: _retro, ...saveable } = persistedConfig;
+    fs.writeFileSync(tmpFile, JSON.stringify(saveable, null, 2));
+    fs.renameSync(tmpFile, configFile);
+    console.log("Configuration saved to disk.");
+}
+
 // Load config from disk if exists
 try {
     if (fs.existsSync(configFile)) {
         const savedConfig = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+        persistedConfig = { ...savedConfig };
         // Internal paths are auto-resolved, not user-configurable — never let saved config override them
         const resolvedIcmScriptsPath = config.icmScriptsPath;
         const resolvedRetrospectPromptPath = config.retrospectPromptPath;
@@ -408,7 +429,7 @@ app.post('/api/settings', (req, res) => {
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
             'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
             'notifications', 'investigationsPath', 'products', 'activeProductId',
-            'theme', 'defaultView', 'defaultSortOrder'
+            'defaultView', 'defaultSortOrder'
         ]);
         const filtered = Object.fromEntries(
             Object.entries(newSettings).filter(([k]) => ALLOWED_KEYS.has(k))
@@ -416,12 +437,13 @@ app.post('/api/settings', (req, res) => {
 
         config = { ...config, ...filtered };
 
-        const tmpConfigFile = configFile + '.tmp';
-        // Exclude internal fields that are auto-resolved and not user-configurable
-        const { icmScriptsPath: _icm, retrospectPromptPath: _retro, ...persistableConfig } = config;
-        fs.writeFileSync(tmpConfigFile, JSON.stringify(persistableConfig, null, 2));
-        fs.renameSync(tmpConfigFile, configFile);
-        console.log("Configuration saved to disk.");
+        // Only persist keys that were already in the file or are user-facing settings
+        for (const [key, value] of Object.entries(filtered)) {
+            if (key in persistedConfig || !INTERNAL_DEFAULT_KEYS.has(key)) {
+                persistedConfig[key] = value;
+            }
+        }
+        saveConfigToDisk();
 
         // If investigations path changed, reload history
         if (newSettings.investigationsPath && newSettings.investigationsPath !== oldPath) {
@@ -470,7 +492,8 @@ app.put('/api/products/active', (req, res) => {
             return res.status(404).json({ error: 'Product not found' });
         }
         config.activeProductId = productId;
-        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        persistedConfig.activeProductId = productId;
+        saveConfigToDisk();
         res.json({ success: true });
     } catch (e: any) {
         console.error("Failed to set active product:", e);
@@ -494,7 +517,8 @@ app.post('/api/products', (req, res) => {
         }
         const newProduct: Product = { id, ...product };
         config.products.push(newProduct);
-        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        persistedConfig.products = [...config.products];
+        saveConfigToDisk();
         // Reload history to include investigations from new product directory
         if (newProduct.investigationsPath) {
             console.log(`New product added with investigationsPath: ${newProduct.investigationsPath}. Reloading history...`);
@@ -521,7 +545,8 @@ app.put('/api/products/:id', (req, res) => {
         delete updates.id;
         const oldInvestigationsPath = config.products[index].investigationsPath;
         config.products[index] = { ...config.products[index], ...updates };
-        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        persistedConfig.products = [...config.products];
+        saveConfigToDisk();
         // Reload history if investigationsPath changed
         if (updates.investigationsPath && updates.investigationsPath !== oldInvestigationsPath) {
             console.log(`Product investigationsPath changed to ${updates.investigationsPath}. Reloading history...`);
@@ -555,7 +580,9 @@ app.delete('/api/products/:id', (req, res) => {
             config.activeProductId = remaining[0]?.id || '';
         }
         config.products.splice(index, 1);
-        fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+        persistedConfig.products = [...config.products];
+        persistedConfig.activeProductId = config.activeProductId;
+        saveConfigToDisk();
         res.json({ success: true });
     } catch (e: any) {
         console.error("Failed to delete product:", e);
@@ -806,9 +833,8 @@ app.post('/api/products/:id/clone', (req, res) => {
         };
 
         config.products.push(clonedProduct);
-        const tmpConfigFile = configFile + '.tmp';
-        fs.writeFileSync(tmpConfigFile, JSON.stringify(config, null, 2));
-        fs.renameSync(tmpConfigFile, configFile);
+        persistedConfig.products = [...config.products];
+        saveConfigToDisk();
 
         res.json(clonedProduct);
     } catch (e: any) {
