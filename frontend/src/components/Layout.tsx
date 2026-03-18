@@ -87,12 +87,75 @@ export const Layout = () => {
             {/* Header */}
             <header className="fixed top-0 left-0 right-0 h-14 sm:h-16 bg-slate-900/70 backdrop-blur-xl border-b border-white/[0.06] z-50 flex items-center justify-between px-3 sm:px-6 shadow-2xl shadow-black/20">
                 <div className="flex items-center gap-2 sm:gap-4">
-                    <div className="flex items-center gap-2">
-                        {/* CSS LOGO */}
-                        <div className="relative w-8 h-8 rounded-xl bg-gradient-to-tr from-brand-400 to-brand-600 flex items-center justify-center shadow-lg shadow-brand-500/30 group cursor-pointer overflow-hidden">
-                            <div className="absolute inset-0 bg-white/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                            <div className="w-4 h-4 rounded-full border-2 border-white/90"></div>
-                            <div className="absolute top-1 right-1 w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse shadow-[0_0_8px_rgba(74,222,128,0.8)]"></div>
+                    <div className="flex items-center gap-2.5">
+                        {/* AI Agent Robot Logo - Premium Head */}
+                        <div className="relative w-11 h-11 rounded-2xl flex items-center justify-center group cursor-pointer overflow-visible logo-container">
+                            {/* Animated spinning border */}
+                            <div className="absolute -inset-[2px] rounded-[18px] overflow-hidden">
+                                <div className="absolute -inset-[50%] bg-[conic-gradient(#06b6d4,#8b5cf6,#ec4899,#f59e0b,#06b6d4)] opacity-60 group-hover:opacity-100 transition-opacity duration-500 logo-border-spin"></div>
+                            </div>
+                            {/* Dark interior */}
+                            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900"></div>
+                            <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-cyan-950/60 via-transparent to-violet-950/40"></div>
+                            <div className="absolute inset-0 rounded-2xl bg-[radial-gradient(circle_at_30%_20%,rgba(255,255,255,0.1),transparent_50%)]"></div>
+                            <svg width="30" height="30" viewBox="0 0 32 32" fill="none" className="relative z-10">
+                                <defs>
+                                    <filter id="glow-eye">
+                                        <feGaussianBlur stdDeviation="1.5" result="blur" />
+                                        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                    </filter>
+                                    <filter id="glow-antenna">
+                                        <feGaussianBlur stdDeviation="2" result="blur" />
+                                        <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                    </filter>
+                                    <linearGradient id="headFill" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="rgba(255,255,255,0.25)" />
+                                        <stop offset="40%" stopColor="rgba(255,255,255,0.07)" />
+                                        <stop offset="100%" stopColor="rgba(255,255,255,0.15)" />
+                                    </linearGradient>
+                                    <linearGradient id="eyeFill" x1="0" y1="0" x2="0" y2="1">
+                                        <stop offset="0%" stopColor="#67e8f9" />
+                                        <stop offset="100%" stopColor="#0891b2" />
+                                    </linearGradient>
+                                    <linearGradient id="visorFill" x1="0" y1="0" x2="1" y2="0">
+                                        <stop offset="0%" stopColor="rgba(6,182,212,0.1)" />
+                                        <stop offset="50%" stopColor="rgba(6,182,212,0.25)" />
+                                        <stop offset="100%" stopColor="rgba(6,182,212,0.1)" />
+                                    </linearGradient>
+                                </defs>
+                                {/* Antenna stem */}
+                                <line x1="16" y1="5" x2="16" y2="8.5" stroke="rgba(255,255,255,0.45)" strokeWidth="1.4" strokeLinecap="round" />
+                                {/* Antenna orb - pulsing */}
+                                <circle cx="16" cy="3.8" r="2" fill="url(#eyeFill)" filter="url(#glow-antenna)" className="animate-pulse" />
+                                <circle cx="16.5" cy="3.2" r="0.6" fill="white" fillOpacity="0.8" />
+                                {/* Head - larger metallic rounded rect */}
+                                <rect x="5" y="8.5" width="22" height="15" rx="4.5" fill="url(#headFill)" stroke="rgba(255,255,255,0.55)" strokeWidth="1.2" />
+                                {/* Visor band */}
+                                <rect x="7" y="11.5" width="18" height="7" rx="3" fill="url(#visorFill)" />
+                                {/* Left eye - outer ring */}
+                                <circle cx="11.5" cy="15" r="3.2" fill="none" stroke="rgba(6,182,212,0.35)" strokeWidth="0.8" />
+                                {/* Left eye - inner glow */}
+                                <circle cx="11.5" cy="15" r="2.3" fill="url(#eyeFill)" filter="url(#glow-eye)" />
+                                {/* Left eye - highlight */}
+                                <circle cx="12.2" cy="14" r="0.8" fill="white" fillOpacity="0.9" />
+                                {/* Right eye - outer ring */}
+                                <circle cx="20.5" cy="15" r="3.2" fill="none" stroke="rgba(6,182,212,0.35)" strokeWidth="0.8" />
+                                {/* Right eye - inner glow */}
+                                <circle cx="20.5" cy="15" r="2.3" fill="url(#eyeFill)" filter="url(#glow-eye)" />
+                                {/* Right eye - highlight */}
+                                <circle cx="21.2" cy="14" r="0.8" fill="white" fillOpacity="0.9" />
+                                {/* Mouth - LED segments */}
+                                <rect x="12" y="20.5" width="1.5" height="1.2" rx="0.6" fill="#a78bfa" />
+                                <rect x="14.2" y="20.5" width="3.6" height="1.2" rx="0.6" fill="#c084fc" />
+                                <rect x="18.5" y="20.5" width="1.5" height="1.2" rx="0.6" fill="#a78bfa" />
+                                {/* Ear modules */}
+                                <rect x="1.5" y="11" width="3" height="8" rx="1.5" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.4)" strokeWidth="0.8" />
+                                <circle cx="3" cy="15" r="0.8" fill="#22d3ee" fillOpacity="0.7" />
+                                <rect x="27.5" y="11" width="3" height="8" rx="1.5" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.4)" strokeWidth="0.8" />
+                                <circle cx="29" cy="15" r="0.8" fill="#22d3ee" fillOpacity="0.7" />
+                                {/* Chin accent line */}
+                                <line x1="11" y1="23.8" x2="21" y2="23.8" stroke="rgba(139,92,246,0.3)" strokeWidth="0.6" strokeLinecap="round" />
+                            </svg>
                         </div>
                         <div>
                             <h1 className="text-lg font-black tracking-tight text-white/90">

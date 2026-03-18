@@ -100,6 +100,7 @@ export interface Investigation {
     retrospect?: RetrospectState;
     contestCount?: number;
     tags?: string[];
+    createdBy?: string;
     storagePath?: string;
     lastModified?: number;
     // Scheduled investigation fields

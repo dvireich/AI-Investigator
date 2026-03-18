@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag } from 'lucide-react';
+import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag, User } from 'lucide-react';
 import { KpiBar } from '../components/charts/KpiBar';
 import { getSelectedWidgetIds, getWidgetById } from '../components/charts/widgetRegistry';
 
@@ -118,6 +118,7 @@ export const Dashboard = () => {
     const [productFilter, setProductFilter] = useState<string>('all');
     const [sourceFilter, setSourceFilter] = useState<'all' | 'manual' | 'scheduled'>('all');
     const [tagFilter, setTagFilter] = useState<string>('all');
+    const [createdByFilter, setCreatedByFilter] = useState<string>('all');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingTitle, setEditingTitle] = useState('');
     const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -434,11 +435,19 @@ export const Dashboard = () => {
         )
     ).sort(), [investigations]);
 
+    // Get unique creators from investigations
+    const uniqueCreators = useMemo(() => Array.from(
+        new Set(
+            investigations.map(inv => inv.createdBy).filter((c): c is string => !!c)
+        )
+    ).sort(), [investigations]);
+
     const filtered = useMemo(() => investigations
         .filter(inv => filter === 'all' || inv.status === filter)
         .filter(inv => productFilter === 'all' || inv.productId === productFilter)
         .filter(inv => sourceFilter === 'all' || (inv.source || 'manual') === sourceFilter)
         .filter(inv => tagFilter === 'all' || (inv.tags || []).includes(tagFilter))
+        .filter(inv => createdByFilter === 'all' || inv.createdBy === createdByFilter)
         .filter(inv => {
             if (!search) return true;
             const s = search.toLowerCase();
@@ -450,10 +459,11 @@ export const Dashboard = () => {
                 (inv.incidentId || '').toLowerCase().includes(s) ||
                 (inv.productName || '').toLowerCase().includes(s) ||
                 (inv.tags || []).some(t => t.toLowerCase().includes(s)) ||
+                (inv.createdBy || '').toLowerCase().includes(s) ||
                 inv.id.toLowerCase().includes(s) ||
                 inv.thoughts.some(t => typeof t === 'string' && t.toLowerCase().includes(s))
             );
-        }), [investigations, filter, productFilter, sourceFilter, tagFilter, search]);
+        }), [investigations, filter, productFilter, sourceFilter, tagFilter, createdByFilter, search]);
 
     // Sort: Pinned first, then Running/Paused, then by selected order
     const sorted = useMemo(() => [...filtered].sort((a, b) => {
@@ -845,6 +855,27 @@ export const Dashboard = () => {
                             }`} />
                         </div>
                     )}
+                    {uniqueCreators.length > 0 && (
+                        <div className="relative">
+                            <select
+                                value={createdByFilter}
+                                onChange={(e) => setCreatedByFilter(e.target.value)}
+                                className={`appearance-none pl-6 pr-4 py-1.5 sm:pl-7 sm:pr-6 sm:py-2 border rounded-xl text-[11px] sm:text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all min-w-0 ${
+                                    createdByFilter !== 'all'
+                                        ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-400'
+                                        : 'bg-slate-900/60 border-slate-700/50 text-slate-400'
+                                }`}
+                            >
+                                <option value="all">All Creators</option>
+                                {uniqueCreators.map(c => (
+                                    <option key={c} value={c}>{c}</option>
+                                ))}
+                            </select>
+                            <User className={`absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none ${
+                                createdByFilter !== 'all' ? 'text-indigo-500' : 'text-slate-400'
+                            }`} />
+                        </div>
+                    )}
                     <div className="relative">
                         <select
                             value={sortOrder}
@@ -900,7 +931,7 @@ export const Dashboard = () => {
             </div>
 
             {/* Results count */}
-            {(search || filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all' || tagFilter !== 'all') && sorted.length > 0 && (
+            {(search || filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all') && sorted.length > 0 && (
                 <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
                     <span>{sorted.length} {sorted.length === 1 ? 'investigation' : 'investigations'}</span>
                     {search && <><span>matching</span> <span className="font-bold text-slate-300">"{search}"</span></>}
@@ -935,6 +966,18 @@ export const Dashboard = () => {
                             <button
                                 onClick={() => setTagFilter('all')}
                                 className="ml-0.5 hover:text-emerald-300"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                        </span>
+                    )}
+                    {createdByFilter !== 'all' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-full font-bold">
+                            <User className="w-3 h-3" />
+                            {createdByFilter}
+                            <button
+                                onClick={() => setCreatedByFilter('all')}
+                                className="ml-0.5 hover:text-indigo-300"
                             >
                                 <X className="w-3 h-3" />
                             </button>
@@ -1094,6 +1137,15 @@ export const Dashboard = () => {
                                                         <Tag className="w-2.5 h-2.5" />{tag}
                                                     </span>
                                                 ))}
+                                                {inv.createdBy && (
+                                                    <span
+                                                        className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-indigo-500/20 transition-colors"
+                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setCreatedByFilter(inv.createdBy!); }}
+                                                        title={`Filter by creator "${inv.createdBy}"`}
+                                                    >
+                                                        <User className="w-2.5 h-2.5" />{inv.createdBy}
+                                                    </span>
+                                                )}
                                             </div>
                                             {(inv.timeRange || inv.trackingId) && (
                                                 <div className="flex flex-wrap items-center gap-1.5">
@@ -1276,6 +1328,15 @@ export const Dashboard = () => {
                                                             <Tag className="w-2.5 h-2.5" />{tag}
                                                         </span>
                                                     ))}
+                                                    {inv.createdBy && (
+                                                        <span
+                                                            className="inline-flex items-center gap-0.5 text-[10px] font-bold text-indigo-400 bg-indigo-500/10 border border-indigo-500/20 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-indigo-500/20 transition-colors"
+                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setCreatedByFilter(inv.createdBy!); }}
+                                                            title={`Filter by creator "${inv.createdBy}"`}
+                                                        >
+                                                            <User className="w-2.5 h-2.5" />{inv.createdBy}
+                                                        </span>
+                                                    )}
                                                     {inv.timeRange && (
                                                         <span className="text-[10px] font-mono text-slate-500 bg-slate-800/60 border border-slate-700/30 px-1.5 py-0.5 rounded-md" title={inv.timeRange}>
                                                             {formatTimeRange(inv.timeRange)}

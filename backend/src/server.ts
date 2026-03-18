@@ -1012,10 +1012,11 @@ interface CreateInvestigationParams {
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
     title?: string;
+    createdBy?: string;
 }
 
 function createInvestigation(params: CreateInvestigationParams): { id: string; runner: AgentRunner } {
-    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, maxSteps, source, scheduleId, title } = params;
+    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, maxSteps, source, scheduleId, title, createdBy } = params;
 
     // Determine which config to use (product-specific or global)
     let effectiveConfig: typeof config = config;
@@ -1071,6 +1072,7 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
         source: source || 'manual',
         scheduleId,
         title,
+        createdBy: createdBy || (source === 'scheduled' ? 'scheduler' : undefined),
     });
 
     const id = (runner as any).state.id;
@@ -1105,7 +1107,19 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
 }
 
 app.post('/api/investigations', async (req, res) => {
-    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, title } = req.body;
+    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, title, createdBy } = req.body;
+
+    // Resolve createdBy: use provided value, then try GitHub login, fall back to OS username
+    let resolvedCreatedBy = createdBy;
+    if (!resolvedCreatedBy) {
+        try {
+            const ghUser = await copilotClient.getGitHubUser();
+            resolvedCreatedBy = ghUser?.login;
+        } catch { /* ignore */ }
+    }
+    if (!resolvedCreatedBy) {
+        resolvedCreatedBy = require('os').userInfo().username;
+    }
 
     // Validate required fields - stamp and timeRange are optional when incidentId is provided
     if (!incidentId) {
@@ -1126,7 +1140,7 @@ app.post('/api/investigations', async (req, res) => {
     }
 
     try {
-        const { id } = createInvestigation({ query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, title });
+        const { id } = createInvestigation({ query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, title, createdBy: resolvedCreatedBy });
         res.json({ id, status: 'running' });
     } catch (err: any) {
         return res.status(400).json({ error: err.message });
@@ -1203,6 +1217,7 @@ app.get('/api/investigations', (req, res) => {
         scheduleId: s.scheduleId,
         verdict: s.verdict,
         contestCount: s.contestCount,
+        createdBy: s.createdBy,
         pausedAt: s.pausedAt,
         totalPausedTime: s.totalPausedTime,
         lastModified,
@@ -2432,7 +2447,7 @@ app.get('/api/schedules', (_req, res) => {
     res.json(scheduleStore.getAll());
 });
 
-app.post('/api/schedules', (req, res) => {
+app.post('/api/schedules', async (req, res) => {
     if (!scheduleStore || !scheduler) {
         // Attempt lazy initialization if not yet ready
         try { initScheduler(); } catch (err) { /* ignore */ }
@@ -2444,6 +2459,17 @@ app.post('/api/schedules', (req, res) => {
     if (!name || !stamp || !query) {
         return res.status(400).json({ error: 'name, stamp, and query are required' });
     }
+
+    // Resolve schedule creator: GitHub login → OS username
+    let scheduleCreatedBy: string | undefined;
+    try {
+        const ghUser = await copilotClient.getGitHubUser();
+        scheduleCreatedBy = ghUser?.login;
+    } catch { /* ignore */ }
+    if (!scheduleCreatedBy) {
+        scheduleCreatedBy = require('os').userInfo().username;
+    }
+
     const schedule = scheduleStore.create({
         name,
         enabled: enabled !== false,
@@ -2457,6 +2483,7 @@ app.post('/api/schedules', (req, res) => {
         issueType,
         autoEscalate: autoEscalate !== false,
         escalationQuery,
+        createdBy: scheduleCreatedBy,
     });
     // Start scheduler if not already running and schedule is enabled
     if (schedule.enabled && !scheduler.isRunning()) {

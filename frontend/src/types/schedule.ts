@@ -12,6 +12,7 @@ export interface ScheduleDefinition {
     issueType?: string;
     autoEscalate: boolean;
     escalationQuery?: string;
+    createdBy?: string;
     createdAt: string;
     lastRunAt?: string;
     nextRunAt?: string;

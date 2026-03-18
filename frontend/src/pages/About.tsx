@@ -1,5 +1,5 @@
 import React from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3 } from 'lucide-react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -147,7 +147,22 @@ export const About = () => (
                         color="bg-cyan-500/10 border border-cyan-500/20 text-cyan-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-cyan-500/20"
                         title="Dashboard analytics"
-                        desc="Interactive charts — investigation trend over time, issue type distribution donut, duration histogram, and animated success rate. Click stats tiles to filter the dashboard." />
+                        desc="Configurable widget system with 8 chart types — trend, issue donut, duration histogram, success rate, stamp activity, verdict breakdown, model usage, and contest rate. Choose any 3 from Settings." />
+                    <FeatureCard icon={<TrendingUp className="w-4 h-4" />}
+                        color="bg-lime-500/10 border border-lime-500/20 text-lime-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-lime-500/20"
+                        title="KPI bar"
+                        desc="At-a-glance operational metrics — success rate, average duration, weekly investigation count with week-over-week delta, and contest rate. Collapsible alongside the analytics charts." />
+                    <FeatureCard icon={<Users className="w-4 h-4" />}
+                        color="bg-pink-500/10 border border-pink-500/20 text-pink-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-pink-500/20"
+                        title="Multi-user support"
+                        desc="Each investigation tracks who created it — via GitHub login, OS username, or scheduler. Filter the dashboard by creator, see indigo badges on cards, and view the creator in the detail sidebar." />
+                    <FeatureCard icon={<SlidersHorizontal className="w-4 h-4" />}
+                        color="bg-fuchsia-500/10 border border-fuchsia-500/20 text-fuchsia-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-fuchsia-500/20"
+                        title="Settings Analytics tab"
+                        desc="Pick which 3 analytics widgets appear on the dashboard from a registry of 8 chart types. Reset to defaults or swap charts instantly — selections persist in localStorage." />
                 </div>
             </section>
 
@@ -202,7 +217,10 @@ export const About = () => (
                         [GripHorizontal,'text-slate-400',   'Floating action dock — Resume All, Restart, Import, and New in one toolbar'],
                         [CalendarClock, 'text-indigo-400',   'Recurring schedules — automated stamp health checks with verdict tracking'],
                         [BookOpen,      'text-orange-400',   'Query bank — save and reuse investigation templates across forms'],
-                        [BarChart3,     'text-cyan-400',     'Dashboard analytics — trend, issue donut, duration histogram, and success rate charts'],
+                        [BarChart3,     'text-cyan-400',     'Configurable analytics — pick 3 widgets from 8 chart types in Settings'],
+                        [TrendingUp,    'text-lime-400',     'KPI bar — success rate, avg duration, weekly count with delta, contest rate'],
+                        [Users,         'text-pink-400',     'Created By tracking — auto-detected GitHub login or OS username on every investigation'],
+                        [SlidersHorizontal, 'text-fuchsia-400', 'Analytics Settings tab — choose which 3 charts appear on the dashboard'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
                             <Icon className={`w-4 h-4 ${color} shrink-0`} />

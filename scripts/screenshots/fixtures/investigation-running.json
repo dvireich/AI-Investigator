@@ -2,6 +2,7 @@
   "id": "1749820000000",
   "status": "running",
   "title": "High ingestion latency on oi-tds-prd-eus2p-01",
+  "createdBy": "dvreich",
   "query": "Investigate high ingestion latency on oi-tds-prd-eus2p-01 for the past 6 hours",
   "stamp": "oi-tds-prd-eus2p-01",
   "timeRange": "ago(6h)",

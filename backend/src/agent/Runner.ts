@@ -74,6 +74,7 @@ export interface InvestigationState {
     retrospect?: RetrospectState;
     contestCount?: number;
     tags?: string[];
+    createdBy?: string;
     // Scheduled investigation fields
     source?: 'manual' | 'scheduled';
     scheduleId?: string;

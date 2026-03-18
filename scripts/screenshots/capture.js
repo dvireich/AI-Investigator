@@ -2,7 +2,7 @@
  * Automated screenshot capture for the AI Investigator README.
  *
  * Launches a mock API server and the Vite dev server, then uses Playwright
- * to navigate every page/state and capture 29 screenshots to docs/screenshots/.
+ * to navigate every page/state and capture 30 screenshots to docs/screenshots/.
  *
  * Usage:
  *   node capture.js              → full run (starts mock + Vite, captures all)
@@ -398,6 +398,22 @@ async function captureSettings(page) {
     await screenshot(page, 'settings');
 }
 
+async function captureSettingsAnalytics(page) {
+    console.log('\n📸 Settings — Analytics Widgets...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    // Click on the Analytics tab
+    const analyticsTab = page.locator('button:has-text("Analytics")').first();
+    if (await analyticsTab.isVisible()) {
+        await analyticsTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'settings-analytics');
+}
+
 async function captureAuthFlow(page) {
     console.log('\n📸 Auth Flow...');
     // Set auth to unauthenticated
@@ -682,7 +698,7 @@ async function main() {
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
     try {
-        // ---- Capture all 19 screenshots ----
+        // ---- Capture all 30 screenshots ----
 
         // Dashboard
         await captureDashboardOverview(page);
@@ -715,6 +731,7 @@ async function main() {
 
         // Settings
         await captureSettings(page);
+        await captureSettingsAnalytics(page);
 
         // Auth
         await captureAuthFlow(page);
@@ -736,7 +753,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 29 screenshots captured successfully!');
+        console.log('  ✅ All 30 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

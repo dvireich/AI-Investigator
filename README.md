@@ -51,8 +51,9 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **ICM Integration** | Start investigations from IcM incidents with auto-extracted context (stamp, time range, severity) |
 | **Scheduled Investigations** | Recurring automated health checks with configurable intervals, verdict tracking, and run history |
 | **Query Bank** | Save and reuse investigation configurations as named templates across forms and schedules |
-| **Dashboard Analytics** | Interactive charts — investigation trend, issue type donut, duration histogram, and success rate |
+| **Dashboard Analytics** | Interactive charts — configurable 3-widget layout from 8 chart types, KPI bar, creator badges, and filter-by-creator |
 | **Multi-Product Support** | Configure multiple investigation targets with independent paths, prompts, and knowledge bases |
+| **Multi-User Tracking** | Every investigation records who created it (GitHub login, OS username, or scheduler) with dashboard filtering |
 
 ---
 
@@ -210,7 +211,7 @@ Screenshot: The chat panel with the auto-analysis message, followed by a user qu
 
 ### 12. Settings
 
-Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across four tabs: Products, Agent Behavior, Appearance, and System.
+Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across five tabs: Products, Agent Behavior, Analytics, Appearance, and System.
 
 ![Settings](docs/screenshots/settings.png)
 
@@ -218,7 +219,17 @@ Configure agent behavior, model selection, investigation storage path (with serv
 
 ---
 
-### 13. Resume All After Server Restart
+### 13. Settings — Analytics Widgets
+
+Choose which 3 analytics charts appear on the dashboard from a registry of 8 widget types. Each widget shows a preview of its chart style.
+
+![Settings Analytics](docs/screenshots/settings-analytics.png)
+
+<!-- Screenshot: The Settings Analytics tab showing the widget picker grid with 8 chart options, 3 selected (highlighted), and Save/Reset buttons. -->
+
+---
+
+### 14. Resume All After Server Restart
 
 When the backend restarts, all running investigations are automatically paused. The dashboard shows a **Resume All** button with the count of paused investigations. Click it to resume them all at once (respecting the max concurrent limit). A separate **Restart Server** button lets you trigger a graceful restart directly from the UI.
 
@@ -228,7 +239,7 @@ When the backend restarts, all running investigations are automatically paused. 
 
 ---
 
-### 14. Share & Export
+### 15. Share & Export
 
 Non-running investigations show **Share** (sky-blue) and **PDF** (violet) buttons in the sidebar. Share exports the full investigation state as a JSON file; PDF renders the final report into a styled, downloadable PDF document via Puppeteer.
 
@@ -238,7 +249,7 @@ Non-running investigations show **Share** (sky-blue) and **PDF** (violet) button
 
 ---
 
-### 15. Import Investigation (Drag & Drop)
+### 16. Import Investigation (Drag & Drop)
 
 Import previously exported investigations via the **Import Investigation** button in the floating action dock, or simply drag and drop a `.json` file anywhere on the dashboard. A full-screen animated drop zone appears with gradient borders and a pulsing upload icon.
 
@@ -248,7 +259,7 @@ Import previously exported investigations via the **Import Investigation** butto
 
 ---
 
-### 16. Scheduled Investigations
+### 17. Scheduled Investigations
 
 Set up recurring automated health checks with configurable intervals. The Schedules page shows all schedules as cards with live verdict badges (healthy / warning / critical / error), next-run countdown, and full run history. A floating dock lets you start/stop the scheduler and create new schedules.
 
@@ -256,7 +267,7 @@ Set up recurring automated health checks with configurable intervals. The Schedu
 
 ---
 
-### 17. New / Edit Schedule
+### 18. New / Edit Schedule
 
 Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — stamp, issue type, time range, model, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
 
@@ -264,7 +275,7 @@ Create or edit a schedule with a multi-step wizard: choose a saved query from th
 
 ---
 
-### 18. Query Bank
+### 19. Query Bank
 
 Save investigation configurations as reusable templates. Access the Query Bank from the New Investigation form to instantly load a saved stamp, query, time range, issue type, and model — or use them when creating schedules.
 
@@ -361,7 +372,8 @@ The main dashboard provides a rich interface for managing all investigations:
 - **Sort** — Order by Newest, Oldest, or Step Count
 - **Filter by Status** — All, Running, Paused, Completed, Failed, Aborted
 - **Filter by Product** — Dropdown to show only investigations for a specific product
-- **Full-Text Search** — Search across stamp, title, issue type, incident ID, product name, investigation ID, and thought content. Matching text is highlighted in results
+- **Filter by Creator** — Dropdown to show only investigations created by a specific user (indigo themed)
+- **Full-Text Search** — Search across stamp, title, issue type, incident ID, product name, investigation ID, creator, and thought content. Matching text is highlighted in results
 - **Pinning** — Pin important investigations to the top (persisted to localStorage)
 - **Group by Stamp** — Toggle to cluster investigations by their stamp name
 - **Date Grouping** — List view auto-groups into Today, Yesterday, This Week, and Older sections
@@ -370,7 +382,10 @@ The main dashboard provides a rich interface for managing all investigations:
 - **Inline Pause/Resume** — Hover over running/paused cards to toggle state without opening the detail view
 - **Stale Detection** — Flags running investigations that haven't progressed in 5+ minutes
 - **Toast Notifications** — Pop-up alerts when investigations complete or fail
-- **Statistics Bar** — Four animated tiles: Active, Done, Failed, and Success Rate (percentage). Click any tile to filter the list
+- **Statistics Bar** — Four animated tiles: Active, Done, Failed, and Total Investigations. Click any tile to filter the list
+- **KPI Bar** — Collapsible row of key metrics: success rate percentage, average investigation duration, this-week count with week-over-week delta, and contest rate
+- **Creator Badges** — Indigo badges on grid cards and list rows showing who created each investigation. Click a badge to filter by that creator
+- **Active Filter Chips** — Dismissible chips for active creator, product, source, and tag filters
 - **Keyboard Shortcuts** — Press `?` to toggle the shortcut overlay:
   | Key | Action |
   |-----|--------|
@@ -434,13 +449,25 @@ Save and reuse investigation configurations as named templates:
 
 ### 📊 Dashboard Analytics
 
-Interactive charts provide at-a-glance operational intelligence:
+A configurable analytics system with an expandable widget panel and a KPI summary bar:
 
-- **Investigation Trend** — Line chart showing investigation counts over time (grouped by day)
-- **Issue Type Distribution** — Donut chart breaking down investigations by issue type
-- **Duration Distribution** — Histogram of investigation durations
-- **Success Rate** — Animated donut chart in the statistics bar with percentage display
-- **Clickable Stats Tiles** — Four animated tiles (Active, Done, Failed, Success Rate) — click to filter the dashboard
+- **Widget Registry** — 8 built-in chart types: 14-Day Trend (line), Issue Types (donut), Duration Distribution (histogram), Success Rate (donut), Stamp Activity (horizontal stacked bar), Verdict Breakdown (donut), Model Usage (bar), and Contest Rate (donut)
+- **Configurable 3-Widget Layout** — Choose any 3 widgets from the registry via Settings → Analytics tab. Selections persist in localStorage
+- **KPI Bar** — Four mini stat cards shown above the charts: Success Rate (%), Avg Duration, This Week count (with ±delta vs last week), and Contest Rate (%)
+- **Analytics Toggle** — Collapse/expand the entire analytics section with one click
+- **Reset to Defaults** — One-click restore to the default widget selection (Trend, Stamp Activity, Success Rate)
+- **Widget Cards** — Each chart renders in a glass-card container with a label header
+
+### 👥 Multi-User Tracking
+
+Every investigation records who created it for team-level visibility:
+
+- **Automatic Detection** — Creator resolved via: authenticated GitHub login → OS username → `'scheduler'` for automated runs
+- **Dashboard Filter** — "All Creators" indigo dropdown filters the investigation list by creator
+- **Creator Badges** — Indigo badges on grid cards and list rows showing the creator username (clickable to filter)
+- **Detail Sidebar** — "Created By" field displayed with a User icon between the Source indicator and System ID
+- **Search Integration** — Full-text search matches against creator names
+- **Persistent** — The `createdBy` field is saved in `state.json` and survives server restarts
 
 ### 🧠 Context Management
 
@@ -542,9 +569,10 @@ The Add Product modal starts with a **Discover** step: point to a repo root, cli
 
 ### ⚙️ Settings
 
-Four-tab Settings page:
+Five-tab Settings page:
 - **Products** — Configure investigation targets with discover-first onboarding (`.investigator.json` manifest or auto-scan), expand/collapse product cards, path validation, and clone
 - **Agent Behavior** — Max steps, default model, retrospective timeout, system prompt path, working directory, investigation storage path
+- **Analytics** — Choose which 3 analytics widgets appear on the dashboard from a registry of 8 chart types (14-Day Trend, Issue Types, Duration Distribution, Success Rate, Stamp Activity, Verdict Breakdown, Model Usage, Contest Rate). Reset to defaults with one click
 - **Appearance** — Auto-refresh interval, default dashboard view mode (grid/list)
 - **System** — Default KQL time range preset
 
@@ -978,14 +1006,20 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
     │       │       ├── InvestigationTrend.tsx    # Line chart of investigations over time
     │       │       ├── IssueTypeDonut.tsx        # Issue type distribution donut
     │       │       ├── DurationDistribution.tsx  # Duration histogram
-    │       │       └── SuccessRateDonut.tsx      # Success rate pie chart
+    │       │       ├── SuccessRateDonut.tsx      # Success rate pie chart
+    │       │       ├── StampActivity.tsx         # Top stamps stacked bar chart
+    │       │       ├── VerdictBreakdown.tsx      # Scheduled verdict donut chart
+    │       │       ├── ModelUsage.tsx            # Model usage horizontal bar chart
+    │       │       ├── ContestRate.tsx           # Contest rate donut chart
+    │       │       ├── KpiBar.tsx                # KPI summary bar (success %, avg duration, weekly count, contest %)
+    │       │       └── widgetRegistry.ts         # Widget registry, selection storage, defaults
     │       └── pages/
     │           ├── Dashboard.tsx         # Investigation cards grid/list + analytics charts
     │           ├── NewInvestigation.tsx   # Investigation launch form (Standard + ICM) + query bank
     │           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect
     │           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
     │           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
-    │           ├── Settings.tsx          # Configuration management (4 tabs)
+    │           ├── Settings.tsx          # Configuration management (5 tabs: Products, Agent, Analytics, Appearance, System)
     │           └── About.tsx             # Feature showcase + credits
     └── docs/
         └── screenshots/              # UI screenshots (see Visual Walkthrough)
@@ -1039,11 +1073,11 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 29 files in `docs/screenshots/`:
+The capture script produces these 30 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
-| 1 | `dashboard-overview.png` | Dashboard — main grid overview |
+| 1 | `dashboard-overview.png` | Dashboard — main grid overview with creator badges and KPI bar |
 | 2 | `dashboard.png` | Dashboard — mixed investigation statuses |
 | 3 | `dashboard-resume-all.png` | Dashboard — post-restart with Resume All button |
 | 4 | `new-investigation.png` | New Investigation form (filled) |
@@ -1061,17 +1095,18 @@ The capture script produces these 29 files in `docs/screenshots/`:
 | 16 | `proposals-panel.png` | Retrospective tab — expanded proposals |
 | 17 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
 | 18 | `settings.png` | Settings — Products tab expanded |
-| 19 | `auth-flow.png` | Unauthenticated state |
-| 20 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
-| 21 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
-| 22 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
-| 23 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
-| 24 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
-| 25 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
-| 26 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
-| 27 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
-| 28 | `schedule-form.png` | Schedule creation wizard with query bank |
-| 29 | `query-bank.png` | New Investigation — query bank dropdown |
+| 19 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
+| 20 | `auth-flow.png` | Unauthenticated state |
+| 21 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 22 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 23 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 24 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 25 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
+| 26 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
+| 27 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
+| 28 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
+| 29 | `schedule-form.png` | Schedule creation wizard with query bank |
+| 30 | `query-bank.png` | New Investigation — query bank dropdown |
 
 ### Architecture
 

@@ -16,6 +16,7 @@ export type CreateInvestigationFn = (params: {
     maxSteps?: number;
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
+    createdBy?: string;
 }) => Promise<{ id: string }>;
 
 /**
@@ -183,6 +184,7 @@ export class Scheduler extends EventEmitter {
                 maxSteps,
                 source: 'scheduled',
                 scheduleId: schedule.id,
+                createdBy: schedule.createdBy || 'scheduler',
             });
 
             this.activeCount++;
@@ -304,6 +306,7 @@ export class Scheduler extends EventEmitter {
                 // No maxSteps override — full investigation
                 source: 'scheduled',
                 scheduleId: schedule.id,
+                createdBy: schedule.createdBy || 'scheduler',
             });
 
             this.activeCount++;

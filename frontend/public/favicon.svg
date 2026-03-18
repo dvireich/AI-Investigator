@@ -1,16 +1,54 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <!-- Background circle -->
-  <circle cx="16" cy="16" r="15" fill="#0f172a" stroke="#3b82f6" stroke-width="1.5"/>
-  
-  <!-- Bar chart -->
-  <rect x="6" y="18" width="3" height="6" rx="0.5" fill="#3b82f6" opacity="0.7"/>
-  <rect x="10.5" y="14" width="3" height="10" rx="0.5" fill="#3b82f6" opacity="0.85"/>
-  <rect x="15" y="16" width="3" height="8" rx="0.5" fill="#3b82f6" opacity="0.7"/>
-  
-  <!-- Magnifying glass -->
-  <circle cx="21" cy="12" r="5" stroke="#60a5fa" stroke-width="1.8" fill="none"/>
-  <line x1="24.5" y1="15.5" x2="28" y2="19" stroke="#60a5fa" stroke-width="2" stroke-linecap="round"/>
-  
-  <!-- Sparkle / AI dot -->
-  <circle cx="21" cy="12" r="1.2" fill="#facc15"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#1e1b4b"/>
+    </linearGradient>
+    <linearGradient id="hf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(255,255,255,0.25)"/>
+      <stop offset="40%" stop-color="rgba(255,255,255,0.07)"/>
+      <stop offset="100%" stop-color="rgba(255,255,255,0.15)"/>
+    </linearGradient>
+    <linearGradient id="ef" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#67e8f9"/>
+      <stop offset="100%" stop-color="#0891b2"/>
+    </linearGradient>
+    <linearGradient id="border" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#06b6d4"/>
+      <stop offset="33%" stop-color="#8b5cf6"/>
+      <stop offset="66%" stop-color="#ec4899"/>
+      <stop offset="100%" stop-color="#f59e0b"/>
+    </linearGradient>
+  </defs>
+  <!-- Background -->
+  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
+  <rect x="0.8" y="0.8" width="30.4" height="30.4" rx="6.2" fill="none" stroke="url(#border)" stroke-width="1.4"/>
+  <!-- Antenna stem -->
+  <line x1="16" y1="5" x2="16" y2="8.5" stroke="rgba(255,255,255,0.45)" stroke-width="1.4" stroke-linecap="round"/>
+  <!-- Antenna orb -->
+  <circle cx="16" cy="3.8" r="2" fill="url(#ef)"/>
+  <circle cx="16.5" cy="3.2" r="0.6" fill="white" fill-opacity="0.8"/>
+  <!-- Head -->
+  <rect x="5" y="8.5" width="22" height="15" rx="4.5" fill="url(#hf)" stroke="rgba(255,255,255,0.55)" stroke-width="1.2"/>
+  <!-- Visor -->
+  <rect x="7" y="11.5" width="18" height="7" rx="3" fill="rgba(6,182,212,0.2)"/>
+  <!-- Left eye -->
+  <circle cx="11.5" cy="15" r="3.2" fill="none" stroke="rgba(6,182,212,0.35)" stroke-width="0.8"/>
+  <circle cx="11.5" cy="15" r="2.3" fill="url(#ef)"/>
+  <circle cx="12.2" cy="14" r="0.8" fill="white" fill-opacity="0.9"/>
+  <!-- Right eye -->
+  <circle cx="20.5" cy="15" r="3.2" fill="none" stroke="rgba(6,182,212,0.35)" stroke-width="0.8"/>
+  <circle cx="20.5" cy="15" r="2.3" fill="url(#ef)"/>
+  <circle cx="21.2" cy="14" r="0.8" fill="white" fill-opacity="0.9"/>
+  <!-- Mouth LED -->
+  <rect x="12" y="20.5" width="1.5" height="1.2" rx="0.6" fill="#a78bfa"/>
+  <rect x="14.2" y="20.5" width="3.6" height="1.2" rx="0.6" fill="#c084fc"/>
+  <rect x="18.5" y="20.5" width="1.5" height="1.2" rx="0.6" fill="#a78bfa"/>
+  <!-- Ear modules -->
+  <rect x="1.5" y="11" width="3" height="8" rx="1.5" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>
+  <circle cx="3" cy="15" r="0.8" fill="#22d3ee" fill-opacity="0.7"/>
+  <rect x="27.5" y="11" width="3" height="8" rx="1.5" fill="rgba(255,255,255,0.08)" stroke="rgba(255,255,255,0.4)" stroke-width="0.8"/>
+  <circle cx="29" cy="15" r="0.8" fill="#22d3ee" fill-opacity="0.7"/>
+  <!-- Chin accent -->
+  <line x1="11" y1="23.8" x2="21" y2="23.8" stroke="rgba(139,92,246,0.3)" stroke-width="0.6" stroke-linecap="round"/>
 </svg>

@@ -22,6 +22,9 @@ export interface ScheduleDefinition {
     autoEscalate: boolean;             // Auto-launch full investigation on "critical"
     escalationQuery?: string;          // Optional override query for escalated run
 
+    // Ownership
+    createdBy?: string;                // GitHub login or OS username of the schedule creator
+
     // Runtime state (updated by Scheduler)
     createdAt: string;
     lastRunAt?: string;

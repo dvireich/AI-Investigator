@@ -2,6 +2,7 @@
   "id": "1749780000000",
   "status": "completed",
   "title": "Kusto ingestion errors — ax-tds-prd-neu-01",
+  "createdBy": "scheduler",
   "query": "Investigate Kusto ingestion failures on ax-tds-prd-neu-01",
   "stamp": "ax-tds-prd-neu-01",
   "timeRange": "ago(3d)",

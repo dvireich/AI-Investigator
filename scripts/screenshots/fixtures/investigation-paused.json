@@ -2,6 +2,7 @@
   "id": "1749800000000",
   "status": "paused",
   "title": "BlobReader cache miss cascade — oi-tds-prd-cus-02",
+  "createdBy": "jsmith",
   "query": "Investigate BlobReader cache miss cascade on oi-tds-prd-cus-02",
   "stamp": "oi-tds-prd-cus-02",
   "timeRange": "ago(12h)",

@@ -187,3 +187,15 @@ body::before {
   border: 2px dashed rgba(14, 165, 233, 0.3);
   pointer-events: none;
 }
+
+/* Premium robot logo animated border */
+.logo-border-spin {
+  animation: logoBorderSpin 4s linear infinite;
+}
+@keyframes logoBorderSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.logo-container:hover .logo-border-spin {
+  animation-duration: 2s;
+}

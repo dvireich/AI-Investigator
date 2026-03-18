@@ -2,6 +2,7 @@
   "id": "1749770000000",
   "status": "failed",
   "title": "Node crash investigation — oi-tds-prd-weu-01",
+  "createdBy": "agarcia",
   "query": "Investigate node crashes on oi-tds-prd-weu-01",
   "stamp": "oi-tds-prd-weu-01",
   "timeRange": "ago(1h)",

@@ -589,6 +589,99 @@ const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedb
     );
 });
 
+/* Isolated editable-title component.
+   Uses an uncontrolled editing pattern: while the user is typing, parent
+   re-renders (from WebSocket-driven fetchInvestigation) are completely ignored
+   because all editing state is local and we skip memo comparison during editing. */
+function InlineEditableTitle({ title, investigationId, onSaved }: {
+    title: string;
+    investigationId: string;
+    onSaved: () => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState('');
+    const [saving, setSaving] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+    // Keep a ref so the save closure always sees the latest investigationId/onSaved
+    const latestRef = useRef({ investigationId, onSaved });
+    latestRef.current = { investigationId, onSaved };
+
+    const startEditing = useCallback(() => {
+        setDraft(title || '');
+        setEditing(true);
+        setTimeout(() => inputRef.current?.focus(), 50);
+    }, [title]);
+
+    const save = useCallback(async () => {
+        const trimmed = draft.trim();
+        setSaving(true);
+        try {
+            await api.updateTitle(latestRef.current.investigationId, trimmed);
+            setEditing(false);
+            latestRef.current.onSaved();
+        } catch (err) {
+            console.error('Failed to update title:', err);
+        } finally {
+            setSaving(false);
+        }
+    }, [draft]);
+
+    const cancel = useCallback(() => {
+        setEditing(false);
+        setDraft('');
+    }, []);
+
+    // While editing, render only the input — completely ignores parent re-renders
+    if (editing) {
+        return (
+            <div className="flex items-center gap-1.5">
+                <input
+                    ref={inputRef}
+                    type="text"
+                    className="flex-1 px-2 py-1 rounded-lg border border-brand-500/40 bg-slate-800/60 text-sm font-medium text-slate-100 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') save();
+                        if (e.key === 'Escape') cancel();
+                    }}
+                    placeholder="Enter investigation name"
+                    disabled={saving}
+                />
+                <button
+                    onClick={save}
+                    disabled={saving}
+                    className="p-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                    title="Save"
+                >
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                    onClick={cancel}
+                    disabled={saving}
+                    className="p-1 rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                    title="Cancel"
+                >
+                    <X className="w-3.5 h-3.5" />
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <button
+            onClick={startEditing}
+            className="group/title flex items-center gap-2 w-full text-left"
+            title="Click to edit investigation name"
+        >
+            <span className="font-semibold text-slate-200 truncate flex-1">
+                {title || <span className="text-slate-500 italic font-normal">Untitled</span>}
+            </span>
+            <Pencil className="w-3.5 h-3.5 text-slate-600 group-hover/title:text-brand-400 transition-colors shrink-0" />
+        </button>
+    );
+}
+
 export const InvestigationDetail = () => {
     const { toast } = useToast();
     const { id } = useParams<{ id: string }>();
@@ -614,10 +707,6 @@ export const InvestigationDetail = () => {
     const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [mobileSidebarExpanded, setMobileSidebarExpanded] = useState(false);
     const [exporting, setExporting] = useState<'share' | 'pdf' | null>(null);
-    const [editingTitle, setEditingTitle] = useState(false);
-    const [titleDraft, setTitleDraft] = useState('');
-    const [savingTitle, setSavingTitle] = useState(false);
-    const titleInputRef = useRef<HTMLInputElement>(null);
     const [tagInput, setTagInput] = useState('');
     const [addingTag, setAddingTag] = useState(false);
     const tagInputRef = useRef<HTMLInputElement>(null);
@@ -875,32 +964,6 @@ export const InvestigationDetail = () => {
             setApplyingProposals(false);
         }
     }, [investigation?.id]);
-
-    const startEditingTitle = () => {
-        setTitleDraft(investigation?.title || '');
-        setEditingTitle(true);
-        setTimeout(() => titleInputRef.current?.focus(), 50);
-    };
-
-    const saveTitle = async () => {
-        if (!id) return;
-        const newTitle = titleDraft.trim();
-        setSavingTitle(true);
-        try {
-            await api.updateTitle(id, newTitle);
-            await fetchInvestigation();
-            setEditingTitle(false);
-        } catch (err) {
-            console.error('Failed to update title:', err);
-        } finally {
-            setSavingTitle(false);
-        }
-    };
-
-    const cancelEditingTitle = () => {
-        setEditingTitle(false);
-        setTitleDraft('');
-    };
 
     const handleAction = async (action: string, message?: string) => {
         if (!id) return;
@@ -1222,50 +1285,11 @@ export const InvestigationDetail = () => {
                     {/* Editable Investigation Name */}
                     <div className="mb-4 pb-4 border-b border-white/[0.06]">
                         <span className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1.5">Name</span>
-                        {editingTitle ? (
-                            <div className="flex items-center gap-1.5">
-                                <input
-                                    ref={titleInputRef}
-                                    type="text"
-                                    className="flex-1 px-2 py-1 rounded-lg border border-brand-500/40 bg-slate-800/60 text-sm font-medium text-slate-100 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
-                                    value={titleDraft}
-                                    onChange={(e) => setTitleDraft(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === 'Enter') saveTitle();
-                                        if (e.key === 'Escape') cancelEditingTitle();
-                                    }}
-                                    placeholder="Enter investigation name"
-                                    disabled={savingTitle}
-                                />
-                                <button
-                                    onClick={saveTitle}
-                                    disabled={savingTitle}
-                                    className="p-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
-                                    title="Save"
-                                >
-                                    {savingTitle ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                                </button>
-                                <button
-                                    onClick={cancelEditingTitle}
-                                    disabled={savingTitle}
-                                    className="p-1 rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
-                                    title="Cancel"
-                                >
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
-                            </div>
-                        ) : (
-                            <button
-                                onClick={startEditingTitle}
-                                className="group/title flex items-center gap-2 w-full text-left"
-                                title="Click to edit investigation name"
-                            >
-                                <span className="font-semibold text-slate-200 truncate flex-1">
-                                    {investigation.title || <span className="text-slate-500 italic font-normal">Untitled</span>}
-                                </span>
-                                <Pencil className="w-3.5 h-3.5 text-slate-600 group-hover/title:text-brand-400 transition-colors shrink-0" />
-                            </button>
-                        )}
+                        <InlineEditableTitle
+                            title={investigation.title}
+                            investigationId={id!}
+                            onSaved={fetchInvestigation}
+                        />
                     </div>
 
                     {/* Tags */}
@@ -1406,7 +1430,14 @@ export const InvestigationDetail = () => {
                                 </button>
                             </div>
                         )}
-                        {/* System ID & Storage Path — collapsible */}
+                        {investigation.createdBy && (
+                            <div className="flex items-center gap-2">
+                                <User className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                <span className="text-slate-500 text-xs">Created By</span>
+                                <span className="font-medium text-slate-200 text-xs ml-auto">{investigation.createdBy}</span>
+                            </div>
+                        )}
+                        {/* System ID & Storage Path - collapsible */}
                         <details className="group/details">
                             <summary className="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-400 transition-colors text-[11px] font-medium select-none list-none [&::-webkit-details-marker]:hidden">
                                 <ChevronDown className="w-3 h-3 transition-transform group-open/details:rotate-180" />
