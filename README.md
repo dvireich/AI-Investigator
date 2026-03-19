@@ -2,9 +2,9 @@
 
 # 🔍 AI Investigator
 
-**Autonomous investigation platform powered by GitHub Copilot**
+**Autonomous investigation platform powered by any LLM**
 
-An agentic system that runs, monitors, and learns from pipeline investigations — complete with live KQL execution, real-time streaming, and a self-improving knowledge base.
+An agentic system that runs, monitors, and learns from investigations — complete with MCP-powered tool execution, real-time streaming, and a self-improving knowledge base.
 
 ![Dashboard Overview](docs/screenshots/dashboard-overview.png)
 
@@ -30,7 +30,7 @@ An agentic system that runs, monitors, and learns from pipeline investigations �
 
 ## Overview
 
-AI Investigator is a full-stack web application that orchestrates LLM-driven investigations. An agent reasons about the problem, executes KQL queries against live Kusto clusters, and produces structured investigation reports — all visible in real-time through a modern UI.
+AI Investigator is a full-stack web application that orchestrates LLM-driven investigations. An agent reasons about the problem, executes queries via MCP tool servers, and produces structured investigation reports — all visible in real-time through a modern UI.
 
 After each investigation, a **retrospective system** analyzes what went well and what didn't, then proposes concrete file changes to the knowledge base so the next investigation is smarter.
 
@@ -38,9 +38,9 @@ After each investigation, a **retrospective system** analyzes what went well and
 
 | Capability | Description |
 |------------|-------------|
-| **Agentic Investigation** | LLM-driven think → act → observe loop with autonomous KQL execution |
+| **Agentic Investigation** | LLM-driven think → act → observe loop with autonomous tool execution via MCP |
 | **Live Streaming** | WebSocket-powered real-time display of agent thoughts, tool calls, and results |
-| **Dual KQL Backend** | Kusto CLI (primary) with MCP KQL Server fallback — auto-detects and auto-installs |
+| **Any Data Source via MCP** | Connect any data source via MCP tool servers — KQL, SQL, Prometheus, custom APIs, etc. |
 | **Full Lifecycle Control** | Start, pause, resume, abort, intervene, contest — all while the agent is running |
 | **Bulk Resume & Server Restart** | Resume all paused investigations in one click; restart the backend server from the UI with automatic reconnection |
 | **Retrospective Analysis** | Post-investigation AI analysis that reads the knowledge base and proposes improvements |
@@ -48,7 +48,7 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Persistent History** | All investigations saved as JSON state + Markdown reports, survives server restarts |
 | **Share & Export** | Export investigations as JSON files for sharing; import them on any dashboard instance with file picker or drag-and-drop |
 | **PDF Reports** | One-click PDF export of final reports with styled Markdown rendering via Puppeteer |
-| **ICM Integration** | Start investigations from IcM incidents with auto-extracted context (stamp, time range, severity) |
+| **Incident Integration** | Start investigations from incidents with auto-extracted context (target, time range, severity) |
 | **Scheduled Investigations** | Recurring automated health checks with configurable intervals, verdict tracking, and run history |
 | **Query Bank** | Save and reuse investigation configurations as named templates across forms and schedules |
 | **Dashboard Analytics** | Interactive charts — configurable 3-widget layout from 8 chart types, KPI bar, creator badges, and filter-by-creator |
@@ -71,11 +71,11 @@ Screenshot: The investigation cards grid showing a mix of running (blue pulse), 
 
 ### 1. New Investigation
 
-Launch investigations with structured context: stamp name, issue type, time window (8 quick presets or custom range), and model selection. Toggle between **Standard** and **ICM Incident** modes to start from an incident ID with auto-extracted context.
+Launch investigations with structured context: target name, category, time window (8 quick presets or custom range), and model selection. Toggle between **Standard** and **Incident** modes to start from an incident ID with auto-extracted context.
 
 ![New Investigation Form](docs/screenshots/new-investigation.png)
 
-<!-- Screenshot: The full form with Target Scope (stamp, issue type dropdown, tracking ID), Time Window section with preset buttons, and Agent Configuration with model selector. -->
+<!-- Screenshot: The full form with Target Scope (target, category dropdown, correlation ID), Time Window section with preset buttons, and Agent Configuration with model selector. -->
 
 ---
 
@@ -95,7 +95,7 @@ Watch the agent think and act in real-time. Each step shows the agent's reasonin
 
 ![Live Session](docs/screenshots/live-session.png)
 
-Screenshot: An active investigation showing several thought bubbles and tool call results (KQL queries with table output). The sidebar shows investigation metadata.
+Screenshot: An active investigation showing several thought bubbles and tool call results (queries with table output). The sidebar shows investigation metadata.
 
 --- -->
 
@@ -151,17 +151,17 @@ Screenshot: The yellow/amber token alert banner at the top of the live session w
 
 ### 7. Final Report
 
-Auto-generated Markdown report with findings, KQL queries used, and conclusions — styled with prose typography.
+Auto-generated Markdown report with findings, queries used, and conclusions — styled with prose typography.
 
 ![Final Report](docs/screenshots/final-report.png)
 
-<!-- Screenshot: The Report tab showing a rendered Markdown report with headers, bullet points, and KQL code blocks. -->
+<!-- Screenshot: The Report tab showing a rendered Markdown report with headers, bullet points, and code blocks. -->
 
 ---
 
 ### 8. Failed Investigation
 
-When an investigation encounters unrecoverable errors (consecutive LLM failures, KQL tool disconnection), it transitions to a failed state with preserved context for debugging.
+When an investigation encounters unrecoverable errors (consecutive LLM failures, tool disconnection), it transitions to a failed state with preserved context for debugging.
 
 ![Failed Investigation](docs/screenshots/failed-investigation.png)
 
@@ -183,7 +183,7 @@ The retrospective agent reads the investigation transcript and existing knowledg
 
 ![Retrospective Analyzing Investigation](docs/screenshots/retrospective-analyze-investigation.png)
 
-<!-- Screenshot: The retrospective agent analyzing the investigation and proposing to create a new knowledge base file (e.g., "Teleduct General Error Discovery Guide"). Shows the chat conversation with the agent's reasoning. -->
+<!-- Screenshot: The retrospective agent analyzing the investigation and proposing to create a new knowledge base file (e.g., "Database Performance Investigation Guide"). Shows the chat conversation with the agent's reasoning. -->
 
 ---
 
@@ -269,7 +269,7 @@ Set up recurring automated health checks with configurable intervals. The Schedu
 
 ### 18. New / Edit Schedule
 
-Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — stamp, issue type, time range, model, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
+Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — target, category, time range, model, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
 
 ![Schedule Form](docs/screenshots/schedule-form.png)
 
@@ -277,7 +277,7 @@ Create or edit a schedule with a multi-step wizard: choose a saved query from th
 
 ### 19. Query Bank
 
-Save investigation configurations as reusable templates. Access the Query Bank from the New Investigation form to instantly load a saved stamp, query, time range, issue type, and model — or use them when creating schedules.
+Save investigation configurations as reusable templates. Access the Query Bank from the New Investigation form to instantly load a saved target, query, time range, category, and model — or use them when creating schedules.
 
 ![Query Bank](docs/screenshots/query-bank.png)
 
@@ -299,10 +299,10 @@ Screenshot: The login modal showing the device code and "Open Login Page" button
 
 ### 🔄 Investigation Lifecycle
 
-- **Create** — Define stamp, time range (8 presets or custom datetime), issue type, tracking ID, model selection, and free-text query. Issue types: Unknown/Discovery, Latency/Performance, Error/Failure Rate, Throttling/Quota, Data Loss/Inconsistency, Availability/Downtime
+- **Create** — Define target, time range (8 presets or custom datetime), category, correlation ID, model selection, and free-text query. Categories: Unknown/Discovery, Latency/Performance, Error/Failure Rate, Throttling/Quota, Data Loss/Inconsistency, Availability/Downtime
 - **Flexible Timestamps** — Custom time range accepts ISO 8601, US date formats (`MM/DD/YYYY HH:MM AM/PM`), and Unix timestamps (seconds or milliseconds) with real-time validation and calendar picker
 - **Form Defaults** — Model and time range preset are pre-populated from saved settings
-- **Run** — Autonomous think → act → observe loop with KQL execution against live Kusto clusters
+- **Run** — Autonomous think → act → observe loop with tool execution via MCP servers
 - **Pause / Resume** — Freeze the agent, inspect state, optionally switch models, then continue
 - **Intervene** — Inject messages into the running agent's context to redirect its approach
 - **Contest Report** — Disagree with the final report? Provide feedback and the investigation resumes, the agent re-examines its findings and produces an improved report. Only available on `completed` investigations; the Retrospect tab appears for completed, failed, or aborted investigations
@@ -313,27 +313,26 @@ Screenshot: The login modal showing the device code and "Open Login Page" button
 - **Model Switching** — Change the LLM model mid-investigation (even while paused)
 - **Contest Tracking** — Tracks the number of times a report is contested, giving the agent cumulative feedback context
 
-### 🎫 ICM Incident Integration
+### 🎫 Incident Integration
 
-Start investigations directly from an IcM incident — the system auto-extracts all relevant context:
+Start investigations directly from an incident — the system auto-extracts all relevant context:
 
-- **Two Investigation Modes** — Toggle between **Standard** (stamp + time range + issue type) and **ICM Incident** (enter incident ID) in the New Investigation form
-- **Auto-Context Extraction** — Fetches the incident via SSE streaming, extracts stamp name, time range, severity, title, owning team, and description
-- **Progress Visualization** — Real-time step-by-step progress display during ICM data fetch
+- **Two Investigation Modes** — Toggle between **Standard** (target + time range + category) and **Incident** (enter incident ID) in the New Investigation form
+- **Auto-Context Extraction** — Fetches the incident via SSE streaming, extracts target, time range, severity, title, owning team, and description
+- **Progress Visualization** — Real-time step-by-step progress display during incident data fetch
 - **Auto-Fill** — Extracted metadata auto-populates investigation form fields (including incident status, individual owner, and severity badge)
-- **Status Check** — Validates ICM scripts are configured and available before allowing ICM mode
-- **Playwright Dependency** — Setup script installs Playwright for ICM browser automation when scripts are detected
+- **Pluggable Providers** — IcM, PagerDuty, or manual — configured via settings
 
-### 🔍 KQL Execution (Dual Backend)
+### 🔍 MCP Tool Servers
 
-| Backend | Role | Details |
-|---------|------|---------|
-| **Kusto CLI** | Primary | Auto-detects `Kusto.Cli.exe` in PATH, `C:\Kusto`, or NuGet cache. Auto-installs from NuGet if missing. Parses TSV output to structured JSON. |
-| **MCP KQL Server** | Fallback | Python-based Model Context Protocol server. Auto-installs via pip. 3-minute startup timeout for Azure auth. |
+Connect any data source via the Model Context Protocol (MCP):
 
-Both backends support: `execute_kql_query`, `list_tables`, `discover` (table schema), `refresh_schema`.
-
-**Destructive Command Blocking** — Kusto CLI blocks dangerous commands (`.drop`, `.delete`, `.purge`, `.alter`, etc.) to prevent accidental data loss.
+| Feature | Details |
+|---------|---------|
+| **Any MCP Server** | Configure one or more MCP servers in settings — KQL, SQL, Prometheus, custom APIs |
+| **Tool Discovery** | Auto-discovers available tools from connected MCP servers at startup |
+| **Conflict Resolution** | Automatically prefixes tool names when multiple servers expose the same tool name |
+| **Environment Variables** | Server args support `$ENV_VAR` syntax for secret injection |
 
 ### 🛠️ Agent Tools
 
@@ -341,8 +340,7 @@ The investigation agent has access to these tools:
 
 | Tool | Description |
 |------|-------------|
-| `execute_kql_query` | Run KQL queries with cluster URL and database parameters |
-| `schema_memory` | Schema operations: `list_tables`, `discover` (table schema), `refresh_schema` |
+| *MCP tools* | All tools discovered from connected MCP servers (varies by configuration) |
 | `read_file` | Read file content from the repository (path-traversal protected, restricted to repo root) |
 | `list_dir` | List directory contents (path-traversal protected) |
 | `finish` | Complete the investigation with a structured summary and report |
@@ -362,7 +360,7 @@ The **retrospective agent** additionally has:
 - Tool call display with arguments and formatted results (auto-collapsed at 2K+ chars, with “Load Full Output” for backend-truncated results)
 - Status transitions broadcast instantly
 - **WebSocket Reconnection** — Full-screen overlay on disconnect with exponential backoff (capped at 30s) and auto-reconnect
-- **View Full Query Modal** — Click to expand investigation metadata (stamp, time range) and full query text with copy button
+- **View Full Query Modal** — Click to expand investigation metadata (target, time range) and full query text with copy button
 
 ### 📋 Dashboard
 
@@ -373,9 +371,9 @@ The main dashboard provides a rich interface for managing all investigations:
 - **Filter by Status** — All, Running, Paused, Completed, Failed, Aborted
 - **Filter by Product** — Dropdown to show only investigations for a specific product
 - **Filter by Creator** — Dropdown to show only investigations created by a specific user (indigo themed)
-- **Full-Text Search** — Search across stamp, title, issue type, incident ID, product name, investigation ID, creator, and thought content. Matching text is highlighted in results
+- **Full-Text Search** — Search across target, title, category, incident ID, product name, investigation ID, creator, and thought content. Matching text is highlighted in results
 - **Pinning** — Pin important investigations to the top (persisted to localStorage)
-- **Group by Stamp** — Toggle to cluster investigations by their stamp name
+- **Group by Target** — Toggle to cluster investigations by their target name
 - **Date Grouping** — List view auto-groups into Today, Yesterday, This Week, and Older sections
 - **Inline Rename** — Edit investigation titles directly from the card
 - **Delete with Confirmation** — Remove investigations from memory and disk (blocked while running — abort first)
@@ -400,10 +398,10 @@ The main dashboard provides a rich interface for managing all investigations:
   | `Esc` | Clear search |
 - **Step Depth Bar** — Mini visualization of investigation step depth on each card
 - **Retrospective Badges** — Visual indicators for retrospective status on cards
-- **ICM Badge** — Orange badge on cards originating from IcM incidents
+- **Incident Badge** — Orange badge on cards originating from incidents
 - **Product Labels** — Product name displayed on each investigation card
 - **Live Duration Timer** — Running and paused cards show a live-counting elapsed-time timer
-- **TrackingId Copy** — Abbreviated tracking IDs with click-to-copy
+- **Correlation ID Copy** — Abbreviated correlation IDs with click-to-copy
 - **Skeleton Loading** — Animated placeholder cards during initial data fetch
 - **Auto-Refresh** — Configurable polling interval (lightweight metadata-only polling)
 - **Floating Action Dock** — Portal-rendered toolbar pinned below the navbar with quick actions:
@@ -423,14 +421,14 @@ The main dashboard provides a rich interface for managing all investigations:
 
 ### 📅 Scheduled Investigations
 
-Automate recurring stamp health checks with a built-in scheduler:
+Automate recurring target health checks with a built-in scheduler:
 
-- **Create Schedules** — Define stamp, query, recurrence interval (5min / 15min / 30min / 1h / 4h / 12h / 24h), model, time range, and issue type
+- **Create Schedules** — Define target, query, recurrence interval (5min / 15min / 30min / 1h / 4h / 12h / 24h), model, time range, and category
 - **Multi-Step Wizard** — Schedule creation form with product selection, query bank integration, and interval presets
 - **Scheduler Toggle** — Start/stop the scheduler from the floating dock on the Schedules page
 - **Verdict Tracking** — Each run produces a verdict: `healthy`, `warning`, `critical`, `error`, `paused`, or `unknown`. Color-coded badges displayed on schedule cards
 - **Run History** — Expandable history panel per schedule showing all past runs with timestamps, verdicts, and links to investigation details
-- **Inline Editing** — Edit stamp, time range, model, and issue type directly on the schedule card without opening the form
+- **Inline Editing** — Edit target, time range, model, and category directly on the schedule card without opening the form
 - **Run Now** — Manually trigger a schedule immediately, bypassing the interval timer
 - **Enable / Disable** — Toggle individual schedules on or off without deleting them
 - **Cascade Delete** — Deleting a schedule also removes all its associated investigations from memory and disk
@@ -441,7 +439,7 @@ Automate recurring stamp health checks with a built-in scheduler:
 
 Save and reuse investigation configurations as named templates:
 
-- **Save Query** — Store any combination of stamp, query, issue type, time range, model, and product as a named preset
+- **Save Query** — Store any combination of target, query, category, time range, model, and product as a named preset
 - **Load Query** — Instantly populate the New Investigation form from a saved query via a dropdown picker
 - **Update / Delete** — Edit or remove saved queries; updates propagate to the picker immediately
 - **Schedule Integration** — Query Bank entries are available when creating new schedules
@@ -451,11 +449,11 @@ Save and reuse investigation configurations as named templates:
 
 A configurable analytics system with an expandable widget panel and a KPI summary bar:
 
-- **Widget Registry** — 8 built-in chart types: 14-Day Trend (line), Issue Types (donut), Duration Distribution (histogram), Success Rate (donut), Stamp Activity (horizontal stacked bar), Verdict Breakdown (donut), Model Usage (bar), and Contest Rate (donut)
+- **Widget Registry** — 8 built-in chart types: 14-Day Trend (line), Categories (donut), Duration Distribution (histogram), Success Rate (donut), Target Activity (horizontal stacked bar), Verdict Breakdown (donut), Model Usage (bar), and Contest Rate (donut)
 - **Configurable 3-Widget Layout** — Choose any 3 widgets from the registry via Settings → Analytics tab. Selections persist in localStorage
 - **KPI Bar** — Four mini stat cards shown above the charts: Success Rate (%), Avg Duration, This Week count (with ±delta vs last week), and Contest Rate (%)
 - **Analytics Toggle** — Collapse/expand the entire analytics section with one click
-- **Reset to Defaults** — One-click restore to the default widget selection (Trend, Stamp Activity, Success Rate)
+- **Reset to Defaults** — One-click restore to the default widget selection (Trend, Target Activity, Success Rate)
 - **Widget Cards** — Each chart renders in a glass-card container with a label header
 
 ### 👥 Multi-User Tracking
@@ -495,11 +493,11 @@ The retrospective is a second-pass AI agent that learns from each investigation:
 11. **Configurable Timeout** — `retrospectTimeoutMinutes` setting (default 10 minutes) prevents runaway analysis
 12. **Smart Internals** — File read deduplication, no-proposal nudging (up to 6 retries), phased tool-choice escalation, token trimming at 110K tokens, save throttling, and network error retry (2x with 3s delay)
 
-The retrospective prompt supports six change categories: `[Fix Wrong Info]`, `[Add Missing Info]`, `[Improve Routing]`, `[New Guide]`, `[Prompt Refinement]`, `[New KQL Query]`.
+The retrospective prompt supports six change categories: `[Fix Wrong Info]`, `[Add Missing Info]`, `[Improve Routing]`, `[New Guide]`, `[Prompt Refinement]`, `[New Query]`.
 
 ### 💾 Persistence & History
 
-- State saved as JSON after every step: `{date}_{stamp}_{id}/state.json`
+- State saved as JSON after every step: `{date}_{target}_{id}/state.json`
 - Auto-generated Markdown reports alongside state files
 - Configurable storage directory (via Settings or `config.json`)
 - Server restart recovery — running investigations auto-pause, all state preserved
@@ -548,18 +546,13 @@ The Add Product modal starts with a **Discover** step: point to a repo root, cli
 
 ### 🔐 Authentication
 
-- **GitHub Copilot OAuth** — Secure device-flow authentication via GitHub API. Token persisted in `~/.investigation-dashboard-token` with automatic expiration checking and refresh via `copilot_internal/v2/token`
-- **Azure CLI Auth** — Inline Azure login prompt in the investigation UI when Kusto authentication fails. Backend spawns `az login` in a visible terminal window and polls for completion
-- **User Profile** — Fetches GitHub user avatar and display name, shown in the navigation header
-- **Token Management** — 401 responses auto-clear stored tokens and re-prompt for login
+- **Pluggable LLM Providers** — Choose from OpenAI, Anthropic, Azure OpenAI, GitHub Copilot, or Ollama. Each provider handles its own authentication (API key, OAuth device flow, or none)
+- **Provider Configuration** — Configure LLM provider type and credentials via Settings or `config.json`
+- **Token Management** — Providers manage their own token lifecycle; 401 responses trigger re-authentication
 
 ### 🛡️ Security
 
 - **Path Traversal Protection** — All file read/write/list operations validate paths are within the repo root
-- **Destructive Command Blocking** — Kusto CLI rejects `.drop`, `.delete`, `.purge`, `.alter`, and similar destructive KQL commands
-- **Cluster URL Validation** — Only valid Kusto HTTPS URLs are accepted for query execution
-- **Database Name Validation** — Only alphanumeric, underscore, and dash characters allowed in database names
-- **Table Name Sanitization** — Schema discovery validates table names with `^[a-zA-Z_][a-zA-Z0-9_]*$` to prevent KQL injection
 - **Config Key Whitelist** — Settings endpoint prevents arbitrary key injection via a strict allowlist
 - **Atomic File Writes** — State persistence uses write-to-temp + rename to prevent corruption
 - **Concurrent Operation Guards** — Prevents double-resume, double-contest, and concurrent runner creation race conditions
@@ -572,9 +565,9 @@ The Add Product modal starts with a **Discover** step: point to a repo root, cli
 Five-tab Settings page:
 - **Products** — Configure investigation targets with discover-first onboarding (`.investigator.json` manifest or auto-scan), expand/collapse product cards, path validation, and clone
 - **Agent Behavior** — Max steps, default model, retrospective timeout, system prompt path, working directory, investigation storage path
-- **Analytics** — Choose which 3 analytics widgets appear on the dashboard from a registry of 8 chart types (14-Day Trend, Issue Types, Duration Distribution, Success Rate, Stamp Activity, Verdict Breakdown, Model Usage, Contest Rate). Reset to defaults with one click
+- **Analytics** — Choose which 3 analytics widgets appear on the dashboard from a registry of 8 chart types (14-Day Trend, Categories, Duration Distribution, Success Rate, Target Activity, Verdict Breakdown, Model Usage, Contest Rate). Reset to defaults with one click
 - **Appearance** — Auto-refresh interval, default dashboard view mode (grid/list)
-- **System** — Default KQL time range preset
+- **System** — Default time range preset, LLM provider configuration, incident provider settings
 
 Includes a server-side **file browser** for selecting directories.
 
@@ -597,10 +590,10 @@ Includes a server-side **file browser** for selecting directories.
 ┌───────────────────────────┼──────────────────────────────────┐
 │                      Backend (Express)                        │
 │  ┌─────────────┐  ┌──────┴──────┐  ┌───────────────────────┐│
-│  │  REST API   │  │  WebSocket  │  │   Auth (OAuth Flow)   ││
-│  │  Endpoints  │  │  Broadcast  │  │   Copilot Token Mgmt  ││
-│  └──────┬──────┘  └─────────────┘  └───────────────────────┘│
-│         │                                                    │
+│  │  REST API   │  │  WebSocket  │  │   LLM Provider Layer  ││
+│  │  Endpoints  │  │  Broadcast  │  │  (OpenAI/Anthropic/   ││
+│  └──────┬──────┘  └─────────────┘  │   Ollama/Copilot/...) ││
+│         │                          └───────────────────────┘│
 │  ┌──────┴──────────────────────────────────────────────────┐│
 │  │                    Runner (Agent Core)                    ││
 │  │  ┌──────────┐  ┌─────────────┐  ┌────────────────────┐  ││
@@ -609,35 +602,22 @@ Includes a server-side **file browser** for selecting directories.
 │  │  └────┬─────┘  └──────┬──────┘  └────────────────────┘  ││
 │  │       │               │                                   ││
 │  │  ┌────┴───────────────┴──────┐                           ││
-│  │  │     Tool Execution        │                           ││
-│  │  │  ┌──────────┐ ┌────────┐  │                           ││
-│  │  │  │Kusto CLI │ │MCP KQL │  │                           ││
-│  │  │  │(primary) │ │(backup)│  │                           ││
-│  │  │  └────┬─────┘ └───┬────┘  │                           ││
-│  │  └───────┼────────────┼──────┘                           ││
-│  └──────────┼────────────┼──────────────────────────────────┘│
-└─────────────┼────────────┼───────────────────────────────────┘
-              │            │
-     ┌────────┴────┐  ┌───┴────────┐
-     │  Kusto CLI  │  │   MCP KQL  │
-     │  (dotnet)   │  │  (Python)  │
-     └──────┬──────┘  └──────┬─────┘
-            │                │
-            └────────┬───────┘
-                     │
-            ┌────────┴────────┐
-            │  Azure Kusto    │
-            │  Clusters       │
-            └─────────────────┘
+│  │  │     MCP Tool Bridge       │                           ││
+│  │  │  ┌──────────────────────┐ │                           ││
+│  │  │  │ Any MCP Server(s)   │ │                           ││
+│  │  │  └──────────────────────┘ │                           ││
+│  │  └───────────────────────────┘                           ││
+│  └──────────────────────────────────────────────────────────┘│
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Flow
 
 1. **User** creates an investigation via the UI
 2. **Backend** instantiates a `Runner` with the investigation context
-3. **Runner** enters a think → act → observe loop, calling the LLM via GitHub Copilot API
-4. **LLM** returns tool calls (KQL queries, schema discovery, finish)
-5. **Tools** execute against Kusto clusters via Kusto CLI or MCP server
+3. **Runner** enters a think → act → observe loop, calling the configured LLM provider
+4. **LLM** returns tool calls (queries, schema discovery, finish)
+5. **Tools** execute via connected MCP servers
 6. **Results** flow back to the LLM for the next reasoning step
 7. **WebSocket** broadcasts each step to the frontend in real-time
 8. **Runner** saves state to disk after every step
@@ -652,12 +632,10 @@ Includes a server-side **file browser** for selecting directories.
 | Requirement | Purpose |
 |------------|---------|
 | **Node.js 18+** | Backend + Frontend |
-| **GitHub Copilot subscription** | LLM access via Copilot API |
-| **Azure CLI** (`az login`) | Kusto cluster authentication |
-| **.NET 8+ SDK** *(optional)* | For Kusto CLI auto-install from NuGet |
-| **Python 3.10+** *(optional)* | For MCP KQL Server fallback |
+| **LLM Provider** | Any of: OpenAI API key, Anthropic API key, GitHub Copilot subscription, Azure OpenAI endpoint, or local Ollama instance |
+| **MCP Server(s)** *(optional)* | For data querying (e.g., MCP KQL Server, or any custom MCP server) |
 
-> **Note:** `Setup-Dashboard.ps1` automatically installs Node.js and Azure CLI via `winget` if not found.
+> **Note:** `Setup-Dashboard.ps1` automatically installs Node.js via `winget` if not found.
 
 ### Quick Start
 
@@ -666,14 +644,14 @@ Includes a server-side **file browser** for selecting directories.
 git clone https://github.com/<your-org>/AI-Investigator.git
 cd AI-Investigator
 
-# Install dependencies + Kusto CLI + Playwright
+# Install dependencies
 .\Setup-Dashboard.ps1
 
 # Launch in App mode (default)
 .\Run-Dashboard.ps1
 ```
 
-The dashboard opens automatically in an Edge standalone window at **http://localhost:5173**. Sign in with your GitHub account when prompted.
+The dashboard opens automatically in an Edge standalone window at **http://localhost:5173**. Configure your LLM provider in Settings when prompted.
 
 ### Setting Up Your Product
 
@@ -855,7 +833,7 @@ Phone / Tablet                        Your Laptop
 │              │                │  Express (port 3000)     │
 │              │                │    ├─ REST API            │
 │              │                │    ├─ WebSocket server    │
-│              │                │    └─ Kusto CLI / MCP     │
+│              │                │    └─ MCP Servers    │
 └──────────────┘                └──────────────────────────┘
 ```
 
@@ -885,7 +863,7 @@ The tunnel URL is displayed in a separate console window when the dashboard star
 The dashboard is fully responsive with mobile-optimized layouts:
 
 - **Hamburger navigation** — Full-screen drawer menu replaces the desktop nav bar
-- **Compact investigation sidebar** — Status badge, stamp name, and action buttons in a single row with expandable details
+- **Compact investigation sidebar** — Status badge, target name, and action buttons in a single row with expandable details
 - **Horizontal settings tabs** — Scrollable tab bar instead of a vertical sidebar
 - **Abbreviated tab labels** — "Live", "Report", "Retro" on small screens
 - **Touch-friendly controls** — Larger tap targets for pause/resume/abort actions
@@ -910,7 +888,7 @@ With remote access, you can run the AI Investigator on your work laptop and mana
 
 From your phone you can:
 - Monitor live investigation progress in real-time via WebSocket streaming
-- Start new investigations with stamp, time range, and issue type
+- Start new investigations with target, time range, and category
 - Pause, resume, or abort running investigations
 - Read final reports and contest findings with feedback
 - Review retrospective proposals and apply knowledge base changes
@@ -928,13 +906,13 @@ Configuration is managed through the Settings UI or directly in `backend/config.
 | `systemPromptPath` | *(empty)* | Path to the agent's system prompt `.md` file |
 | `knowledgeBasePath` | *(empty)* | Repo-relative path to the knowledge base directory (e.g., `docs/investigations`). Used by retrospective for doc discovery |
 | `investigationsPath` | `<repoRoot>/investigations` | Where investigation artifacts (JSON + Markdown) are saved |
-| `defaultTimeRange` | `ago(1h)` | Default KQL time range preset |
+| `defaultTimeRange` | `ago(1h)` | Default time range preset for investigations |
 | `maxConcurrentInvestigations` | `3` | Maximum parallel investigations |
 | `autoRefreshInterval` | `30` | Dashboard refresh interval (seconds) |
 | `workingDirectory` | Backend CWD | Working directory for file operations |
 | `retrospectTimeoutMinutes` | `10` | Timeout in minutes for retrospective auto-analysis (0 = unlimited) |
 | `notifications` | `true` | Enable toast notifications when investigations complete or fail |
-| `mcpServers` | `[]` | MCP server configurations for KQL fallback backend |
+| `mcpServers` | `[]` | MCP server configurations for tool execution |
 | `theme` | `light` | UI theme preference |
 | `products` | `[]` | Array of product configurations (see Multi-Product Support) |
 | `activeProductId` | *(empty)* | ID of the currently selected product for new investigations |
@@ -1042,19 +1020,20 @@ Each product in the `products` array has:
 | `GET/POST` | `/api/settings` | Get / Save configuration |
 | `GET` | `/api/files/list` | Browse server filesystem |
 
-### ICM
+### Incidents
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/icm/status` | Check ICM scripts availability |
-| `POST` | `/api/icm/:incidentId/read` | Fetch IcM incident via SSE streaming (120s timeout) |
+| `GET` | `/api/incidents/status` | Check incident provider availability |
+| `GET` | `/api/incidents/providers` | List available incident providers |
+| `POST` | `/api/incidents/:incidentId/read` | Fetch incident via SSE streaming (120s timeout) |
 
 ### MCP
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/api/investigations/:id/mcp/status` | Check MCP KQL server status |
-| `POST` | `/api/investigations/:id/mcp/restart` | Restart MCP KQL server |
+| `GET` | `/api/investigations/:id/mcp/status` | Check MCP server status |
+| `POST` | `/api/investigations/:id/mcp/restart` | Restart MCP server |
 
 ### WebSocket
 
@@ -1078,9 +1057,9 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 |-------|-----------|
 | **Frontend** | React 19 · TypeScript · Vite 7 · Tailwind CSS · React Router · lucide-react · react-markdown · remark-gfm |
 | **Backend** | Node.js · Express · TypeScript · WebSocket (ws) · Puppeteer · OpenAI SDK · @modelcontextprotocol/sdk · axios |
-| **LLM** | GitHub Copilot API (OAuth device flow) — GPT-4o, Claude Opus 4.6, etc. |
-| **KQL** | Kusto CLI (primary) · MCP KQL Server (fallback) |
-| **Auth** | GitHub OAuth Device Flow · Azure CLI for Kusto |
+| **LLM** | Pluggable: OpenAI, Anthropic, Azure OpenAI, GitHub Copilot, Ollama (all via OpenAI SDK) |
+| **Tools** | MCP Tool Bridge — connect any MCP-compatible data source |
+| **Auth** | Per-provider: API key, OAuth device flow, or none |
 | **Persistence** | JSON state files · Markdown reports |
 
 ---
@@ -1091,12 +1070,12 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 .
 ├── README.md                         # This file
 ├── Run-Dashboard.ps1                 # Launch services + dev tunnel (-NoTunnel, -Anonymous, -Classic)
-├── Setup-Dashboard.ps1               # Install dependencies + Kusto CLI + Playwright + devtunnel check
+├── Setup-Dashboard.ps1               # Install dependencies + devtunnel check
 ├── Stop-Dashboard.ps1                # Kill dashboard + tunnel processes
 ├── prompts/
 │   └── RetrospectPrompt.md           # Retrospective prompt template
 ├── scripts/
-│   ├── icm/                           # Bundled ICM automation scripts (Playwright)
+│   ├── icm/                           # Bundled IcM incident automation scripts (optional)
 │   └── screenshots/                   # Automated screenshot capture (see Taking Screenshots)
 ├── backend/
 │   ├── config.json               # Runtime configuration (git-ignored, user-specific)
@@ -1107,8 +1086,9 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │   │   ├── pdfRenderer.ts        # PDF report generation (Puppeteer + Markdown)
 │   │   ├── agent/
 │   │   │   ├── Runner.ts         # Core agent loop + retrospective
-│   │   │   ├── CopilotClient.ts  # GitHub OAuth + token management
-│   │   │   ├── Tools.ts          # KQL execution (Kusto CLI + MCP)
+│   │   │   ├── llm/              # LLM provider abstraction (OpenAI, Anthropic, Copilot, Ollama, Azure)
+│   │   │   ├── tools/            # MCP Tool Bridge + ToolManager
+│   │   │   ├── incidents/        # Incident provider abstraction (IcM, PagerDuty, Manual)
 │   │   │   └── RetrospectAgent.ts # (Legacy placeholder)
 │   │   ├── schedules/
 │   │   │   ├── Scheduler.ts      # Recurring investigation scheduler engine
@@ -1133,10 +1113,10 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │       │   ├── Toast.tsx         # Toast notifications + confirm dialogs
 │       │   └── charts/           # Dashboard analytics (recharts)
 │       │       ├── InvestigationTrend.tsx    # Line chart of investigations over time
-│       │       ├── IssueTypeDonut.tsx        # Issue type distribution donut
+│       │       ├── IssueTypeDonut.tsx        # Category distribution donut
 │       │       ├── DurationDistribution.tsx  # Duration histogram
 │       │       ├── SuccessRateDonut.tsx      # Success rate pie chart
-│       │       ├── StampActivity.tsx         # Top stamps stacked bar chart
+│       │       ├── StampActivity.tsx         # Top targets stacked bar chart
 │       │       ├── VerdictBreakdown.tsx      # Scheduled verdict donut chart
 │       │       ├── ModelUsage.tsx            # Model usage horizontal bar chart
 │       │       ├── ContestRate.tsx           # Contest rate donut chart
@@ -1144,7 +1124,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │       │       └── widgetRegistry.ts         # Widget registry, selection storage, defaults
 │       └── pages/
 │           ├── Dashboard.tsx         # Investigation cards grid/list + analytics charts
-│           ├── NewInvestigation.tsx   # Investigation launch form (Standard + ICM) + query bank
+│           ├── NewInvestigation.tsx   # Investigation launch form (Standard + Incident) + query bank
 │           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect
 │           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
 │           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
@@ -1158,7 +1138,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 
 ## Taking Screenshots
 
-All README screenshots are generated automatically using **Playwright** with a mock API server — no real backend, Kusto connection, or Azure auth required. The system uses **mock state injection**: an Express server serves canned JSON fixtures while Playwright navigates the real frontend through every page and state.
+All README screenshots are generated automatically using **Playwright** with a mock API server — no real backend or external auth required. The system uses **mock state injection**: an Express server serves canned JSON fixtures while Playwright navigates the real frontend through every page and state.
 
 ### Prerequisites
 
@@ -1260,7 +1240,7 @@ scripts/screenshots/
 
 ### Customizing Screenshots
 
-- **Fixture data**: Edit JSON files in `fixtures/` to change investigation content, thought messages, KQL queries, and report text. The structure matches the API interfaces in [frontend/src/api.ts](frontend/src/api.ts)
+- **Fixture data**: Edit JSON files in `fixtures/` to change investigation content, thought messages, tool queries, and report text. The structure matches the API interfaces in [frontend/src/api.ts](frontend/src/api.ts)
 - **Viewport**: Change `VIEWPORT` in `capture.js` (default: 1400×900, matching the dashboard's Edge app mode)
 - **Adding screenshots**: Add a new `capture*` function in `capture.js` and call it from `main()`. Use `setDetailOverride(id, fixture)` to inject state before navigating
 - **Mock server control API**: The `/__control/*` endpoints (`reset`, `set-investigations`, `set-detail-override`, `set-auth`) swap fixture data at runtime between captures

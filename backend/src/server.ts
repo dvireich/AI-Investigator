@@ -3,11 +3,14 @@ import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import { AgentRunner, InvestigationState } from './agent/Runner';
-import { CopilotClient } from './agent/CopilotClient';
+import { LlmProviderRegistry } from './agent/llm/LlmProviderRegistry';
+import { LlmProvider } from './agent/llm/LlmProvider';
+import { IncidentProviderRegistry } from './agent/incidents/IncidentProviderRegistry';
+import { IncidentProvider } from './agent/incidents/IncidentProvider';
+import { McpServerConfig } from './agent/tools/McpToolBridge';
 import { renderPdf } from './pdfRenderer';
 import * as fs from 'fs';
 import * as path from 'path';
-import { spawn } from 'child_process';
 import { ScheduleStore, ScheduleDefinition } from './schedules/ScheduleStore';
 import { Scheduler, SchedulerConfig } from './schedules/Scheduler';
 import { QueryBankStore, SavedQuery } from './querybank/QueryBankStore';
@@ -23,7 +26,10 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
     console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
 });
-const copilotClient = new CopilotClient();
+const llmRegistry = new LlmProviderRegistry();
+const incidentRegistry = new IncidentProviderRegistry();
+let activeLlmProvider: LlmProvider | null = null;
+let activeIncidentProvider: IncidentProvider | null = null;
 
 app.use(cors());
 app.use(express.json());
@@ -76,7 +82,7 @@ function getGlobalInvestigationsDir(): string {
 }
 
 /** Compute the on-disk storage path for a given investigation state. */
-function getInvestigationStoragePath(state: { id: string; stamp?: string; productId?: string }): string {
+function getInvestigationStoragePath(state: { id: string; target?: string; productId?: string }): string {
     let baseDir: string;
     if (state.productId && config.products?.length) {
         const product = config.products.find(p => p.id === state.productId);
@@ -86,9 +92,9 @@ function getInvestigationStoragePath(state: { id: string; stamp?: string; produc
     }
     const startDate = !isNaN(Number(state.id)) ? new Date(Number(state.id)) : new Date();
     const timestamp = startDate.toISOString().split('T')[0];
-    const safeStamp = (state.stamp || 'UnknownStamp').replace(/[^a-zA-Z0-9-]/g, '');
+    const safeTarget = (state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
     const safeId = String(state.id).replace(/[^a-zA-Z0-9]/g, '');
-    return path.join(baseDir, `${timestamp}_${safeStamp}_${safeId}`);
+    return path.join(baseDir, `${timestamp}_${safeTarget}_${safeId}`);
 }
 
 function loadHistory() {
@@ -292,6 +298,14 @@ const configFile = (configArgIndex !== -1 && process.argv[configArgIndex + 1])
     ? path.resolve(process.argv[configArgIndex + 1])
     : path.join(__dirname, '..', 'config.json');
 
+// The directory containing the config file — used to resolve relative paths in config values.
+// When --config points to a product repo's investigator-config.json, relative paths
+// like "docs/investigations" resolve relative to that repo root.
+const configFileDir = path.dirname(configFile);
+
+// The AI-Investigator installation root (two levels up from backend/src or backend/dist).
+const investigatorRoot = path.resolve(__dirname, '..', '..');
+
 // Derive a sensible default repoRoot: climb from backend/src/ (dev) or backend/dist/ (prod) to repo root
 // Expected layout: <repoRoot>/tools/InvestigationDashboard/backend/src/server.ts (4 levels up)
 const defaultRepoRoot = path.resolve(__dirname, '..', '..', '..', '..');
@@ -311,7 +325,7 @@ let config: {
     systemPromptPath: string;
     retrospectPromptPath: string; // Internal — resolved automatically, not user-configurable
     knowledgeBasePath: string;
-    mcpServers: string[];
+    mcpServers: McpServerConfig[];
     maxSteps: number;
     retrospectTimeoutMinutes: number;
     model: string;
@@ -321,7 +335,8 @@ let config: {
     workingDirectory: string;
     notifications: boolean;
     investigationsPath: string;
-    icmScriptsPath: string; // Internal — resolved automatically, not user-configurable
+    llmProvider: { type: string; [key: string]: any };
+    incidentProvider: { type: string; [key: string]: any };
     products: Product[];
     activeProductId: string;
     // Scheduled investigation settings
@@ -345,7 +360,8 @@ let config: {
     workingDirectory: process.cwd(),
     notifications: true,
     investigationsPath: '',
-    icmScriptsPath: path.resolve(__dirname, '..', '..', 'scripts', 'icm'),
+    llmProvider: { type: 'copilot' },
+    incidentProvider: { type: 'manual' },
     products: [],
     activeProductId: '',
     maxConcurrentScheduledInvestigations: 2,
@@ -362,16 +378,80 @@ let persistedConfig: Record<string, any> = {};
 // Keys that are internal/machine-specific defaults — don't auto-persist if not already in the file
 const INTERNAL_DEFAULT_KEYS = new Set([
     'repoRoot', 'workingDirectory', 'systemPromptPath', 'knowledgeBasePath',
-    'investigationsPath', 'mcpServers',
+    'investigationsPath',
 ]);
 
 function saveConfigToDisk() {
     const tmpFile = configFile + '.tmp';
     // Never persist auto-resolved internal fields
-    const { icmScriptsPath: _icm, retrospectPromptPath: _retro, ...saveable } = persistedConfig;
+    const { retrospectPromptPath: _retro, ...saveable } = persistedConfig;
     fs.writeFileSync(tmpFile, JSON.stringify(saveable, null, 2));
     fs.renameSync(tmpFile, configFile);
     console.log("Configuration saved to disk.");
+}
+
+/**
+ * Resolve a path that may be relative. Relative paths are resolved against the
+ * given baseDir (typically configFileDir for top-level config, or the product's
+ * repoRoot for product-level paths).
+ *
+ * Special prefix "$INVESTIGATOR_ROOT/" resolves relative to the AI-Investigator
+ * installation directory, allowing configs to reference built-in resources
+ * (like scripts/icm) portably.
+ */
+function resolveConfigPath(p: string, baseDir: string): string {
+    if (!p) return p;
+    if (p.startsWith('$INVESTIGATOR_ROOT/') || p.startsWith('$INVESTIGATOR_ROOT\\')) {
+        return path.resolve(investigatorRoot, p.substring('$INVESTIGATOR_ROOT/'.length));
+    }
+    if (path.isAbsolute(p)) return p;
+    return path.resolve(baseDir, p);
+}
+
+/**
+ * Resolve all relative paths in a loaded config object.
+ * Product paths resolve relative to their own repoRoot.
+ * Top-level paths resolve relative to the config file's directory.
+ */
+function resolveConfigPaths(cfg: any, baseDir: string): void {
+    // Top-level paths
+    const topLevelPathKeys = ['repoRoot', 'systemPromptPath', 'knowledgeBasePath', 'workingDirectory', 'investigationsPath'];
+    for (const key of topLevelPathKeys) {
+        if (cfg[key] && typeof cfg[key] === 'string') {
+            cfg[key] = resolveConfigPath(cfg[key], baseDir);
+        }
+    }
+
+    // Incident provider scriptsPath
+    if (cfg.incidentProvider?.scriptsPath) {
+        cfg.incidentProvider.scriptsPath = resolveConfigPath(cfg.incidentProvider.scriptsPath, baseDir);
+    }
+
+    // MCP server cwd
+    if (Array.isArray(cfg.mcpServers)) {
+        for (const server of cfg.mcpServers) {
+            if (server.cwd) {
+                server.cwd = resolveConfigPath(server.cwd, baseDir);
+            }
+        }
+    }
+
+    // Product paths resolve relative to their own repoRoot
+    if (Array.isArray(cfg.products)) {
+        for (const product of cfg.products) {
+            // First resolve repoRoot relative to config file
+            if (product.repoRoot) {
+                product.repoRoot = resolveConfigPath(product.repoRoot, baseDir);
+            }
+            const productBase = product.repoRoot || baseDir;
+            const productPathKeys = ['systemPromptPath', 'knowledgeBasePath', 'workingDirectory', 'investigationsPath'];
+            for (const key of productPathKeys) {
+                if (product[key] && typeof product[key] === 'string') {
+                    product[key] = resolveConfigPath(product[key], productBase);
+                }
+            }
+        }
+    }
 }
 
 // Load config from disk if exists
@@ -380,11 +460,13 @@ try {
         const savedConfig = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
         persistedConfig = { ...savedConfig };
         // Internal paths are auto-resolved, not user-configurable — never let saved config override them
-        const resolvedIcmScriptsPath = config.icmScriptsPath;
         const resolvedRetrospectPromptPath = config.retrospectPromptPath;
         config = { ...config, ...savedConfig };
-        config.icmScriptsPath = resolvedIcmScriptsPath;
         config.retrospectPromptPath = resolvedRetrospectPromptPath;
+
+        // Resolve relative paths against the config file's directory
+        resolveConfigPaths(config, configFileDir);
+
         console.log("Loaded configuration from disk.");
         // Ensure path exists after loading config (skip empty strings)
         if (config.investigationsPath) {
@@ -394,6 +476,28 @@ try {
 } catch (e) {
     console.error("Failed to load config file:", e);
 }
+
+// Initialize LLM and incident providers from config
+function initializeProviders() {
+    try {
+        const llmConfig = config.llmProvider || { type: 'copilot' };
+        activeLlmProvider = llmRegistry.getConfigured(llmConfig);
+        console.log(`[LLM] Initialized provider: ${llmConfig.type}`);
+    } catch (e: any) {
+        console.error(`[LLM] Failed to initialize provider:`, e.message);
+        // Fall back to copilot
+        activeLlmProvider = llmRegistry.get('copilot');
+    }
+    try {
+        const incidentConfig = config.incidentProvider || { type: 'manual' };
+        activeIncidentProvider = incidentRegistry.getConfigured(incidentConfig);
+        console.log(`[Incidents] Initialized provider: ${incidentConfig.type}`);
+    } catch (e: any) {
+        console.error(`[Incidents] Failed to initialize provider:`, e.message);
+        activeIncidentProvider = incidentRegistry.get('manual');
+    }
+}
+initializeProviders();
 
 // Initial load of history (after config is loaded)
 loadHistory();
@@ -429,6 +533,7 @@ app.post('/api/settings', (req, res) => {
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
             'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
             'notifications', 'investigationsPath', 'products', 'activeProductId',
+            'llmProvider', 'incidentProvider',
             'defaultView', 'defaultSortOrder'
         ]);
         const filtered = Object.fromEntries(
@@ -444,6 +549,11 @@ app.post('/api/settings', (req, res) => {
             }
         }
         saveConfigToDisk();
+
+        // Re-initialize providers if their config changed
+        if ('llmProvider' in filtered || 'incidentProvider' in filtered) {
+            initializeProviders();
+        }
 
         // If investigations path changed, reload history
         if (newSettings.investigationsPath && newSettings.investigationsPath !== oldPath) {
@@ -845,11 +955,14 @@ app.post('/api/products/:id/clone', (req, res) => {
 
 app.get('/api/models', async (req, res) => {
     try {
-        const models = await copilotClient.listModels();
+        if (!activeLlmProvider) {
+            return res.json(['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo']);
+        }
+        const models = await activeLlmProvider.listModels();
         res.json(models);
     } catch (e) {
         console.error("Failed to list models:", e);
-        res.json(['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo', 'o1-preview', 'o1-mini']);
+        res.json(['gpt-4o', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo']);
     }
 });
 
@@ -894,29 +1007,30 @@ app.get('/api/files/list', (req, res) => {
     }
 });
 
-// --- ICM Endpoints -------------------------------------------------------
-// ICM scripts are bundled with the dashboard at scripts/icm/
-function getIcmScriptsPath(): string {
-    return config.icmScriptsPath;
-}
+// --- Incident Provider Endpoints -----------------------------------------
 
-app.get('/api/icm/status', (_req, res) => {
-    // Check if ICM scripts path is configured and the main script exists
-    const scriptsPath = getIcmScriptsPath();
-    const scriptFile = path.join(scriptsPath, 'icm-full-read.js');
-    if (!fs.existsSync(scriptFile)) {
-        return res.json({ available: false, message: `Script not found: ${scriptFile}` });
+app.get('/api/incidents/status', async (_req, res) => {
+    if (!activeIncidentProvider) {
+        return res.json({ available: false, message: 'No incident provider configured' });
     }
-    res.json({ available: true });
+    const available = await activeIncidentProvider.isAvailable();
+    res.json({ available, providerType: config.incidentProvider?.type || 'manual' });
 });
 
-app.post('/api/icm/:incidentId/read', async (req, res) => {
-    const { incidentId } = req.params;
-    const scriptsPath = getIcmScriptsPath();
+app.get('/api/incidents/providers', (_req, res) => {
+    res.json(incidentRegistry.listProviders());
+});
 
-    const scriptFile = path.join(scriptsPath, 'icm-full-read.js');
-    if (!fs.existsSync(scriptFile)) {
-        return res.status(400).json({ error: `ICM script not found: ${scriptFile}` });
+app.post('/api/incidents/:incidentId/read', async (req, res) => {
+    const { incidentId } = req.params;
+
+    if (!activeIncidentProvider) {
+        return res.status(400).json({ error: 'No incident provider configured' });
+    }
+
+    const available = await activeIncidentProvider.isAvailable();
+    if (!available) {
+        return res.status(400).json({ error: 'Incident provider is not available' });
     }
 
     // Stream progress events via SSE
@@ -926,114 +1040,42 @@ app.post('/api/icm/:incidentId/read', async (req, res) => {
     res.flushHeaders();
 
     try {
-        let metadata: any = {};
-        let content = '';
-        let sections: any = {};
-
-        await new Promise<void>((resolve, reject) => {
-            let stderr = '';
-            const proc = spawn('node', [scriptFile, incidentId], {
-                cwd: scriptsPath,
-                timeout: 120000,
-                env: { ...process.env }
-            });
-
-            proc.stdout.on('data', (data: Buffer) => {
-                const lines = data.toString().split('\n');
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (!trimmed) continue;
-
-                    // Parse structured progress events
-                    if (trimmed.startsWith('[PROGRESS] ')) {
-                        try {
-                            const event = JSON.parse(trimmed.substring(11));
-                            res.write(`data: ${JSON.stringify(event)}\n\n`);
-                        } catch { /* skip malformed */ }
-                        continue;
-                    }
-
-                    // Parse structured data events
-                    if (trimmed.startsWith('[DATA] ')) {
-                        try {
-                            const event = JSON.parse(trimmed.substring(7));
-                            if (event.key === 'metadata') metadata = event.value;
-                            if (event.key === 'content') content = event.value;
-                            if (event.key === 'sections') sections = event.value;
-                        } catch { /* skip malformed */ }
-                        continue;
-                    }
-                }
-            });
-
-            proc.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-            proc.on('close', (code) => {
-                if (code === 0) {
-                    resolve();
-                } else {
-                    reject(new Error(`ICM script exited with code ${code}: ${stderr}`));
-                }
-            });
-            proc.on('error', (err) => reject(err));
+        const incident = await activeIncidentProvider.fetchIncident(incidentId, (event) => {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
         });
-
-        // Extract time range from metadata
-        let timeRange = '';
-        const timeSource = metadata.impactingFrom || metadata.created;
-        if (timeSource) {
-            const parsedDate = new Date(timeSource);
-            if (!isNaN(parsedDate.getTime())) {
-                const startISO = parsedDate.toISOString();
-                const endISO = new Date().toISOString();
-                timeRange = `between(datetime(${startISO}) .. datetime(${endISO}))`;
-            }
-        }
-
-        // Also try to find stamp in content if not in metadata
-        const stamp = metadata.stamp || '';
-        if (!stamp && content) {
-            const stampMatch = content.match(/(oi-tds-[\w-]+|ax-tds-[\w-]+)/i);
-            if (stampMatch) metadata.stamp = stampMatch[0];
-        }
-
-        // Build summary from the first 500 chars of the summary section
-        const summaryText = (sections.summary || content || '').substring(0, 500).trim();
 
         // Send final result event
         const result = {
             type: 'result',
-            incidentId,
-            title: metadata.title || `IcM Incident ${incidentId}`,
-            severity: metadata.severity || 'Unknown',
-            status: metadata.status || '',
-            owner: metadata.owner || '',
-            owningTeam: metadata.owningTeam || '',
-            stamp: metadata.stamp || '',
-            timeRange,
-            summary: summaryText,
-            raw: content
+            incidentId: incident.id,
+            title: incident.title,
+            severity: incident.severity || 'Unknown',
+            status: incident.status || '',
+            target: incident.target || '',
+            timeRange: incident.timeRange || '',
+            summary: (incident.content || '').substring(0, 500).trim(),
+            raw: incident.content || '',
         };
         res.write(`data: ${JSON.stringify(result)}\n\n`);
         res.end();
-
     } catch (err: any) {
-        console.error(`[ICM] Failed to read incident ${incidentId}:`, err);
-        const errorEvent = { type: 'error', message: err.message || 'Failed to read ICM incident' };
+        console.error(`[Incidents] Failed to read incident ${incidentId}:`, err);
+        const errorEvent = { type: 'error', message: err.message || 'Failed to read incident' };
         res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
         res.end();
     }
 });
-// --- End ICM Endpoints ---------------------------------------------------
+// --- End Incident Provider Endpoints -------------------------------------
 
 // ── Shared investigation creation logic ──────────────────────────────────
 // Used by both POST /api/investigations and the Scheduler.
 
 interface CreateInvestigationParams {
     query?: string;
-    stamp?: string;
+    target?: string;
     timeRange?: string;
-    trackingId?: string;
-    issueType?: string;
+    correlationId?: string;
+    category?: string;
     incidentId?: string;
     model?: string;
     productId?: string;
@@ -1045,7 +1087,7 @@ interface CreateInvestigationParams {
 }
 
 function createInvestigation(params: CreateInvestigationParams): { id: string; runner: AgentRunner } {
-    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, maxSteps, source, scheduleId, title, createdBy } = params;
+    const { query, target, timeRange, correlationId, category, incidentId, model, productId, maxSteps, source, scheduleId, title, createdBy } = params;
 
     // Determine which config to use (product-specific or global)
     let effectiveConfig: typeof config = config;
@@ -1079,22 +1121,26 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
     // Construct the user query for the agent
     let fullQuery = '';
     if (incidentId) {
-        fullQuery = `IcM Incident ID: ${incidentId}`;
-        if (stamp) fullQuery += `\nStamp: ${stamp}`;
+        fullQuery = `Incident ID: ${incidentId}`;
+        if (target) fullQuery += `\nTarget: ${target}`;
         if (timeRange) fullQuery += `\nTime Range: ${timeRange}`;
     } else {
-        fullQuery = `Stamp: ${stamp}\nTime Range: ${timeRange}`;
+        fullQuery = `Target: ${target}\nTime Range: ${timeRange}`;
     }
-    if (trackingId) fullQuery += `\nTrackingId: ${trackingId}`;
-    if (issueType) fullQuery += `\nIssue Type: ${issueType}`;
-    fullQuery += `\n\nUser Question/Context: ${query || (incidentId ? 'Investigate this IcM incident. Extract context and route to the correct investigation guide.' : 'Start general investigation based on provided tracking ID or issue.')}`;
+    if (correlationId) fullQuery += `\nCorrelation ID: ${correlationId}`;
+    if (category) fullQuery += `\nCategory: ${category}`;
+    fullQuery += `\n\nUser Question/Context: ${query || (incidentId ? 'Investigate this incident. Extract context and route to the correct investigation guide.' : 'Start general investigation based on provided context.')}`;
 
-    const runner = new AgentRunner(effectiveConfig, {
+    if (!activeLlmProvider) {
+        throw new Error('No LLM provider configured. Update settings to configure an LLM provider.');
+    }
+
+    const runner = new AgentRunner(effectiveConfig, activeLlmProvider, {
         query: fullQuery,
-        stamp,
+        target,
         timeRange,
-        trackingId,
-        issueType,
+        correlationId,
+        category,
         incidentId,
         model: model || effectiveConfig.model,
         productId,
@@ -1136,24 +1182,18 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
 }
 
 app.post('/api/investigations', async (req, res) => {
-    const { query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, title, createdBy } = req.body;
+    const { query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy } = req.body;
 
-    // Resolve createdBy: use provided value, then try GitHub login, fall back to OS username
+    // Resolve createdBy: use provided value, fall back to OS username
     let resolvedCreatedBy = createdBy;
-    if (!resolvedCreatedBy) {
-        try {
-            const ghUser = await copilotClient.getGitHubUser();
-            resolvedCreatedBy = ghUser?.login;
-        } catch { /* ignore */ }
-    }
     if (!resolvedCreatedBy) {
         resolvedCreatedBy = require('os').userInfo().username;
     }
 
-    // Validate required fields - stamp and timeRange are optional when incidentId is provided
+    // Validate required fields - target and timeRange are optional when incidentId is provided
     if (!incidentId) {
-        if (!stamp || typeof stamp !== 'string') {
-            return res.status(400).json({ error: 'stamp is required and must be a string (or provide incidentId)' });
+        if (!target || typeof target !== 'string') {
+            return res.status(400).json({ error: 'target is required and must be a string (or provide incidentId)' });
         }
         if (!timeRange || typeof timeRange !== 'string') {
             return res.status(400).json({ error: 'timeRange is required and must be a string (or provide incidentId)' });
@@ -1169,7 +1209,7 @@ app.post('/api/investigations', async (req, res) => {
     }
 
     try {
-        const { id } = createInvestigation({ query, stamp, timeRange, trackingId, issueType, incidentId, model, productId, title, createdBy: resolvedCreatedBy });
+        const { id } = createInvestigation({ query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy: resolvedCreatedBy });
         res.json({ id, status: 'running' });
     } catch (err: any) {
         return res.status(400).json({ error: err.message });
@@ -1232,10 +1272,10 @@ app.get('/api/investigations', (req, res) => {
         status: s.status,
         title: s.title,
         query: s.query,
-        stamp: s.stamp,
+        target: s.target,
         timeRange: s.timeRange,
-        trackingId: s.trackingId,
-        issueType: s.issueType,
+        correlationId: s.correlationId,
+        category: s.category,
         incidentId: s.incidentId,
         model: s.model,
         productId: s.productId,
@@ -1399,7 +1439,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             if (runners.has(id)) {
                 return res.json({ status: 'ok', message: 'Already resuming' });
             }
-            runner = new AgentRunner(getEffectiveConfig(state), state);
+            runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
             runners.set(id, runner);
             attachRunnerListeners(runner, id);
 
@@ -1430,7 +1470,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             history.set(id, state);
             // Persist to disk
             try {
-                const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
+                const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
                 await (tempRunner as any).saveArtifacts();
             } catch (e: any) {
                 console.error(`Failed to persist pause for ${id}:`, e.message);
@@ -1441,7 +1481,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             history.set(id, state);
             // Persist to disk
             try {
-                const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
+                const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
                 await (tempRunner as any).saveArtifacts();
             } catch (e: any) {
                 console.error(`Failed to persist abort for ${id}:`, e.message);
@@ -1453,7 +1493,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             history.set(id, state);
             // Persist to disk
             try {
-                const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
+                const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
                 await (tempRunner as any).saveArtifacts();
             } catch (e: any) {
                 console.error(`Failed to persist intervention for ${id}:`, e.message);
@@ -1467,7 +1507,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             if (runners.has(id)) {
                 return res.json({ status: 'ok', message: 'Already contesting' });
             }
-            runner = new AgentRunner(getEffectiveConfig(state), state);
+            runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
             runners.set(id, runner);
             attachRunnerListeners(runner, id);
 
@@ -1563,7 +1603,7 @@ app.post('/api/investigations/resume-all', async (req, res) => {
     for (const id of toResume) {
         try {
             const state = history.get(id)!;
-            const runner = new AgentRunner(getEffectiveConfig(state), state);
+            const runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
             runners.set(id, runner);
             attachRunnerListeners(runner, id);
             runner.resume();
@@ -1656,7 +1696,7 @@ app.post('/api/investigations/:id/retrospect', async (req, res) => {
             return res.status(409).json({ error: 'Investigation is currently being processed by another request. Try again shortly.' });
         }
         const state = history.get(id)!;
-        runner = new AgentRunner(getEffectiveConfig(state), state);
+        runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
         // Attach listeners so retrospect events are broadcast via WS
         attachRunnerListeners(runner, id);
 
@@ -1697,7 +1737,7 @@ app.post('/api/investigations/:id/retrospect/analyze', async (req, res) => {
             return res.status(409).json({ error: 'Investigation is currently being processed by another request. Try again shortly.' });
         }
         const state = history.get(id)!;
-        runner = new AgentRunner(getEffectiveConfig(state), state);
+        runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
         attachRunnerListeners(runner, id);
         runners.set(id, runner);
         (runner as any)._isTemporary = true;
@@ -1755,7 +1795,7 @@ app.patch('/api/investigations/:id/title', async (req, res) => {
     state.title = title;
     history.set(id, state);
     try {
-        const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
+        const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
         await (tempRunner as any).saveArtifacts();
     } catch (e: any) {
         console.error(`Failed to persist title for ${id}:`, e.message);
@@ -1790,7 +1830,7 @@ app.patch('/api/investigations/:id/tags', async (req, res) => {
     state.tags = cleanTags;
     history.set(id, state);
     try {
-        const tempRunner = new AgentRunner(getEffectiveConfig(state), state);
+        const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
         await (tempRunner as any).saveArtifacts();
     } catch (e: any) {
         console.error(`Failed to persist tags for ${id}:`, e.message);
@@ -1835,7 +1875,7 @@ app.delete('/api/investigations/:id', async (req, res) => {
 
     history.delete(id);
 
-    // Remove from disk - folder is named ${timestamp}_${safeStamp}_${safeId}
+    // Remove from disk - folder is named ${timestamp}_${safeTarget}_${safeId}
     const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
     let dirPath: string | null = null;
 
@@ -1905,11 +1945,11 @@ app.get('/api/investigations/:id/export', async (req, res) => {
 
     const state = fullState || investigation;
 
-    // Build a safe filename from stamp and date
+    // Build a safe filename from target and date
     const startDate = !isNaN(Number(id)) ? new Date(Number(id)) : new Date();
     const dateStr = startDate.toISOString().split('T')[0];
-    const safeStamp = (state.stamp || 'investigation').replace(/[^a-zA-Z0-9-]/g, '');
-    const filename = `${dateStr}_${safeStamp}_${safeId}.json`;
+    const safeTarget = (state.target || 'investigation').replace(/[^a-zA-Z0-9-]/g, '');
+    const filename = `${dateStr}_${safeTarget}_${safeId}.json`;
 
     res.setHeader('Content-Type', 'application/json');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -1934,14 +1974,8 @@ app.post('/api/investigations/import', async (req, res) => {
     const originalId = importedState.id;
     const newId = Date.now().toString();
 
-    // Resolve createdBy: preserve from export, then try GitHub login, fall back to OS username
+    // Resolve createdBy: preserve from export, fall back to OS username
     let importCreatedBy = importedState.createdBy;
-    if (!importCreatedBy) {
-        try {
-            const ghUser = await copilotClient.getGitHubUser();
-            importCreatedBy = ghUser?.login;
-        } catch { /* ignore */ }
-    }
     if (!importCreatedBy) {
         importCreatedBy = require('os').userInfo().username;
     }
@@ -1975,9 +2009,9 @@ app.post('/api/investigations/import', async (req, res) => {
     try {
         const startDate = new Date(Number(newId));
         const timestamp = startDate.toISOString().split('T')[0];
-        const safeStamp = (state.stamp || 'UnknownStamp').replace(/[^a-zA-Z0-9-]/g, '');
+        const safeTarget = (state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
         const safeId = newId.replace(/[^a-zA-Z0-9]/g, '');
-        const folderName = `${timestamp}_${safeStamp}_${safeId}`;
+        const folderName = `${timestamp}_${safeTarget}_${safeId}`;
         const investigationDir = path.join(investigationsDir, folderName);
 
         ensureDirectoryExists(investigationDir);
@@ -1992,7 +2026,7 @@ app.post('/api/investigations/import', async (req, res) => {
         if (state.finalReport) {
             const report = `# Investigation Report: ${newId}\n\n` +
                 `**Status**: ${state.status}\n` +
-                `**Stamp**: ${state.stamp || 'N/A'}\n` +
+                `**Target**: ${state.target || 'N/A'}\n` +
                 `**Model**: ${state.model || 'N/A'}\n` +
                 `**Imported**: ${new Date().toLocaleString()}\n` +
                 `**Original ID**: ${originalId}\n\n` +
@@ -2046,11 +2080,11 @@ app.get('/api/investigations/:id/pdf', async (req, res) => {
         const pdfBuffer = await renderPdf(state.finalReport, {
             id: state.id,
             status: state.status,
-            stamp: state.stamp,
+            target: state.target,
             timeRange: state.timeRange,
-            issueType: state.issueType,
+            category: state.category,
             model: state.model,
-            trackingId: state.trackingId,
+            correlationId: state.correlationId,
             incidentId: state.incidentId,
             productName,
             contestCount: state.contestCount,
@@ -2058,9 +2092,9 @@ app.get('/api/investigations/:id/pdf', async (req, res) => {
 
         const startDate = !isNaN(Number(id)) ? new Date(Number(id)) : new Date();
         const dateStr = startDate.toISOString().split('T')[0];
-        const safeStamp = (state.stamp || 'investigation').replace(/[^a-zA-Z0-9-]/g, '');
+        const safeTarget = (state.target || 'investigation').replace(/[^a-zA-Z0-9-]/g, '');
         const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
-        const filename = `${dateStr}_${safeStamp}_${safeId}.pdf`;
+        const filename = `${dateStr}_${safeTarget}_${safeId}.pdf`;
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -2086,7 +2120,7 @@ app.patch('/api/investigations/:id/retrospect/proposals/:proposalId', async (req
     if (!runner && history.has(id)) {
         if (runners.has(id)) return res.status(409).json({ error: 'Concurrent operation in progress' });
         const state = history.get(id)!;
-        runner = new AgentRunner(getEffectiveConfig(state), state);
+        runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
         runners.set(id, runner);
         (runner as any)._isTemporary = true;
         isTemporary = true;
@@ -2122,7 +2156,7 @@ app.post('/api/investigations/:id/retrospect/complete', async (req, res) => {
     if (!runner && history.has(id)) {
         if (runners.has(id)) return res.status(409).json({ error: 'Concurrent operation in progress' });
         const state = history.get(id)!;
-        runner = new AgentRunner(getEffectiveConfig(state), state);
+        runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
         runners.set(id, runner);
         (runner as any)._isTemporary = true;
         isTemporary = true;
@@ -2170,7 +2204,7 @@ app.post('/api/investigations/:id/retrospect/apply', async (req, res) => {
     if (!runner && history.has(id)) {
         if (runners.has(id)) return res.status(409).json({ error: 'Concurrent operation in progress' });
         const state = history.get(id)!;
-        runner = new AgentRunner(getEffectiveConfig(state), state);
+        runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
         runners.set(id, runner);
         (runner as any)._isTemporary = true;
         isTemporary = true;
@@ -2205,7 +2239,7 @@ app.post('/api/investigations/:id/compact', async (req, res) => {
     // If runner inactive but in history, rehydrate a temporary runner to summarize
     if (!runner && history.has(id)) {
         const state = history.get(id)!;
-        runner = new AgentRunner(getEffectiveConfig(state), state);
+        runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
         // Attach listeners so the frontend gets the "Starting..." and "Finished" thoughts via WS
         attachRunnerListeners(runner, id);
         runners.set(id, runner);
@@ -2236,86 +2270,66 @@ app.get('/api/health', (req, res) => {
 // Auth Routes
 
 app.get('/api/auth/status', async (req, res) => {
-    const authenticated = await copilotClient.isAuthenticated();
-    let user = null;
-    if (authenticated) {
-        user = await copilotClient.getGitHubUser();
+    if (!activeLlmProvider) {
+        return res.json({ authenticated: false, providerType: 'none' });
     }
-    res.json({ authenticated, user });
+    const authStatus = await activeLlmProvider.getAuthStatus();
+    res.json({
+        providerType: config.llmProvider?.type || 'copilot',
+        authRequirement: activeLlmProvider.getAuthRequirement(),
+        ...authStatus,
+    });
 });
 
-app.get('/api/auth/user', async (req, res) => {
-    const user = await copilotClient.getGitHubUser();
-    if (!user) {
-        return res.status(401).json({ error: 'Not authenticated' });
-    }
-    res.json(user);
+app.get('/api/auth/providers', (_req, res) => {
+    const providers = llmRegistry.listProviders().map((p) => ({
+        type: p.type,
+        authRequirement: p.authRequirement,
+    }));
+    res.json(providers);
 });
 
 app.post('/api/auth/login', async (req, res) => {
+    if (!activeLlmProvider || !activeLlmProvider.startAuthFlow) {
+        return res.status(400).json({ error: 'Current LLM provider does not support interactive auth flow' });
+    }
     try {
-        const data = await copilotClient.startAuth();
+        const data = await activeLlmProvider.startAuthFlow();
         res.json(data);
     } catch (e: any) {
         res.status(500).json({ error: e.message });
     }
 });
 
-app.post('/api/auth/azure-login', async (req, res) => {
-    try {
-        // Open `az login` in a visible terminal window so the user can interact with it.
-        // On some machines the browser-based flow doesn't work, and the user needs to see
-        // the device code or error output. Using `start cmd /k` opens a new cmd window
-        // that stays open after `az login` completes so the user can see the result.
-        const child = spawn('cmd', ['/c', 'start', 'cmd', '/k', 'az login'], {
-            shell: false,
-            detached: true,
-            stdio: 'ignore',
-            windowsHide: false
-        });
-        child.unref();
-        child.on('error', (err) => {
-            console.error('Failed to spawn az login:', err);
-        });
-        res.json({ success: true, message: 'Azure login started in a new terminal window.' });
-    } catch (e: any) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-app.get('/api/auth/azure-status', async (req, res) => {
-    try {
-        const result = await new Promise<{ authenticated: boolean; error?: string }>((resolve) => {
-            let stderr = '';
-            const check = spawn('az', ['account', 'show', '--output', 'none'], { shell: true });
-            check.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
-            check.on('close', (code) => {
-                if (code === 0) {
-                    resolve({ authenticated: true });
-                } else {
-                    resolve({ authenticated: false, error: stderr.trim() || 'az account show failed' });
-                }
-            });
-            check.on('error', (err) => resolve({ authenticated: false, error: `az CLI not found: ${err.message}` }));
-            // Timeout after 10 seconds
-            setTimeout(() => { try { check.kill(); } catch {} resolve({ authenticated: false, error: 'az account show timed out' }); }, 10000);
-        });
-        res.json(result);
-    } catch (e: any) {
-        res.json({ authenticated: false, error: e.message });
-    }
-});
-
 app.post('/api/auth/poll', async (req, res) => {
     const { device_code } = req.body;
+    if (!activeLlmProvider || !activeLlmProvider.pollAuthFlow) {
+        return res.status(400).json({ error: 'Current LLM provider does not support auth polling' });
+    }
     try {
-        const result = await copilotClient.checkToken(device_code);
+        const result = await activeLlmProvider.pollAuthFlow(device_code);
         if (result.pending) {
             return res.json({ pending: true });
         }
-        res.json({ success: true, result: result.result });
+        res.json({ success: true });
     } catch (e: any) {
         res.status(401).json({ error: e.message });
+    }
+});
+
+app.post('/api/auth/configure', async (req, res) => {
+    const { type, ...providerConfig } = req.body;
+    if (!type) {
+        return res.status(400).json({ error: 'Provider type is required' });
+    }
+    try {
+        config.llmProvider = { type, ...providerConfig };
+        persistedConfig.llmProvider = config.llmProvider;
+        saveConfigToDisk();
+        initializeProviders();
+        res.json({ success: true, providerType: type });
+    } catch (e: any) {
+        res.status(400).json({ error: e.message });
     }
 });
 
@@ -2327,18 +2341,14 @@ app.get('/api/me', (req, res) => {
 });
 
 // MCP Control Routes
-// MCP Control Routes
 app.get('/api/investigations/:id/mcp/status', (req, res) => {
     const id = req.params.id;
     const runner = runners.get(id);
 
     if (runner) {
-        // @ts-ignore - Accessing private toolManager
         const isConnected = (runner as any).toolManager.isConnected();
-        const kqlBackend = (runner as any).toolManager.getKqlBackend();
-        res.json({ connected: isConnected, kqlBackend });
+        res.json({ connected: isConnected });
     } else if (history.has(id)) {
-        // If in history but not running, it's not connected
         res.json({ connected: false });
     } else {
         res.status(404).json({ error: 'Investigation not found' });
@@ -2497,32 +2507,25 @@ app.post('/api/schedules', async (req, res) => {
             return res.status(500).json({ error: 'Scheduler not initialized' });
         }
     }
-    const { name, stamp, query, intervalMinutes, productId, model, maxSteps, timeRange, issueType, autoEscalate, escalationQuery, enabled } = req.body;
-    if (!name || !stamp || !query) {
-        return res.status(400).json({ error: 'name, stamp, and query are required' });
+    const { name, target, query, intervalMinutes, productId, model, maxSteps, timeRange, category, autoEscalate, escalationQuery, enabled } = req.body;
+    if (!name || !target || !query) {
+        return res.status(400).json({ error: 'name, target, and query are required' });
     }
 
-    // Resolve schedule creator: GitHub login → OS username
-    let scheduleCreatedBy: string | undefined;
-    try {
-        const ghUser = await copilotClient.getGitHubUser();
-        scheduleCreatedBy = ghUser?.login;
-    } catch { /* ignore */ }
-    if (!scheduleCreatedBy) {
-        scheduleCreatedBy = require('os').userInfo().username;
-    }
+    // Resolve schedule creator: OS username
+    const scheduleCreatedBy = require('os').userInfo().username;
 
     const schedule = scheduleStore.create({
         name,
         enabled: enabled !== false,
-        stamp,
+        target,
         query,
         intervalMinutes: intervalMinutes || 15,
         productId,
         model,
         maxSteps,
         timeRange,
-        issueType,
+        category,
         autoEscalate: autoEscalate !== false,
         escalationQuery,
         createdBy: scheduleCreatedBy,
@@ -2695,9 +2698,9 @@ app.get('/api/query-bank', (_req, res) => {
 
 app.post('/api/query-bank', (req, res) => {
     if (!queryBankStore) return res.status(500).json({ error: 'Query bank not initialized' });
-    const { name, stamp, query, issueType, trackingId, timeRange, timeMode, model, productId, intervalMinutes } = req.body;
+    const { name, target, query, category, correlationId, timeRange, timeMode, model, productId, intervalMinutes } = req.body;
     if (!name) return res.status(400).json({ error: 'name is required' });
-    const saved = queryBankStore.create({ name, stamp, query, issueType, trackingId, timeRange, timeMode, model, productId, intervalMinutes });
+    const saved = queryBankStore.create({ name, target, query, category, correlationId, timeRange, timeMode, model, productId, intervalMinutes });
     res.json(saved);
 });
 

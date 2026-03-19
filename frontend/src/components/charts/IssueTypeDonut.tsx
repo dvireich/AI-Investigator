@@ -18,11 +18,11 @@ const PALETTE = [
 
 const UNKNOWN_COLOR = '#64748b'; // slate-500
 
-export const IssueTypeDonut = ({ investigations }: Props) => {
-    // Count investigations by issueType
+export const CategoryDonut = ({ investigations }: Props) => {
+    // Count investigations by category
     const counts = new Map<string, number>();
     for (const inv of investigations) {
-        const type = inv.issueType?.trim() || 'Unknown';
+        const type = inv.category?.trim() || 'Unknown';
         counts.set(type, (counts.get(type) || 0) + 1);
     }
 

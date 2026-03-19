@@ -72,7 +72,7 @@ export const About = () => (
                     <span className="text-white">Investigator</span>
                 </h1>
                 <p className="text-slate-400 text-lg max-w-xl mx-auto leading-relaxed">
-                    A fully autonomous AI investigation platform powered by GitHub Copilot.
+                    A fully autonomous AI investigation platform powered by any LLM.
                     Point it at any knowledge base, connect it to your data sources, and get
                     from alert to root cause without manual spelunking.
                 </p>
@@ -102,7 +102,7 @@ export const About = () => (
                         color="bg-amber-500/10 border border-amber-500/20 text-amber-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-amber-500/20"
                         title="Autonomous investigation"
-                        desc="Connects to GitHub Copilot and runs a fully autonomous agent that reads your knowledge base guides, queries data sources, and produces a structured report — no manual tool expertise required." />
+                        desc="Connects to your chosen LLM provider and runs a fully autonomous agent that reads your knowledge base guides, queries data sources via MCP, and produces a structured report — no manual tool expertise required." />
                     <FeatureCard icon={<Sparkles className="w-4 h-4" />}
                         color="bg-purple-500/10 border border-purple-500/20 text-purple-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-purple-500/20"
@@ -121,8 +121,8 @@ export const About = () => (
                     <FeatureCard icon={<AlertCircle className="w-4 h-4" />}
                         color="bg-rose-500/10 border border-rose-500/20 text-rose-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-rose-500/20"
-                        title="ICM incident integration"
-                        desc="Start investigations directly from an IcM incident ID. The system auto-extracts stamp, time range, severity, and description — no manual form-filling required." />
+                        title="Incident integration"
+                        desc="Start investigations directly from an incident ID. The system auto-extracts target, time range, severity, and description — no manual form-filling required." />
                     <FeatureCard icon={<Compass className="w-4 h-4" />}
                         color="bg-teal-500/10 border border-teal-500/20 text-teal-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-teal-500/20"
@@ -142,12 +142,12 @@ export const About = () => (
                         color="bg-orange-500/10 border border-orange-500/20 text-orange-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-orange-500/20"
                         title="Query bank"
-                        desc="Save and reuse investigation templates. Store stamp, query, time range, issue type, and model as named presets — load them instantly from the New Investigation form or when creating schedules." />
+                        desc="Save and reuse investigation templates. Store target, query, time range, category, and model as named presets — load them instantly from the New Investigation form or when creating schedules." />
                     <FeatureCard icon={<BarChart3 className="w-4 h-4" />}
                         color="bg-cyan-500/10 border border-cyan-500/20 text-cyan-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-cyan-500/20"
                         title="Dashboard analytics"
-                        desc="Configurable widget system with 8 chart types — trend, issue donut, duration histogram, success rate, stamp activity, verdict breakdown, model usage, and contest rate. Choose any 3 from Settings." />
+                        desc="Configurable widget system with 8 chart types — trend, category donut, duration histogram, success rate, target activity, verdict breakdown, model usage, and contest rate. Choose any 3 from Settings." />
                     <FeatureCard icon={<TrendingUp className="w-4 h-4" />}
                         color="bg-lime-500/10 border border-lime-500/20 text-lime-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-lime-500/20"
@@ -186,11 +186,11 @@ export const About = () => (
                 <SectionHeader icon={<GitBranch className="w-4 h-4 text-brand-400" />} title="How it works" />
                 <div className="mt-6 bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-0">
                     <PipelineStep n={1} icon={<Lock className="w-4 h-4 text-brand-400" />}
-                        title="GitHub Copilot authentication"
-                        desc="Uses GitHub device-flow OAuth to obtain a Copilot token. No credentials stored on disk." />
+                        title="LLM provider configuration"
+                        desc="Choose your LLM provider — OpenAI, Anthropic, Azure OpenAI, GitHub Copilot, or local Ollama. Configure via the Settings page or config file." />
                     <PipelineStep n={2} icon={<Brain className="w-4 h-4 text-purple-400" />}
                         title="Agentic investigation loop"
-                        desc="An agentic loop (gpt-4o or claude-sonnet via the Copilot API) reads your knowledge base guides, runs queries, reads logs, and reasons iteratively until it reaches a conclusion." />
+                        desc="An agentic loop powered by your chosen model reads your knowledge base guides, runs queries via MCP tool servers, reads logs, and reasons iteratively until it reaches a conclusion." />
                     <PipelineStep n={3} icon={<PenLine className="w-4 h-4 text-teal-400" />}
                         title="Real-time control"
                         desc="Pause, resume, switch models mid-run, or inject messages into the running agent's context to redirect its approach. A configurable max-steps limit auto-pauses the agent at your safety threshold." />
@@ -217,20 +217,20 @@ export const About = () => (
                         [Shield,        'text-sky-400',     'Path traversal protection — agents cannot escape the repo root'],
                         [MessageSquare, 'text-purple-400',  'Follow-up chat after retrospective — ask the agent anything'],
                         [RotateCcw,     'text-amber-400',   'Contest reports — provide feedback and the agent re-investigates'],
-                        [Database,      'text-emerald-400', 'Dual KQL backend — Kusto CLI primary (auto-installs) + MCP KQL Server fallback'],
-                        [AlertCircle,   'text-rose-400',    'ICM auto-extraction — start from incident IDs with auto-populated fields'],
+                        [Database,      'text-emerald-400', 'MCP-powered data sources — connect any MCP server for querying'],
+                        [AlertCircle,   'text-rose-400',    'Incident auto-extraction — start from incident IDs with auto-populated fields'],
                         [Compass,       'text-teal-400',    'Auto-discovery — .investigator.json manifest for one-click product onboarding'],
                         [Layers,        'text-indigo-400',  'Token auto-compaction — proactive summarization before hitting context limits'],
                         [LayoutGrid,    'text-cyan-400',    'Rich dashboard — grid/list views, pinning, full-text search, keyboard shortcuts (press ?)'],
-                        [ShieldAlert,   'text-orange-400',  'Destructive command blocking — Kusto CLI rejects .drop, .delete, .purge commands'],
-                        [Globe,         'text-brand-400',   'Configurable model, timeout, knowledge base path, and stamp'],
-                        [Lock,          'text-emerald-400', 'Azure CLI inline auth — in-app login prompt when Kusto auth expires mid-investigation'],
+                        [ShieldAlert,   'text-orange-400',  'Security-first design — sandboxed agent execution with path traversal protection'],
+                        [Globe,         'text-brand-400',   'Configurable model, timeout, knowledge base path, and target'],
+                        [Lock,          'text-emerald-400', 'Pluggable LLM providers — OpenAI, Anthropic, Ollama, Azure OpenAI, GitHub Copilot'],
                         [Code2,         'text-pink-400',    'Inline diff viewer with LCS-based line-level change highlighting'],
                         [Share2,        'text-sky-400',     'Export as JSON — download any investigation as a portable state file'],
                         [FileDown,      'text-violet-400',  'Export as PDF — styled reports generated server-side via Puppeteer'],
                         [FileUp,        'text-teal-400',    'Import investigations — file picker or drag-and-drop with animated overlay'],
                         [GripHorizontal,'text-slate-400',   'Floating action dock — Resume All, Restart, Import, and New in one toolbar'],
-                        [CalendarClock, 'text-indigo-400',   'Recurring schedules — automated stamp health checks with verdict tracking'],
+                        [CalendarClock, 'text-indigo-400',   'Recurring schedules — automated target health checks with verdict tracking'],
                         [BookOpen,      'text-orange-400',   'Query bank — save and reuse investigation templates across forms'],
                         [BarChart3,     'text-cyan-400',     'Configurable analytics — pick 3 widgets from 8 chart types in Settings'],
                         [TrendingUp,    'text-lime-400',     'KPI bar — success rate, avg duration, weekly count with delta, contest rate'],
@@ -254,8 +254,8 @@ export const About = () => (
                 <div className="mt-6 grid grid-cols-2 md:grid-cols-3 gap-3">
                     <TechPill label="Backend"  value="Node.js + TypeScript + Express + Puppeteer" color="bg-brand-500" />
                     <TechPill label="Frontend" value="React + Vite + TailwindCSS"     color="bg-sky-500" />
-                    <TechPill label="AI"       value="GitHub Copilot API"             color="bg-purple-500" />
-                    <TechPill label="Auth"     value="GitHub Device-flow OAuth"       color="bg-emerald-500" />
+                    <TechPill label="AI"       value="Pluggable LLM (OpenAI, Anthropic, Ollama, ...)" color="bg-purple-500" />
+                    <TechPill label="Tools"    value="MCP Tool Bridge"                color="bg-emerald-500" />
                     <TechPill label="Comms"    value="WebSockets (ws)"                color="bg-amber-500" />
                     <TechPill label="State"    value="File-based JSON persistence"    color="bg-pink-500" />
                 </div>
@@ -280,11 +280,11 @@ export const About = () => (
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-white font-black text-xl">dvreich</span>
                                 <span className="text-[11px] font-bold text-white bg-brand-600 border border-brand-500 px-2 py-0.5 rounded-full">Designer &amp; Engineer</span>
-                                <span className="text-[11px] font-bold text-white bg-purple-700 border border-purple-500 px-2 py-0.5 rounded-full">Azure Monitor</span>
+                                <span className="text-[11px] font-bold text-white bg-purple-700 border border-purple-500 px-2 py-0.5 rounded-full">Open Source</span>
                             </div>
                             <p className="text-slate-400 text-sm leading-relaxed max-w-lg">
-                                Conceived, designed, and built entirely by <span className="text-slate-200 font-semibold">dvreich</span> on
-                                the Azure Monitor team. Born from real on-call pain — the goal was to turn
+                                Conceived, designed, and built entirely by <span className="text-slate-200 font-semibold">dvreich</span>.
+                                Born from real on-call pain — the goal was to turn
                                 incident investigation from a manual spelunking exercise into a first-class,
                                 AI-accelerated experience that gets smarter with every run, and that any team
                                 can configure for their own domain.

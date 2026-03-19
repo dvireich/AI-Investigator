@@ -11,8 +11,8 @@ export const TIME_PRESETS = [
 ];
 
 export const INVESTIGATION_MODES = [
-    { label: 'Standard Investigation', value: 'standard', description: 'Investigate by stamp, time range, and issue type' },
-    { label: 'ICM Incident', value: 'icm', description: 'Start from an IcM incident - auto-extracts context' },
+    { label: 'Standard Investigation', value: 'standard', description: 'Investigate by target, time range, and category' },
+    { label: 'Incident', value: 'incident', description: 'Start from an incident - auto-extracts context' },
 ] as const;
 
 export type InvestigationMode = typeof INVESTIGATION_MODES[number]['value'];

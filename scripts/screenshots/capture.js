@@ -132,7 +132,7 @@ async function captureNewInvestigation(page) {
     // Type into the stamp input
     const stampInput = page.locator('input[placeholder*="stamp"], input[placeholder*="Stamp"], input[placeholder*="application"]').first();
     if (await stampInput.isVisible()) {
-        await stampInput.fill('oi-tds-prd-eus2p-01');
+        await stampInput.fill('app-prd-eus2p-01');
     }
 
     // Select an issue type if there's a dropdown
@@ -586,7 +586,7 @@ async function captureScheduleForm(page) {
     // Fill stamp
     const stampInput = page.locator('input[placeholder*="stamp"], input[placeholder*="Stamp"], input[placeholder*="application"]').first();
     if (await stampInput.isVisible()) {
-        await stampInput.fill('oi-tds-prd-eus2p-01');
+        await stampInput.fill('app-prd-eus2p-01');
     }
 
     await page.waitForTimeout(400);

@@ -10,8 +10,8 @@
       "timeRange": "ago(6h)",
       "issueType": "Latency / Performance",
       "model": "claude-opus-4.6",
-      "productId": "teleduct",
-      "productName": "Teleduct",
+      "productId": "sample-product",
+      "productName": "Sample Product",
       "tags": ["p95-spike", "on-call"],
       "thoughtCount": 7,
       "thoughts": [
@@ -20,12 +20,12 @@
       "actions": [
         {
           "type": "tool_use",
-          "name": "execute_kql_query",
+          "name": "run_query",
           "input": { "query": "ServiceMetrics | where Stamp == 'app-prd-eus2p-01' | where TimeGenerated > ago(6h) | where MetricName == 'E2ELatencyMs' | summarize p50=percentile(Value, 50), p95=percentile(Value, 95), p99=percentile(Value, 99) by bin(TimeGenerated, 5m)" },
           "result": "| TimeGenerated | p50 | p95 | p99 |\n|---|---|---|---|\n| 2025-06-13T14:30:00Z | 1250 | 4800 | 12500 |"
         }
       ],
-      "logs": ["Investigation started", "Connected to Kusto CLI", "Executing KQL query..."]
+      "logs": ["Investigation started", "MCP tools connected", "Executing query..."]
     },
     {
       "id": "1749810000000",
@@ -37,8 +37,8 @@
       "timeRange": "ago(2h)",
       "issueType": "Throttling / Quota",
       "model": "claude-opus-4.6",
-      "productId": "teleduct",
-      "productName": "Teleduct",
+      "productId": "sample-product",
+      "productName": "Sample Product",
       "thoughtCount": 11,
       "thoughts": [
         "The throttling exceptions are concentrated on nodes _Node_3 and _Node_5. Queue depth peaked at 28K messages — significantly above the 10K baseline."
@@ -46,12 +46,12 @@
       "actions": [
         {
           "type": "tool_use",
-          "name": "execute_kql_query",
+          "name": "run_query",
           "input": { "query": "ServiceTraces | where Stamp == 'svc-prd-wus2-03' | where TimeGenerated > ago(2h) | where Message has 'MessagingInfraThrottleException' | summarize ThrottleCount=count() by bin(TimeGenerated, 5m), NodeName" },
           "result": "| TimeGenerated | NodeName | ThrottleCount |\n|---|---|---|\n| 2025-06-13T14:15:00Z | _Node_3 | 47 |\n| 2025-06-13T14:15:00Z | _Node_5 | 31 |"
         }
       ],
-      "logs": ["Investigation started", "Connected to Kusto CLI"]
+      "logs": ["Investigation started", "MCP tools connected"]
     },
     {
       "id": "1749805000000",
@@ -71,7 +71,7 @@
         "Checking HTTP status code distribution across the gateway cluster. Initial data shows 5xx errors concentrated on /v2/telemetry/ingest endpoint."
       ],
       "actions": [],
-      "logs": ["Investigation started", "Connected to Kusto CLI"]
+      "logs": ["Investigation started", "MCP tools connected"]
     },
     {
       "id": "1749800000000",
@@ -83,8 +83,8 @@
       "timeRange": "ago(12h)",
       "issueType": "Unknown / Discovery",
       "model": "claude-opus-4.6",
-      "productId": "teleduct",
-      "productName": "Teleduct",
+      "productId": "sample-product",
+      "productName": "Sample Product",
       "tags": ["cache-miss", "node-restart"],
       "pausedAt": 1749803600000,
       "totalPausedTime": 0,
@@ -95,12 +95,12 @@
       "actions": [
         {
           "type": "tool_use",
-          "name": "execute_kql_query",
+          "name": "run_query",
           "input": { "query": "ServiceMetrics | where Stamp == 'app-prd-cus-02' | where MetricName == 'BlobReaderCacheHitRatio'" },
           "result": "| TimeGenerated | Value |\n|---|---|\n| 2025-06-13T06:15:00Z | 34.2 |\n| 2025-06-13T06:10:00Z | 97.8 |"
         }
       ],
-      "logs": ["Investigation started", "Connected to Kusto CLI", "Cache miss pattern detected"]
+      "logs": ["Investigation started", "MCP tools connected", "Cache miss pattern detected"]
     },
     {
       "id": "1749790000000",
@@ -112,44 +112,44 @@
       "timeRange": "ago(24h)",
       "issueType": "Data Loss / Inconsistency",
       "model": "claude-opus-4.6",
-      "productId": "teleduct",
-      "productName": "Teleduct",
+      "productId": "sample-product",
+      "productName": "Sample Product",
       "contestCount": 1,
       "thoughtCount": 12,
       "thoughts": [
-        "Investigation complete. The DLQ overflow was caused by a schema change in the upstream telemetry that introduced a new column type not supported by the current Parquet writer."
+        "Investigation complete. The DLQ overflow was caused by a schema change in the upstream telemetry that introduced a new column type not supported by the current data writer."
       ],
       "actions": [],
       "logs": ["Investigation started", "Investigation completed"],
-      "finalReport": "# Dead Letter Queue Overflow Investigation\n\n## Root Cause\nA schema change in the upstream Geneva telemetry introduced a new `dynamic` column that the Parquet writer couldn't serialize."
+      "finalReport": "# Dead Letter Queue Overflow Investigation\n\n## Root Cause\nA schema change in the upstream telemetry introduced a new `dynamic` column that the serializer couldn't handle."
     },
     {
       "id": "1749780000000",
       "status": "completed",
-      "title": "Kusto ingestion errors — svc-prd-neu-01",
+      "title": "Ingestion errors — svc-prd-neu-01",
       "createdBy": "scheduler",
-      "query": "Investigate Kusto ingestion failures on svc-prd-neu-01",
+      "query": "Investigate ingestion failures on svc-prd-neu-01",
       "stamp": "svc-prd-neu-01",
       "timeRange": "ago(3d)",
       "issueType": "Error / Failure Rate",
       "model": "claude-opus-4.6",
-      "productId": "teleduct",
-      "productName": "Teleduct",
+      "productId": "sample-product",
+      "productName": "Sample Product",
       "source": "scheduled",
       "verdict": "warning",
       "thoughtCount": 15,
       "thoughts": [
-        "Analysis complete. The ingestion errors were caused by capacity throttling on the target Kusto cluster."
+        "Analysis complete. The ingestion errors were caused by capacity throttling on the target data cluster."
       ],
       "actions": [],
       "logs": ["Investigation started", "Investigation completed"],
-      "finalReport": "# Kusto Ingestion Error Investigation",
+      "finalReport": "# Ingestion Error Investigation",
       "retrospect": {
         "messages": [
           { "role": "assistant", "content": "After reviewing the investigation, I've identified 3 areas for improvement in the knowledge base." }
         ],
         "proposals": [
-          { "id": "prop-1", "type": "edit", "filePath": "docs/investigations/kusto-error-investigation.md", "description": "Add ADX cluster capacity check", "content": "## Step 0: Check ADX Cluster Capacity", "status": "approved" },
+          { "id": "prop-1", "type": "edit", "filePath": "docs/investigations/ingestion-error-investigation.md", "description": "Add cluster capacity check", "content": "## Step 0: Check Cluster Capacity", "status": "approved" },
           { "id": "prop-2", "type": "create", "filePath": "docs/investigations/bulk-operation-coordination.md", "description": "New runbook for bulk operations", "content": "# Bulk Operation Coordination Guide", "status": "pending" }
         ],
         "analysisComplete": true,
@@ -166,14 +166,14 @@
       "timeRange": "ago(1h)",
       "issueType": "Availability / Downtime",
       "model": "gpt-4o",
-      "productId": "teleduct",
-      "productName": "Teleduct",
+      "productId": "sample-product",
+      "productName": "Sample Product",
       "thoughtCount": 4,
       "thoughts": [
-        "Error: Failed to connect to Kusto CLI after 3 attempts. The Azure authentication token may have expired."
+        "Error: Failed to connect to query tool after 3 attempts. The authentication token may have expired."
       ],
       "actions": [],
-      "logs": ["Investigation started", "ERROR: KQL execution failed - authentication error", "ERROR: Consecutive failures exceeded limit (3). Investigation failed."]
+      "logs": ["Investigation started", "ERROR: Query execution failed - authentication error", "ERROR: Consecutive failures exceeded limit (3). Investigation failed."]
     },
     {
       "id": "1749760000000",
@@ -185,8 +185,8 @@
       "timeRange": "between(datetime(2025-06-10T08:00:00Z) .. datetime(2025-06-10T14:00:00Z))",
       "issueType": "Latency / Performance",
       "model": "claude-opus-4.6",
-      "productId": "teleduct",
-      "productName": "Teleduct",
+      "productId": "sample-product",
+      "productName": "Sample Product",
       "tags": ["deployment-related"],
       "thoughtCount": 10,
       "thoughts": [
@@ -205,43 +205,43 @@
     {
       "id": "1749750000000",
       "status": "completed",
-      "title": "Parquet ingestion latency spike — svc-prd-eus-01",
+      "title": "Data ingestion latency spike \u2014 svc-prd-eus-01",
       "createdBy": "scheduler",
-      "query": "Investigate Parquet ingestion latency on svc-prd-eus-01",
+      "query": "Investigate data ingestion latency on svc-prd-eus-01",
       "stamp": "svc-prd-eus-01",
       "timeRange": "ago(6h)",
       "issueType": "Latency / Performance",
       "model": "claude-opus-4.6",
-      "productId": "teleduct",
-      "productName": "Teleduct",
+      "productId": "sample-product",
+      "productName": "Sample Product",
       "source": "scheduled",
       "verdict": "healthy",
       "thoughtCount": 9,
       "thoughts": [],
       "actions": [],
       "logs": ["Investigation started", "Investigation completed"],
-      "finalReport": "# Parquet Ingestion Latency Spike\n\nP99 latency resolved after batch size reduction."
+      "finalReport": "# Data Ingestion Latency Spike\n\nP99 latency resolved after batch size reduction."
     },
     {
       "id": "1749740000000",
       "status": "completed",
-      "title": "IcM 412587391 — Deployment correlation analysis",
+      "title": "Incident 412587391 — Deployment correlation analysis",
       "createdBy": "dvreich",
-      "query": "Investigate IcM incident 412587391 — correlate recent deployment with latency regression",
+      "query": "Investigate incident 412587391 — correlate recent deployment with latency regression",
       "stamp": "app-prd-cus-01",
       "timeRange": "between(datetime(2025-06-09T12:00:00Z) .. datetime(2025-06-09T18:00:00Z))",
       "issueType": "Latency / Performance",
       "incidentId": "412587391",
       "model": "claude-opus-4.6",
-      "productId": "teleduct",
-      "productName": "Teleduct",
-      "tags": ["icm", "deployment"],
+      "productId": "sample-product",
+      "productName": "Sample Product",
+      "tags": ["incident", "deployment"],
       "contestCount": 1,
       "thoughtCount": 14,
       "thoughts": [],
       "actions": [],
       "logs": ["Investigation started", "Investigation completed"],
-      "finalReport": "# IcM 412587391 — Deployment Correlation Analysis\n\nBatch size config change caused regression."
+      "finalReport": "# Incident 412587391 — Deployment Correlation Analysis\n\nBatch size config change caused regression."
     },
     {
       "id": "1749735000000",
@@ -271,8 +271,8 @@
       "timeRange": "ago(1h)",
       "issueType": "Unknown / Discovery",
       "model": "gpt-4o",
-      "productId": "teleduct",
-      "productName": "Teleduct",
+      "productId": "sample-product",
+      "productName": "Sample Product",
       "thoughtCount": 2,
       "thoughts": [
         "Started checking VM health metrics..."

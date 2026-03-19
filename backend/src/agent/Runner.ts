@@ -1,25 +1,22 @@
 import { EventEmitter } from 'events';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import { join, isAbsolute } from 'path';
-import { ToolManager } from './Tools';
-import { CopilotClient } from './CopilotClient';
+import { ToolManager } from './tools/ToolManager';
+import { McpServerConfig } from './tools/McpToolBridge';
+import { LlmProvider } from './llm/LlmProvider';
 import OpenAI from 'openai';
-
-// Placeholder for LLM SDK - we will use a generic interface for now
-// and swap with the specific SDK once confirmed.
 
 export interface AgentConfig {
     systemPromptPath: string;
     retrospectPromptPath?: string;
     knowledgeBasePath?: string;
     repoRoot?: string;
-    mcpServers: string[];
+    mcpServers: McpServerConfig[];
     maxSteps?: number;
     model?: string;
     workingDirectory?: string;
     investigationsPath?: string;
     retrospectTimeoutMinutes?: number;
-    icmScriptsPath?: string;
 }
 
 export interface ProposedChange {
@@ -61,10 +58,10 @@ export interface InvestigationState {
     // Metadata
     title?: string;
     query?: string;
-    stamp?: string;
+    target?: string;
     timeRange?: string;
-    trackingId?: string;
-    issueType?: string;
+    correlationId?: string;
+    category?: string;
     incidentId?: string;
     model?: string;
     productId?: string;
@@ -88,19 +85,17 @@ export class AgentRunner extends EventEmitter {
     private paused: boolean = false;
     private aborted: boolean = false;
     private pendingInterventions: any[] = [];
-    private copilotClient: CopilotClient;
+    private llmProvider: LlmProvider;
     private openaiClient: OpenAI | null = null;
-    private cachedCopilotToken: string | null = null;
     // Tracks how many entries from `thoughts` have been archived into `fullHistory`.
     // This allows us to sync incrementally without duplicating entries.
     private fullHistorySyncCursor: number = 0;
 
-    constructor(config: AgentConfig, initialMetadata: Partial<InvestigationState> = {}) {
+    constructor(config: AgentConfig, llmProvider: LlmProvider, initialMetadata: Partial<InvestigationState> = {}) {
         super();
         this.config = config;
+        this.llmProvider = llmProvider;
         this.toolManager = new ToolManager();
-        this.copilotClient = new CopilotClient();
-        // Pass repo root from config to ToolManager for path resolution
         if (config.repoRoot) {
             this.toolManager.setRepoRoot(config.repoRoot);
         }
@@ -147,41 +142,42 @@ export class AgentRunner extends EventEmitter {
 
         if (!this.toolManager.isConnected()) {
             this.log("ToolManager not connected. Initializing...");
-            this.emit('thought', "System: Initializing KQL tools (trying Kusto CLI first, MCP Server as fallback)...");
+            this.emit('thought', "System: Initializing tools (connecting to MCP servers)...");
 
-            await this.toolManager.initialize(this.config.workingDirectory, (msg: string) => this.log(msg));
+            await this.toolManager.initialize(this.config.mcpServers, this.config.workingDirectory, (msg: string) => this.log(msg));
 
-            // Re-check connection
-            if (!this.toolManager.isConnected()) {
-                const errorMsg = `System Warning: Failed to initialize KQL tools (neither Kusto CLI nor MCP Server available). Error: ${this.toolManager.initError || 'Unknown error'}.`;
+            if (this.toolManager.isConnected()) {
+                const mcpStatus = this.toolManager.getMcpStatus();
+                const connectedCount = mcpStatus.filter(s => s.connected).length;
+                const toolCount = mcpStatus.reduce((sum, s) => sum + s.toolCount, 0);
+                this.emit('thought', `System: Tools ready. ${connectedCount} MCP server(s) connected, ${toolCount} tool(s) available.`);
+            } else {
+                const errorMsg = `System Warning: Tool initialization failed. Error: ${this.toolManager.initError || 'Unknown error'}.`;
                 this.log(errorMsg);
                 this.state.thoughts.push(errorMsg);
                 this.emit('thought', errorMsg);
                 
                 // Pause and wait — when user clicks Resume we retry initialization
-                this.state.thoughts.push("System: Investigation paused due to KQL tool initialization failure. Please check Kusto CLI or MCP server configuration and click Resume to retry.");
+                this.state.thoughts.push("System: Investigation paused due to tool initialization failure. Please check MCP server configuration in Settings and click Resume to retry.");
                 this.pause();
                 await this.saveArtifacts();
 
                 // Block here until resume + successful connect (or abort)
                 while (!this.aborted) {
-                    // Spin while paused
                     while (this.paused && !this.aborted) {
                         await new Promise(resolve => setTimeout(resolve, 1000));
                     }
                     if (this.aborted) return;
 
-                    // User clicked Resume — retry initialization
-                    this.log("Retrying KQL tool initialization after resume...");
-                    this.emit('thought', "System: Retrying KQL tool initialization...");
-                    await this.toolManager.initialize(this.config.workingDirectory, (msg: string) => this.log(msg));
+                    this.log("Retrying tool initialization after resume...");
+                    this.emit('thought', "System: Retrying tool initialization...");
+                    await this.toolManager.initialize(this.config.mcpServers, this.config.workingDirectory, (msg: string) => this.log(msg));
 
                     if (this.toolManager.isConnected()) {
-                        const backend = this.toolManager.getKqlBackend();
-                        this.emit('thought', `System: KQL tools connected via ${backend}.`);
-                        break; // Fall through to the main investigation loop
+                        this.emit('thought', `System: Tools connected successfully.`);
+                        break;
                     } else {
-                        const retryErr = `System Warning: KQL tools still unavailable. Error: ${this.toolManager.initError || 'Unknown error'}.`;
+                        const retryErr = `System Warning: Tools still unavailable. Error: ${this.toolManager.initError || 'Unknown error'}.`;
                         this.log(retryErr);
                         this.state.thoughts.push(retryErr);
                         this.emit('thought', retryErr);
@@ -192,9 +188,6 @@ export class AgentRunner extends EventEmitter {
                     }
                 }
                 if (this.aborted) return;
-            } else {
-                const backend = this.toolManager.getKqlBackend();
-                this.emit('thought', `System: KQL tools connected via ${backend}.`);
             }
         } else {
             this.log("ToolManager already connected.");
@@ -206,33 +199,33 @@ export class AgentRunner extends EventEmitter {
         // Context Injection
         const contextParts = [];
         if (this.state.timeRange) contextParts.push(`Target Time Range: ${this.state.timeRange}`);
-        if (this.state.stamp) contextParts.push(`Target Stamp/Environment: ${this.state.stamp}`);
-        if (this.state.trackingId) contextParts.push(`Tracking ID: ${this.state.trackingId}`);
-        if (this.state.issueType) contextParts.push(`Issue Type: ${this.state.issueType}`);
-        if (this.state.incidentId) contextParts.push(`IcM Incident ID: ${this.state.incidentId}`);
+        if (this.state.target) contextParts.push(`Target: ${this.state.target}`);
+        if (this.state.correlationId) contextParts.push(`Correlation ID: ${this.state.correlationId}`);
+        if (this.state.category) contextParts.push(`Category: ${this.state.category}`);
+        if (this.state.incidentId) contextParts.push(`Incident ID: ${this.state.incidentId}`);
 
         if (contextParts.length > 0) {
             systemPrompt += `\n\n## Investigation Context\nYou are investigating an issue with the following constraints:\n${contextParts.map(p => `- ${p}`).join('\n')}\n\nUse this context to filter your queries (e.g. strict time filtering).`;
         }
 
-        // ICM Directive: if this investigation was started from an IcM incident, instruct the agent
+        // Incident Directive: if this investigation was started from an incident, instruct the agent
         if (this.state.incidentId) {
-            // Dynamically discover ICM investigation guide from the knowledge base
-            let icmGuideHint = '';
+            // Dynamically discover incident investigation guide from the knowledge base
+            let incidentGuideHint = '';
             const kbDir = this.config.knowledgeBasePath;
             if (kbDir) {
                 try {
                     const kbAbsPath = isAbsolute(kbDir) ? kbDir : join(this.config.repoRoot || '', kbDir);
                     if (existsSync(kbAbsPath)) {
                         const files = readdirSync(kbAbsPath);
-                        const icmGuide = files.find(f => /icm.*investigation/i.test(f) && f.endsWith('.md'));
-                        if (icmGuide) {
-                            icmGuideHint = ` Follow the ICM investigation guide (${icmGuide}).`;
+                        const incidentGuide = files.find(f => /incident.*investigation/i.test(f) && f.endsWith('.md'));
+                        if (incidentGuide) {
+                            incidentGuideHint = ` Follow the incident investigation guide (${incidentGuide}).`;
                         }
                     }
                 } catch { /* ignore KB scan errors */ }
             }
-            systemPrompt += `\n\n## ICM Incident Investigation\nThis investigation was initiated from IcM Incident ${this.state.incidentId}.${icmGuideHint}\n1. The incident context has already been extracted and is included in the user query below.\n2. Use the extracted stamp, time range, and symptom keywords to route to the correct specialized investigation guide.\n3. If stamp or time range is missing, attempt to extract them from the incident details in the query.\n4. Carry the IncidentId forward in all investigation state tracking.`;
+            systemPrompt += `\n\n## Incident Investigation\nThis investigation was initiated from Incident ${this.state.incidentId}.${incidentGuideHint}\n1. The incident context has already been extracted and is included in the user query below.\n2. Use the extracted target, time range, and symptom keywords to route to the correct specialized investigation guide.\n3. If target or time range is missing, attempt to extract them from the incident details in the query.\n4. Carry the incident ID forward in all investigation state tracking.`;
         }
 
         // Main Loop
@@ -248,11 +241,11 @@ export class AgentRunner extends EventEmitter {
         while (!this.aborted && this.state.status !== 'completed' && stepCount < maxSteps) {
             stepCount++;
 
-            // Check KQL Tool Connection Integrity (applies to both Kusto CLI and MCP backends)
+            // Check Tool Connection Integrity
             if (!this.toolManager.isConnected()) {
                 if (!this.paused) {
-                    this.log("KQL tools disconnected. Pausing investigation.");
-                    const sysMsg = "System: KQL tools disconnected. Investigation paused. Click Resume to reconnect and continue.";
+                    this.log("Tools disconnected. Pausing investigation.");
+                    const sysMsg = "System: Tools disconnected. Investigation paused. Click Resume to reconnect and continue.";
                     this.state.thoughts.push(sysMsg);
                     this.state.actions.push(null as any);
                     this.emit('thought', sysMsg);
@@ -387,7 +380,7 @@ export class AgentRunner extends EventEmitter {
                     lastAction.result = result;
 
                     // Truncate oversized tool results to prevent token overflow.
-                    // A single KQL result can be 300K+ chars (~75K tokens), which alone
+                    // A single tool result can be 300K+ chars (~75K tokens), which alone
                     // exceeds the 128K token limit. Cap at ~80K chars (~20K tokens).
                     const MAX_OBSERVATION_CHARS = 80_000;
                     let resultStr = JSON.stringify(result);
@@ -649,8 +642,8 @@ export class AgentRunner extends EventEmitter {
                 let template = fs.readFileSync(resolvedPath, 'utf-8');
                 template = template.replace(/\{\{GOAL\}\}/g, this.state.query || 'N/A');
                 template = template.replace(/\{\{STATUS\}\}/g, this.state.status || 'N/A');
-                template = template.replace(/\{\{STAMP\}\}/g, this.state.stamp || 'N/A');
-                template = template.replace(/\{\{ISSUE_TYPE\}\}/g, this.state.issueType || 'N/A');
+                template = template.replace(/\{\{STAMP\}\}/g, this.state.target || 'N/A');
+                template = template.replace(/\{\{ISSUE_TYPE\}\}/g, this.state.category || 'N/A');
                 template = template.replace(/\{\{KNOWLEDGE_BASE_FILES\}\}/g, kbFileListing);
                 return template;
             }
@@ -674,8 +667,8 @@ Analyze the investigation transcript (provided in a separate message), identify 
 ## Investigation Context
 - **Goal**: ${this.state.query}
 - **Final Status**: ${this.state.status}
-- **Stamp**: ${this.state.stamp || 'N/A'}
-- **Issue Type**: ${this.state.issueType || 'N/A'}
+- **Target**: ${this.state.target || 'N/A'}
+- **Category**: ${this.state.category || 'N/A'}
 
 ${kbSection}
 
@@ -697,7 +690,7 @@ ${kbSection}
 4. **Explain your reasoning** in the chat.
 
 ## Change Categories
-Tag each proposal: **[Fix Wrong Info]**, **[Add Missing Info]**, **[Improve Routing]**, **[New Guide]**, **[Prompt Refinement]**, **[New KQL Query]**
+Tag each proposal: **[Fix Wrong Info]**, **[Add Missing Info]**, **[Improve Routing]**, **[New Guide]**, **[Prompt Refinement]**, **[New Query]**
 
 Be thorough but focused. Only propose changes that would directly improve the outcome of this specific investigation type.`;
     }
@@ -816,8 +809,8 @@ Be thorough but focused. Only propose changes that would directly improve the ou
     }
 
     private async runRetrospectToolLoop(messages: any[], tools: any[]): Promise<string> {
-        if (!await this.copilotClient.isAuthenticated()) throw new Error("Not authenticated");
-        const token = await this.copilotClient.getCopilotToken();
+        const authStatus = await this.llmProvider.getAuthStatus();
+        if (!authStatus.authenticated) throw new Error(`Not authenticated with ${this.llmProvider.displayName}`);
 
         // Create an AbortController so the retrospective can be cancelled
         this.retrospectAbortController = new AbortController();
@@ -827,21 +820,8 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         // never times out before the user-configured limit fires.
         const perCallTimeoutMs = (this.config.retrospectTimeoutMinutes || 10) * 60 * 1000;
 
-        // Reuse cached OpenAI client, recreating when token OR timeout config changes
-        if (!this.openaiClient || this.cachedCopilotToken !== token || (this.openaiClient as any)._configuredTimeout !== perCallTimeoutMs) {
-            this.cachedCopilotToken = token;
-            this.openaiClient = new OpenAI({
-                apiKey: token,
-                baseURL: "https://api.githubcopilot.com",
-                timeout: perCallTimeoutMs,
-                defaultHeaders: {
-                    'Editor-Version': 'vscode/1.85.1',
-                    'Editor-Plugin-Version': 'copilot/1.155.0',
-                    'User-Agent': 'GithubCopilot/1.155.0'
-                }
-            });
-            (this.openaiClient as any)._configuredTimeout = perCallTimeoutMs;
-        }
+        // Get OpenAI-compatible client from provider
+        this.openaiClient = await this.llmProvider.getClient(perCallTimeoutMs);
         const openai = this.openaiClient;
 
         const model = this.state.model || 'gpt-4o';
@@ -1325,8 +1305,8 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
         const kbPath = this.config.knowledgeBasePath;
         const kbInstruction = kbPath
-            ? `Start by reading the investigation guides that were relevant (use read_file on the guides from ${kbPath}/ that match the issue type "${this.state.issueType || 'unknown'}").`
-            : `Start by using list_dir to discover the knowledge base structure, then read_file on the guides that match the issue type "${this.state.issueType || 'unknown'}".`;
+            ? `Start by reading the investigation guides that were relevant (use read_file on the guides from ${kbPath}/ that match the category "${this.state.category || 'unknown'}").`
+            : `Start by using list_dir to discover the knowledge base structure, then read_file on the guides that match the category "${this.state.category || 'unknown'}".`;
         const analysisRequest = `Analyze this investigation now. ${kbInstruction} Cross-reference the guide content with the investigation transcript above. Then propose specific changes using propose_change for each improvement you identify. Focus on changes that would make this investigation succeed perfectly on the first attempt next time.`;
 
         const messages = this.buildRetrospectMessages([{ role: 'user', content: analysisRequest }]);
@@ -1460,7 +1440,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         // Use the investigation creation date (from ID) to ensure consistent folder naming
         const startDate = !isNaN(Number(this.state.id)) ? new Date(Number(this.state.id)) : new Date();
         const timestamp = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
-        const safeStamp = (this.state.stamp || 'UnknownStamp').replace(/[^a-zA-Z0-9-]/g, '');
+        const safeStamp = (this.state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
         const safeId = this.state.id.replace(/[^a-zA-Z0-9]/g, '');
         const folderName = `${timestamp}_${safeStamp}_${safeId}`;
 
@@ -1495,7 +1475,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             || (reportThoughts.length > 0 ? extractThoughtText(reportThoughts[reportThoughts.length - 1]) : 'No summary available.');
 
         // Cap thought text in report to prevent multi-MB reports when fullHistory has
-        // hundreds of entries (many with 72K+ char KQL observations). Full data is in state.json.
+        // hundreds of entries (many with 72K+ char observations). Full data is in state.json.
         const MAX_REPORT_THOUGHT_CHARS = 2_000;
         const capForReport = (text: string): string => {
             if (text.length <= MAX_REPORT_THOUGHT_CHARS) return text;
@@ -1504,7 +1484,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
         const report = `# Investigation Report: ${this.state.id}\n\n` +
             `**Status**: ${this.state.status}\n` +
-            `**Stamp**: ${this.state.stamp || 'N/A'}\n` +
+            `**Target**: ${this.state.target || 'N/A'}\n` +
             `**Model**: ${this.state.model}\n` +
             `**Date**: ${new Date().toLocaleString()}\n\n` +
             `## Summary\n` +
@@ -1638,29 +1618,16 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
-                if (!await this.copilotClient.isAuthenticated()) {
+                const authStatus = await this.llmProvider.getAuthStatus();
+                if (!authStatus.authenticated) {
                     return {
-                        thought: "Error: Not authenticated with GitHub Copilot. Please login via the dashboard.",
+                        thought: `Error: Not authenticated with ${this.llmProvider.displayName}. Please login via the dashboard.`,
                         isFinal: true
                     };
                 }
 
-                const token = await this.copilotClient.getCopilotToken();
-
-                // Reuse OpenAI client, recreating only when token changes
-                if (!this.openaiClient || this.cachedCopilotToken !== token) {
-                    this.cachedCopilotToken = token;
-                    this.openaiClient = new OpenAI({
-                        apiKey: token,
-                        baseURL: "https://api.githubcopilot.com",
-                        timeout: 180_000,
-                        defaultHeaders: {
-                            'Editor-Version': 'vscode/1.85.1',
-                            'Editor-Plugin-Version': 'copilot/1.155.0',
-                            'User-Agent': 'GithubCopilot/1.155.0'
-                        }
-                    });
-                }
+                // Get or reuse OpenAI-compatible client from provider
+                this.openaiClient = await this.llmProvider.getClient(180_000);
                 const openai = this.openaiClient;
 
                 const model = this.state.model || this.config.model || 'gpt-4o';
@@ -1675,7 +1642,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 }
 
                 // Per-message size guard: even after compaction, individual messages
-                // can be oversized (e.g., a single KQL observation). Cap each message
+                // can be oversized (e.g., a single large observation). Cap each message
                 // to prevent a single entry from blowing the token budget.
                 // NOTE: With keepRecent=12 entries surviving compaction, this cap must be
                 // low enough that 12 × MAX_MSG_CHARS stays well under maxPayloadChars (600K).
@@ -1892,25 +1859,14 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             // Archive all current entries to fullHistory BEFORE compaction discards them
             this.syncFullHistory();
 
-            if (!await this.copilotClient.isAuthenticated()) {
-                this.log("Cannot compact history: Copilot not authenticated.");
+            const authStatus = await this.llmProvider.getAuthStatus();
+            if (!authStatus.authenticated) {
+                this.log(`Cannot compact history: ${this.llmProvider.displayName} not authenticated.`);
                 return false;
             }
-            const token = await this.copilotClient.getCopilotToken();
 
-            // Reuse cached OpenAI client, recreating only when token changes
-            if (!this.openaiClient || this.cachedCopilotToken !== token) {
-                this.cachedCopilotToken = token;
-                this.openaiClient = new OpenAI({
-                    apiKey: token,
-                    baseURL: "https://api.githubcopilot.com",
-                    defaultHeaders: {
-                        'Editor-Version': 'vscode/1.85.1',
-                        'Editor-Plugin-Version': 'copilot/1.155.0',
-                        'User-Agent': 'GithubCopilot/1.155.0'
-                    }
-                });
-            }
+            // Get OpenAI-compatible client from provider
+            this.openaiClient = await this.llmProvider.getClient();
             const openai = this.openaiClient;
 
             // Keep more recent entries to preserve investigation context across contests.
@@ -1952,7 +1908,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             }
 
             // Build text for newer entries to summarize, with a more generous per-entry limit
-            // to preserve key findings from KQL observations and tool results.
+            // to preserve key findings from observations and tool results.
             const PER_ENTRY_LIMIT = 4000;
             const olderText = thoughtsToSummarize.map((h: any, i: number) => {
                 if (typeof h === 'string') return `[${i}] ${h.substring(0, PER_ENTRY_LIMIT)}`;
@@ -2040,7 +1996,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
             // Truncate observation entries in the recent section to prevent payload bloat.
             // The full data is preserved in fullHistory (synced above) and summarized in Memory.
-            // Without this, 12 recent entries with 72K char KQL results would make any subsequent
+            // Without this, 12 recent entries with 72K char tool results would make any subsequent
             // LLM call exceed the payload limit, causing a timeout-compaction death spiral.
             const MAX_POST_COMPACT_OBS_CHARS = 6_000;
             for (let i = 2; i < this.state.thoughts.length; i++) {

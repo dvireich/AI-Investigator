@@ -1,12 +1,12 @@
 {
   "id": "1749780000000",
   "status": "completed",
-  "title": "Kusto ingestion errors — svc-prd-neu-01",
+  "title": "Ingestion errors — svc-prd-neu-01",
   "createdBy": "scheduler",
-  "query": "Investigate Kusto ingestion failures on svc-prd-neu-01",
+  "query": "Investigate ingestion failures on svc-prd-neu-01",
   "stamp": "svc-prd-neu-01",
   "timeRange": "ago(3d)",
-  "issueType": "kusto-errors",
+  "issueType": "ingestion-errors",
   "model": "claude-sonnet-4-20250514",
   "productId": "sample-product",
   "productName": "sample-product",
@@ -14,7 +14,7 @@
   "thoughts": [],
   "actions": [],
   "logs": ["Investigation started", "Investigation completed"],
-  "finalReport": "# Kusto Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `svc-prd-neu-01` peaked at 2,800 failures/hour due to Kusto cluster capacity throttling.\n\n## Root Cause\n\nThe target ADX cluster `adx-prd-neu-01` hit its ingestion capacity limit (95% utilization) during a bulk backfill operation from another pipeline.\n\n## Recommendations\n\n1. Coordinate bulk operations with cluster capacity planning\n2. Implement adaptive retry with exponential backoff",
+  "finalReport": "# Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `svc-prd-neu-01` peaked at 2,800 failures/hour due to cluster capacity throttling.\n\n## Root Cause\n\nThe target data cluster `cluster-prd-neu-01` hit its ingestion capacity limit (95% utilization) during a bulk backfill operation from another pipeline.\n\n## Recommendations\n\n1. Coordinate bulk operations with cluster capacity planning\n2. Implement adaptive retry with exponential backoff",
   "retrospect": {
     "messages": [
       {
@@ -28,16 +28,16 @@
       },
       {
         "role": "tool-result",
-        "content": "Successfully read investigation state (15 steps, 12 KQL queries, 3 observations)"
+        "content": "Successfully read investigation state (15 steps, 12 queries, 3 observations)"
       },
       {
         "role": "tool-call",
-        "content": "Reading file: docs/investigations/kusto-error-investigation.md",
+        "content": "Reading file: docs/investigations/ingestion-error-investigation.md",
         "toolName": "read_file"
       },
       {
         "role": "tool-result",
-        "content": "Successfully read Kusto error investigation guide (234 lines)"
+        "content": "Successfully read ingestion error investigation guide (234 lines)"
       },
       {
         "role": "tool-call",
@@ -50,25 +50,25 @@
       },
       {
         "role": "assistant",
-        "content": "After analyzing the investigation transcript against the existing knowledge base, I've identified **3 areas for improvement**:\n\n### 1. Missing Capacity Throttling Guidance\nThe Kusto error investigation guide (`kusto-error-investigation.md`) doesn't mention checking ADX cluster utilization as an initial diagnostic step. The agent spent 4 steps discovering this — a hint in the guide would have accelerated the investigation.\n\n### 2. New Error Pattern Not Documented\nThe `IngestionCapacityExceeded` error type isn't listed in the known errors table. This investigation discovered it's the primary error code when the cluster hits capacity limits.\n\n### 3. Missing Cross-Pipeline Coordination Runbook\nThe root cause involved a bulk backfill from *another* pipeline consuming cluster capacity. There's no documentation on how to coordinate bulk operations across pipelines to prevent this.\n\nI'll now generate concrete file change proposals for each improvement."
+        "content": "After analyzing the investigation transcript against the existing knowledge base, I've identified **3 areas for improvement**:\n\n### 1. Missing Capacity Throttling Guidance\nThe ingestion error investigation guide (`ingestion-error-investigation.md`) doesn't mention checking cluster utilization as an initial diagnostic step. The agent spent 4 steps discovering this — a hint in the guide would have accelerated the investigation.\n\n### 2. New Error Pattern Not Documented\nThe `IngestionCapacityExceeded` error type isn't listed in the known errors table. This investigation discovered it's the primary error code when the cluster hits capacity limits.\n\n### 3. Missing Cross-Pipeline Coordination Runbook\nThe root cause involved a bulk backfill from *another* pipeline consuming cluster capacity. There's no documentation on how to coordinate bulk operations across pipelines to prevent this.\n\nI'll now generate concrete file change proposals for each improvement."
       }
     ],
     "proposals": [
       {
         "id": "prop-1",
         "type": "edit",
-        "filePath": "docs/investigations/kusto-error-investigation.md",
-        "description": "Add ADX cluster capacity check as the first diagnostic step — investigators should verify cluster health before diving into individual error analysis",
-        "content": "## Step 0: Check ADX Cluster Capacity\n\nBefore investigating individual ingestion errors, verify the target cluster isn't experiencing capacity throttling:\n\n```kql\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining\n```\n\nIf `Remaining` is near zero, the errors may be caused by cluster-level throttling rather than pipeline issues. Check for concurrent bulk operations:\n\n```kql\n.show operations\n| where StartedOn > ago(6h)\n| where OperationKind == 'DataIngestPull'\n| summarize count() by Database, Table\n| order by count_ desc\n```",
+        "filePath": "docs/investigations/ingestion-error-investigation.md",
+        "description": "Add cluster capacity check as the first diagnostic step — investigators should verify cluster health before diving into individual error analysis",
+        "content": "## Step 0: Check Cluster Capacity\n\nBefore investigating individual ingestion errors, verify the target cluster isn't experiencing capacity throttling:\n\n```\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining\n```\n\nIf `Remaining` is near zero, the errors may be caused by cluster-level throttling rather than pipeline issues. Check for concurrent bulk operations:\n\n```\n.show operations\n| where StartedOn > ago(6h)\n| where OperationKind == 'DataIngestPull'\n| summarize count() by Database, Table\n| order by count_ desc\n```",
         "originalContent": "## Step 1: Identify Error Pattern\n\nStart by checking the error distribution...",
         "status": "pending"
       },
       {
         "id": "prop-2",
         "type": "edit",
-        "filePath": "docs/investigations/kusto-error-investigation.md",
+        "filePath": "docs/investigations/ingestion-error-investigation.md",
         "description": "Add IngestionCapacityExceeded to the known error types table with diagnostic steps",
-        "content": "| Error Type | Description | Diagnostic Steps |\n|---|---|---|\n| IngestionCapacityExceeded | Cluster at ingestion capacity limit | Check `.show capacity`, coordinate with platform team, verify no concurrent bulk operations |",
+        "content": "| Error Type | Description | Diagnostic Steps |\n|---|---|---|\n| IngestionCapacityExceeded | Cluster at ingestion capacity limit | Check `Check cluster capacity`, coordinate with platform team, verify no concurrent bulk operations |",
         "originalContent": "| Error Type | Description | Diagnostic Steps |",
         "status": "approved"
       },
@@ -77,7 +77,7 @@
         "type": "create",
         "filePath": "docs/investigations/bulk-operation-coordination.md",
         "description": "Create new runbook documenting how to coordinate bulk ingestion operations across pipelines to prevent capacity conflicts",
-        "content": "# Bulk Operation Coordination Guide\n\n## Overview\n\nWhen running bulk data operations (backfills, migrations, replays), coordinate with the platform team to prevent capacity throttling on shared ADX clusters.\n\n## Pre-Operation Checklist\n\n1. Check current cluster utilization via `.show capacity`\n2. Verify no other bulk operations are scheduled\n3. Schedule during off-peak hours (weekends, 02:00-06:00 UTC)\n4. Set ingestion rate limits to avoid exceeding 70% cluster capacity\n\n## Monitoring During Operations\n\n```kql\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining, UtilizationPct = round(100.0 * Consumed / Total, 1)\n```\n\n## Escalation\n\nIf capacity exceeds 90%, pause the bulk operation and notify the pipeline on-call team.",
+        "content": "# Bulk Operation Coordination Guide\n\n## Overview\n\nWhen running bulk data operations (backfills, migrations, replays), coordinate with the platform team to prevent capacity throttling on shared database clusters.\n\n## Pre-Operation Checklist\n\n1. Check current cluster utilization via `Check cluster capacity`\n2. Verify no other bulk operations are scheduled\n3. Schedule during off-peak hours (weekends, 02:00-06:00 UTC)\n4. Set ingestion rate limits to avoid exceeding 70% cluster capacity\n\n## Monitoring During Operations\n\n```sql\n.show capacity\n| where Resource == 'Ingestions'\n-- Filter for ingestion resources\n```\n\n## Escalation\n\nIf capacity exceeds 90%, pause the bulk operation and notify the pipeline on-call team.",
         "status": "pending"
       },
       {
@@ -85,8 +85,8 @@
         "type": "edit",
         "filePath": "docs/investigations/investigation-methodology.md",
         "description": "Add cluster health check to the Phase 1 checklist in the investigation methodology",
-        "content": "### Phase 1: Initial Assessment\n\n- [ ] Check ADX cluster capacity and utilization\n- [ ] Review MDM dashboard for the affected stamp",
-        "originalContent": "### Phase 1: Initial Assessment\n\n- [ ] Review MDM dashboard for the affected stamp",
+        "content": "### Phase 1: Initial Assessment\n\n- [ ] Check cluster capacity and utilization\n- [ ] Review monitoring dashboard for the affected stamp",
+        "originalContent": "### Phase 1: Initial Assessment\n\n- [ ] Review monitoring dashboard for the affected stamp",
         "status": "rejected"
       }
     ],

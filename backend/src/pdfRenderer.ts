@@ -40,11 +40,11 @@ export async function closeBrowser(): Promise<void> {
 interface InvestigationMetadata {
     id: string;
     status: string;
-    stamp?: string;
+    target?: string;
     timeRange?: string;
-    issueType?: string;
+    category?: string;
     model?: string;
-    trackingId?: string;
+    correlationId?: string;
     incidentId?: string;
     productName?: string;
     contestCount?: number;
@@ -72,7 +72,7 @@ export async function renderPdf(
             displayHeaderFooter: true,
             headerTemplate: `
                 <div style="width:100%;font-size:8px;color:#94a3b8;padding:0 15mm;display:flex;justify-content:space-between;">
-                    <span>Investigation Report — ${escapeHtml(metadata.stamp || 'N/A')}</span>
+                    <span>Investigation Report — ${escapeHtml(metadata.target || 'N/A')}</span>
                     <span>${new Date().toLocaleDateString()}</span>
                 </div>
             `,
@@ -175,13 +175,13 @@ function buildHtml(markdownReport: string, meta: InvestigationMetadata): string 
     // Build metadata rows
     const metaRows: [string, string][] = [
         ['Status', meta.status.charAt(0).toUpperCase() + meta.status.slice(1)],
-        ['Stamp', meta.stamp || 'N/A'],
+        ['Target', meta.target || 'N/A'],
         ['Started', startDate],
     ];
     if (meta.timeRange) metaRows.push(['Time Range', meta.timeRange]);
-    if (meta.issueType) metaRows.push(['Issue Type', meta.issueType]);
-    if (meta.trackingId) metaRows.push(['Tracking ID', meta.trackingId]);
-    if (meta.incidentId) metaRows.push(['IcM Incident', meta.incidentId]);
+    if (meta.category) metaRows.push(['Category', meta.category]);
+    if (meta.correlationId) metaRows.push(['Correlation ID', meta.correlationId]);
+    if (meta.incidentId) metaRows.push(['Incident', meta.incidentId]);
     if (meta.model) metaRows.push(['Model', meta.model]);
     if (meta.productName) metaRows.push(['Product', meta.productName]);
     if (meta.contestCount) metaRows.push(['Times Contested', String(meta.contestCount)]);
@@ -342,7 +342,7 @@ function buildHtml(markdownReport: string, meta: InvestigationMetadata): string 
 <body>
     <div class="cover-header">
         <h1>Investigation Report</h1>
-        <p class="subtitle">${escapeHtml(meta.stamp || 'Investigation')} — ${startDate}</p>
+        <p class="subtitle">${escapeHtml(meta.target || 'Investigation')} — ${startDate}</p>
     </div>
     <div class="content">
         <table class="metadata-table">

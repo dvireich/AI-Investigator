@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type IcmIncidentPreview, type IcmProgressEvent, type Product, type ProductValidation, type SavedQuery } from '../api';
+import { api, type IncidentPreview, type IncidentProgressEvent, type Product, type ProductValidation, type SavedQuery } from '../api';
 import { useToast } from '../components/Toast';
 import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, X, Check, Pencil } from 'lucide-react';
 import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../constants';
@@ -70,7 +70,7 @@ function formatDateDisplay(date: Date): string {
     });
 }
 
-/** Format the KQL time range into a human-readable string */
+/** Format the time range into a human-readable string */
 function formatTimeRange(timeRange: string): string {
     // Extract dates from format: between(datetime(ISO) .. datetime(ISO))
     const match = timeRange.match(/datetime\(([^)]+)\)\s*\.\.\s*datetime\(([^)]+)\)/);
@@ -103,13 +103,13 @@ export const NewInvestigation = () => {
     // Investigation Mode State
     const [mode, setMode] = useState<InvestigationMode>('standard');
 
-    // ICM State
+    // Incident State
     const [incidentId, setIncidentId] = useState('');
-    const [icmLoading, setIcmLoading] = useState(false);
-    const [icmPreview, setIcmPreview] = useState<IcmIncidentPreview | null>(null);
-    const [icmError, setIcmError] = useState('');
-    const [icmAvailable, setIcmAvailable] = useState<boolean | null>(null);
-    const [icmSteps, setIcmSteps] = useState<IcmProgressEvent[]>([]);
+    const [incidentLoading, setincidentLoading] = useState(false);
+    const [incidentPreview, setincidentPreview] = useState<IncidentPreview | null>(null);
+    const [incidentError, setincidentError] = useState('');
+    const [incidentAvailable, setincidentAvailable] = useState<boolean | null>(null);
+    const [incidentSteps, setincidentSteps] = useState<IncidentProgressEvent[]>([]);
 
     // Product State
     const [products, setProducts] = useState<Product[]>([]);
@@ -186,9 +186,9 @@ export const NewInvestigation = () => {
     };
 
     const [formData, setFormData] = useState({
-        stamp: '',
-        trackingId: '',
-        issueType: '',
+        target: '',
+        correlationId: '',
+        category: '',
         query: '',
         model: 'gpt-4o',
         title: ''
@@ -236,10 +236,10 @@ export const NewInvestigation = () => {
             });
         }).catch(err => console.error("Failed to load products:", err));
 
-        // Check ICM availability
-        api.checkIcmStatus()
-            .then(status => setIcmAvailable(status.available))
-            .catch(() => setIcmAvailable(false));
+        // Check Incident availability
+        api.checkIncidentStatus()
+            .then(status => setincidentAvailable(status.available))
+            .catch(() => setincidentAvailable(false));
 
         // Load saved queries (query bank)
         api.getSavedQueries()
@@ -258,15 +258,15 @@ export const NewInvestigation = () => {
             .catch(() => setProductValidation(null));
     }, [selectedProductId]);
 
-    const handleFetchIcm = async () => {
+    const handleFetchIncident = async () => {
         if (!incidentId.trim()) return;
-        setIcmLoading(true);
-        setIcmError('');
-        setIcmPreview(null);
-        setIcmSteps([]);
+        setincidentLoading(true);
+        setincidentError('');
+        setincidentPreview(null);
+        setincidentSteps([]);
         try {
-            const preview = await api.fetchIcmIncident(incidentId.trim(), (event) => {
-                setIcmSteps(prev => {
+            const preview = await api.fetchIncident(incidentId.trim(), (event) => {
+                setincidentSteps(prev => {
                     // Update existing step or add new one
                     const existing = prev.findIndex(s => s.step === event.step);
                     if (existing >= 0) {
@@ -277,15 +277,15 @@ export const NewInvestigation = () => {
                     return [...prev, event];
                 });
             });
-            setIcmPreview(preview);
-            // Auto-fill form fields from ICM data
-            if (preview.stamp) {
-                setFormData(prev => ({ ...prev, stamp: preview.stamp }));
+            setincidentPreview(preview);
+            // Auto-fill form fields from Incident data
+            if (preview.target) {
+                setFormData(prev => ({ ...prev, target: preview.target }));
             }
         } catch (err: any) {
-            setIcmError(err.message || 'Failed to read ICM incident');
+            setincidentError(err.message || 'Failed to read Incident');
         } finally {
-            setIcmLoading(false);
+            setincidentLoading(false);
         }
     };
 
@@ -293,10 +293,10 @@ export const NewInvestigation = () => {
         e.preventDefault();
         setLoading(true);
 
-        // ICM mode: incidentId is required, stamp/timeRange are optional
-        if (mode === 'icm') {
+        // Incident mode: incidentId is required, target/timeRange are optional
+        if (mode === 'incident') {
             if (!incidentId.trim()) {
-                toast('warning', 'Please enter an IcM Incident ID.');
+                toast('warning', 'Please enter an Incident ID.');
                 setLoading(false);
                 return;
             }
@@ -305,17 +305,17 @@ export const NewInvestigation = () => {
                     ...formData,
                     title: formData.title.trim() || undefined,
                     incidentId: incidentId.trim(),
-                    timeRange: icmPreview?.timeRange || timePreset,
+                    timeRange: incidentPreview?.timeRange || timePreset,
                     productId: selectedProductId || undefined
                 };
-                // Include stamp if available (from preview or manual entry)
-                if (formData.stamp) payload.stamp = formData.stamp;
-                // Include ICM context in query
-                if (icmPreview) {
-                    const icmContext = `[ICM Incident ${incidentId}]\nTitle: ${icmPreview.title}\nSeverity: ${icmPreview.severity}\n\n${icmPreview.raw}`;
+                // Include target if available (from preview or manual entry)
+                if (formData.target) payload.target = formData.target;
+                // Include Incident context in query
+                if (incidentPreview) {
+                    const IncidentContext = `[Incident ${incidentId}]\nTitle: ${incidentPreview.title}\nSeverity: ${incidentPreview.severity}\n\n${incidentPreview.raw}`;
                     payload.query = payload.query
-                        ? `${icmContext}\n\n---\nAdditional context: ${payload.query}`
-                        : icmContext;
+                        ? `${IncidentContext}\n\n---\nAdditional context: ${payload.query}`
+                        : IncidentContext;
                 }
                 const result = await api.startInvestigation(payload);
                 navigate(`/investigation/${result.id}`);
@@ -328,7 +328,7 @@ export const NewInvestigation = () => {
             return;
         }
 
-        // Standard mode: stamp and timeRange are required
+        // Standard mode: target and timeRange are required
 
         // Construct effective time range
         let effectiveTimeRange = timePreset;
@@ -351,8 +351,8 @@ export const NewInvestigation = () => {
             }
             const startISO = new Date(customStart).toISOString();
             const endISO = new Date(customEnd).toISOString();
-            // Format as KQL-friendly range description
-            effectiveTimeRange = `between(datetime(${startISO}) .. datetime(${endISO}))`;
+            // Format as time range description
+            effectiveTimeRange = `${startISO} to ${endISO}`;
         }
 
         try {
@@ -376,9 +376,9 @@ export const NewInvestigation = () => {
 
     const loadSavedQuery = useCallback((sq: SavedQuery) => {
         setFormData({
-            stamp: sq.stamp || '',
-            trackingId: sq.trackingId || '',
-            issueType: sq.issueType || '',
+            target: sq.target || '',
+            correlationId: sq.correlationId || '',
+            category: sq.category || '',
             query: sq.query || '',
             model: sq.model || formData.model,
         });
@@ -420,10 +420,10 @@ export const NewInvestigation = () => {
             }
             const payload = {
                 name,
-                stamp: formData.stamp || undefined,
+                target: formData.target || undefined,
                 query: formData.query || undefined,
-                issueType: formData.issueType || undefined,
-                trackingId: formData.trackingId || undefined,
+                category: formData.category || undefined,
+                correlationId: formData.correlationId || undefined,
                 timeRange: effectiveTimeRange,
                 timeMode: effectiveTimeMode,
                 model: formData.model,
@@ -543,7 +543,7 @@ export const NewInvestigation = () => {
                                                     {loadedQueryId === sq.id && <Check className="w-3.5 h-3.5 text-brand-400" />}
                                                 </div>
                                                 <div className="text-[11px] text-slate-400 truncate">
-                                                    {[sq.stamp, sq.issueType, sq.timeRange].filter(Boolean).join(' · ') || 'No details'}
+                                                    {[sq.target, sq.category, sq.timeRange].filter(Boolean).join(' · ') || 'No details'}
                                                 </div>
                                             </div>
                                             <button
@@ -620,7 +620,7 @@ export const NewInvestigation = () => {
                                     setShowSaveDialog(true);
                                 }}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/50 text-slate-300 hover:text-white hover:border-slate-600 text-xs font-bold transition-all"
-                                title={loadedQueryId ? 'Update saved query with current form values' : 'Save current form (stamp, issue type, time range, query, model) as a reusable template'}
+                                title={loadedQueryId ? 'Update saved query with current form values' : 'Save current form (target, category, time range, query, model) as a reusable template'}
                             >
                                 {loadedQueryId ? <Pencil className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
                                 {loadedQueryId ? 'Update' : 'Save'}
@@ -681,17 +681,17 @@ export const NewInvestigation = () => {
                                     key={m.value}
                                     type="button"
                                     onClick={() => setMode(m.value)}
-                                    disabled={m.value === 'icm' && icmAvailable === false}
+                                    disabled={m.value === 'incident' && incidentAvailable === false}
                                     className={`flex-1 py-2 rounded-md text-xs font-bold transition-all flex items-center justify-center gap-2 ${
                                         mode === m.value
                                             ? 'bg-slate-700 text-brand-400 shadow-sm ring-1 ring-white/10'
-                                            : m.value === 'icm' && icmAvailable === false
+                                            : m.value === 'incident' && incidentAvailable === false
                                                 ? 'text-slate-600 cursor-not-allowed'
                                                 : 'text-slate-400 hover:text-slate-200'
                                     }`}
-                                    title={m.value === 'icm' && icmAvailable === false ? 'ICM scripts not configured' : m.description}
+                                    title={m.value === 'incident' && incidentAvailable === false ? 'Incident scripts not configured' : m.description}
                                 >
-                                    {m.value === 'icm' && <ShieldAlert className="w-3.5 h-3.5" />}
+                                    {m.value === 'incident' && <ShieldAlert className="w-3.5 h-3.5" />}
                                     {m.value === 'standard' && <Target className="w-3.5 h-3.5" />}
                                     {m.label}
                                 </button>
@@ -713,8 +713,8 @@ export const NewInvestigation = () => {
                     />
                 </div>
 
-                {/* ICM Incident Card (only in ICM mode) */}
-                {mode === 'icm' && (
+                {/* Incident Card (only in Incident mode) */}
+                {mode === 'incident' && (
                     <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] overflow-hidden relative group transition-all hover:shadow-2xl hover:bg-slate-900/80">
                         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-orange-500 to-transparent"></div>
                         <div className="p-5 space-y-4">
@@ -723,7 +723,7 @@ export const NewInvestigation = () => {
                                     <ShieldAlert className="w-5 h-5" />
                                 </div>
                                 <div>
-                                    <h2 className="text-lg font-bold text-white">IcM Incident</h2>
+                                    <h2 className="text-lg font-bold text-white">Incident</h2>
                                     <p className="text-xs text-slate-400">Enter an incident ID to auto-extract investigation context</p>
                                 </div>
                             </div>
@@ -735,32 +735,32 @@ export const NewInvestigation = () => {
                                     className="flex-1 px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-all outline-none font-mono text-sm shadow-sm"
                                     value={incidentId}
                                     onChange={(e) => setIncidentId(e.target.value)}
-                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleFetchIcm(); } }}
+                                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleFetchIncident(); } }}
                                 />
                                 <button
                                     type="button"
-                                    onClick={handleFetchIcm}
-                                    disabled={icmLoading || !incidentId.trim()}
+                                    onClick={handleFetchIncident}
+                                    disabled={incidentLoading || !incidentId.trim()}
                                     className={`px-4 py-2 rounded-lg font-bold text-sm transition-all ${
-                                        icmLoading || !incidentId.trim()
+                                        incidentLoading || !incidentId.trim()
                                             ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
                                             : 'bg-orange-500 hover:bg-orange-600 text-white shadow-sm'
                                     }`}
                                 >
-                                    {icmLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Fetch'}
+                                    {incidentLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Fetch'}
                                 </button>
                             </div>
 
-                            {icmError && (
+                            {incidentError && (
                                 <div className="p-3 bg-red-900/20 border border-red-800 rounded-lg text-sm text-red-400">
-                                    {icmError}
+                                    {incidentError}
                                 </div>
                             )}
 
                             {/* Live Progress Steps */}
-                            {icmSteps.length > 0 && (
+                            {incidentSteps.length > 0 && (
                                 <div className="space-y-1.5 animate-fade-in">
-                                    {icmSteps.map((step, i) => (
+                                    {incidentSteps.map((step, i) => (
                                         <div key={step.step || i} className="flex items-center gap-2.5 text-xs">
                                             {step.status === 'running' && (
                                                 <Loader2 className="w-3.5 h-3.5 text-orange-500 animate-spin shrink-0" />
@@ -787,54 +787,54 @@ export const NewInvestigation = () => {
                                 </div>
                             )}
 
-                            {icmPreview && (
+                            {incidentPreview && (
                                 <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-lg space-y-3 animate-fade-in">
                                     <div className="flex items-start justify-between gap-2">
-                                        <h3 className="text-sm font-bold text-white line-clamp-2">{icmPreview.title}</h3>
+                                        <h3 className="text-sm font-bold text-white line-clamp-2">{incidentPreview.title}</h3>
                                         <span className={`shrink-0 px-2 py-0.5 rounded-full text-[11px] font-bold ${
-                                            icmPreview.severity === '1' || icmPreview.severity === '2'
+                                            incidentPreview.severity === '1' || incidentPreview.severity === '2'
                                                 ? 'bg-red-500/15 text-red-400 border border-red-500/20' : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
                                         }`}>
-                                            Sev {icmPreview.severity}
+                                            Sev {incidentPreview.severity}
                                         </span>
                                     </div>
                                     <div className="flex flex-wrap gap-2 text-[11px] font-mono">
-                                        {icmPreview.stamp && (
+                                        {incidentPreview.target && (
                                             <span className="bg-brand-500/10 text-brand-400 px-2 py-0.5 rounded-md border border-brand-500/20">
-                                                {icmPreview.stamp}
+                                                {incidentPreview.target}
                                             </span>
                                         )}
-                                        {icmPreview.timeRange && (
-                                            <span className="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-md border border-blue-500/20" title={icmPreview.timeRange}>
-                                                📅 {formatTimeRange(icmPreview.timeRange)}
+                                        {incidentPreview.timeRange && (
+                                            <span className="bg-blue-500/10 text-blue-400 px-2 py-0.5 rounded-md border border-blue-500/20" title={incidentPreview.timeRange}>
+                                                📅 {formatTimeRange(incidentPreview.timeRange)}
                                             </span>
                                         )}
-                                        {icmPreview.status && (
+                                        {incidentPreview.status && (
                                             <span className={`px-2 py-0.5 rounded-md border ${
-                                                icmPreview.status === 'Active' 
+                                                incidentPreview.status === 'Active' 
                                                     ? 'bg-red-500/10 text-red-400 border-red-500/20'
-                                                    : icmPreview.status === 'Mitigated'
+                                                    : incidentPreview.status === 'Mitigated'
                                                         ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
                                                         : 'bg-green-500/10 text-green-400 border-green-500/20'
                                             }`}>
-                                                {icmPreview.status}
+                                                {incidentPreview.status}
                                             </span>
                                         )}
                                     </div>
                                     {/* Owner info */}
-                                    {(icmPreview.owner || icmPreview.owningTeam) && (
+                                    {(incidentPreview.owner || incidentPreview.owningTeam) && (
                                         <div className="text-xs text-slate-400 space-y-0.5">
-                                            {icmPreview.owner && <div><span className="font-medium">Owner:</span> {icmPreview.owner}</div>}
-                                            {icmPreview.owningTeam && <div><span className="font-medium">Team:</span> {icmPreview.owningTeam}</div>}
+                                            {incidentPreview.owner && <div><span className="font-medium">Owner:</span> {incidentPreview.owner}</div>}
+                                            {incidentPreview.owningTeam && <div><span className="font-medium">Team:</span> {incidentPreview.owningTeam}</div>}
                                         </div>
                                     )}
                                     {/* Scrollable incident content */}
                                     <div className="max-h-64 overflow-y-auto rounded-md bg-slate-900/50 p-3 border border-slate-700">
-                                        <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">{icmPreview.raw}</pre>
+                                        <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">{incidentPreview.raw}</pre>
                                     </div>
-                                    {!icmPreview.stamp && (
+                                    {!incidentPreview.target && (
                                         <p className="text-[11px] text-amber-600 font-medium">
-                                            No stamp auto-detected - the agent will extract it from the incident context.
+                                            No target auto-detected - the agent will extract it from the incident context.
                                         </p>
                                     )}
                                 </div>
@@ -860,27 +860,27 @@ export const NewInvestigation = () => {
                             <div className="space-y-3">
                                 <div className="space-y-2 group/input">
                                     <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
-                                        <Command className="w-3 h-3" /> Stamp Name
+                                        <Command className="w-3 h-3" /> Target Name
                                     </label>
                                     <input
                                         type="text"
                                         required={mode === 'standard'}
-                                        placeholder={mode === 'icm' ? 'Auto-filled from ICM or enter manually' : 'e.g. my-app-prd-eus2-01'}
+                                        placeholder={mode === 'incident' ? 'Auto-filled from Incident or enter manually' : 'e.g. my-app-prd-eus2-01'}
                                         className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all outline-none font-mono text-sm shadow-sm"
-                                        value={formData.stamp}
-                                        onChange={(e) => setFormData({ ...formData, stamp: e.target.value })}
+                                        value={formData.target}
+                                        onChange={(e) => setFormData({ ...formData, target: e.target.value })}
                                     />
                                 </div>
 
                                 <div className="space-y-2 group/input">
                                     <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
-                                        <AlertTriangle className="w-3 h-3" /> Issue Type
+                                        <AlertTriangle className="w-3 h-3" /> Category
                                     </label>
                                     <div className="relative">
                                         <select
                                             className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all outline-none appearance-none shadow-sm cursor-pointer text-sm"
-                                            value={formData.issueType}
-                                            onChange={(e) => setFormData({ ...formData, issueType: e.target.value })}
+                                            value={formData.category}
+                                            onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                                         >
                                             <option value="">Unknown / Discovery</option>
                                             <option value="latency">Latency / Performance</option>
@@ -897,14 +897,14 @@ export const NewInvestigation = () => {
 
                                 <div className="space-y-2 group/input">
                                     <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
-                                        <Search className="w-3 h-3" /> Tracking ID (Optional)
+                                        <Search className="w-3 h-3" /> Correlation ID (Optional)
                                     </label>
                                     <input
                                         type="text"
                                         placeholder="Correlation ID, Request ID, or Incident GUID"
                                         className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all outline-none font-mono text-sm shadow-sm"
-                                        value={formData.trackingId}
-                                        onChange={(e) => setFormData({ ...formData, trackingId: e.target.value })}
+                                        value={formData.correlationId}
+                                        onChange={(e) => setFormData({ ...formData, correlationId: e.target.value })}
                                     />
                                 </div>
                             </div>

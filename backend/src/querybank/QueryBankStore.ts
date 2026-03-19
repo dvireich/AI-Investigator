@@ -8,10 +8,10 @@ export interface SavedQuery {
     name: string;
 
     // Investigation params (all optional — user saves whichever fields they want)
-    stamp?: string;
+    target?: string;
     query?: string;
-    issueType?: string;
-    trackingId?: string;
+    category?: string;
+    correlationId?: string;
     timeRange?: string;           // e.g. "ago(1h)" or "between(datetime(...) .. datetime(...))"
     timeMode?: 'preset' | 'custom';
     model?: string;

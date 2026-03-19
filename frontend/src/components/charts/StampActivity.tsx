@@ -13,12 +13,12 @@ const STATUS_COLORS: Record<string, string> = {
     aborted: '#64748b',
 };
 
-export const StampActivity = ({ investigations }: Props) => {
+export const TargetActivity = ({ investigations }: Props) => {
     // Group by stamp, count per status
     const stampMap = new Map<string, Record<string, number>>();
 
     for (const inv of investigations) {
-        const stamp = inv.stamp?.trim() || 'Unknown';
+        const stamp = inv.target?.trim() || 'Unknown';
         if (!stampMap.has(stamp)) {
             stampMap.set(stamp, { completed: 0, failed: 0, running: 0, paused: 0, aborted: 0 });
         }
@@ -74,7 +74,7 @@ export const StampActivity = ({ investigations }: Props) => {
                     }}
                     cursor={{ fill: 'rgba(255,255,255,0.03)' }}
                     labelFormatter={(label: string) => {
-                        const entry = sorted.find(s => s.stamp === label);
+                        const entry = sorted.find(s => s.target === label);
                         return entry?.fullStamp || label;
                     }}
                 />

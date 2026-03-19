@@ -32,7 +32,7 @@
   "actions": [
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceMetrics\n| where Stamp == 'app-prd-cus-02'\n| where TimeGenerated > ago(12h)\n| where MetricName == 'BlobReaderCacheHitRatio'\n| summarize avg(Value) by bin(TimeGenerated, 5m)\n| order by TimeGenerated asc"
       },
@@ -40,7 +40,7 @@
     },
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceTraces\n| where Stamp == 'app-prd-cus-02'\n| where TimeGenerated between(datetime(2025-06-13T06:00:00Z) .. datetime(2025-06-13T07:00:00Z))\n| where Message has 'cache miss'\n| summarize CacheMissCount=count() by TableName=extract('Table=(\\\\w+)', 1, Message)\n| order by CacheMissCount desc"
       },
@@ -49,10 +49,10 @@
   ],
   "logs": [
     "Investigation started",
-    "Kusto CLI connection established",
-    "Executing KQL: Cache hit ratio...",
+    "MCP tools connected",
+    "Executing query: Cache hit ratio...",
     "Query returned 7 rows",
-    "Executing KQL: Cache miss by table...",
+    "Executing query: Cache miss by table...",
     "Investigation paused by user"
   ]
 }

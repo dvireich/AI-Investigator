@@ -7,7 +7,7 @@ import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, R
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-/** Format a raw KQL time range into a human-readable string */
+/** Format a raw time range string into a human-readable display */
 function formatTimeRange(raw: string): string {
     if (!raw) return raw;
 
@@ -138,109 +138,6 @@ const ActionResult = ({ result, truncated, onExpand, loading }: { result: string
     );
 };
 
-/**
- * Azure auth prompt with inline status — replaces the old alert()-based approach.
- * Polls /api/auth/azure-status after the user clicks login and shows real-time feedback.
- */
-const AzureAuthPrompt = () => {
-    const [status, setStatus] = useState<'idle' | 'polling' | 'success' | 'error'>('idle');
-    const [statusMessage, setStatusMessage] = useState('');
-    const pollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-    useEffect(() => {
-        return () => { if (pollerRef.current) clearInterval(pollerRef.current); };
-    }, []);
-
-    const handleLogin = async () => {
-        try {
-            setStatus('polling');
-            setStatusMessage('Starting Azure login — a terminal window should open...');
-            await api.startAzureLogin();
-            setStatusMessage('Complete the login in the terminal window. Checking status...');
-
-            // Poll for Azure auth status every 3 seconds for up to 3 minutes
-            let attempts = 0;
-            const maxAttempts = 60;
-            pollerRef.current = setInterval(async () => {
-                attempts++;
-                try {
-                    const result = await api.getAzureAuthStatus();
-                    if (result.authenticated) {
-                        if (pollerRef.current) clearInterval(pollerRef.current);
-                        pollerRef.current = null;
-                        setStatus('success');
-                        setStatusMessage('Successfully authenticated with Azure! You can now restart the investigation.');
-                    } else if (attempts >= maxAttempts) {
-                        if (pollerRef.current) clearInterval(pollerRef.current);
-                        pollerRef.current = null;
-                        setStatus('error');
-                        setStatusMessage('Login check timed out. If you completed login, try refreshing the page.');
-                    }
-                } catch {
-                    if (attempts >= maxAttempts) {
-                        if (pollerRef.current) clearInterval(pollerRef.current);
-                        pollerRef.current = null;
-                        setStatus('error');
-                        setStatusMessage('Unable to verify Azure login status. Try refreshing the page.');
-                    }
-                }
-            }, 3000);
-        } catch (e: any) {
-            setStatus('error');
-            setStatusMessage('Failed to start Azure login: ' + (e.message || 'Unknown error'));
-        }
-    };
-
-    return (
-        <div className="flex justify-center my-6 animate-fade-in px-8">
-            <div className="bg-blue-500/10 border border-blue-500/20 backdrop-blur-sm text-blue-200 text-xs px-6 py-4 rounded-xl shadow-sm flex flex-col items-center gap-3 max-w-md text-center">
-                <div className="flex items-center gap-2 font-bold text-blue-100">
-                    <AlertTriangle className="w-4 h-4" />
-                    <span>Azure Authentication Required</span>
-                </div>
-                <p className="opacity-80">The agent cannot connect to Kusto because you are not logged in to Azure.</p>
-
-                {status === 'idle' && (
-                    <button
-                        onClick={handleLogin}
-                        className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-bold transition-colors shadow-lg shadow-blue-500/20"
-                    >
-                        Login to Azure via Terminal
-                    </button>
-                )}
-
-                {status === 'polling' && (
-                    <div className="flex items-center gap-2 text-blue-300">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>{statusMessage}</span>
-                    </div>
-                )}
-
-                {status === 'success' && (
-                    <div className="flex items-center gap-2 text-green-300 font-bold">
-                        <CheckCircle2 className="w-4 h-4" />
-                        <span>{statusMessage}</span>
-                    </div>
-                )}
-
-                {status === 'error' && (
-                    <div className="flex flex-col items-center gap-2">
-                        <div className="flex items-center gap-2 text-red-300">
-                            <AlertTriangle className="w-4 h-4" />
-                            <span>{statusMessage}</span>
-                        </div>
-                        <button
-                            onClick={() => { setStatus('idle'); setStatusMessage(''); }}
-                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold transition-colors text-xs"
-                        >
-                            Try Again
-                        </button>
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-};
 
 const StepItem = React.memo(({ thought, action, index, id }: { thought: any, action: any, index: number, id: string }) => {
     const [fullThought, setFullThought] = useState<any>(null);
@@ -342,10 +239,9 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
 
     // Check for Azure Auth Error — only show the auth prompt when the error
     // is specifically "Azure Authentication Required", not when the message
-    // is a generic "KQL tools unavailable" that happens to contain the old error text.
-    if (typeof thoughtContent === 'string' && thoughtContent.includes("Azure Authentication Required") && !thoughtContent.includes("KQL tools still unavailable")) {
-        return <AzureAuthPrompt />;
-    }
+    // is a generic "tools unavailable" message that happens to contain the old error text.
+    // Note: AzureAuthPrompt has been removed; this is now a no-op for backward compatibility
+    // with old investigation states that may contain this text.
 
     if (isObservation) {
         return (
@@ -1136,15 +1032,15 @@ export const InvestigationDetail = () => {
                             <h2 className="text-sm lg:text-2xl font-black text-slate-100 tracking-tight capitalize leading-tight">{investigation.status}</h2>
                             <p className="text-slate-500 text-[10px] lg:text-sm font-medium truncate lg:whitespace-normal">
                                 <span className="lg:hidden">
-                                    {investigation.stamp || 'Investigation'}
+                                    {investigation.target || 'Investigation'}
                                     {investigation.timeRange && (
                                         <span className="text-slate-600 ml-1">· {investigation.timeRange}</span>
                                     )}
                                     {investigation.model && (
                                         <span className="text-slate-600 ml-1">· {investigation.model}</span>
                                     )}
-                                    {investigation.issueType && (
-                                        <span className="text-slate-600 ml-1">· {investigation.issueType}</span>
+                                    {investigation.category && (
+                                        <span className="text-slate-600 ml-1">· {investigation.category}</span>
                                     )}
                                     {investigation.status === 'running' && (
                                         <span className="text-slate-400 ml-1">
@@ -1391,11 +1287,11 @@ export const InvestigationDetail = () => {
                             <span className="text-slate-500 text-xs">Started</span>
                             <span className="font-medium text-slate-200 text-xs ml-auto">{isNaN(Number(investigation.id)) ? 'Legacy' : new Date(parseInt(investigation.id)).toLocaleString()}</span>
                         </div>
-                        {investigation.stamp && (
+                        {investigation.target && (
                             <div className="flex items-center gap-2">
                                 <div className="w-3.5 h-3.5 flex items-center justify-center rounded bg-blue-500/20 text-blue-400 font-bold text-[9px] shrink-0">S</div>
-                                <span className="text-slate-500 text-xs">Stamp</span>
-                                <span className="font-medium text-slate-200 text-xs ml-auto truncate max-w-[60%] text-right">{investigation.stamp}</span>
+                                <span className="text-slate-500 text-xs">Target</span>
+                                <span className="font-medium text-slate-200 text-xs ml-auto truncate max-w-[60%] text-right">{investigation.target}</span>
                             </div>
                         )}
                         {investigation.timeRange && (
@@ -1792,14 +1688,11 @@ export const InvestigationDetail = () => {
                                                 ? <FolderOpen className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                                                 : tn === 'propose_change'
                                                 ? <FileEdit className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                                                : tn === 'run_kusto_query'
-                                                ? <Cpu className="w-3.5 h-3.5 text-purple-400 shrink-0" />
                                                 : (tn === 'grep_search' || tn === 'semantic_search' || tn === 'search_code')
                                                 ? <Search className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
                                                 : <Activity className="w-3.5 h-3.5 text-slate-400 shrink-0" />;
                                             const borderCls = tn === 'propose_change' ? 'border-l-emerald-500/50'
                                                 : tn === 'list_dir' ? 'border-l-amber-500/30'
-                                                : tn === 'run_kusto_query' ? 'border-l-purple-500/30'
                                                 : (tn === 'grep_search' || tn === 'semantic_search' || tn === 'search_code') ? 'border-l-indigo-500/30'
                                                 : 'border-l-sky-500/20';
                                             return (
@@ -2255,9 +2148,9 @@ export const InvestigationDetail = () => {
                                         <div className="bg-slate-950/50 rounded-xl p-4 border border-slate-800/50 flex items-center gap-3">
                                             <div className="h-8 w-8 rounded-lg bg-blue-500/10 flex items-center justify-center text-blue-400 font-bold text-xs border border-blue-500/20">S</div>
                                             <div>
-                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Stamp</span>
+                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Target</span>
                                                 <div className="font-mono text-sm text-blue-300 font-medium">
-                                                    {investigation?.stamp || <span className="text-slate-600 italic">Not specified</span>}
+                                                    {investigation?.target || <span className="text-slate-600 italic">Not specified</span>}
                                                 </div>
                                             </div>
                                         </div>

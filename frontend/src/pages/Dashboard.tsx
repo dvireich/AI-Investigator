@@ -175,7 +175,7 @@ export const Dashboard = () => {
     );
     const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
     const [toasts, setToasts] = useState<Toast[]>([]);
-    const [copiedTrackingId, setCopiedTrackingId] = useState<string | null>(null);
+    const [copiedCorrelationId, setCopiedCorrelationId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [pinnedIds, setPinnedIds] = useState<Set<string>>(
         () => new Set(JSON.parse(localStorage.getItem('inv-pinned') || '[]'))
@@ -185,7 +185,7 @@ export const Dashboard = () => {
     const searchRef = useRef<HTMLInputElement>(null);
     const navigate = useNavigate();
     const [showShortcuts, setShowShortcuts] = useState(false);
-    const [groupByStamp, setGroupByStamp] = useState(false);
+    const [groupByTarget, setgroupByTarget] = useState(false);
     const [resumingAll, setResumingAll] = useState(false);
     const [restarting, setRestarting] = useState(false);
     const [importing, setImporting] = useState(false);
@@ -308,13 +308,13 @@ export const Dashboard = () => {
         } catch (err) { console.error('Action failed:', err); }
     };
 
-    const copyTrackingId = async (e: React.MouseEvent, trackingId: string) => {
+    const copyCorrelationId = async (e: React.MouseEvent, trackingId: string) => {
         e.preventDefault();
         e.stopPropagation();
         try {
             await navigator.clipboard.writeText(trackingId);
-            setCopiedTrackingId(trackingId);
-            setTimeout(() => setCopiedTrackingId(null), 2000);
+            setCopiedCorrelationId(trackingId);
+            setTimeout(() => setCopiedCorrelationId(null), 2000);
         } catch { /* clipboard unavailable */ }
     };
 
@@ -478,8 +478,8 @@ export const Dashboard = () => {
             return (
                 (inv.title || '').toLowerCase().includes(s) ||
                 (inv.query || '').toLowerCase().includes(s) ||
-                (inv.stamp || '').toLowerCase().includes(s) ||
-                (inv.issueType || '').toLowerCase().includes(s) ||
+                (inv.target || '').toLowerCase().includes(s) ||
+                (inv.category || '').toLowerCase().includes(s) ||
                 (inv.incidentId || '').toLowerCase().includes(s) ||
                 (inv.productName || '').toLowerCase().includes(s) ||
                 (inv.tags || []).some(t => t.toLowerCase().includes(s)) ||
@@ -929,19 +929,19 @@ export const Dashboard = () => {
                             <List className="w-3.5 h-3.5" />
                         </button>
                     </div>
-                    {/* Group-by-stamp toggle: only relevant in list view */}
+                    {/* Group-by-target toggle: only relevant in list view */}
                     {viewMode === 'list' && (
                         <button
-                            onClick={() => setGroupByStamp(s => !s)}
+                            onClick={() => setgroupByTarget(s => !s)}
                             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm ${
-                                groupByStamp
+                                groupByTarget
                                     ? 'bg-brand-500/20 text-brand-300 border-brand-500/20'
                                     : 'bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800 border-slate-700/50'
                             }`}
-                            title="Group by stamp"
+                            title="Group by target"
                         >
                             <Server className="w-3.5 h-3.5" />
-                            Stamp
+                            target
                         </button>
                     )}
                     <button
@@ -1089,14 +1089,14 @@ export const Dashboard = () => {
                                                         <AlertTriangle className="w-2.5 h-2.5" />Stale
                                                     </span>
                                                 )}
-                                                {inv.stamp && (
-                                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-slate-800/60 px-1.5 py-0.5 rounded-lg max-w-[160px] truncate border border-slate-700/30" title={inv.stamp}>
-                                                        <Server className="w-2.5 h-2.5 shrink-0" />{inv.stamp}
+                                                {inv.target && (
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-slate-800/60 px-1.5 py-0.5 rounded-lg max-w-[160px] truncate border border-slate-700/30" title={inv.target}>
+                                                        <Server className="w-2.5 h-2.5 shrink-0" />{inv.target}
                                                     </span>
                                                 )}
                                                 {inv.incidentId && (
-                                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-lg border border-orange-500/20" title={`IcM Incident ${inv.incidentId}`}>
-                                                        <ShieldAlert className="w-2.5 h-2.5 shrink-0" />ICM
+                                                    <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-lg border border-orange-500/20" title={`Incident ${inv.incidentId}`}>
+                                                        <ShieldAlert className="w-2.5 h-2.5 shrink-0" />Incident
                                                     </span>
                                                 )}
                                             </div>
@@ -1147,8 +1147,8 @@ export const Dashboard = () => {
                                                         {inv.productName}
                                                     </span>
                                                 )}
-                                                {inv.issueType && (
-                                                    <span className="inline-block text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full border border-brand-500/20">#{inv.issueType}</span>
+                                                {inv.category && (
+                                                    <span className="inline-block text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full border border-brand-500/20">#{inv.category}</span>
                                                 )}
                                                 {(inv.tags || []).map(tag => (
                                                     <span
@@ -1170,18 +1170,18 @@ export const Dashboard = () => {
                                                     </span>
                                                 )}
                                             </div>
-                                            {(inv.timeRange || inv.trackingId) && (
+                                            {(inv.timeRange || inv.correlationId) && (
                                                 <div className="flex flex-wrap items-center gap-1.5">
                                                     {inv.timeRange && (
                                                         <span className="text-[10px] font-mono text-slate-400 bg-slate-800/60 border border-slate-700/30 px-1.5 py-0.5 rounded-md" title={inv.timeRange}>
                                                             {formatTimeRange(inv.timeRange)}
                                                         </span>
                                                     )}
-                                                    {inv.trackingId && (
-                                                        <button onClick={(e) => copyTrackingId(e, inv.trackingId!)} title={`Copy TrackingId: ${inv.trackingId}`}
+                                                    {inv.correlationId && (
+                                                        <button onClick={(e) => copyCorrelationId(e, inv.correlationId!)} title={`Copy Correlation ID: ${inv.correlationId}`}
                                                             className="inline-flex items-center gap-1 text-[10px] font-mono text-brand-400 bg-brand-500/10 border border-brand-500/20 hover:bg-brand-500/20 px-1.5 py-0.5 rounded-md transition-colors">
-                                                            {copiedTrackingId === inv.trackingId ? <CheckCheck className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
-                                                            {inv.trackingId.slice(0, 8)}...
+                                                            {copiedCorrelationId === inv.correlationId ? <CheckCheck className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
+                                                            {inv.correlationId.slice(0, 8)}...
                                                         </button>
                                                     )}
                                                 </div>
@@ -1236,15 +1236,15 @@ export const Dashboard = () => {
                 type Group = { label: string; items: typeof sorted };
                 const groups: Group[] = [];
 
-                if (groupByStamp) {
-                    // Group by stamp value, ungrouped items under 'No stamp'
+                if (groupByTarget) {
+                    // Group by target value, ungrouped items under 'No target'
                     const map: Record<string, typeof sorted> = {};
                     sorted.forEach(inv => {
-                        const key = inv.stamp || 'No stamp';
+                        const key = inv.target || 'No target';
                         (map[key] ??= []).push(inv);
                     });
                     Object.keys(map).sort((a, b) =>
-                        a === 'No stamp' ? 1 : b === 'No stamp' ? -1 : a.localeCompare(b)
+                        a === 'No target' ? 1 : b === 'No target' ? -1 : a.localeCompare(b)
                     ).forEach(key => groups.push({ label: key, items: map[key] }));
                 } else {
                     // Build date-grouped sections (only when sort=newest/oldest and no search)
@@ -1337,8 +1337,8 @@ export const Dashboard = () => {
                                                             {inv.productName}
                                                         </span>
                                                     )}
-                                                    {inv.issueType && (
-                                                        <span className="text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-1.5 py-0.5 rounded-full border border-brand-500/20">#{inv.issueType}</span>
+                                                    {inv.category && (
+                                                        <span className="text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-1.5 py-0.5 rounded-full border border-brand-500/20">#{inv.category}</span>
                                                     )}
                                                     {(inv.tags || []).map(tag => (
                                                         <span
@@ -1364,21 +1364,21 @@ export const Dashboard = () => {
                                                             {formatTimeRange(inv.timeRange)}
                                                         </span>
                                                     )}
-                                                    {inv.trackingId && (
-                                                        <button onClick={(e) => copyTrackingId(e, inv.trackingId!)} title={`Copy TrackingId: ${inv.trackingId}`}
+                                                    {inv.correlationId && (
+                                                        <button onClick={(e) => copyCorrelationId(e, inv.correlationId!)} title={`Copy Correlation ID: ${inv.correlationId}`}
                                                             className="inline-flex items-center gap-1 text-[10px] font-mono text-brand-400 bg-brand-500/10 border border-brand-500/20 hover:bg-brand-500/20 px-1.5 py-0.5 rounded-md transition-colors">
-                                                            {copiedTrackingId === inv.trackingId ? <CheckCheck className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
-                                                            {inv.trackingId.slice(0, 8)}...
+                                                            {copiedCorrelationId === inv.correlationId ? <CheckCheck className="w-2.5 h-2.5 text-emerald-500" /> : <Copy className="w-2.5 h-2.5" />}
+                                                            {inv.correlationId.slice(0, 8)}...
                                                         </button>
                                                     )}
-                                                    {inv.stamp && (
+                                                    {inv.target && (
                                                         <span className="inline-flex items-center gap-1 text-[10px] font-mono text-slate-500 bg-slate-800/60 px-1.5 py-0.5 rounded-lg max-w-[120px] truncate border border-slate-700/30">
-                                                            <Server className="w-2.5 h-2.5 shrink-0" />{inv.stamp}
+                                                            <Server className="w-2.5 h-2.5 shrink-0" />{inv.target}
                                                         </span>
                                                     )}
                                                     {inv.incidentId && (
-                                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-lg border border-orange-500/20" title={`IcM Incident ${inv.incidentId}`}>
-                                                            <ShieldAlert className="w-2.5 h-2.5 shrink-0" />ICM
+                                                        <span className="inline-flex items-center gap-1 text-[10px] font-mono text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded-lg border border-orange-500/20" title={`Incident ${inv.incidentId}`}>
+                                                            <ShieldAlert className="w-2.5 h-2.5 shrink-0" />Incident
                                                         </span>
                                                     )}
                                                     <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold ${sc.chip}`}>

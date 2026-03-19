@@ -42,7 +42,7 @@
   "actions": [
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceTraces\n| where Stamp == 'svc-prd-wus2-03'\n| where TimeGenerated > ago(2h)\n| where Message has 'MessagingInfraThrottleException'\n| summarize ThrottleCount=count() by bin(TimeGenerated, 5m), NodeName\n| order by TimeGenerated desc, ThrottleCount desc"
       },
@@ -50,7 +50,7 @@
     },
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceMetrics\n| where Stamp == 'svc-prd-wus2-03'\n| where TimeGenerated > ago(2h)\n| where MetricName == 'QueueDepth'\n| summarize AvgDepth=avg(Value), MaxDepth=max(Value) by bin(TimeGenerated, 5m)\n| order by TimeGenerated desc\n| take 10"
       },
@@ -58,7 +58,7 @@
     },
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceTraces\n| where Stamp == 'svc-prd-wus2-03'\n| where TimeGenerated > ago(24h)\n| where Message has 'VMSS scale'\n| project TimeGenerated, Message, NodeName"
       },
@@ -66,7 +66,7 @@
     },
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceMetrics\n| where Stamp == 'svc-prd-wus2-03'\n| where TimeGenerated > ago(2h)\n| where MetricName == 'ActivePartitions'\n| summarize Partitions=max(Value) by NodeName\n| order by Partitions desc"
       },
@@ -75,15 +75,15 @@
   ],
   "logs": [
     "Investigation started",
-    "Kusto CLI connection established",
-    "Executing KQL: Throttle exception distribution...",
+    "MCP tools connected",
+    "Executing query: Throttle exception distribution...",
     "Query returned 5 rows",
-    "Executing KQL: Queue depth trends...",
+    "Executing query: Queue depth trends...",
     "Query returned 3 rows",
     "User intervention received",
-    "Executing KQL: VMSS scaling events...",
+    "Executing query: VMSS scaling events...",
     "Query returned 2 rows",
-    "Executing KQL: Partition distribution...",
+    "Executing query: Partition distribution...",
     "Query returned 8 rows"
   ]
 }

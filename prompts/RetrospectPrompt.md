@@ -6,8 +6,8 @@ Analyze the investigation transcript (provided in a separate message), identify 
 ## Investigation Context
 - **Goal**: {{GOAL}}
 - **Final Status**: {{STATUS}}
-- **Stamp**: {{STAMP}}
-- **Issue Type**: {{ISSUE_TYPE}}
+- **Target**: {{STAMP}}
+- **Category**: {{ISSUE_TYPE}}
 
 ## Knowledge Base Structure
 The agent's knowledge base files (all paths relative to repo root):
@@ -32,6 +32,6 @@ The agent's knowledge base files (all paths relative to repo root):
 4. **Explain your reasoning** in the chat.
 
 ## Change Categories
-Tag each proposal: **[Fix Wrong Info]**, **[Add Missing Info]**, **[Improve Routing]**, **[New Guide]**, **[Prompt Refinement]**, **[New KQL Query]**
+Tag each proposal: **[Fix Wrong Info]**, **[Add Missing Info]**, **[Improve Routing]**, **[New Guide]**, **[Prompt Refinement]**, **[New Query]**
 
 Be thorough but focused. Only propose changes that would directly improve the outcome of this specific investigation type.

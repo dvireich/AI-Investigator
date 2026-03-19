@@ -1,5 +1,5 @@
-import { Link, Outlet, useLocation } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Settings, Info, Menu, X, Clock } from 'lucide-react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { LayoutDashboard, PlusCircle, Settings, Info, Menu, X, Clock, User } from 'lucide-react';
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
@@ -13,7 +13,10 @@ interface GitHubUser {
 export const Layout = () => {
     const { toast } = useToast();
     const location = useLocation();
+    const navigate = useNavigate();
     const [authenticated, setAuthenticated] = useState(false);
+    const [providerType, setProviderType] = useState<string>('none');
+    const [authRequirement, setAuthRequirement] = useState<{ type: string }>({ type: 'none' });
     const [user, setUser] = useState<GitHubUser | null>(null);
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [loginData, setLoginData] = useState<any>(null);
@@ -37,11 +40,19 @@ export const Layout = () => {
         try {
             const status = await api.getAuthStatus();
             setAuthenticated(status.authenticated);
-            setUser(status.user || null);
+            setProviderType(status.providerType || 'none');
+            setAuthRequirement(status.authRequirement || { type: 'none' });
+            setUser(status.user || (status.username ? { login: status.username, name: status.displayName || null, avatar_url: status.avatarUrl || '' } : null));
         } catch (e) { console.error(e); }
     };
 
     const handleLogin = async () => {
+        // Only providers with oauth-device-flow support interactive login
+        if (authRequirement.type !== 'oauth-device-flow') {
+            // For api-key or other providers, redirect to Settings
+            navigate('/settings');
+            return;
+        }
         try {
             const data = await api.startLogin();
             setLoginData(data);
@@ -62,7 +73,7 @@ export const Layout = () => {
                         setAuthenticated(true);
                         // Fetch user info after successful login
                         checkAuth();
-                        toast('success', 'Successfully logged in to GitHub Copilot!');
+                        toast('success', `Connected to ${providerDisplayName}!`);
                     }
                 } catch (e: any) {
                     const errMsg = e?.response?.data?.error || e?.message || '';
@@ -81,6 +92,22 @@ export const Layout = () => {
 
         } catch (e) { toast('error', 'Failed to start login'); }
     };
+
+    const providerDisplayName = providerType === 'copilot' ? 'GitHub Copilot'
+        : providerType === 'openai' ? 'OpenAI'
+        : providerType === 'anthropic' ? 'Anthropic'
+        : providerType === 'azure-openai' ? 'Azure OpenAI'
+        : providerType === 'ollama' ? 'Ollama'
+        : providerType === 'none' ? 'Not Configured'
+        : providerType.charAt(0).toUpperCase() + providerType.slice(1);
+
+    const connectLabel = providerType === 'none' || !providerType
+        ? 'Configure LLM'
+        : authRequirement.type === 'oauth-device-flow'
+            ? `Connect ${providerDisplayName}`
+            : `Configure ${providerDisplayName}`;
+
+    const activeLabel = `${providerDisplayName} Active`;
 
     return (
         <div className="min-h-screen bg-transparent text-slate-100 font-sans selection:bg-brand-500/30">
@@ -178,18 +205,18 @@ export const Layout = () => {
                 <div className="hidden md:flex items-center gap-4">
                     {!authenticated ? (
                         <button onClick={handleLogin} className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-xs font-bold transition-colors border border-slate-600">
-                            Connect Copilot
+                            {connectLabel}
                         </button>
                     ) : (
                         <div className="flex items-center px-3 py-1.5 bg-green-900/30 text-green-400 rounded-lg text-xs font-bold border border-green-900/50">
                             <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
-                            Copilot Active
+                            {activeLabel}
                         </div>
                     )}
                     <Link to="/settings" className="p-2 text-slate-400 hover:text-white transition-colors">
                         <Settings size={20} />
                     </Link>
-                    {user ? (
+                    {user && user.avatar_url ? (
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 p-0.5" title={user.name || user.login}>
                             <img 
                                 src={user.avatar_url} 
@@ -198,9 +225,9 @@ export const Layout = () => {
                             />
                         </div>
                     ) : (
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 p-0.5">
-                            <div className="w-full h-full rounded-full bg-slate-900 flex items-center justify-center text-slate-500 text-xs font-bold">
-                                ?
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 p-0.5" title={user?.name || user?.login || undefined}>
+                            <div className="w-full h-full rounded-full bg-slate-900 flex items-center justify-center text-slate-500">
+                                <User size={14} />
                             </div>
                         </div>
                     )}
@@ -233,13 +260,13 @@ export const Layout = () => {
                         <div className="border-t border-slate-800 p-3 flex items-center justify-between">
                             {!authenticated ? (
                                 <button onClick={() => { setMobileMenuOpen(false); handleLogin(); }} className="w-full px-3 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-sm font-bold transition-colors border border-slate-600">
-                                    Connect Copilot
+                                    {connectLabel}
                                 </button>
                             ) : (
                                 <div className="flex items-center gap-3 w-full">
                                     <div className="flex items-center px-3 py-2 bg-green-900/30 text-green-400 rounded-lg text-xs font-bold border border-green-900/50 flex-1">
                                         <div className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></div>
-                                        Copilot Active
+                                        {activeLabel}
                                     </div>
                                     {user && (
                                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 p-0.5 shrink-0" title={user.name || user.login}>
@@ -257,7 +284,7 @@ export const Layout = () => {
             {showLoginModal && loginData && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-fade-in p-4">
                     <div className="bg-slate-900 p-5 sm:p-8 rounded-2xl border border-slate-700 max-w-md w-full shadow-2xl">
-                        <h2 className="text-xl sm:text-2xl font-bold text-white mb-4">Connect to GitHub Copilot</h2>
+                        <h2 className="text-xl sm:text-2xl font-bold text-white mb-4">Connect to {providerDisplayName}</h2>
                         <p className="text-slate-400 mb-6 text-sm sm:text-base">Please visit the URL below and enter the code to authorize.</p>
 
                         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 mb-6 text-center">

@@ -2,7 +2,7 @@
  * Mock API server for screenshot generation.
  *
  * Serves canned fixture data so the frontend can be captured in every state
- * without a real backend, KQL connection, or Azure auth.
+ * without a real backend or data source connection.
  *
  * Usage:
  *   node mock-server.js                  → listens on port 3099
@@ -253,7 +253,7 @@ app.get('/api/files/list', (req, res) => {
 // ---- MCP ----
 
 app.get('/api/mcp/status', (_req, res) => {
-    res.json({ server: 'kusto-cli', connected: true });
+    res.json({ servers: [{ name: 'query-tool', connected: true }] });
 });
 
 // ---- Schedules ----
@@ -263,10 +263,10 @@ let mockSchedules = [
         id: 'sched-1',
         name: 'EUS2P Health Check',
         enabled: true,
-        stamp: 'oi-tds-prd-eus2p-01',
+        stamp: 'app-prd-eus2p-01',
         query: 'Check pipeline latency and queue health for the past hour.',
         intervalMinutes: 60,
-        productId: 'teleduct',
+        productId: 'sample-product',
         model: 'claude-opus-4.6',
         maxSteps: 20,
         timeRange: 'ago(1h)',
@@ -283,10 +283,10 @@ let mockSchedules = [
         id: 'sched-2',
         name: 'WUS2 Latency Monitor',
         enabled: true,
-        stamp: 'oi-tds-prd-wus2p-01',
+        stamp: 'app-prd-wus2p-01',
         query: 'Monitor P95 latency and error rates across all processing services.',
         intervalMinutes: 30,
-        productId: 'teleduct',
+        productId: 'sample-product',
         model: 'gpt-4o',
         maxSteps: 15,
         timeRange: 'ago(30m)',
@@ -303,10 +303,10 @@ let mockSchedules = [
         id: 'sched-3',
         name: 'NEU Error Patrol',
         enabled: false,
-        stamp: 'oi-tds-prd-neup-01',
+        stamp: 'app-prd-neup-01',
         query: 'Check for error spikes and dead letter queue growth.',
         intervalMinutes: 240,
-        productId: 'teleduct',
+        productId: 'sample-product',
         model: 'claude-opus-4.6',
         maxSteps: 25,
         timeRange: 'ago(4h)',
@@ -390,31 +390,31 @@ const mockQueryBank = [
     {
         id: 'qb-1',
         name: 'EUS2P Latency Check',
-        stamp: 'oi-tds-prd-eus2p-01',
+        stamp: 'app-prd-eus2p-01',
         query: 'Check pipeline latency and queue health.',
         issueType: 'Latency / Performance',
         timeRange: 'ago(1h)',
         model: 'claude-opus-4.6',
-        productId: 'teleduct',
+        productId: 'sample-product',
         createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
         updatedAt: new Date(Date.now() - 86400000).toISOString(),
     },
     {
         id: 'qb-2',
         name: 'WUS2 Error Discovery',
-        stamp: 'oi-tds-prd-wus2p-01',
+        stamp: 'app-prd-wus2p-01',
         query: 'Discover and classify errors across processing services in the past 6 hours.',
         issueType: 'Error / Failure Rate',
         timeRange: 'ago(6h)',
         model: 'gpt-4o',
-        productId: 'teleduct',
+        productId: 'sample-product',
         createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
         updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
     },
     {
         id: 'qb-3',
         name: 'NEU DLQ Audit',
-        stamp: 'oi-tds-prd-neup-01',
+        stamp: 'app-prd-neup-01',
         query: 'Audit dead letter queue growth and identify permanent failure patterns.',
         issueType: 'Data Loss / Inconsistency',
         timeRange: 'ago(4h)',

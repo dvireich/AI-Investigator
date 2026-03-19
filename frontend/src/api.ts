@@ -3,10 +3,10 @@ import type { ScheduleDefinition, ScheduleHistoryEntry } from './types/schedule'
 export interface SavedQuery {
     id: string;
     name: string;
-    stamp?: string;
+    target?: string;
     query?: string;
-    issueType?: string;
-    trackingId?: string;
+    category?: string;
+    correlationId?: string;
     timeRange?: string;
     timeMode?: 'preset' | 'custom';
     model?: string;
@@ -86,10 +86,10 @@ export interface Investigation {
     logs: string[];
     title?: string;
     query?: string;
-    stamp?: string;
+    target?: string;
     timeRange?: string;
-    trackingId?: string;
-    issueType?: string;
+    correlationId?: string;
+    category?: string;
     incidentId?: string;
     model?: string;
     productId?: string;
@@ -109,20 +109,18 @@ export interface Investigation {
     verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
 }
 
-export interface IcmIncidentPreview {
+export interface IncidentPreview {
     incidentId: string;
     title: string;
     severity: string;
     status: string;
-    owner: string;
-    owningTeam: string;
-    stamp: string;
+    target: string;
     timeRange: string;
     summary: string;
     raw: string;
 }
 
-export interface IcmProgressEvent {
+export interface IncidentProgressEvent {
     type: 'progress' | 'data' | 'result' | 'error';
     step?: string;
     status?: 'running' | 'done' | 'error';
@@ -131,10 +129,8 @@ export interface IcmProgressEvent {
     incidentId?: string;
     title?: string;
     severity?: string;
-    incidentStatus?: string;  // renamed to avoid conflict with 'status' field above
-    owner?: string;
-    owningTeam?: string;
-    stamp?: string;
+    incidentStatus?: string;
+    target?: string;
     timeRange?: string;
     summary?: string;
     raw?: string;
@@ -238,17 +234,25 @@ export const api = {
         return response.json();
     },
 
-    startAzureLogin: async () => {
-        const response = await fetch(`${API_URL}/auth/azure-login`, {
-            method: 'POST'
+    configureLlmProvider: async (providerConfig: { type: string; [key: string]: any }) => {
+        const response = await fetch(`${API_URL}/auth/configure`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(providerConfig)
         });
-        if (!response.ok) throw new Error('Failed to start Azure login');
+        if (!response.ok) throw new Error('Failed to configure LLM provider');
         return response.json();
     },
 
-    getAzureAuthStatus: async () => {
-        const response = await fetch(`${API_URL}/auth/azure-status`);
-        if (!response.ok) throw new Error('Failed to get Azure auth status');
+    getAuthProviders: async (): Promise<Array<{ type: string; displayName?: string; authRequirement: { type: string; envVar?: string } }>> => {
+        const response = await fetch(`${API_URL}/auth/providers`);
+        if (!response.ok) throw new Error('Failed to list auth providers');
+        return response.json();
+    },
+
+    getIncidentProviders: async (): Promise<Array<{ type: string; displayName: string }>> => {
+        const response = await fetch(`${API_URL}/incidents/providers`);
+        if (!response.ok) throw new Error('Failed to list incident providers');
         return response.json();
     },
 
@@ -551,23 +555,23 @@ export const api = {
         return response.json();
     },
 
-    // ICM
-    checkIcmStatus: async (): Promise<{ available: boolean; message?: string }> => {
-        const response = await fetch(`${API_URL}/icm/status`);
-        if (!response.ok) return { available: false, message: 'Failed to check ICM status' };
+    // Incident Provider
+    checkIncidentStatus: async (): Promise<{ available: boolean; message?: string; providerType?: string }> => {
+        const response = await fetch(`${API_URL}/incidents/status`);
+        if (!response.ok) return { available: false, message: 'Failed to check incident provider status' };
         return response.json();
     },
 
-    fetchIcmIncident: async (
+    fetchIncident: async (
         incidentId: string,
-        onProgress?: (event: IcmProgressEvent) => void
-    ): Promise<IcmIncidentPreview> => {
-        const response = await fetch(`${API_URL}/icm/${encodeURIComponent(incidentId)}/read`, {
+        onProgress?: (event: IncidentProgressEvent) => void
+    ): Promise<IncidentPreview> => {
+        const response = await fetch(`${API_URL}/incidents/${encodeURIComponent(incidentId)}/read`, {
             method: 'POST'
         });
         if (!response.ok) {
             const err = await response.json().catch(() => ({ error: response.statusText }));
-            throw new Error(err.error || 'Failed to read ICM incident');
+            throw new Error(err.error || 'Failed to read incident');
         }
 
         // Consume SSE stream
@@ -576,7 +580,7 @@ export const api = {
 
         const decoder = new TextDecoder();
         let buffer = '';
-        let result: IcmIncidentPreview | null = null;
+        let result: IncidentPreview | null = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -589,27 +593,25 @@ export const api = {
             for (const line of lines) {
                 if (line.startsWith('data: ')) {
                     try {
-                        const event: IcmProgressEvent = JSON.parse(line.substring(6));
+                        const event: IncidentProgressEvent = JSON.parse(line.substring(6));
                         if (event.type === 'progress' && onProgress) {
                             onProgress(event);
                         } else if (event.type === 'result') {
                             result = {
                                 incidentId: event.incidentId || incidentId,
-                                title: event.title || `IcM Incident ${incidentId}`,
+                                title: event.title || `Incident ${incidentId}`,
                                 severity: event.severity || 'Unknown',
                                 status: (event as any).status || '',
-                                owner: event.owner || '',
-                                owningTeam: event.owningTeam || '',
-                                stamp: event.stamp || '',
+                                target: event.target || '',
                                 timeRange: event.timeRange || '',
                                 summary: event.summary || '',
                                 raw: event.raw || ''
                             };
                         } else if (event.type === 'error') {
-                            throw new Error(event.message || 'ICM read failed');
+                            throw new Error(event.message || 'Incident read failed');
                         }
                     } catch (e) {
-                        if (e instanceof Error && e.message !== 'ICM read failed') {
+                        if (e instanceof Error && e.message !== 'Incident read failed') {
                             /* skip parse errors */
                         } else {
                             throw e;
@@ -619,7 +621,7 @@ export const api = {
             }
         }
 
-        if (!result) throw new Error('No result received from ICM script');
+        if (!result) throw new Error('No result received from incident provider');
         return result;
     },
 
