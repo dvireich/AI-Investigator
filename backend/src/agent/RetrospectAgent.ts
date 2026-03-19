@@ -26,8 +26,8 @@ export class RetrospectAgent {
             `The agent performed ${logContent.thoughts.length} steps. ` +
             `Status ended as '${logContent.status}'.\n\n` +
             `## Recommendations\n` +
-            `- Ensure the 'mcp-kql-server' is robust.\n` +
-            `- Add more specific guidance on 'IssueType' in the prompt.\n\n` +
+            `- Ensure configured MCP tool servers are robust and responsive.\n` +
+            `- Add more specific guidance in the system prompt.\n\n` +
             `## Proposed Doc Changes\n` +
             `No specific documentation changes recommended at this time based on this mock analysis.`;
 

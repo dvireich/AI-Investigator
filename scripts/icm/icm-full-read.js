@@ -456,12 +456,15 @@ function calcDuration(impactStartTime) {
 }
 
 function buildMetadata(details) {
-    const stampMatch = (details.Title || '').match(/(oi-tds-[\w-]+|ax-tds-[\w-]+)/i);
+    // Extract the primary impacted service from IcM structured data (generic, not product-specific)
+    const impactedService = (details.ImpactedServices && details.ImpactedServices.length > 0)
+        ? (details.ImpactedServices[0].ServiceName || '')
+        : '';
     return {
         title: details.Title || '',
         severity: mapSeverity(details.Severity),
         status: mapState(details.State),
-        stamp: stampMatch ? stampMatch[0] : '',
+        impactedService: impactedService,
         owningTeam: details.OwningTeamName || '',
         owner: details.ContactDisplayName || details.ContactAlias || '',
         created: details.CreatedDate || '',

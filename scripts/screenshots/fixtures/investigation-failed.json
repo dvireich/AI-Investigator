@@ -14,7 +14,7 @@
   "thoughts": [
     "Starting investigation into node crashes on `app-prd-weu-01`. Let me query for critical-level traces in the past hour.",
     {
-      "content": "The KQL query failed with an Azure authentication error. The Kusto CLI token appears to have expired. Let me try re-authenticating.",
+      "content": "The query failed with an authentication error. The tool's access token appears to have expired. Let me try re-authenticating.",
       "type": "thought"
     },
     {
@@ -22,44 +22,44 @@
       "type": "thought"
     },
     {
-      "content": "Third consecutive failure. Unable to execute any KQL queries due to authentication failure. Marking investigation as failed.\n\n**Recommendation**: Run `az login` in a terminal to refresh Azure credentials, then restart this investigation.",
+      "content": "Third consecutive failure. Unable to execute any queries due to authentication failure. Marking investigation as failed.\n\n**Recommendation**: Re-authenticate with the data source and restart this investigation.",
       "type": "thought"
     }
   ],
   "actions": [
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceTraces\n| where Stamp == 'app-prd-weu-01'\n| where TimeGenerated > ago(1h)\n| where Level == 'Critical'\n| take 10"
       },
-      "result": "Error: Azure CLI authentication failed — AADSTS70043: The refresh token has expired or is invalid."
+      "result": "Error: Authentication failed — AADSTS70043: The refresh token has expired or is invalid."
     },
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceTraces | where Stamp == 'app-prd-weu-01' | take 1"
       },
-      "result": "Error: Azure CLI authentication failed — AADSTS70043: The refresh token has expired or is invalid."
+      "result": "Error: Authentication failed — AADSTS70043: The refresh token has expired or is invalid."
     },
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": ".show databases"
       },
-      "result": "Error: Azure CLI authentication failed — AADSTS70043: The refresh token has expired or is invalid."
+      "result": "Error: Authentication failed — AADSTS70043: The refresh token has expired or is invalid."
     }
   ],
   "logs": [
     "Investigation started",
-    "Kusto CLI connection established",
-    "ERROR: KQL execution failed — Azure authentication error: AADSTS70043",
-    "Retrying KQL query (attempt 2/3)...",
-    "ERROR: KQL execution failed — Azure authentication error: AADSTS70043",
-    "Retrying KQL query (attempt 3/3)...",
-    "ERROR: KQL execution failed — Azure authentication error: AADSTS70043",
+    "MCP tools connected",
+    "ERROR: Query execution failed — authentication error: AADSTS70043",
+    "Retrying query (attempt 2/3)...",
+    "ERROR: Query execution failed — authentication error: AADSTS70043",
+    "Retrying query (attempt 3/3)...",
+    "ERROR: Query execution failed — authentication error: AADSTS70043",
     "ERROR: Consecutive failures exceeded limit (3). Investigation failed."
   ]
 }

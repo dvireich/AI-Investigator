@@ -25,7 +25,7 @@
   "actions": [
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceMetrics\n| where Stamp == 'app-prd-eus2p-01'\n| where TimeGenerated > ago(6h)\n| where MetricName == 'E2ELatencyMs'\n| summarize\n    p50=percentile(Value, 50),\n    p95=percentile(Value, 95),\n    p99=percentile(Value, 99)\n    by bin(TimeGenerated, 5m)\n| order by TimeGenerated desc\n| take 20"
       },
@@ -33,15 +33,15 @@
     },
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
-        "query": "ServiceMetrics\n| where Stamp == 'app-prd-eus2p-01'\n| where TimeGenerated > ago(6h)\n| where MetricName in ('QueueWaitMs', 'DeltaServiceMs', 'PayloadFannerMs', 'KustoIngestionMs')\n| summarize p95=percentile(Value, 95) by MetricName, bin(TimeGenerated, 30m)\n| order by TimeGenerated desc, MetricName asc"
+        "query": "ServiceMetrics\n| where Stamp == 'app-prd-eus2p-01'\n| where TimeGenerated > ago(6h)\n| where MetricName in ('QueueWaitMs', 'DeltaServiceMs', 'PayloadFannerMs', 'IngestionMs')\n| summarize p95=percentile(Value, 95) by MetricName, bin(TimeGenerated, 30m)\n| order by TimeGenerated desc, MetricName asc"
       },
-      "result": "| TimeGenerated           | MetricName       | p95  |\n|-------------------------|------------------|------|\n| 2025-06-13T14:00:00Z    | DeltaServiceMs   | 3200 |\n| 2025-06-13T14:00:00Z    | KustoIngestionMs | 680  |\n| 2025-06-13T14:00:00Z    | PayloadFannerMs  | 420  |\n| 2025-06-13T14:00:00Z    | QueueWaitMs      | 185  |\n| 2025-06-13T13:30:00Z    | DeltaServiceMs   | 3100 |\n| 2025-06-13T13:30:00Z    | KustoIngestionMs | 710  |\n| 2025-06-13T13:30:00Z    | PayloadFannerMs  | 390  |\n| 2025-06-13T13:30:00Z    | QueueWaitMs      | 175  |"
+      "result": "| TimeGenerated           | MetricName       | p95  |\n|-------------------------|------------------|------|\n| 2025-06-13T14:00:00Z    | DeltaServiceMs   | 3200 |\n| 2025-06-13T14:00:00Z    | IngestionMs      | 680  |\n| 2025-06-13T14:00:00Z    | PayloadFannerMs  | 420  |\n| 2025-06-13T14:00:00Z    | QueueWaitMs      | 185  |\n| 2025-06-13T13:30:00Z    | DeltaServiceMs   | 3100 |\n| 2025-06-13T13:30:00Z    | IngestionMs      | 710  |\n| 2025-06-13T13:30:00Z    | PayloadFannerMs  | 390  |\n| 2025-06-13T13:30:00Z    | QueueWaitMs      | 175  |"
     },
     {
       "type": "tool_use",
-      "name": "execute_kql_query",
+      "name": "run_query",
       "input": {
         "query": "ServiceDeployments\n| where Stamp == 'app-prd-eus2p-01'\n| where TimeGenerated > ago(12h)\n| project TimeGenerated, CommitId, Version, ChangeDescription\n| order by TimeGenerated desc"
       },
@@ -50,12 +50,12 @@
   ],
   "logs": [
     "Investigation started",
-    "Kusto CLI connection established",
-    "Executing KQL: E2E latency percentiles...",
+    "MCP tools connected",
+    "Executing query: E2E latency percentiles...",
     "Query returned 8 rows",
-    "Executing KQL: Stage breakdown...",
+    "Executing query: Stage breakdown...",
     "Query returned 8 rows",
-    "Executing KQL: Recent deployments...",
+    "Executing query: Recent deployments...",
     "Query returned 2 rows"
   ]
 }

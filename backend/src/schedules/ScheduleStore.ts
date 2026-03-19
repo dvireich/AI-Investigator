@@ -9,14 +9,14 @@ export interface ScheduleDefinition {
     enabled: boolean;
 
     // Investigation params
-    stamp: string;
+    target: string;
     query: string;                     // Free-form investigation query
     intervalMinutes: number;           // Default 15
     productId?: string;
     model?: string;                    // AI model to use (e.g. "gpt-4o")
     maxSteps?: number;                 // Constrain agent steps (default 20)
-    timeRange?: string;                // KQL time range per run (default "ago(1h)")
-    issueType?: string;
+    timeRange?: string;                // Time range per run (default "ago(1h)")
+    category?: string;
 
     // Escalation
     autoEscalate: boolean;             // Auto-launch full investigation on "critical"

@@ -2,14 +2,14 @@ export interface ScheduleDefinition {
     id: string;
     name: string;
     enabled: boolean;
-    stamp: string;
+    target: string;
     query: string;
     intervalMinutes: number;
     productId?: string;
     model?: string;
     maxSteps?: number;
     timeRange?: string;
-    issueType?: string;
+    category?: string;
     autoEscalate: boolean;
     escalationQuery?: string;
     createdBy?: string;

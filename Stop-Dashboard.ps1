@@ -65,16 +65,4 @@ try {
     Write-Host "Could not query devtunnel processes, skipping." -ForegroundColor DarkGray
 }
 
-# Cleanup MCP KQL Server Python processes
-Write-Host "Checking for lingering MCP Python processes..." -ForegroundColor Yellow
-try {
-    $pythonProcs = Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -like '*mcp_kql_server*' }
-    foreach ($proc in $pythonProcs) {
-        Write-Host "Killing auto-detected MCP Python process (PID: $($proc.ProcessId))..." -ForegroundColor Red
-        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-} catch {
-    Write-Host "Could not query specific python command lines, skipping python cleanup." -ForegroundColor DarkGray
-}
-
-Write-Host "Cleanup complete. You can now run .\Run-Investigation-Dashboard.ps1" -ForegroundColor Cyan
+Write-Host "Cleanup complete. You can now run .\Run-Dashboard.ps1" -ForegroundColor Cyan

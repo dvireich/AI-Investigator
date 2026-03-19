@@ -74,10 +74,10 @@ export const ScheduleForm = () => {
 
     // Form state
     const [name, setName] = useState('');
-    const [stamp, setStamp] = useState('');
+    const [target, setTarget] = useState('');
     const [query, setQuery] = useState('');
     const [intervalMinutes, setIntervalMinutes] = useState(15);
-    const [issueType, setIssueType] = useState('');
+    const [category, setCategory] = useState('');
 
     // Time range
     const [timeMode, setTimeMode] = useState<'preset' | 'custom'>('preset');
@@ -146,11 +146,11 @@ export const ScheduleForm = () => {
                     const sched = schedules.find(s => s.id === id);
                     if (sched) {
                         setName(sched.name);
-                        setStamp(sched.stamp);
+                        setTarget(sched.target);
                         setQuery(sched.query);
                         setIntervalMinutes(sched.intervalMinutes);
                         setProductId(sched.productId || '');
-                        setIssueType(sched.issueType || '');
+                        setCategory(sched.category || '');
                         if (sched.model) setSelectedModel(sched.model);
 
                         // Determine if the stored timeRange is a preset or custom
@@ -231,8 +231,8 @@ export const ScheduleForm = () => {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name.trim() || !stamp.trim() || !query.trim()) {
-            setError('Name, stamp, and query are required');
+        if (!name.trim() || !target.trim() || !query.trim()) {
+            setError('Name, target, and query are required');
             return;
         }
         setLoading(true);
@@ -240,13 +240,13 @@ export const ScheduleForm = () => {
         try {
             const data: Partial<ScheduleDefinition> = {
                 name: name.trim(),
-                stamp: stamp.trim(),
+                target: target.trim(),
                 query: query.trim(),
                 intervalMinutes,
                 productId: productId || undefined,
                 model: selectedModel || undefined,
                 timeRange: getTimeRange(),
-                issueType: issueType || undefined,
+                category: category || undefined,
             };
             if (isEdit) {
                 await api.updateSchedule(id!, data);
@@ -283,9 +283,9 @@ export const ScheduleForm = () => {
     // ── Query Bank Handlers ───────────────────────────────────────────────
 
     const loadSavedQuery = (sq: SavedQuery) => {
-        if (sq.stamp) setStamp(sq.stamp);
+        if (sq.target) setTarget(sq.target);
         if (sq.query) setQuery(sq.query);
-        if (sq.issueType) setIssueType(sq.issueType);
+        if (sq.category) setCategory(sq.category);
         if (sq.productId) setProductId(sq.productId);
         if (sq.model) setSelectedModel(sq.model);
         if (sq.intervalMinutes) setIntervalMinutes(sq.intervalMinutes);
@@ -325,9 +325,9 @@ export const ScheduleForm = () => {
             }
             const payload = {
                 name: qName,
-                stamp: stamp || undefined,
+                target: target || undefined,
                 query: query || undefined,
-                issueType: issueType || undefined,
+                category: category || undefined,
                 timeRange: effectiveTimeRange,
                 timeMode: effectiveTimeMode,
                 model: selectedModel || undefined,
@@ -376,7 +376,7 @@ export const ScheduleForm = () => {
                 <p className="text-sm text-slate-400 max-w-md mx-auto">
                     {isEdit
                         ? 'Update the configuration for this scheduled investigation'
-                        : 'Set up a periodic automated investigation for your stamp'}
+                        : 'Set up a periodic automated investigation for your target'}
                 </p>
             </div>
 
@@ -435,7 +435,7 @@ export const ScheduleForm = () => {
                                                     {loadedQueryId === sq.id && <Check className="w-3.5 h-3.5 text-brand-400" />}
                                                 </div>
                                                 <div className="text-[11px] text-slate-400 truncate">
-                                                    {[sq.stamp, sq.issueType, sq.timeRange].filter(Boolean).join(' \u00b7 ') || 'No details'}
+                                                    {[sq.target, sq.category, sq.timeRange].filter(Boolean).join(' \u00b7 ') || 'No details'}
                                                 </div>
                                             </div>
                                             <button
@@ -511,7 +511,7 @@ export const ScheduleForm = () => {
                                     setShowSaveDialog(true);
                                 }}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/50 text-slate-300 hover:text-white hover:border-slate-600 text-xs font-bold transition-all"
-                                title={loadedQueryId ? 'Update saved query with current form values' : 'Save current form (stamp, issue type, time range, query, model) as a reusable template'}
+                                title={loadedQueryId ? 'Update saved query with current form values' : 'Save current form (target, Category, time range, query, model) as a reusable template'}
                             >
                                 {loadedQueryId ? <Pencil className="w-3.5 h-3.5" /> : <Save className="w-3.5 h-3.5" />}
                                 {loadedQueryId ? 'Update' : 'Save'}
@@ -572,31 +572,31 @@ export const ScheduleForm = () => {
                                     />
                                 </div>
 
-                                {/* Stamp Name */}
+                                {/* target Name */}
                                 <div className="space-y-2 group/input">
                                     <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
-                                        <Command className="w-3 h-3" /> Stamp Name
+                                        <Command className="w-3 h-3" /> target Name
                                     </label>
                                     <input
                                         type="text"
                                         required
-                                        placeholder="e.g. oi-tds-prd-eus2p-01"
+                                        placeholder="e.g. my-service-prod-01"
                                         className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all outline-none font-mono text-sm shadow-sm"
-                                        value={stamp}
-                                        onChange={(e) => setStamp(e.target.value)}
+                                        value={target}
+                                        onChange={(e) => setTarget(e.target.value)}
                                     />
                                 </div>
 
-                                {/* Issue Type */}
+                                {/* Category */}
                                 <div className="space-y-2 group/input">
                                     <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
-                                        <AlertTriangle className="w-3 h-3" /> Issue Type
+                                        <AlertTriangle className="w-3 h-3" /> Category
                                     </label>
                                     <div className="relative">
                                         <select
                                             className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all outline-none appearance-none shadow-sm cursor-pointer text-sm"
-                                            value={issueType}
-                                            onChange={(e) => setIssueType(e.target.value)}
+                                            value={category}
+                                            onChange={(e) => setCategory(e.target.value)}
                                         >
                                             <option value="">Unknown / Discovery</option>
                                             <option value="latency">Latency / Performance</option>
@@ -851,7 +851,7 @@ export const ScheduleForm = () => {
                                 required
                                 rows={4}
                                 className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none text-sm shadow-sm resize-none font-mono text-xs"
-                                placeholder="Check this stamp for latency issues, batching fallback, and high dequeue count. Report a verdict."
+                                placeholder="Check this target for latency issues, batching fallback, and high dequeue count. Report a verdict."
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
                             />

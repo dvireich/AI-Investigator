@@ -43,7 +43,7 @@ export const Schedules = () => {
     const [historyMap, setHistoryMap] = useState<Record<string, ScheduleHistoryEntry[]>>({});
     const [models, setModels] = useState<string[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [editFields, setEditFields] = useState<{ model?: string; stamp?: string; timeRange?: string; issueType?: string }>({});
+    const [editFields, setEditFields] = useState<{ model?: string; target?: string; timeRange?: string; category?: string }>({});
     const [timeRangePopupId, setTimeRangePopupId] = useState<string | null>(null);
     const timeRangePopupRef = useRef<HTMLDivElement>(null);
 
@@ -130,7 +130,7 @@ export const Schedules = () => {
 
     const startEditing = (sched: ScheduleDefinition) => {
         setEditingId(sched.id);
-        setEditFields({ model: sched.model || '', stamp: sched.stamp, timeRange: sched.timeRange || 'ago(1h)', issueType: sched.issueType || '' });
+        setEditFields({ model: sched.model || '', target: sched.target, timeRange: sched.timeRange || 'ago(1h)', category: sched.category || '' });
     };
 
     const cancelEditing = () => {
@@ -291,7 +291,7 @@ export const Schedules = () => {
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2 sm:gap-3 text-xs text-slate-500 mt-0.5 flex-wrap">
-                                                <span className="flex items-center gap-1"><Server className="w-3 h-3" />{sched.stamp}</span>
+                                                <span className="flex items-center gap-1"><Server className="w-3 h-3" />{sched.target}</span>
                                                 <span className="flex items-center gap-1"><Timer className="w-3 h-3" />Every {sched.intervalMinutes}m</span>
                                                 {sched.productId && <span className="text-slate-600">· {productName(sched.productId)}</span>}
                                             </div>
@@ -382,12 +382,12 @@ export const Schedules = () => {
                                                     {editingId === sched.id ? (
                                                         <input
                                                             type="text"
-                                                            value={editFields.stamp || ''}
-                                                            onChange={e => setEditFields(prev => ({ ...prev, stamp: e.target.value }))}
+                                                            value={editFields.target || ''}
+                                                            onChange={e => setEditFields(prev => ({ ...prev, target: e.target.value }))}
                                                             className="w-full bg-slate-900/60 border border-slate-700/50 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500/50"
                                                         />
                                                     ) : (
-                                                        <div className="text-xs text-slate-300 truncate">{sched.stamp}</div>
+                                                        <div className="text-xs text-slate-300 truncate">{sched.target}</div>
                                                     )}
                                                 </div>
                                                 {/* Time Range */}
@@ -453,13 +453,13 @@ export const Schedules = () => {
                                                     )}
                                                 </div>
                                                 {/* Issue Type */}
-                                                {(sched.issueType || editingId === sched.id) && (
+                                                {(sched.category || editingId === sched.id) && (
                                                     <div className="bg-slate-800/40 rounded-lg px-3 py-2">
                                                         <div className="text-[10px] text-slate-500 flex items-center gap-1 mb-0.5"><Activity className="w-3 h-3" /> Issue Type</div>
                                                         {editingId === sched.id ? (
                                                             <select
-                                                                value={editFields.issueType || ''}
-                                                                onChange={e => setEditFields(prev => ({ ...prev, issueType: e.target.value }))}
+                                                                value={editFields.category || ''}
+                                                                onChange={e => setEditFields(prev => ({ ...prev, category: e.target.value }))}
                                                                 className="w-full bg-slate-900/60 border border-slate-700/50 rounded px-2 py-0.5 text-xs text-slate-200 focus:outline-none focus:border-brand-500/50"
                                                             >
                                                                 <option value="">Unknown / Discovery</option>
@@ -470,7 +470,7 @@ export const Schedules = () => {
                                                                 <option value="availability">Availability / Downtime</option>
                                                             </select>
                                                         ) : (
-                                                            <div className="text-xs text-slate-300">{sched.issueType || '—'}</div>
+                                                            <div className="text-xs text-slate-300">{sched.category || '—'}</div>
                                                         )}
                                                     </div>
                                                 )}

@@ -10,15 +10,30 @@
   "notifications": true,
   "defaultView": "grid",
   "defaultSortOrder": "newest",
+  "llmProvider": {
+    "type": "openai",
+    "apiKey": "sk-..."
+  },
+  "incidentProvider": {
+    "type": "manual"
+  },
+  "mcpServers": [
+    {
+      "name": "my-data-server",
+      "command": "npx",
+      "args": ["-y", "my-mcp-server"],
+      "env": {}
+    }
+  ],
   "products": [
     {
       "id": "my-product",
       "name": "My Product",
-      "repoRoot": "C:/Repositories/MyProduct",
-      "systemPromptPath": "C:/Repositories/MyProduct/.github/agents/MyProduct_Investigation.agent.md",
-      "knowledgeBasePath": "C:/Repositories/MyProduct/docs/investigations",
-      "workingDirectory": "C:/Repositories/MyProduct",
-      "investigationsPath": "C:/Repositories/MyProduct/investigations"
+      "repoRoot": "/path/to/MyProduct",
+      "systemPromptPath": ".github/agents/MyProduct_Investigation.agent.md",
+      "knowledgeBasePath": "docs/investigations",
+      "workingDirectory": ".",
+      "investigationsPath": "investigations"
     }
   ],
   "activeProductId": "my-product"

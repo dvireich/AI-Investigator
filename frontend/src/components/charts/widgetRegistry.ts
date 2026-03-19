@@ -11,10 +11,10 @@ export interface WidgetDefinition {
 
 // Lazy-loaded widget components — imported at registration time
 import { InvestigationTrend } from './InvestigationTrend';
-import { IssueTypeDonut } from './IssueTypeDonut';
+import { CategoryDonut } from './IssueTypeDonut';
 import { DurationDistribution } from './DurationDistribution';
 import { SuccessRateDonut } from './SuccessRateDonut';
-import { StampActivity } from './StampActivity';
+import { TargetActivity } from './StampActivity';
 import { VerdictBreakdown } from './VerdictBreakdown';
 import { ModelUsage } from './ModelUsage';
 import { ContestRate } from './ContestRate';
@@ -36,11 +36,11 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         component: InvestigationTrend,
     },
     {
-        id: 'issueTypes',
-        name: 'Issue Types',
-        description: 'Distribution of investigations by issue type',
+        id: 'categories',
+        name: 'Categories',
+        description: 'Distribution of investigations by category',
         icon: 'PieChart',
-        component: IssueTypeDonut,
+        component: CategoryDonut,
     },
     {
         id: 'duration',
@@ -57,11 +57,11 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
         component: SuccessRateWrapper,
     },
     {
-        id: 'stampActivity',
-        name: 'Stamp Activity',
-        description: 'Top stamps by investigation count, stacked by status',
+        id: 'targetActivity',
+        name: 'Target Activity',
+        description: 'Top targets by investigation count, stacked by status',
         icon: 'Server',
-        component: StampActivity,
+        component: TargetActivity,
     },
     {
         id: 'verdictBreakdown',
@@ -86,7 +86,7 @@ export const WIDGET_REGISTRY: WidgetDefinition[] = [
     },
 ];
 
-export const DEFAULT_WIDGET_IDS = ['trend', 'stampActivity', 'successRate'];
+export const DEFAULT_WIDGET_IDS = ['trend', 'targetActivity', 'successRate'];
 
 const STORAGE_KEY = 'inv-analytics-widgets';
 

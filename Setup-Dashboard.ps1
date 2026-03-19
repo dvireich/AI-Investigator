@@ -1,5 +1,5 @@
-# Investigation Dashboard Setup Script
-# Installs all dependencies: Node.js, Azure CLI, Kusto CLI, npm packages, Puppeteer, Playwright, Dev Tunnel
+# AI Investigator Setup Script
+# Installs platform dependencies: Node.js, npm packages, Puppeteer (PDF export), Dev Tunnel (remote sharing)
 
 Write-Host "Setting up AI Investigator..." -ForegroundColor Cyan
 
@@ -23,95 +23,6 @@ if ($nodeExe) {
     }
 }
 
-# --- Azure CLI ---
-Write-Host ""
-Write-Host "Checking for Azure CLI..." -ForegroundColor Yellow
-$azExe = (Get-Command "az" -ErrorAction SilentlyContinue).Source
-if ($azExe) {
-    Write-Host "Azure CLI found: $azExe" -ForegroundColor Green
-} else {
-    Write-Host "Azure CLI not found. Installing via winget..." -ForegroundColor Yellow
-    winget install Microsoft.AzureCLI --accept-source-agreements --accept-package-agreements
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
-    $azExe = (Get-Command "az" -ErrorAction SilentlyContinue).Source
-    if ($azExe) {
-        Write-Host "Azure CLI installed: $azExe" -ForegroundColor Green
-    } else {
-        Write-Warning "Azure CLI installation failed. Kusto authentication may not work until Azure CLI is installed manually."
-    }
-}
-
-# --- Kusto CLI ---
-Write-Host ""
-Write-Host "Checking for Kusto CLI..." -ForegroundColor Yellow
-
-$kustoExe = $null
-# 1. Check PATH
-$kustoExe = Get-Command "Kusto.Cli.exe" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source
-# 2. Check well-known location
-if (-not $kustoExe -and (Test-Path "C:\Kusto\tools\net8.0\Kusto.Cli.exe")) {
-    $kustoExe = "C:\Kusto\tools\net8.0\Kusto.Cli.exe"
-}
-# 3. Check NuGet cache
-if (-not $kustoExe) {
-    $nugetPath = Join-Path $env:USERPROFILE ".nuget\packages\microsoft.azure.kusto.tools"
-    if (Test-Path $nugetPath) {
-        $kustoExe = Get-ChildItem -Path $nugetPath -Filter "Kusto.Cli.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-    }
-}
-
-if ($kustoExe) {
-    Write-Host "Kusto CLI found: $kustoExe" -ForegroundColor Green
-} else {
-    Write-Host "Kusto CLI not found. Installing from NuGet..." -ForegroundColor Yellow
-
-    $installDir = "C:\Kusto"
-    $nupkgUrl  = "https://www.nuget.org/api/v2/package/Microsoft.Azure.Kusto.Tools/14.0.3"
-    $nupkgPath = Join-Path $installDir "kusto-tools.nupkg"
-    $zipPath   = Join-Path $installDir "kusto-tools.zip"
-
-    # Create directory
-    if (-not (Test-Path $installDir)) {
-        New-Item -ItemType Directory -Path $installDir -Force | Out-Null
-        Write-Host "  Created $installDir" -ForegroundColor DarkGray
-    }
-
-    # Download
-    Write-Host "  Downloading Microsoft.Azure.Kusto.Tools v14.0.3 (this may take a minute)..." -ForegroundColor DarkGray
-    try {
-        curl.exe -L -o $nupkgPath $nupkgUrl --silent --show-error
-    } catch {
-        Write-Warning "Download failed: $_"
-    }
-
-    if (Test-Path $nupkgPath) {
-        $sizeMB = [math]::Round((Get-Item $nupkgPath).Length / 1MB, 1)
-        Write-Host "  Downloaded $sizeMB MB" -ForegroundColor DarkGray
-
-        if ((Get-Item $nupkgPath).Length -lt 100KB) {
-            Write-Warning "Download too small - possible network error. Skipping."
-            Remove-Item $nupkgPath -Force
-        } else {
-            # Extract (NuGet packages are ZIP files)
-            Rename-Item $nupkgPath $zipPath -Force
-            Write-Host "  Extracting..." -ForegroundColor DarkGray
-            Expand-Archive -Path $zipPath -DestinationPath $installDir -Force
-            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
-
-            # Verify
-            $kustoExe = Get-ChildItem -Path $installDir -Filter "Kusto.Cli.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
-            if ($kustoExe) {
-                Write-Host "Kusto CLI installed: $kustoExe" -ForegroundColor Green
-                Write-Host "  Tip: Add '$(Split-Path $kustoExe)' to your PATH for faster startup." -ForegroundColor DarkGray
-            } else {
-                Write-Warning "Extraction complete but Kusto.Cli.exe not found. The runtime will retry on first launch."
-            }
-        }
-    } else {
-        Write-Warning "Download failed. The runtime will auto-install on first launch as a fallback."
-    }
-}
-
 # --- Backend ---
 Write-Host ""
 Write-Host "Installing Backend Dependencies..." -ForegroundColor Yellow
@@ -130,26 +41,24 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- Frontend ---
+Write-Host ""
 Write-Host "Installing Frontend Dependencies..." -ForegroundColor Yellow
 Set-Location "$PSScriptRoot\frontend"
 npm install
 if ($LASTEXITCODE -ne 0) { Write-Error "Frontend install failed"; exit 1 }
 
-# --- ICM Scripts (Playwright) ---
+# --- Incident Provider Dependencies (optional) ---
 $icmScriptsDir = Join-Path $PSScriptRoot "scripts" "icm"
 if (Test-Path (Join-Path $icmScriptsDir "package.json")) {
     Write-Host ""
-    Write-Host "Installing ICM Script Dependencies (Playwright)..." -ForegroundColor Yellow
+    Write-Host "Installing ICM incident provider dependencies..." -ForegroundColor Yellow
     Set-Location $icmScriptsDir
     npm install
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "ICM script dependency install failed. ICM incident reading may not work until manually resolved."
     } else {
-        Write-Host "ICM script dependencies installed." -ForegroundColor Green
+        Write-Host "ICM incident provider dependencies installed." -ForegroundColor Green
     }
-} else {
-    Write-Host ""
-    Write-Host "ICM scripts directory not found - skipping Playwright install." -ForegroundColor DarkGray
 }
 
 # --- Dev Tunnel CLI (for remote sharing) ---
@@ -157,7 +66,6 @@ Write-Host ""
 Write-Host "Checking for Dev Tunnel CLI..." -ForegroundColor Yellow
 $devtunnelExe = (Get-Command "devtunnel" -ErrorAction SilentlyContinue).Source
 if (-not $devtunnelExe) {
-    # Check winget install location before installing
     $wingetPath = Join-Path $env:LOCALAPPDATA "Microsoft\WinGet\Packages"
     $found = Get-ChildItem -Path $wingetPath -Filter "devtunnel.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
     if ($found) { $devtunnelExe = $found.FullName }
@@ -165,7 +73,6 @@ if (-not $devtunnelExe) {
 if (-not $devtunnelExe) {
     Write-Host "Installing devtunnel CLI..." -ForegroundColor Yellow
     winget install Microsoft.devtunnel --accept-source-agreements --accept-package-agreements
-    # Refresh PATH so devtunnel is available in this session
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     $devtunnelExe = (Get-Command "devtunnel" -ErrorAction SilentlyContinue).Source
     if (-not $devtunnelExe) {
@@ -175,13 +82,24 @@ if (-not $devtunnelExe) {
 }
 if ($devtunnelExe) {
     Write-Host "devtunnel CLI ready: $devtunnelExe" -ForegroundColor Green
-    # Auto-login (will open browser if not already logged in)
     Write-Host "Ensuring devtunnel login..." -ForegroundColor Yellow
     & $devtunnelExe user login
 } else {
     Write-Warning "devtunnel installation failed. Remote sharing won't work. Use -NoTunnel when running the dashboard."
 }
 
+# --- Done ---
 Write-Host ""
-Write-Host "Setup Complete! You can now run 'Run-Dashboard.ps1'" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host " Setup Complete!" -ForegroundColor Green
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host " Next steps:" -ForegroundColor White
+Write-Host "   1. Run 'Run-Dashboard.ps1' to start the dashboard" -ForegroundColor DarkGray
+Write-Host "   2. Open Settings > Connections to configure:" -ForegroundColor DarkGray
+Write-Host "      - LLM Provider (Copilot, OpenAI, Anthropic, etc.)" -ForegroundColor DarkGray
+Write-Host "      - Incident Provider (IcM, PagerDuty, or Manual)" -ForegroundColor DarkGray
+Write-Host "      - MCP Tool Servers (KQL, SQL, or any MCP-compatible tool)" -ForegroundColor DarkGray
+Write-Host "   3. Open Settings > Products to add your product repo" -ForegroundColor DarkGray
+Write-Host ""
 Set-Location $PSScriptRoot

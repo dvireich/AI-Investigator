@@ -7,10 +7,10 @@ import { ScheduleStore, ScheduleDefinition, ScheduleHistoryEntry } from './Sched
  * Returns { id: string } on success.
  */
 export type CreateInvestigationFn = (params: {
-    stamp: string;
+    target: string;
     query: string;
     timeRange: string;
-    issueType?: string;
+    category?: string;
     productId?: string;
     model?: string;
     maxSteps?: number;
@@ -172,13 +172,13 @@ export class Scheduler extends EventEmitter {
         const fullQuery = `${preamble}\n${schedule.query}`;
 
         try {
-            this.log(`[Schedule ${schedule.name}] Starting check for stamp "${schedule.stamp}"...`);
+            this.log(`[Schedule ${schedule.name}] Starting check for target "${schedule.target}"...`);
 
             const result = await this.createInvestigation({
-                stamp: schedule.stamp,
+                target: schedule.target,
                 query: fullQuery,
                 timeRange,
-                issueType: schedule.issueType,
+                category: schedule.category,
                 productId: schedule.productId,
                 model: schedule.model,
                 maxSteps,
@@ -287,7 +287,7 @@ export class Scheduler extends EventEmitter {
         const escalationQuery = schedule.escalationQuery || schedule.query;
 
         const preamble = [
-            'ESCALATED: A scheduled health check detected a CRITICAL issue on this stamp.',
+            'ESCALATED: A scheduled health check detected a CRITICAL issue on this target.',
             'Perform a thorough investigation. Provide detailed findings, root cause analysis, and recommended actions.',
             '',
             '--- User Query ---',
@@ -297,10 +297,10 @@ export class Scheduler extends EventEmitter {
             this.log(`[Schedule ${schedule.name}] Auto-escalating — launching full investigation...`);
 
             const result = await this.createInvestigation({
-                stamp: schedule.stamp,
+                target: schedule.target,
                 query: `${preamble}\n${escalationQuery}`,
                 timeRange,
-                issueType: schedule.issueType,
+                category: schedule.category,
                 productId: schedule.productId,
                 model: schedule.model,
                 // No maxSteps override — full investigation

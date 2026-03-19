@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3 } from 'lucide-react';
+import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench } from 'lucide-react';
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult } from '../api';
 import { useToast } from '../components/Toast';
@@ -61,7 +61,7 @@ const PathItem = ({ icon: Icon, label, value, color, validation }: { icon: any; 
 
 export const Settings = () => {
     const { confirm } = useToast();
-    const [activeTab, setActiveTab] = useState('agent');
+    const [activeTab, setActiveTab] = useState('products');
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -98,6 +98,28 @@ export const Settings = () => {
     const [discoverResult, setDiscoverResult] = useState<DiscoverResult | null>(null);
     const [discoverError, setDiscoverError] = useState<string | null>(null);
     const [showDiscoverStep, setShowDiscoverStep] = useState(true);
+
+    // Provider configuration state
+    const [llmProviders, setLlmProviders] = useState<Array<{ type: string; displayName?: string; authRequirement: { type: string; envVar?: string } }>>([]);
+    const [incidentProviders, setIncidentProviders] = useState<Array<{ type: string; displayName: string }>>([]);
+    const [llmProviderType, setLlmProviderType] = useState('copilot');
+    const [llmApiKey, setLlmApiKey] = useState('');
+    const [llmBaseUrl, setLlmBaseUrl] = useState('');
+    const [llmApiVersion, setLlmApiVersion] = useState('2024-02-15-preview');
+    const [incidentProviderType, setIncidentProviderType] = useState('manual');
+    const [showApiKey, setShowApiKey] = useState(false);
+    const [providerSaving, setProviderSaving] = useState(false);
+    const [providerSaveSuccess, setProviderSaveSuccess] = useState(false);
+    const [providerError, setProviderError] = useState<string | null>(null);
+    const [authStatus, setAuthStatus] = useState<{ authenticated: boolean; providerType?: string } | null>(null);
+
+    // MCP server configuration state
+    interface McpServerEntry { name: string; command: string; args: string; env: string; cwd: string; }
+    const emptyMcpServer = (): McpServerEntry => ({ name: '', command: '', args: '', env: '', cwd: '' });
+    const [mcpServers, setMcpServers] = useState<McpServerEntry[]>([]);
+    const [showMcpForm, setShowMcpForm] = useState(false);
+    const [editingMcpIndex, setEditingMcpIndex] = useState<number | null>(null);
+    const [mcpForm, setMcpForm] = useState<McpServerEntry>(emptyMcpServer());
 
     const toggleProductExpanded = (productId: string) => {
         setExpandedProducts(prev => {
@@ -179,7 +201,26 @@ export const Settings = () => {
         loadSettings();
         loadModels();
         loadProducts();
+        loadProviders();
     }, []);
+
+    const loadProviders = async () => {
+        try {
+            const [llmList, incidentList, status] = await Promise.all([
+                api.getAuthProviders(),
+                api.getIncidentProviders(),
+                api.getAuthStatus(),
+            ]);
+            setLlmProviders(llmList);
+            setIncidentProviders(incidentList);
+            setAuthStatus(status);
+            if (status.providerType) {
+                setLlmProviderType(status.providerType);
+            }
+        } catch (e) {
+            console.error('Failed to load providers:', e);
+        }
+    };
 
     const loadModels = async () => {
         try {
@@ -238,6 +279,23 @@ export const Settings = () => {
             if (['newest', 'oldest', 'steps', 'modified'].includes(settings.defaultSortOrder)) {
                 setDefaultSortOrder(settings.defaultSortOrder);
             }
+            // Sync provider state from saved config
+            if (settings.llmProvider?.type) {
+                setLlmProviderType(settings.llmProvider.type);
+            }
+            if (settings.incidentProvider?.type) {
+                setIncidentProviderType(settings.incidentProvider.type);
+            }
+            // Sync MCP servers from saved config
+            if (Array.isArray(settings.mcpServers)) {
+                setMcpServers(settings.mcpServers.map((s: any) => ({
+                    name: s.name || '',
+                    command: s.command || '',
+                    args: Array.isArray(s.args) ? s.args.join(' ') : (s.args || ''),
+                    env: s.env ? Object.entries(s.env).map(([k, v]) => `${k}=${v}`).join('\n') : '',
+                    cwd: s.cwd || '',
+                })));
+            }
         } catch (err) {
             console.error("Failed to load settings:", err);
             setError("Failed to load settings from server.");
@@ -285,6 +343,62 @@ export const Settings = () => {
     const [selectedWidgets, setSelectedWidgets] = useState<string[]>(getSelectedWidgetIds);
     const [widgetSaveSuccess, setWidgetSaveSuccess] = useState(false);
 
+    const handleSaveProviders = async () => {
+        setProviderSaving(true);
+        setProviderError(null);
+        setProviderSaveSuccess(false);
+        try {
+            // Build the LLM provider config
+            const llmConfig: Record<string, any> = { type: llmProviderType };
+            const selectedProvider = llmProviders.find(p => p.type === llmProviderType);
+            const authReq = selectedProvider?.authRequirement?.type;
+            if (authReq === 'api-key' || authReq === 'api-key-and-endpoint') {
+                if (llmApiKey) llmConfig.apiKey = llmApiKey;
+            }
+            if (authReq === 'api-key-and-endpoint') {
+                if (llmBaseUrl) llmConfig.baseUrl = llmBaseUrl;
+                if (llmApiVersion) llmConfig.apiVersion = llmApiVersion;
+            }
+
+            // Configure LLM provider via dedicated endpoint
+            await api.configureLlmProvider(llmConfig);
+
+            // Build MCP servers config for persistence
+            const mcpServersConfig = mcpServers.map(s => {
+                const entry: any = { name: s.name, command: s.command };
+                const args = s.args.trim();
+                if (args) entry.args = args.split(/\s+/);
+                if (s.env.trim()) {
+                    entry.env = Object.fromEntries(
+                        s.env.split('\n').filter(l => l.includes('=')).map(l => {
+                            const eq = l.indexOf('=');
+                            return [l.substring(0, eq).trim(), l.substring(eq + 1).trim()];
+                        })
+                    );
+                }
+                if (s.cwd.trim()) entry.cwd = s.cwd.trim();
+                return entry;
+            });
+
+            // Save incident provider + MCP servers via settings
+            await api.saveSettings({ incidentProvider: { type: incidentProviderType }, mcpServers: mcpServersConfig });
+
+            // Refresh status
+            const status = await api.getAuthStatus();
+            setAuthStatus(status);
+
+            // Refresh models for the new provider
+            await loadModels();
+
+            setProviderSaveSuccess(true);
+            setTimeout(() => setProviderSaveSuccess(false), 3000);
+        } catch (err: any) {
+            setProviderError(err.message || 'Failed to save provider configuration');
+        } finally {
+            setProviderSaving(false);
+        }
+    };
+
     const toggleWidget = (id: string) => {
         setSelectedWidgets(prev => {
             if (prev.includes(id)) {
@@ -311,6 +425,7 @@ export const Settings = () => {
 
     const tabs = [
         { id: 'products', label: 'Products', icon: <Package size={18} /> },
+        { id: 'connections', label: 'Connections', icon: <Plug size={18} /> },
         { id: 'agent', label: 'Agent Behavior', icon: <Cpu size={18} /> },
         { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
         { id: 'appearance', label: 'Appearance', icon: <Layout size={18} /> },
@@ -592,6 +707,380 @@ export const Settings = () => {
                         </div>
                     )}
 
+                    {activeTab === 'connections' && (() => {
+                        const selectedProvider = llmProviders.find(p => p.type === llmProviderType);
+                        const authReq = selectedProvider?.authRequirement?.type || 'none';
+                        return (
+                        <div className="space-y-8 animate-fade-in">
+                            <div>
+                                <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+                                    <Plug className="text-emerald-400" /> Connections
+                                </h2>
+                                <p className="text-slate-400">Bring your own LLM, tools, and integrations. The investigator is provider-agnostic — you supply the AI brain, MCP tool servers, and incident source.</p>
+                            </div>
+
+                            {/* LLM Provider */}
+                            <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-6">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                            <Sparkles size={18} className="text-brand-400" /> LLM Provider
+                                        </h3>
+                                        <p className="text-sm text-slate-500 mt-1">Choose the AI model provider that powers investigations.</p>
+                                    </div>
+                                    {authStatus && (
+                                        <span className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full font-semibold ${
+                                            authStatus.authenticated
+                                                ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+                                                : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                        }`}>
+                                            <span className={`w-1.5 h-1.5 rounded-full ${authStatus.authenticated ? 'bg-green-400' : 'bg-amber-400'}`} />
+                                            {authStatus.authenticated ? 'Connected' : 'Not Connected'}
+                                        </span>
+                                    )}
+                                </div>
+
+                                {/* Provider Type Selector */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-bold text-slate-300">Provider</label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+                                        {llmProviders.map(provider => (
+                                            <button
+                                                key={provider.type}
+                                                onClick={() => {
+                                                    setLlmProviderType(provider.type);
+                                                    setLlmApiKey('');
+                                                    setLlmBaseUrl('');
+                                                    setShowApiKey(false);
+                                                    setProviderError(null);
+                                                }}
+                                                className={`px-4 py-3 rounded-xl text-sm font-bold transition-all text-center ${
+                                                    llmProviderType === provider.type
+                                                        ? 'bg-brand-500/20 text-brand-300 border-2 border-brand-500/40 shadow-lg shadow-brand-500/10'
+                                                        : 'bg-slate-800/60 text-slate-400 border-2 border-slate-700/40 hover:border-slate-600/60 hover:text-slate-300'
+                                                }`}
+                                            >
+                                                {provider.displayName || provider.type}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Auth Requirement Hint */}
+                                <div className={`p-3 rounded-xl text-sm flex items-center gap-2 ${
+                                    authReq === 'none'
+                                        ? 'bg-green-500/5 border border-green-500/15 text-green-300'
+                                        : authReq === 'oauth-device-flow'
+                                        ? 'bg-blue-500/5 border border-blue-500/15 text-blue-300'
+                                        : 'bg-slate-800/40 border border-slate-700/30 text-slate-400'
+                                }`}>
+                                    {authReq === 'none' && (
+                                        <><CheckCircle2 size={16} className="text-green-400 shrink-0" /> No authentication required. Make sure your Ollama server is running locally.</>
+                                    )}
+                                    {authReq === 'api-key' && (
+                                        <><AlertCircle size={16} className="text-slate-400 shrink-0" /> Requires an API key.{selectedProvider?.authRequirement?.envVar && <> You can also set the <span className="font-mono text-xs bg-slate-700/60 px-1.5 py-0.5 rounded">{selectedProvider.authRequirement.envVar}</span> environment variable.</>}</>
+                                    )}
+                                    {authReq === 'api-key-and-endpoint' && (
+                                        <><AlertCircle size={16} className="text-slate-400 shrink-0" /> Requires an API key, endpoint URL, and API version.</>
+                                    )}
+                                    {authReq === 'oauth-device-flow' && (
+                                        <><Activity size={16} className="text-blue-400 shrink-0" /> Uses device-flow authentication. Click Save, then connect via the header badge.</>
+                                    )}
+                                </div>
+
+                                {/* Conditional Config Fields */}
+                                {(authReq === 'api-key' || authReq === 'api-key-and-endpoint') && (
+                                    <div className="space-y-4">
+                                        {/* API Key */}
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-bold text-slate-300">API Key</label>
+                                            <div className="relative">
+                                                <input
+                                                    type={showApiKey ? 'text' : 'password'}
+                                                    value={llmApiKey}
+                                                    onChange={(e) => setLlmApiKey(e.target.value)}
+                                                    placeholder="Enter your API key"
+                                                    className="w-full px-4 py-3 pr-12 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none font-mono text-sm"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowApiKey(!showApiKey)}
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-500 hover:text-slate-300 transition-colors"
+                                                >
+                                                    {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                                                </button>
+                                            </div>
+                                            <p className="text-xs text-slate-500">Leave blank to keep the existing key unchanged.</p>
+                                        </div>
+
+                                        {/* Endpoint (Azure OpenAI only) */}
+                                        {authReq === 'api-key-and-endpoint' && (
+                                            <>
+                                                <div className="space-y-2">
+                                                    <label className="text-sm font-bold text-slate-300">Base URL / Endpoint</label>
+                                                    <input
+                                                        type="text"
+                                                        value={llmBaseUrl}
+                                                        onChange={(e) => setLlmBaseUrl(e.target.value)}
+                                                        placeholder="https://your-resource.openai.azure.com"
+                                                        className="w-full px-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none font-mono text-sm"
+                                                    />
+                                                </div>
+                                                <div className="space-y-2">
+                                                    <label className="text-sm font-bold text-slate-300">API Version</label>
+                                                    <input
+                                                        type="text"
+                                                        value={llmApiVersion}
+                                                        onChange={(e) => setLlmApiVersion(e.target.value)}
+                                                        placeholder="2024-02-15-preview"
+                                                        className="w-full px-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none font-mono text-sm"
+                                                    />
+                                                </div>
+                                            </>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Incident Provider */}
+                            <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-6">
+                                <div>
+                                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                        <BookOpen size={18} className="text-amber-400" /> Incident Provider
+                                    </h3>
+                                    <p className="text-sm text-slate-500 mt-1">Choose how incidents are fetched for pre-filling investigations.</p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-bold text-slate-300">Provider</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {incidentProviders.map(provider => (
+                                            <button
+                                                key={provider.type}
+                                                onClick={() => setIncidentProviderType(provider.type)}
+                                                className={`px-4 py-3 rounded-xl text-sm font-bold transition-all text-center ${
+                                                    incidentProviderType === provider.type
+                                                        ? 'bg-amber-500/20 text-amber-300 border-2 border-amber-500/40 shadow-lg shadow-amber-500/10'
+                                                        : 'bg-slate-800/60 text-slate-400 border-2 border-slate-700/40 hover:border-slate-600/60 hover:text-slate-300'
+                                                }`}
+                                            >
+                                                {provider.displayName}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className={`p-3 rounded-xl text-sm flex items-center gap-2 ${
+                                    incidentProviderType === 'manual'
+                                        ? 'bg-slate-800/40 border border-slate-700/30 text-slate-400'
+                                        : 'bg-amber-500/5 border border-amber-500/15 text-amber-300'
+                                }`}>
+                                    {incidentProviderType === 'manual' && (
+                                        <><CheckCircle2 size={16} className="text-slate-500 shrink-0" /> Manual entry only — incident details are typed in by the user.</>
+                                    )}
+                                    {incidentProviderType === 'icm' && (
+                                        <><AlertCircle size={16} className="text-amber-400 shrink-0" /> Requires IcM scripts and credentials. See the product setup for scriptsPath configuration.</>
+                                    )}
+                                    {incidentProviderType === 'pagerduty' && (
+                                        <><AlertCircle size={16} className="text-amber-400 shrink-0" /> Requires a PagerDuty API key and configured base URL.</>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* MCP Tool Servers */}
+                            <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-6">
+                                <div>
+                                    <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                                        <Wrench size={18} className="text-cyan-400" /> MCP Tool Servers
+                                    </h3>
+                                    <p className="text-sm text-slate-500 mt-1">Connect external tools via the Model Context Protocol. Each server provides tools the agent can use during investigations.</p>
+                                </div>
+
+                                <button
+                                    onClick={() => {
+                                        setMcpForm(emptyMcpServer());
+                                        setEditingMcpIndex(null);
+                                        setShowMcpForm(true);
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-2 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 rounded-xl text-sm font-bold transition-all"
+                                >
+                                    <Plus size={16} /> Add Server
+                                </button>
+
+                                {/* Server List */}
+                                {mcpServers.length === 0 && !showMcpForm && (
+                                    <div className="text-center py-8 border-2 border-dashed border-slate-700/40 rounded-xl">
+                                        <Wrench size={24} className="text-slate-600 mx-auto mb-2" />
+                                        <p className="text-sm text-slate-500">No MCP servers configured.</p>
+                                        <p className="text-xs text-slate-600 mt-1">The agent will only have built-in tools (read_file, list_dir, finish).</p>
+                                    </div>
+                                )}
+
+                                {mcpServers.map((server, idx) => (
+                                    <div key={idx} className="bg-slate-900/40 rounded-xl border border-slate-700/30 p-4 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2 bg-cyan-500/10 rounded-lg">
+                                                    <Terminal size={16} className="text-cyan-400" />
+                                                </div>
+                                                <div>
+                                                    <div className="font-bold text-white text-sm">{server.name || 'Unnamed Server'}</div>
+                                                    <div className="text-xs text-slate-500 font-mono">{server.command} {server.args}</div>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={() => {
+                                                        setMcpForm({ ...server });
+                                                        setEditingMcpIndex(idx);
+                                                        setShowMcpForm(true);
+                                                    }}
+                                                    className="p-2 text-slate-500 hover:text-brand-400 hover:bg-brand-500/10 rounded-lg transition-all"
+                                                    title="Edit server"
+                                                >
+                                                    <Pencil size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => setMcpServers(prev => prev.filter((_, i) => i !== idx))}
+                                                    className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                                    title="Remove server"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {server.cwd && (
+                                            <div className="text-xs text-slate-500"><span className="text-slate-600">cwd:</span> <span className="font-mono">{server.cwd}</span></div>
+                                        )}
+                                        {server.env && (
+                                            <div className="text-xs text-slate-500"><span className="text-slate-600">env:</span> {server.env.split('\n').filter(Boolean).length} variable(s)</div>
+                                        )}
+                                    </div>
+                                ))}
+
+                                {/* Add/Edit Server Form */}
+                                {showMcpForm && (
+                                    <div className="bg-slate-900/60 rounded-xl border border-cyan-500/20 p-5 space-y-4 animate-fade-in">
+                                        <div className="flex items-center justify-between">
+                                            <h4 className="text-sm font-bold text-white">{editingMcpIndex !== null ? 'Edit MCP Server' : 'Add MCP Server'}</h4>
+                                            <button onClick={() => setShowMcpForm(false)} className="p-1.5 text-slate-500 hover:text-slate-300 rounded-lg transition-all"><X size={16} /></button>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                            <div className="space-y-1.5">
+                                                <label className="text-xs font-bold text-slate-400">Name <span className="text-red-400">*</span></label>
+                                                <input
+                                                    type="text"
+                                                    value={mcpForm.name}
+                                                    onChange={(e) => setMcpForm(f => ({ ...f, name: e.target.value }))}
+                                                    placeholder="my-data-server"
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-cyan-500 outline-none text-sm"
+                                                />
+                                            </div>
+                                            <div className="space-y-1.5">
+                                                <label className="text-xs font-bold text-slate-400">Command <span className="text-red-400">*</span></label>
+                                                <input
+                                                    type="text"
+                                                    value={mcpForm.command}
+                                                    onChange={(e) => setMcpForm(f => ({ ...f, command: e.target.value }))}
+                                                    placeholder="npx"
+                                                    className="w-full px-3 py-2 rounded-lg border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-cyan-500 outline-none text-sm font-mono"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <label className="text-xs font-bold text-slate-400">Arguments <span className="text-slate-600">(space-separated)</span></label>
+                                            <input
+                                                type="text"
+                                                value={mcpForm.args}
+                                                onChange={(e) => setMcpForm(f => ({ ...f, args: e.target.value }))}
+                                                placeholder="-y @my-org/mcp-server"
+                                                className="w-full px-3 py-2 rounded-lg border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-cyan-500 outline-none text-sm font-mono"
+                                            />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <label className="text-xs font-bold text-slate-400">Working Directory <span className="text-slate-600">(optional)</span></label>
+                                            <input
+                                                type="text"
+                                                value={mcpForm.cwd}
+                                                onChange={(e) => setMcpForm(f => ({ ...f, cwd: e.target.value }))}
+                                                placeholder="C:\\Repositories\\MyProject"
+                                                className="w-full px-3 py-2 rounded-lg border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-cyan-500 outline-none text-sm font-mono"
+                                            />
+                                        </div>
+                                        <div className="space-y-1.5">
+                                            <label className="text-xs font-bold text-slate-400">Environment Variables <span className="text-slate-600">(KEY=VALUE, one per line)</span></label>
+                                            <textarea
+                                                value={mcpForm.env}
+                                                onChange={(e) => setMcpForm(f => ({ ...f, env: e.target.value }))}
+                                                placeholder={"DATABASE_URL=https://...\nAPI_KEY=sk-..."}
+                                                rows={3}
+                                                className="w-full px-3 py-2 rounded-lg border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-cyan-500 outline-none text-sm font-mono resize-none"
+                                            />
+                                        </div>
+                                        <div className="flex justify-end gap-2 pt-1">
+                                            <button
+                                                onClick={() => setShowMcpForm(false)}
+                                                className="px-4 py-2 text-slate-500 hover:text-slate-300 font-semibold text-sm transition-colors"
+                                            >
+                                                Cancel
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    if (!mcpForm.name.trim() || !mcpForm.command.trim()) return;
+                                                    if (editingMcpIndex !== null) {
+                                                        setMcpServers(prev => prev.map((s, i) => i === editingMcpIndex ? { ...mcpForm } : s));
+                                                    } else {
+                                                        setMcpServers(prev => [...prev, { ...mcpForm }]);
+                                                    }
+                                                    setShowMcpForm(false);
+                                                    setMcpForm(emptyMcpServer());
+                                                    setEditingMcpIndex(null);
+                                                }}
+                                                disabled={!mcpForm.name.trim() || !mcpForm.command.trim()}
+                                                className="px-5 py-2 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl font-bold text-sm shadow-lg shadow-cyan-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                                            >
+                                                {editingMcpIndex !== null ? 'Update Server' : 'Add Server'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
+                                <div className="p-3 rounded-xl text-xs bg-slate-800/30 border border-slate-700/20 text-slate-500 leading-relaxed">
+                                    MCP servers launch as child processes when an investigation starts. Each server exposes tools that the agent can call. Examples: database query servers, monitoring APIs, custom CLI wrappers. See the <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300 underline">MCP specification</a> for details.
+                                </div>
+                            </div>
+
+                            {/* Save Provider Config */}
+                            <div className="flex items-center justify-between pt-2">
+                                <div className="flex items-center gap-2">
+                                    {providerSaveSuccess && (
+                                        <span className="text-green-400 font-bold flex items-center animate-fade-in text-sm">
+                                            <CheckCircle2 className="w-4 h-4 mr-1" /> Provider configuration saved!
+                                        </span>
+                                    )}
+                                    {providerError && (
+                                        <span className="text-red-400 font-bold flex items-center animate-fade-in text-sm">
+                                            <AlertCircle className="w-4 h-4 mr-1" /> {providerError}
+                                        </span>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={handleSaveProviders}
+                                    disabled={providerSaving}
+                                    className={`px-8 py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold shadow-lg shadow-brand-500/20 transition-all active:scale-95 flex items-center gap-2 ${providerSaving ? 'opacity-80 cursor-wait' : ''}`}
+                                >
+                                    {providerSaving ? (
+                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                    ) : (
+                                        <Save className="w-4 h-4" />
+                                    )}
+                                    {providerSaving ? 'Saving...' : 'Save Connections'}
+                                </button>
+                            </div>
+                        </div>
+                        );
+                    })()}
+
                     {activeTab === 'agent' && (
                         <div className="space-y-8 animate-fade-in">
                             <div>
@@ -611,6 +1100,7 @@ export const Settings = () => {
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-4">
+                                        <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
                                         <input
                                             type="range"
                                             min="0"
@@ -620,11 +1110,9 @@ export const Settings = () => {
                                             onChange={(e) => handleChange('maxSteps', parseInt(e.target.value))}
                                             className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500"
                                         />
-                                        <div className="text-xs text-slate-500 whitespace-nowrap">
-                                            {config.maxSteps === 0 ? 'Drag right to set limit' : 'Drag left to 0 for unlimited'}
-                                        </div>
+                                        <span className="text-[10px] text-slate-500 font-bold w-8">200</span>
                                     </div>
-                                    <p className="text-xs text-slate-500">Controls the maximum number of reasoning steps before the agent pauses for safety. Set to 0 for no limit.</p>
+                                    <p className="text-xs text-slate-500">Controls the maximum number of reasoning steps before the agent pauses for safety. Set to <strong className="text-slate-400">∞</strong> for unlimited.</p>
                                 </div>
 
                                 {/* Max Concurrent Investigations */}
@@ -689,7 +1177,7 @@ export const Settings = () => {
                                             <option value="gpt-4-turbo">Loading models...</option>
                                         )}
                                     </select>
-                                    <p className="text-xs text-slate-500">Select the LLM to drive the investigation agent. List fetched from Copilot.</p>
+                                    <p className="text-xs text-slate-500">Select the LLM model to drive the investigation agent. Available models are fetched from the configured provider.</p>
                                 </div>
                             </div>
                         </div>
@@ -842,7 +1330,7 @@ export const Settings = () => {
                             </div>
 
                             <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
-                                <label className="text-sm font-bold text-slate-300 block">Default Time Range KQL</label>
+                                <label className="text-sm font-bold text-slate-300 block">Default Time Range</label>
                                 <div className="relative">
                                     <select
                                         value={config.defaultTimeRange}
@@ -866,8 +1354,8 @@ export const Settings = () => {
 
                 </div>
 
-                {/* Footer Actions — hidden on Products and Analytics tabs (they have their own save UI) */}
-                {activeTab !== 'products' && activeTab !== 'analytics' && (
+                {/* Footer Actions — hidden on tabs that have their own save UI */}
+                {activeTab !== 'products' && activeTab !== 'analytics' && activeTab !== 'connections' && (
                 <div className="p-6 border-t border-white/[0.06] bg-slate-900/40 backdrop-blur-sm flex justify-between items-center gap-4">
                     <div className="flex items-center gap-2">
                         {saveSuccess && (
@@ -1046,7 +1534,7 @@ export const Settings = () => {
                                             value={productForm.name}
                                             onChange={(e) => setProductForm(prev => ({ ...prev, name: e.target.value }))}
                                             className="w-full px-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none"
-                                            placeholder="e.g., Teleduct, MyService"
+                                            placeholder="e.g., MyService, DataPipeline"
                                         />
                                     </div>
                                     {/* Modal-level validation warning */}

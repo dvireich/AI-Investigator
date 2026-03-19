@@ -43,8 +43,8 @@
     "Investigation completed — report generated",
     "Report contested by user",
     "Investigation resumed with feedback",
-    "Additional KQL queries executed",
+    "Additional queries executed",
     "Report updated with corrections"
   ],
-  "finalReport": "# Dead Letter Queue Overflow Investigation (Updated)\n\n## Summary\n\nThe DLQ on `app-prd-eus-01` experienced a critical overflow at **2025-06-12 18:30 UTC** — **84x** increase from baseline.\n\n## Root Cause\n\nGeneva schema update introduced `ExtendedProperties_v2` (dynamic type) → Parquet writer serialization failure.\n\n## Impact (Revised)\n\n- **Total Affected Messages**: ~42,000\n- **Affected Workspaces**: **9** (revised from initial estimate of 3)\n- **CMK Impact**: 2 CMK-encrypted workspaces experienced cascading `CMKDecryptionFailedException`\n\n## Recommendations\n\n1. Deploy Parquet writer fix with `dynamic` type support\n2. Add CMK-aware error handling to prevent cascade failures\n3. Implement schema evolution detection"
+  "finalReport": "# Dead Letter Queue Overflow Investigation (Updated)\n\n## Summary\n\nThe DLQ on `app-prd-eus-01` experienced a critical overflow at **2025-06-12 18:30 UTC** — **84x** increase from baseline.\n\n## Root Cause\n\nUpstream schema update introduced `ExtendedProperties_v2` (dynamic type) → data writer serialization failure.\n\n## Impact (Revised)\n\n- **Total Affected Messages**: ~42,000\n- **Affected Workspaces**: **9** (revised from initial estimate of 3)\n- **CMK Impact**: 2 CMK-encrypted workspaces experienced cascading `CMKDecryptionFailedException`\n\n## Recommendations\n\n1. Deploy data writer fix with `dynamic` type support\n2. Add CMK-aware error handling to prevent cascade failures\n3. Implement schema evolution detection"
 }

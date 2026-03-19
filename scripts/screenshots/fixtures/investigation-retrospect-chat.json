@@ -1,12 +1,12 @@
 {
   "id": "1749780000000",
   "status": "completed",
-  "title": "Kusto ingestion errors — svc-prd-neu-01",
+  "title": "Ingestion errors — svc-prd-neu-01",
   "createdBy": "scheduler",
-  "query": "Investigate Kusto ingestion failures on svc-prd-neu-01",
+  "query": "Investigate ingestion failures on svc-prd-neu-01",
   "stamp": "svc-prd-neu-01",
   "timeRange": "ago(3d)",
-  "issueType": "kusto-errors",
+  "issueType": "ingestion-errors",
   "model": "claude-sonnet-4-20250514",
   "productId": "sample-product",
   "productName": "sample-product",
@@ -14,7 +14,7 @@
   "thoughts": [],
   "actions": [],
   "logs": ["Investigation started", "Investigation completed"],
-  "finalReport": "# Kusto Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `svc-prd-neu-01` peaked at 2,800 failures/hour.\n\n## Root Cause\n\nADX cluster capacity throttling during bulk backfill.",
+  "finalReport": "# Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `svc-prd-neu-01` peaked at 2,800 failures/hour.\n\n## Root Cause\n\nCluster capacity throttling during bulk backfill.",
   "retrospect": {
     "messages": [
       {
@@ -28,16 +28,16 @@
       },
       {
         "role": "tool-result",
-        "content": "Successfully read investigation state (15 steps, 12 KQL queries)"
+        "content": "Successfully read investigation state (15 steps, 12 queries)"
       },
       {
         "role": "tool-call",
-        "content": "Reading file: docs/investigations/kusto-error-investigation.md",
+        "content": "Reading file: docs/investigations/ingestion-error-investigation.md",
         "toolName": "read_file"
       },
       {
         "role": "tool-result",
-        "content": "Successfully read Kusto error investigation guide (234 lines)"
+        "content": "Successfully read ingestion error investigation guide (234 lines)"
       },
       {
         "role": "assistant",
@@ -49,23 +49,23 @@
       },
       {
         "role": "assistant",
-        "content": "Great question! Let me check the existing documentation for ingestion lag monitoring guidance.\n\nAfter reviewing the knowledge base, I can confirm there's **no specific guidance** for monitoring ingestion lag during bulk operations. The closest documentation is the Parquet ingestion latency guide, but it focuses on steady-state operations rather than bulk scenarios.\n\nI'll add a new proposal for an ingestion lag monitoring section that covers:\n1. Setting up real-time lag alerts during bulk operations\n2. KQL queries for comparing ingestion timestamps vs event timestamps\n3. Threshold guidelines for when to pause or throttle bulk operations\n\nThis would complement the bulk operation coordination guide I already proposed."
+        "content": "Great question! Let me check the existing documentation for ingestion lag monitoring guidance.\n\nAfter reviewing the knowledge base, I can confirm there's **no specific guidance** for monitoring ingestion lag during bulk operations. The closest documentation is the ingestion latency guide, but it focuses on steady-state operations rather than bulk scenarios.\n\nI'll add a new proposal for an ingestion lag monitoring section that covers:\n1. Setting up real-time lag alerts during bulk operations\n2. Queries for comparing ingestion timestamps vs event timestamps\n3. Threshold guidelines for when to pause or throttle bulk operations\n\nThis would complement the bulk operation coordination guide I already proposed."
       }
     ],
     "proposals": [
       {
         "id": "prop-1",
         "type": "edit",
-        "filePath": "docs/investigations/kusto-error-investigation.md",
-        "description": "Add ADX cluster capacity check as first diagnostic step",
-        "content": "## Step 0: Check ADX Cluster Capacity\n\n```kql\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining\n```",
+        "filePath": "docs/investigations/ingestion-error-investigation.md",
+        "description": "Add cluster capacity check as first diagnostic step",
+        "content": "## Step 0: Check Cluster Capacity\n\n```\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining\n```",
         "originalContent": "## Step 1: Identify Error Pattern",
         "status": "approved"
       },
       {
         "id": "prop-2",
         "type": "edit",
-        "filePath": "docs/investigations/kusto-error-investigation.md",
+        "filePath": "docs/investigations/ingestion-error-investigation.md",
         "description": "Add IngestionCapacityExceeded to known error types",
         "content": "| IngestionCapacityExceeded | Cluster at capacity | Check .show capacity |",
         "status": "approved"
