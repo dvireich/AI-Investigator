@@ -25,6 +25,13 @@ jobs:
       - run: npm ci
       - run: npm run test:coverage
 
+      - name: Upload backend coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: backend
+          token: ${{ secrets.CODECOV_TOKEN }}
+
   frontend-tests:
     name: Frontend Tests & Coverage
     runs-on: ubuntu-latest
@@ -42,3 +49,10 @@ jobs:
 
       - run: npm ci
       - run: npm run test:coverage
+
+      - name: Upload frontend coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/lcov.info
+          flags: frontend
+          token: ${{ secrets.CODECOV_TOKEN }}

@@ -6,6 +6,9 @@
 
 An agentic system that runs, monitors, and learns from investigations — complete with MCP-powered tool execution, real-time streaming, and a self-improving knowledge base.
 
+[![CI](https://github.com/dvireich/AI-Investigator/actions/workflows/ci.yml/badge.svg)](https://github.com/dvireich/AI-Investigator/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/dvireich/AI-Investigator/branch/main/graph/badge.svg)](https://codecov.io/gh/dvireich/AI-Investigator)
+
 ![Dashboard Overview](docs/screenshots/dashboard-overview.png)
 
 </div>
