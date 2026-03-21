@@ -74,7 +74,7 @@ export const TargetActivity = ({ investigations }: Props) => {
                     }}
                     cursor={{ fill: 'rgba(255,255,255,0.03)' }}
                     labelFormatter={(label: string) => {
-                        const entry = sorted.find(s => s.target === label);
+                        const entry = sorted.find(s => s.stamp === label);
                         return entry?.fullStamp || label;
                     }}
                 />

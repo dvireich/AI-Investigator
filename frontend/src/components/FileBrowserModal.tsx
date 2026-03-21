@@ -93,40 +93,24 @@ export const FileBrowserModal = ({ isOpen, onClose, onSelect, initialPath, mode 
         // For now, if we selected an entry, passing that path.
         // If no entry selected, passing currentPath (for directory mode).
 
+        // In directory mode with a file entry selected — ignore (only directories are valid)
         if (mode === 'directory' && selectedEntry) {
-            // Check if selected entry is a directory
             const entry = entries.find(e => e.name === selectedEntry);
             if (entry && !entry.isDirectory) {
-                // If selected a file in directory mode, maybe we want to enter it? No, it's a file.
-                // Just ignore or show error?
-                // Let's assume user wants to select the folder they are IN if nothing selected,
-                // OR the folder they selected. 
-                // If they single-clicked a folder, `selectedEntry` is that folder.
-                if (entry.isDirectory) {
-                    onSelect(finalPath);
-                    onClose();
-                }
                 return;
             }
         }
 
-        // If mode is directory and nothing selected, return current path
+        // In directory mode with no selection — select the current directory
         if (mode === 'directory' && !selectedEntry) {
             onSelect(currentPath);
             onClose();
             return;
         }
 
-        if (mode === 'file') {
-            if (selectedEntry) {
-                onSelect(finalPath);
-                onClose();
-            } else {
-                // Nothing selected in file mode?
-                return;
-            }
-        }
-
+        // Reaching here: directory mode with a dir entry selected, or file mode with selection.
+        // (In file mode the Select button is disabled when nothing is selected, so selectedEntry
+        //  is always set when handleSelect is invoked in file mode.)
         onSelect(finalPath);
         onClose();
     };

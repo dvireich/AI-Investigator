@@ -50,7 +50,7 @@ export const SuccessRateDonut = ({ completed, failed, aborted }: Props) => {
                         stroke="none"
                     >
                         {data.map((entry) => (
-                            <Cell key={entry.name} fill={colorMap[entry.name] || COLORS.aborted} />
+                            <Cell key={entry.name} fill={colorMap[entry.name]} />
                         ))}
                     </Pie>
                 </PieChart>

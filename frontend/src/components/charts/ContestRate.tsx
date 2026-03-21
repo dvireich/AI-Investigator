@@ -52,7 +52,7 @@ export const ContestRate = ({ investigations }: Props) => {
                         stroke="none"
                     >
                         {data.map((entry) => (
-                            <Cell key={entry.name} fill={colorMap[entry.name] || COLORS.uncontested} />
+                            <Cell key={entry.name} fill={colorMap[entry.name]} />
                         ))}
                     </Pie>
                 </PieChart>

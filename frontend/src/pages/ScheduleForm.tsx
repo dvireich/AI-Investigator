@@ -15,20 +15,12 @@ import {
 // ── Flexible timestamp parser (shared with NewInvestigation) ─────────
 
 function parseFlexibleTimestamp(input: string): Date | null {
-    if (!input || !input.trim()) return null;
     const trimmed = input.trim();
 
-    let parsed = new Date(trimmed);
+    const parsed = new Date(trimmed);
     if (!isNaN(parsed.getTime())) return parsed;
 
-    const dashSlashFormat = trimmed.replace(
-        /(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/,
-        (_, y, m, d, h, min, s) =>
-            `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${h.padStart(2, '0')}:${min}:${s || '00'}`,
-    );
-    parsed = new Date(dashSlashFormat);
-    if (!isNaN(parsed.getTime())) return parsed;
-
+    // Format: "03/15/2024 2:30 PM" or "3/15/2024 14:30"
     const usFormatMatch = trimmed.match(
         /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i,
     );
@@ -39,14 +31,14 @@ function parseFlexibleTimestamp(input: string): Date | null {
             if (ampm.toUpperCase() === 'PM' && h !== 12) h += 12;
             if (ampm.toUpperCase() === 'AM' && h === 12) h = 0;
         }
-        parsed = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec || '0'));
-        if (!isNaN(parsed.getTime())) return parsed;
+        const usParsed = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec || '0'));
+        if (!isNaN(usParsed.getTime())) return usParsed;
     }
 
     if (/^\d{10,13}$/.test(trimmed)) {
         const ts = parseInt(trimmed);
-        parsed = new Date(ts < 1e12 ? ts * 1000 : ts);
-        if (!isNaN(parsed.getTime())) return parsed;
+        const tsParsed = new Date(ts < 1e12 ? ts * 1000 : ts);
+        if (!isNaN(tsParsed.getTime())) return tsParsed;
     }
 
     return null;
@@ -157,7 +149,7 @@ export const ScheduleForm = () => {
                         const isPreset = TIME_PRESETS.some(p => p.value === sched.timeRange);
                         if (isPreset) {
                             setTimeMode('preset');
-                            setTimePreset(sched.timeRange || 'ago(1h)');
+                            setTimePreset(sched.timeRange);
                         } else if (sched.timeRange) {
                             setTimeMode('preset');
                             setTimePreset(sched.timeRange);
@@ -312,7 +304,6 @@ export const ScheduleForm = () => {
 
     const handleSaveToBank = async () => {
         const qName = saveQueryName.trim();
-        if (!qName) return;
         setSavingQuery(true);
         try {
             let effectiveTimeRange = timePreset;

@@ -176,8 +176,7 @@ export const Schedules = () => {
         return `${Math.floor(hr / 24)}d ago`;
     };
 
-    const getNextRunIn = (iso?: string) => {
-        if (!iso) return '';
+    const getNextRunIn = (iso: string) => {
         const ms = new Date(iso).getTime() - Date.now();
         if (ms <= 0) return 'due now';
         const min = Math.ceil(ms / 60_000);
@@ -185,8 +184,7 @@ export const Schedules = () => {
         return `in ${Math.floor(min / 60)}h ${min % 60}m`;
     };
 
-    const productName = (id?: string) => {
-        if (!id) return '';
+    const productName = (id: string) => {
         return products.find(p => p.id === id)?.name || id;
     };
 
@@ -400,7 +398,7 @@ export const Schedules = () => {
                                                                 onClick={() => setTimeRangePopupId(prev => prev === sched.id ? null : sched.id)}
                                                                 className="w-full bg-slate-900/60 border border-slate-700/50 rounded px-2 py-0.5 text-xs text-slate-200 text-left hover:border-brand-500/50 transition-colors flex items-center justify-between"
                                                             >
-                                                                <span>{TIME_PRESETS.find(p => p.value === editFields.timeRange)?.label || editFields.timeRange || 'ago(1h)'}</span>
+                                                                <span>{TIME_PRESETS.find(p => p.value === editFields.timeRange)?.label || editFields.timeRange}</span>
                                                                 <ChevronDown className="w-3 h-3 text-slate-500" />
                                                             </button>
                                                             {timeRangePopupId === sched.id && (
@@ -470,7 +468,7 @@ export const Schedules = () => {
                                                                 <option value="availability">Availability / Downtime</option>
                                                             </select>
                                                         ) : (
-                                                            <div className="text-xs text-slate-300">{sched.category || '—'}</div>
+                                                            <div className="text-xs text-slate-300">{sched.category}</div>
                                                         )}
                                                     </div>
                                                 )}
