@@ -35,8 +35,7 @@ export const VerdictBreakdown = ({ investigations }: Props) => {
 
     const counts = new Map<string, number>();
     for (const inv of scheduled) {
-        const v = inv.verdict || 'unknown';
-        counts.set(v, (counts.get(v) || 0) + 1);
+        counts.set(inv.verdict!, (counts.get(inv.verdict!) || 0) + 1);
     }
 
     const data = Array.from(counts.entries())

@@ -72,7 +72,7 @@ export const CategoryDonut = ({ investigations }: Props) => {
                         stroke="none"
                     >
                         {data.map((entry) => (
-                            <Cell key={entry.name} fill={colorMap.get(entry.name) || UNKNOWN_COLOR} />
+                            <Cell key={entry.name} fill={colorMap.get(entry.name)} />
                         ))}
                     </Pie>
                     <Tooltip

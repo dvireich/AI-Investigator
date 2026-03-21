@@ -11,19 +11,10 @@ import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../co
  * Returns null if parsing fails.
  */
 function parseFlexibleTimestamp(input: string): Date | null {
-    if (!input || !input.trim()) return null;
-    
     const trimmed = input.trim();
     
-    // Try direct Date parse first (handles ISO 8601, etc.)
-    let parsed = new Date(trimmed);
-    if (!isNaN(parsed.getTime())) return parsed;
-    
-    // Try common formats with regex replacements
-    // Format: "2024-03-15 14:30:00" or "2024/03/15 14:30:00"
-    const dashSlashFormat = trimmed.replace(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?/, 
-        (_, y, m, d, h, min, s) => `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}T${h.padStart(2, '0')}:${min}:${s || '00'}`);
-    parsed = new Date(dashSlashFormat);
+    // Try direct Date parse first (handles ISO 8601, various formats)
+    const parsed = new Date(trimmed);
     if (!isNaN(parsed.getTime())) return parsed;
     
     // Format: "03/15/2024 2:30 PM" or "3/15/2024 14:30"
@@ -35,21 +26,18 @@ function parseFlexibleTimestamp(input: string): Date | null {
             if (ampm.toUpperCase() === 'PM' && h !== 12) h += 12;
             if (ampm.toUpperCase() === 'AM' && h === 12) h = 0;
         }
-        parsed = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec || '0'));
-        if (!isNaN(parsed.getTime())) return parsed;
+        const usParsed = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec || '0'));
+        if (!isNaN(usParsed.getTime())) return usParsed;
     }
     
     // Unix timestamp (seconds or milliseconds)
     if (/^\d{10,13}$/.test(trimmed)) {
         const ts = parseInt(trimmed);
-        parsed = new Date(ts < 1e12 ? ts * 1000 : ts);
-        if (!isNaN(parsed.getTime())) return parsed;
+        const tsParsed = new Date(ts < 1e12 ? ts * 1000 : ts);
+        if (!isNaN(tsParsed.getTime())) return tsParsed;
     }
     
     // Format: "Mar 15, 2024 14:30" or "March 15 2024 2:30 PM"
-    parsed = new Date(trimmed);
-    if (!isNaN(parsed.getTime())) return parsed;
-    
     return null;
 }
 
@@ -407,7 +395,6 @@ export const NewInvestigation = () => {
 
     const handleSaveQuery = async () => {
         const name = saveQueryName.trim();
-        if (!name) return;
         setSavingQuery(true);
         try {
             let effectiveTimeRange = timePreset;
@@ -760,30 +747,22 @@ export const NewInvestigation = () => {
                             {/* Live Progress Steps */}
                             {incidentSteps.length > 0 && (
                                 <div className="space-y-1.5 animate-fade-in">
-                                    {incidentSteps.map((step, i) => (
-                                        <div key={step.step || i} className="flex items-center gap-2.5 text-xs">
-                                            {step.status === 'running' && (
-                                                <Loader2 className="w-3.5 h-3.5 text-orange-500 animate-spin shrink-0" />
-                                            )}
-                                            {step.status === 'done' && (
-                                                <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                                            )}
-                                            {step.status === 'error' && (
-                                                <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" />
-                                            )}
-                                            {!step.status && (
-                                                <Circle className="w-3.5 h-3.5 text-slate-300 shrink-0" />
-                                            )}
-                                            <span className={`${
-                                                step.status === 'running' ? 'text-orange-400 font-medium' :
-                                                step.status === 'done' ? 'text-slate-400' :
-                                                step.status === 'error' ? 'text-red-400' :
-                                                'text-slate-400'
-                                            }`}>
-                                                {step.detail}
+                                    {incidentSteps.map((step, i) => {
+                                        const stepCls = step.status === 'running' ? 'text-orange-400 font-medium' :
+                                            step.status === 'error' ? 'text-red-400' : 'text-slate-400';
+                                        const stepIcon = step.status === 'running' ? <Loader2 className="w-3.5 h-3.5 text-orange-500 animate-spin shrink-0" /> :
+                                            step.status === 'done' ? <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" /> :
+                                            step.status === 'error' ? <AlertCircle className="w-3.5 h-3.5 text-red-500 shrink-0" /> :
+                                            <Circle className="w-3.5 h-3.5 text-slate-300 shrink-0" />;
+                                        return (
+                                        <div key={i} className="flex items-center gap-2.5 text-xs">
+                                            {stepIcon}
+                                            <span className={stepCls}>
+                                                {step.detail ?? ''}
                                             </span>
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
 
@@ -865,7 +844,7 @@ export const NewInvestigation = () => {
                                     <input
                                         type="text"
                                         required={mode === 'standard'}
-                                        placeholder={mode === 'incident' ? 'Auto-filled from Incident or enter manually' : 'e.g. my-app-prd-eus2-01'}
+                                        placeholder="e.g. my-app-prd-eus2-01"
                                         className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all outline-none font-mono text-sm shadow-sm"
                                         value={formData.target}
                                         onChange={(e) => setFormData({ ...formData, target: e.target.value })}

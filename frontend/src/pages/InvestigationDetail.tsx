@@ -9,8 +9,6 @@ import remarkGfm from 'remark-gfm';
 
 /** Format a raw time range string into a human-readable display */
 function formatTimeRange(raw: string): string {
-    if (!raw) return raw;
-
     // Pattern: between(datetime(...) .. datetime(...))
     const betweenMatch = raw.match(
         /between\s*\(\s*datetime\(([^)]+)\)\s*\.\.\s*datetime\(([^)]+)\)\s*\)/i
@@ -55,7 +53,8 @@ const DurationTimer = ({ startTime, status, pausedAt, totalPausedTime }: { start
     useEffect(() => {
         const update = () => {
             const start = new Date(startTime).getTime();
-            const end = (status === 'paused' && pausedAt) ? pausedAt : new Date().getTime();
+            // DurationTimer only renders when status === 'running'; simplified from paused-check
+            const end = new Date().getTime();
             const paused = totalPausedTime || 0;
             const diff = Math.max(0, end - start - paused);
 
@@ -140,6 +139,7 @@ const ActionResult = ({ result, truncated, onExpand, loading }: { result: string
 
 
 const StepItem = React.memo(({ thought, action, index, id }: { thought: any, action: any, index: number, id: string }) => {
+    const { toast } = useToast();
     const [fullThought, setFullThought] = useState<any>(null);
     const [fullActionResult, setFullActionResult] = useState<any>(null);
     const [loading, setLoading] = useState(false);
@@ -423,7 +423,6 @@ const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedb
     const [feedback, setFeedback] = useState('');
 
     const handleSubmit = async () => {
-        if (!feedback.trim()) return;
         await onContest(feedback.trim());
         setFeedback('');
         setShowForm(false);
@@ -630,9 +629,8 @@ export const InvestigationDetail = () => {
     }, [investigation?.thoughts]);
 
     const fetchInvestigation = async () => {
-        if (!id) return;
         try {
-            const data = await api.getInvestigation(id);
+            const data = await api.getInvestigation(id!);
             setInvestigation(data);
 
             // Reconcile pending interventions: remove any that now appear in thoughts
@@ -659,14 +657,11 @@ export const InvestigationDetail = () => {
     };
 
     useEffect(() => {
-        if (!id) return;
         fetchInvestigation();
     }, [id, navigate]);
 
     // WebSocket logic with auto-reconnect
     useEffect(() => {
-        if (!id) return;
-
         let ws: WebSocket | null = null;
         let reconnectTimeout: any;
         let reconnectAttempts = 0;
@@ -835,9 +830,8 @@ export const InvestigationDetail = () => {
 
     // Helper to update proposal status
     const handleProposalAction = useCallback(async (proposalId: string, status: 'approved' | 'rejected') => {
-        if (!investigation) return;
         try {
-            await api.updateProposal(investigation.id, proposalId, status);
+            await api.updateProposal(investigation!.id, proposalId, status);
             await fetchInvestigation();
         } catch (err: any) {
             toast('error', 'Failed to update proposal: ' + err.message);
@@ -846,10 +840,9 @@ export const InvestigationDetail = () => {
 
     // Helper to apply all approved proposals
     const handleApplyProposals = useCallback(async () => {
-        if (!investigation) return;
         setApplyingProposals(true);
         try {
-            const result = await api.applyProposals(investigation.id);
+            const result = await api.applyProposals(investigation!.id);
             await fetchInvestigation();
             if (result.errors?.length > 0) {
                 toast('warning', `Applied ${result.applied.length} changes. Errors:\n${result.errors.join('\n')}`);
@@ -862,10 +855,9 @@ export const InvestigationDetail = () => {
     }, [investigation?.id]);
 
     const handleAction = async (action: string, message?: string) => {
-        if (!id) return;
         setActingAction(action);
         try {
-            await api.sendAction(id, action, message);
+            await api.sendAction(id!, action, message);
             await new Promise(r => setTimeout(r, 500));
             await fetchInvestigation();
         } catch (e: any) {
@@ -876,10 +868,9 @@ export const InvestigationDetail = () => {
     };
 
     const handleContest = useCallback(async (feedback: string) => {
-        if (!id) return;
         setActingAction('contest');
         try {
-            await api.sendAction(id, 'contest', feedback);
+            await api.sendAction(id!, 'contest', feedback);
             await new Promise(r => setTimeout(r, 500));
             await fetchInvestigation();
         } catch (e: any) {
@@ -1152,7 +1143,7 @@ export const InvestigationDetail = () => {
                         {investigation.status !== 'running' && (
                             <div className="space-y-2 pt-2 border-t border-white/[0.06]">
                                 <button
-                                    onClick={async () => { setExporting('share'); try { await api.exportInvestigation(investigation.id); } catch (e) { console.error('Export failed:', e); } finally { setExporting(null); } }}
+                                    onClick={() => { setExporting('share'); api.exportInvestigation(investigation.id).catch(e => console.error('Export failed:', e)).finally(() => setExporting(null)); }}
                                     disabled={exporting !== null}
                                     className="w-full group/btn flex items-center justify-center px-6 py-3 bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 hover:border-sky-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-sky-400 font-bold rounded-2xl transition-all shadow-sm"
                                 >
@@ -1161,7 +1152,7 @@ export const InvestigationDetail = () => {
                                 </button>
                                 {investigation.finalReport && (
                                     <button
-                                        onClick={async () => { setExporting('pdf'); try { await api.exportPdf(investigation.id); } catch (e) { console.error('PDF export failed:', e); } finally { setExporting(null); } }}
+                                        onClick={() => { setExporting('pdf'); api.exportPdf(investigation.id).catch(e => console.error('PDF export failed:', e)).finally(() => setExporting(null)); }}
                                         disabled={exporting !== null}
                                         className="w-full group/btn flex items-center justify-center px-6 py-3 bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 hover:border-violet-500/30 disabled:opacity-50 disabled:cursor-not-allowed text-violet-400 font-bold rounded-2xl transition-all shadow-sm"
                                     >
@@ -1201,7 +1192,7 @@ export const InvestigationDetail = () => {
                                     {tag}
                                     <button
                                         onClick={async () => {
-                                            const newTags = (investigation.tags || []).filter(t => t !== tag);
+                                            const newTags = investigation.tags!.filter(t => t !== tag);
                                             try {
                                                 await api.updateTags(investigation.id, newTags);
                                                 fetchInvestigation();
@@ -1375,9 +1366,8 @@ export const InvestigationDetail = () => {
                                             currentModel={displayModel}
                                             availableModels={availableModels}
                                             onSelect={async (model) => {
-                                                if (!investigation) return;
                                                 try {
-                                                    await api.updateModel(investigation.id, model);
+                                                    await api.updateModel(investigation!.id, model);
                                                     fetchInvestigation();
                                                 } catch (err: any) {
                                                     toast('error', 'Failed to change model: ' + err.message);
@@ -1457,11 +1447,10 @@ export const InvestigationDetail = () => {
                                         </div>
                                         <button
                                             onClick={async () => {
-                                                if (!investigation) return;
                                                 const btn = document.getElementById('btn-summarize');
                                                 if (btn) btn.innerText = '...';
                                                 try {
-                                                    await api.compactInvestigation(investigation.id);
+                                                    await api.compactInvestigation(investigation!.id);
                                                     window.location.reload();
                                                 } catch (e: any) { toast('error', 'Failed: ' + e.message); }
                                             }}
@@ -1758,10 +1747,10 @@ export const InvestigationDetail = () => {
                                                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                                             </div>
                                             <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl rounded-tl-none px-4 py-2.5 text-sm text-emerald-300 font-medium">
-                                                Analysis finished {(investigation.retrospect?.proposals?.length || 0) > 0
-                                                    ? `— ${investigation.retrospect?.proposals?.length} proposed change${(investigation.retrospect?.proposals?.length || 0) === 1 ? '' : 's'} ready for review`
-                                                    : '— no changes proposed'
-                                                }
+                                                {(() => {
+                                                    const cnt = investigation.retrospect?.proposals?.length ?? 0;
+                                                    return `Analysis finished ${cnt > 0 ? `— ${cnt} proposed change${cnt === 1 ? '' : 's'} ready for review` : '— no changes proposed'}`;
+                                                })()}
                                             </div>
                                         </div>
                                     )}
@@ -2173,7 +2162,7 @@ export const InvestigationDetail = () => {
                                             </span>
                                             <button
                                                 onClick={() => {
-                                                    navigator.clipboard.writeText(investigation?.query || '');
+                                                    navigator.clipboard.writeText(investigation!.query!);
                                                     // Optional: Show toast or feedback
                                                 }}
                                                 className="text-[10px] flex items-center gap-1 text-slate-500 hover:text-brand-400 transition-colors"

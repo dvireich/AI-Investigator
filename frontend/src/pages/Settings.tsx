@@ -184,7 +184,6 @@ export const Settings = () => {
     // File Browser State
     const [showFileBrowser, setShowFileBrowser] = useState(false);
     const [browserMode, setBrowserMode] = useState<'file' | 'directory'>('file');
-    const [browserTarget, setBrowserTarget] = useState<keyof typeof config | null>(null);
 
     const [config, setConfig] = useState({
         maxConcurrentInvestigations: 3,
@@ -302,19 +301,6 @@ export const Settings = () => {
         } finally {
             setLoading(false);
         }
-    };
-
-    const openFileBrowser = (target: keyof typeof config, mode: 'file' | 'directory') => {
-        setBrowserTarget(target);
-        setBrowserMode(mode);
-        setShowFileBrowser(true);
-    };
-
-    const handleFileSelect = (path: string) => {
-        if (browserTarget) {
-            handleChange(browserTarget, path);
-        }
-        setShowFileBrowser(false);
     };
 
     const handleChange = (key: string, value: any) => {
@@ -1026,7 +1012,6 @@ export const Settings = () => {
                                             </button>
                                             <button
                                                 onClick={() => {
-                                                    if (!mcpForm.name.trim() || !mcpForm.command.trim()) return;
                                                     if (editingMcpIndex !== null) {
                                                         setMcpServers(prev => prev.map((s, i) => i === editingMcpIndex ? { ...mcpForm } : s));
                                                     } else {
@@ -1396,15 +1381,6 @@ export const Settings = () => {
                 )}
             </div>
 
-            <FileBrowserModal
-                isOpen={showFileBrowser}
-                onClose={() => setShowFileBrowser(false)}
-                onSelect={handleFileSelect}
-                mode={browserMode}
-                title={browserMode === 'file' ? 'Select File' : 'Select Directory'}
-                initialPath={browserTarget && config[browserTarget] ? config[browserTarget] as string : undefined}
-            />
-
             {/* Product Add/Edit Modal */}
             {showProductModal && (
                 <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fade-in">
@@ -1425,6 +1401,13 @@ export const Settings = () => {
                             </button>
                         </div>
                         <div className="p-6 space-y-4 overflow-y-auto max-h-[60dvh]">
+
+                            {/* Modal-level error display */}
+                            {error && (
+                                <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-xl flex items-center gap-2 text-red-400 text-sm font-semibold animate-fade-in">
+                                    <AlertCircle size={16} /> {error}
+                                </div>
+                            )}
 
                             {/* Discover Step — only for new products */}
                             {!editingProduct && showDiscoverStep && (
@@ -1477,26 +1460,6 @@ export const Settings = () => {
                                             </p>
                                         )}
                                     </div>
-
-                                    {/* Discover results */}
-                                    {discoverResult && (
-                                        <div className="space-y-3 animate-fade-in">
-                                            <div className={`flex items-center gap-2 text-sm font-semibold ${
-                                                discoverResult.source === 'manifest' ? 'text-green-400' :
-                                                discoverResult.source === 'auto-discovered' ? 'text-amber-400' :
-                                                'text-slate-400'
-                                            }`}>
-                                                {discoverResult.source === 'manifest' && <><Sparkles size={14} /> Found .investigator.json manifest</>}
-                                                {discoverResult.source === 'auto-discovered' && <><BookOpen size={14} /> Auto-discovered from repo structure</>}
-                                                {discoverResult.source === 'none' && <><AlertCircle size={14} /> No configuration found</>}
-                                            </div>
-                                            {discoverResult.suggestions.length > 0 && (
-                                                <ul className="text-xs text-slate-400 space-y-1 pl-5 list-disc">
-                                                    {discoverResult.suggestions.map((s, i) => <li key={i}>{s}</li>)}
-                                                </ul>
-                                            )}
-                                        </div>
-                                    )}
 
                                     <div className="flex items-center gap-3 pt-1">
                                         <div className="flex-1 h-px bg-slate-700/40" />

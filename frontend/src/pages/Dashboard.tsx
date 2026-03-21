@@ -76,9 +76,8 @@ const useCountUp = (target: number, duration = 700) => {
 
 /** Shorten a timeRange string for compact display */
 const formatTimeRange = (tr: string): string => {
-    if (!tr) return '';
     const ago = tr.match(/ago\((\d+)([smhd])\)/);
-    if (ago) { const units: Record<string, string> = { s: 's', m: 'm', h: 'h', d: 'd' }; return `last ${ago[1]}${units[ago[2]] ?? ago[2]}`; }
+    if (ago) { const units: Record<string, string> = { s: 's', m: 'm', h: 'h', d: 'd' }; return `last ${ago[1]}${units[ago[2]]}`; }
     const between = tr.match(/between\(datetime\((.+?)\)\s*\.\.\s*datetime\((.+?)\)\)/);
     if (between) {
         const fmt = (s: string) => { const d = new Date(s); return isNaN(d.getTime()) ? s : d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); };
@@ -89,7 +88,6 @@ const formatTimeRange = (tr: string): string => {
 
 /** Highlights the first occurrence of `term` inside `text` */
 const Highlight = ({ text, term }: { text: string; term: string }) => {
-    if (!term || !text) return <>{text}</>;
     const idx = text.toLowerCase().indexOf(term.toLowerCase());
     if (idx === -1) return <>{text}</>;
     return (
@@ -302,8 +300,8 @@ export const Dashboard = () => {
             // Optimistically update status for immediate UI feedback
             setInvestigations(prev => prev.map(inv => {
                 if (inv.id !== invId) return inv;
-                const next = action === 'pause' ? 'paused' : action === 'resume' ? 'running' : action === 'abort' ? 'aborted' : inv.status;
-                return { ...inv, status: next as Investigation['status'], ...(action === 'pause' ? { pausedAt: Date.now() } : {}) };
+                const next: Investigation['status'] = action === 'pause' ? 'paused' : 'running';
+                return { ...inv, status: next, ...(action === 'pause' ? { pausedAt: Date.now() } : {}) };
             }));
         } catch (err) { console.error('Action failed:', err); }
     };
@@ -343,9 +341,8 @@ export const Dashboard = () => {
     };
 
     const executeDelete = async () => {
-        if (!deletingId) return;
         try {
-            await api.deleteInvestigation(deletingId);
+            await api.deleteInvestigation(deletingId!);
             setInvestigations(prev => prev.filter(inv => inv.id !== deletingId));
         } catch (e: any) {
             console.error('Failed to delete investigation:', e);
@@ -501,7 +498,7 @@ export const Dashboard = () => {
         if (!aActive && bActive) return 1;
         if (sortOrder === 'oldest') return a.id.localeCompare(b.id);
         if (sortOrder === 'steps') return (b.thoughts?.length ?? 0) - (a.thoughts?.length ?? 0);
-        if (sortOrder === 'modified') return (b.lastModified ?? Number(b.id) ?? 0) - (a.lastModified ?? Number(a.id) ?? 0);
+        if (sortOrder === 'modified') return (b.lastModified ?? Number(b.id)) - (a.lastModified ?? Number(a.id));
         return b.id.localeCompare(a.id); // newest
     }), [filtered, pinnedIds, sortOrder]);
 
@@ -717,7 +714,7 @@ export const Dashboard = () => {
                     <div className={`text-2xl sm:text-3xl font-black tabular-nums ${failedCount > 0 ? 'text-red-400' : 'text-slate-100'}`}>{failedDisplay}</div>
                     <div className="text-slate-500 text-xs mt-1">{failedCount > 0 ? 'Need review' : 'All clear'}</div>
                 </button>
-                <button onClick={() => { setFilter(null); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5">
+                <button onClick={() => { setFilter('all'); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5">
                     <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <BarChart3 className="w-4 h-4 text-slate-400" />
                         <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Total</span>
