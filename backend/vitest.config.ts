@@ -17,10 +17,10 @@ export default defineConfig({
                 'src/agent/incidents/IncidentProvider.ts', // Interface/type definitions
             ],
             thresholds: {
-                lines: 99,
-                branches: 93,
+                lines: 100,
+                branches: 100,
                 functions: 100,
-                statements: 99,
+                statements: 100,
             },
         },
     },
