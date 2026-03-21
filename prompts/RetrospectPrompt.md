@@ -34,4 +34,18 @@ The agent's knowledge base files (all paths relative to repo root):
 ## Change Categories
 Tag each proposal: **[Fix Wrong Info]**, **[Add Missing Info]**, **[Improve Routing]**, **[New Guide]**, **[Prompt Refinement]**, **[New Query]**
 
-Be thorough but focused. Only propose changes that would directly improve the outcome of this specific investigation type.
+## CRITICAL: Rules for Modifying Existing Files
+
+Existing knowledge base files are **shared resources** used across ALL investigation types — not just the one you are reviewing. A change that improves this investigation but removes or overwrites content makes every other investigation type less accurate.
+
+**For existing files, you MUST follow these rules:**
+
+1. **Default to ADD, not REPLACE.** If information is missing, append a new section or bullet. Do not rewrite or restructure content that already exists.
+2. **Only remove or change content that is factually wrong or actively harmful.** Ask yourself: "Does this existing content cause harm in the current investigation AND in other scenarios?" If the content is simply incomplete for this scenario but harmless, leave it alone and add to it.
+3. **Surgical edits only.** Propose the minimal diff necessary — a few lines added or corrected, not a full file rewrite. Never propose a change that deletes more than a small, clearly-wrong fragment.
+4. **Preserve all other investigation context.** Even if a section seems unrelated to this investigation, do not delete it. Other investigations depend on it.
+5. **When in doubt, create a new file** (a focused addition or sub-guide) rather than modifying a broad shared file.
+
+**For new files**, there are no restrictions — be thorough and comprehensive.
+
+Be thorough but focused. Only propose changes that would directly improve the outcome of this specific investigation type without degrading others.
