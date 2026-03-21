@@ -4,3 +4,7 @@ config.json
 # Build output
 dist/
 node_modules/
+
+# Coverage reports
+coverage/
+*.lcov

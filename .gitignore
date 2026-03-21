@@ -32,3 +32,22 @@ pnpm-debug.log*
 # Local data
 *.local
 backend/investigations/
+
+# Coverage reports
+coverage/
+*.lcov
+
+# Test output artifacts
+*.txt
+*.json.tmp
+testresults.json
+vitest-*.txt
+cov-*.txt
+chart-cov*.txt
+NI-results*.txt
+frontend/fb-test-output.txt
+frontend/inv-test*
+frontend/settings_coverage.txt
+frontend/test-out*.txt
+frontend/test-output.txt
+frontend/test-results.txt
