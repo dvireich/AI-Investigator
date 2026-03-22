@@ -72,17 +72,25 @@ After each investigation, a **retrospective system** analyzes what went well and
 
 ## Visual Walkthrough
 
-<!-- ### 1. Dashboard
+---
+
+### 1. Onboarding Wizard
+
+First-launch experience that walks you through LLM provider selection and optional product discovery. Four steps: Welcome → LLM Provider → Product → Ready.
+
+![Onboarding Wizard](docs/screenshots/onboarding-wizard.png)
+
+---
+
+### 2. Dashboard
 
 The main dashboard shows all investigations as color-coded cards with live status, duration timers, and retrospective badges.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
-Screenshot: The investigation cards grid showing a mix of running (blue pulse), completed (green), and failed (red) investigations. The stats bar at the top shows Active / Completed / Failed counts. -->
-
 ---
 
-### 1. New Investigation
+### 3. New Investigation
 
 Launch investigations with structured context: target name, category, time window (8 quick presets or custom range), and model selection. Toggle between **Standard** and **Incident** modes to start from an incident ID with auto-extracted context.
 
@@ -92,7 +100,7 @@ Launch investigations with structured context: target name, category, time windo
 
 ---
 
-### 2. Investigation Start
+### 4. Investigation Start
 
 Once launched, the investigation begins with the agent initializing and preparing to execute the task.
 
@@ -102,19 +110,15 @@ Once launched, the investigation begins with the agent initializing and preparin
 
 ---
 
-<!-- ### 3. Live Session
+### 5. Live Session
 
 Watch the agent think and act in real-time. Each step shows the agent's reasoning (rendered Markdown) and tool executions with full arguments and results.
 
 ![Live Session](docs/screenshots/live-session.png)
 
-Screenshot: An active investigation showing several thought bubbles and tool call results (queries with table output). The sidebar shows investigation metadata.
-
---- -->
-
 ---
 
-### 3. Paused Investigation
+### 6. Paused Investigation
 
 Pause a running investigation at any time to review progress or prepare for intervention.
 
@@ -124,7 +128,7 @@ Pause a running investigation at any time to review progress or prepare for inte
 
 ---
 
-### 4. User Intervention
+### 7. User Intervention
 
 Inject custom instructions to a running investigation to guide the agent in a specific direction or provide additional context without pausing.
 
@@ -134,7 +138,7 @@ Inject custom instructions to a running investigation to guide the agent in a sp
 
 ---
 
-### 5. Contest Report
+### 8. Contest Report
 
 Disagree with the final report? Click **Contest Report** at the bottom of the Report tab, provide your feedback, and the investigation resumes — the agent re-examines its findings with your corrections.
 
@@ -142,7 +146,7 @@ Disagree with the final report? Click **Contest Report** at the bottom of the Re
 
 ---
 
-### 6. Investigation Resumed After Contest
+### 9. Investigation Resumed After Contest
 
 After contesting, the Live Session shows your feedback as an amber user bubble and a system notification. The agent acknowledges the feedback and continues investigating.
 
@@ -150,19 +154,15 @@ After contesting, the Live Session shows your feedback as an amber user bubble a
 
 ---
 
-<!-- ### 7. Token Management
+### 10. Token Management
 
 When the context window fills up, a banner appears with a one-click Summarize button that compacts history while preserving recent context.
 
 ![Token Alert](docs/screenshots/token-alert.png)
 
-Screenshot: The yellow/amber token alert banner at the top of the live session with the "Summarize" button.
-
---- -->
-
 ---
 
-### 7. Final Report
+### 11. Final Report
 
 Auto-generated Markdown report with findings, queries used, and conclusions — styled with prose typography.
 
@@ -172,7 +172,7 @@ Auto-generated Markdown report with findings, queries used, and conclusions — 
 
 ---
 
-### 8. Implement Recommendations
+### 12. Implement Recommendations
 
 Select actionable recommendations from the final report and let an AI coding agent propose exact code changes. Code items get checkboxes; operational items are grayed out with an "OPS" badge. P0 code items are auto-selected.
 
@@ -180,7 +180,7 @@ Select actionable recommendations from the final report and let an AI coding age
 
 ---
 
-### 9. Failed Investigation
+### 13. Failed Investigation
 
 When an investigation encounters unrecoverable errors (consecutive LLM failures, tool disconnection), it transitions to a failed state with preserved context for debugging.
 
@@ -188,7 +188,7 @@ When an investigation encounters unrecoverable errors (consecutive LLM failures,
 
 ---
 
-### 10. Retrospective — Auto-Analysis
+### 14. Retrospective — Auto-Analysis
 
 When you open the Retrospect tab, an AI agent automatically reads the investigation transcript and knowledge base files, then proposes improvements.
 
@@ -198,7 +198,7 @@ When you open the Retrospect tab, an AI agent automatically reads the investigat
 
 ---
 
-### 11. Retrospective — Knowledge Base Analysis
+### 15. Retrospective — Knowledge Base Analysis
 
 The retrospective agent reads the investigation transcript and existing knowledge base files, then identifies gaps and proposes new documentation.
 
@@ -208,7 +208,7 @@ The retrospective agent reads the investigation transcript and existing knowledg
 
 ---
 
-### 12. Retrospective — Proposed Changes
+### 16. Retrospective — Proposed Changes
 
 The agent proposes concrete file changes (edit existing or create new). Review each proposal, approve or reject, then apply all approved changes to disk.
 
@@ -218,19 +218,15 @@ The agent proposes concrete file changes (edit existing or create new). Review e
 
 ---
 
-<!-- ### 13. Retrospective — Conversational Follow-up
+### 17. Retrospective — Conversational Follow-up
 
 After auto-analysis, continue chatting with the retrospective agent to explore additional improvements.
 
 ![Retrospective Chat](docs/screenshots/retrospective-chat.png)
 
-Screenshot: The chat panel with the auto-analysis message, followed by a user question and an agent response.
-
---- -->
-
 ---
 
-### 13. Settings
+### 18. Settings
 
 Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across five tabs: Products, Agent Behavior, Analytics, Appearance, and System.
 
@@ -240,7 +236,7 @@ Configure agent behavior, model selection, investigation storage path (with serv
 
 ---
 
-### 14. Settings — Analytics Widgets
+### 19. Settings — Analytics Widgets
 
 Choose which 3 analytics charts appear on the dashboard from a registry of 8 widget types. Each widget shows a preview of its chart style.
 
@@ -250,7 +246,7 @@ Choose which 3 analytics charts appear on the dashboard from a registry of 8 wid
 
 ---
 
-### 15. Resume All After Server Restart
+### 20. Resume All After Server Restart
 
 When the backend restarts, all running investigations are automatically paused. The dashboard shows a **Resume All** button with the count of paused investigations. Click it to resume them all at once (respecting the max concurrent limit). A separate **Restart Server** button lets you trigger a graceful restart directly from the UI.
 
@@ -260,7 +256,7 @@ When the backend restarts, all running investigations are automatically paused. 
 
 ---
 
-### 16. Share & Export
+### 21. Share & Export
 
 Non-running investigations show **Share** (sky-blue) and **PDF** (violet) buttons in the sidebar. Share exports the full investigation state as a JSON file; PDF renders the final report into a styled, downloadable PDF document via Puppeteer.
 
@@ -270,7 +266,7 @@ Non-running investigations show **Share** (sky-blue) and **PDF** (violet) button
 
 ---
 
-### 17. Import Investigation (Drag & Drop)
+### 22. Import Investigation (Drag & Drop)
 
 Import previously exported investigations via the **Import Investigation** button in the floating action dock, or simply drag and drop a `.json` file anywhere on the dashboard. A full-screen animated drop zone appears with gradient borders and a pulsing upload icon.
 
@@ -280,7 +276,7 @@ Import previously exported investigations via the **Import Investigation** butto
 
 ---
 
-### 18. Scheduled Investigations
+### 23. Scheduled Investigations
 
 Set up recurring automated health checks with configurable intervals. The Schedules page shows all schedules as cards with live verdict badges (healthy / warning / critical / error), next-run countdown, and full run history. A floating dock lets you start/stop the scheduler and create new schedules.
 
@@ -288,7 +284,7 @@ Set up recurring automated health checks with configurable intervals. The Schedu
 
 ---
 
-### 19. New / Edit Schedule
+### 24. New / Edit Schedule
 
 Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — target, category, time range, model, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
 
@@ -296,7 +292,7 @@ Create or edit a schedule with a multi-step wizard: choose a saved query from th
 
 ---
 
-### 20. Query Bank
+### 25. Query Bank
 
 Save investigation configurations as reusable templates. Access the Query Bank from the New Investigation form to instantly load a saved target, query, time range, category, and model — or use them when creating schedules.
 
@@ -304,15 +300,19 @@ Save investigation configurations as reusable templates. Access the Query Bank f
 
 ---
 
-<!-- ### 14. GitHub Copilot Authentication
+### 26. GitHub Copilot Authentication
 
 Secure OAuth device flow — enter the code on GitHub, and you're connected.
 
 ![Auth Flow](docs/screenshots/auth-flow.png)
 
-Screenshot: The login modal showing the device code and "Open Login Page" button. Also show the green "Connected" indicator in the header after login.
+---
 
---- -->
+### 27. About
+
+Project information, feature showcase, architecture pipeline, tech stack, and version info with auto-update checking.
+
+![About Page](docs/screenshots/about-page.png)
 
 ---
 
@@ -952,6 +952,10 @@ The dashboard is fully responsive with mobile-optimized layouts:
 |:---------:|:-------------------:|:--------------:|
 | ![Mobile Dashboard](docs/screenshots/mobile-dashboard.png) | ![Mobile Investigation](docs/screenshots/mobile-investigation-detail.png) | ![Mobile Contest](docs/screenshots/mobile-contest-report.png) |
 
+| New Investigation | Settings |
+|:-----------------:|:--------:|
+| ![Mobile New Investigation](docs/screenshots/mobile-new-investigation.png) | ![Mobile Settings](docs/screenshots/mobile-settings.png) |
+
 </div>
 
 ### Managing Remote Investigations
@@ -1281,41 +1285,43 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 31 files in `docs/screenshots/`:
+The capture script produces these 33 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
-| 1 | `dashboard-overview.png` | Dashboard — main grid overview with creator badges and KPI bar |
-| 2 | `dashboard.png` | Dashboard — mixed investigation statuses |
-| 3 | `dashboard-resume-all.png` | Dashboard — post-restart with Resume All button |
-| 4 | `new-investigation.png` | New Investigation form (filled) |
-| 5 | `investigation-start.png` | Investigation detail — early running state |
-| 6 | `live-session.png` | Investigation detail — multi-step with tool calls |
-| 7 | `paused-by-user.png` | Investigation detail — paused state |
-| 8 | `user-intervention.png` | Investigation detail — intervention input filled |
-| 9 | `token-alert.png` | Investigation detail — token limit warning banner |
-| 10 | `final-report.png` | Investigation detail — Report tab with Markdown report |
-| 11 | `implement-recommendations.png` | Investigation detail — Implement Recommendations modal |
-| 12 | `Consent-report.png` | Investigation detail — Contest form with feedback |
-| 13 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
-| 14 | `failed-investigation.png` | Investigation detail — failed state |
-| 15 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
-| 16 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
-| 17 | `proposals-panel.png` | Retrospective tab — expanded proposals |
-| 18 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
-| 19 | `settings.png` | Settings — Products tab expanded |
-| 20 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
-| 21 | `auth-flow.png` | Unauthenticated state |
-| 22 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
-| 23 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
-| 24 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
-| 25 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
-| 26 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
-| 27 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
-| 28 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
-| 29 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
-| 30 | `schedule-form.png` | Schedule creation wizard with query bank |
-| 31 | `query-bank.png` | New Investigation — query bank dropdown |
+| 1 | `onboarding-wizard.png` | Onboarding — LLM provider selection step |
+| 2 | `dashboard-overview.png` | Dashboard — main grid overview with creator badges and KPI bar |
+| 3 | `dashboard.png` | Dashboard — mixed investigation statuses |
+| 4 | `dashboard-resume-all.png` | Dashboard — post-restart with Resume All button |
+| 5 | `new-investigation.png` | New Investigation form (filled) |
+| 6 | `investigation-start.png` | Investigation detail — early running state |
+| 7 | `live-session.png` | Investigation detail — multi-step with tool calls |
+| 8 | `paused-by-user.png` | Investigation detail — paused state |
+| 9 | `user-intervention.png` | Investigation detail — intervention input filled |
+| 10 | `token-alert.png` | Investigation detail — token limit warning banner |
+| 11 | `final-report.png` | Investigation detail — Report tab with Markdown report |
+| 12 | `implement-recommendations.png` | Investigation detail — Implement Recommendations modal |
+| 13 | `Consent-report.png` | Investigation detail — Contest form with feedback |
+| 14 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
+| 15 | `failed-investigation.png` | Investigation detail — failed state |
+| 16 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
+| 17 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
+| 18 | `proposals-panel.png` | Retrospective tab — expanded proposals |
+| 19 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
+| 20 | `settings.png` | Settings — Products tab expanded |
+| 21 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
+| 22 | `auth-flow.png` | Unauthenticated state |
+| 23 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
+| 24 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
+| 25 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
+| 26 | `schedule-form.png` | Schedule creation wizard with query bank |
+| 27 | `query-bank.png` | New Investigation — query bank dropdown |
+| 28 | `about-page.png` | About — feature showcase, pipeline, version info |
+| 29 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 30 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 31 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 32 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 33 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
 
 ### Architecture
 

@@ -63,6 +63,10 @@ async function setAuth(authObj) {
     await controlPost('/__control/set-auth', authObj);
 }
 
+async function setOnboarding(complete) {
+    await controlPost('/__control/set-onboarding', { complete });
+}
+
 async function screenshot(page, name, opts = {}) {
     const path = join(SCREENSHOTS_DIR, `${name}.png`);
     await page.screenshot({ path, fullPage: false, ...opts });
@@ -87,6 +91,32 @@ async function navigateTo(page, path) {
 // ---------------------------------------------------------------------------
 // Screenshot capture functions
 // ---------------------------------------------------------------------------
+
+async function captureOnboardingWizard(page) {
+    console.log('\n📸 Onboarding Wizard...');
+    await resetMock();
+    await setOnboarding(false);
+    await page.goto(`${VITE_URL}/onboarding`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(1200);
+
+    // Advance to LLM provider step (more visually informative)
+    const getStarted = page.locator('button:has-text("Get Started"), button:has-text("Get started")').first();
+    if (await getStarted.isVisible()) {
+        await getStarted.click();
+        await page.waitForTimeout(800);
+    }
+
+    await screenshot(page, 'onboarding-wizard');
+    await setOnboarding(true); // restore
+}
+
+async function captureAboutPage(page) {
+    console.log('\n📸 About page...');
+    await resetMock();
+    await navigateTo(page, '/about');
+    await page.waitForTimeout(800);
+    await screenshot(page, 'about-page');
+}
 
 async function captureDashboardOverview(page) {
     console.log('\n📸 Dashboard screenshots...');
@@ -728,7 +758,10 @@ async function main() {
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
     try {
-        // ---- Capture all 30 screenshots ----
+        // ---- Capture all 33 screenshots ----
+
+        // Onboarding
+        await captureOnboardingWizard(page);
 
         // Dashboard
         await captureDashboardOverview(page);
@@ -776,6 +809,9 @@ async function main() {
         await captureScheduleForm(page);
         await captureQueryBank(page);
 
+        // About
+        await captureAboutPage(page);
+
         // Mobile screenshots
         await captureMobileDashboard(page);
         await captureMobileInvestigationDetail(page);
@@ -784,7 +820,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 31 screenshots captured successfully!');
+        console.log('  ✅ All 33 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

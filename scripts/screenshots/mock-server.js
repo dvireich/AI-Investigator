@@ -50,6 +50,7 @@ for (const inv of [invRunning, invPaused, invLiveSession, invCompleted, invConte
 let currentInvestigations = investigationsIndex.investigations;
 let overrideDetail = {};    // id → fixture override for GET /api/investigations/:id
 let authStatus = { authenticated: true, username: 'user@microsoft.com' };
+let onboardingComplete = true;
 
 // ---------------------------------------------------------------------------
 // Express app
@@ -145,6 +146,36 @@ app.get('/api/investigations/:id/pdf', (req, res) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="report.pdf"');
     res.send(Buffer.from(pdfHeader));
+});
+
+// ---- Onboarding ----
+
+app.get('/api/onboarding/status', (_req, res) => {
+    res.json({ complete: onboardingComplete });
+});
+
+app.get('/api/auth/providers', (_req, res) => {
+    res.json([
+        { type: 'copilot', displayName: 'GitHub Copilot', authRequirement: { type: 'oauth' } },
+        { type: 'openai', displayName: 'OpenAI', authRequirement: { type: 'api_key' } },
+        { type: 'anthropic', displayName: 'Anthropic', authRequirement: { type: 'api_key' } },
+        { type: 'azure', displayName: 'Azure OpenAI', authRequirement: { type: 'msal' } },
+        { type: 'ollama', displayName: 'Ollama (Local)', authRequirement: { type: 'none' } },
+    ]);
+});
+
+// ---- Version ----
+
+app.get('/api/version', (_req, res) => {
+    res.json({
+        current: '1.4.0',
+        commit: 'd7b5dd2e',
+        buildDate: '2026-03-22T12:00:00Z',
+        latest: '1.4.1',
+        updateAvailable: true,
+        downloadUrl: 'https://github.com/dvireich/AI-Investigator/releases/download/v1.4.1/ai-investigator.exe',
+        releaseNotesUrl: 'https://github.com/dvireich/AI-Investigator/releases/tag/v1.4.1',
+    });
 });
 
 // ---- Auth ----
@@ -489,10 +520,16 @@ app.post('/__control/set-investigations-all-paused', (_req, res) => {
     res.json({ ok: true });
 });
 
+app.post('/__control/set-onboarding', (req, res) => {
+    onboardingComplete = req.body.complete ?? true;
+    res.json({ ok: true });
+});
+
 app.post('/__control/reset', (_req, res) => {
     currentInvestigations = investigationsIndex.investigations;
     overrideDetail = {};
     authStatus = { authenticated: true, username: 'user@microsoft.com' };
+    onboardingComplete = true;
     res.json({ ok: true });
 });
 
