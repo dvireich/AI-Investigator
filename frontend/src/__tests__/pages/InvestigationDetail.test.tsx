@@ -98,6 +98,11 @@ vi.mock('../../api', () => ({
         updateProposal: vi.fn().mockResolvedValue({ success: true }),
         applyProposals: vi.fn().mockResolvedValue({ applied: ['p1'], errors: [] }),
         completeRetrospect: vi.fn().mockResolvedValue({ success: true }),
+        getRecommendations: vi.fn().mockResolvedValue([
+            { id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes' },
+            { id: 'rec_P1_1', priority: 'P1', title: 'Add logging', description: 'More telemetry needed' },
+        ]),
+        implementRecommendations: vi.fn().mockResolvedValue({ started: true }),
     },
     BASE_URL: 'http://localhost:3000',
 }));
@@ -6428,6 +6433,142 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 await vi.advanceTimersByTimeAsync(500);
             });
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+        });
+    });
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // IMPLEMENT RECOMMENDATIONS TESTS
+    // ════════════════════════════════════════════════════════════════════════════
+
+    describe('Implement Recommendations', () => {
+        it('shows "Implement Recommendations" button on Report tab for completed investigation', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            // Switch to Report tab
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Implement Recommendations/i)).toBeInTheDocument();
+            });
+        });
+
+        it('opens recommendation modal and loads recommendations', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => {
+                expect(api.getRecommendations).toHaveBeenCalledWith('1700000000000');
+                expect(screen.getByText('Fix the bug')).toBeInTheDocument();
+                expect(screen.getByText('Add logging')).toBeInTheDocument();
+            });
+        });
+
+        it('auto-selects P0 recommendations in the modal', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            // Should have the generate button showing count of selected (P0 items auto-selected)
+            await waitFor(() => {
+                expect(screen.getByText(/Generate Implementation \(1\)/i)).toBeInTheDocument();
+            });
+        });
+
+        it('closes modal on Cancel', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            await user.click(screen.getByText('Cancel'));
+
+            await waitFor(() => {
+                expect(screen.queryByText('Fix the bug')).not.toBeInTheDocument();
+            });
+        });
+
+        it('calls implementRecommendations API on Generate click', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            // Click Generate Implementation
+            await user.click(screen.getByText(/Generate Implementation/i));
+
+            await waitFor(() => {
+                expect(api.implementRecommendations).toHaveBeenCalledWith('1700000000000', ['rec_P0_0']);
+            });
+        });
+
+        it('does not show button for running investigations', async () => {
+            const { api } = await import('../../api');
+            (api.getInvestigation as any).mockResolvedValue(createMockInvestigation({ status: 'running', finalReport: null }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            expect(screen.queryByText(/Implement Recommendations/i)).not.toBeInTheDocument();
+        });
+
+        it('shows empty state when no recommendations found', async () => {
+            const { api } = await import('../../api');
+            (api.getRecommendations as any).mockResolvedValue([]);
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => {
+                expect(screen.getByText(/No recommendations found/i)).toBeInTheDocument();
+            });
         });
     });
 

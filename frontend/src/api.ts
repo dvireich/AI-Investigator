@@ -60,6 +60,14 @@ export interface ProposedChange {
     content: string;
     originalContent?: string;
     status: 'pending' | 'approved' | 'rejected' | 'applied';
+    source?: 'retrospect' | 'implementation';
+}
+
+export interface Recommendation {
+    id: string;
+    priority: string;
+    title: string;
+    description: string;
 }
 
 export interface RetrospectMessage {
@@ -451,6 +459,22 @@ export const api = {
     applyProposals: async (id: string) => {
         const res = await fetch(`${API_URL}/investigations/${id}/retrospect/apply`, {
             method: 'POST'
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    getRecommendations: async (id: string): Promise<Recommendation[]> => {
+        const res = await fetch(`${API_URL}/investigations/${id}/recommendations`);
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    implementRecommendations: async (id: string, recommendations: string[]) => {
+        const res = await fetch(`${API_URL}/investigations/${id}/implement`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recommendations })
         });
         if (!res.ok) throw new Error(await res.text());
         return res.json();

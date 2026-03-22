@@ -4444,4 +4444,242 @@ describe('AgentRunner', () => {
         });
     });
 
+    describe('parseRecommendations', () => {
+        it('extracts recommendations from markdown with priority groups', () => {
+            const markdown = `# Investigation Report
+
+## Summary
+Some summary text.
+
+## Recommendations
+
+### Immediate (P0)
+
+1. **Fix the bug**: The service crashes on null input.
+2. **Add retry logic**: Messages are lost when the queue is unavailable.
+
+### Short-Term (P1)
+
+1. **Add logging**: More telemetry is needed for debugging.
+
+### Medium-Term (P2)
+
+- **Refactor processor**: The class is too large and complex.
+
+## Appendix
+Some appendix.
+`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(4);
+            expect(recs[0]).toMatchObject({ priority: 'P0', title: 'Fix the bug' });
+            expect(recs[1]).toMatchObject({ priority: 'P0', title: 'Add retry logic' });
+            expect(recs[2]).toMatchObject({ priority: 'P1', title: 'Add logging' });
+            expect(recs[3]).toMatchObject({ priority: 'P2', title: 'Refactor processor' });
+            // Each should have a unique id
+            const ids = recs.map(r => r.id);
+            expect(new Set(ids).size).toBe(4);
+        });
+
+        it('returns empty array when no Recommendations section exists', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations('# Report\n\n## Summary\nNo recs here.');
+            expect(recs).toEqual([]);
+        });
+
+        it('uses finalReport from state when no markdown is passed', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Critical (P0)\n\n1. **Do the thing**: desc\n',
+                thoughts: [],
+                actions: [],
+            });
+            const recs = runner.parseRecommendations();
+            expect(recs.length).toBe(1);
+            expect(recs[0].priority).toBe('P0');
+            expect(recs[0].title).toBe('Do the thing');
+        });
+
+        it('handles bold heading format (**Heading (P1)**)', () => {
+            const markdown = `## Recommendations\n\n**Short-Term (P1)**\n\n1. **Improve caching**: Add TTL to cache entries.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].priority).toBe('P1');
+        });
+
+        it('defaults to P2 when no priority code is specified', () => {
+            const markdown = `## Recommendations\n\n### General Improvements\n\n1. **Clean up code**: Remove dead code.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].priority).toBe('P2');
+        });
+    });
+
+    describe('localSearchCode', () => {
+        // path.resolve('/repo') may produce 'C:\repo' on Windows, so we need resolved paths for existsSync
+        const resolvedRepo = n(require('path').resolve('/repo'));
+
+        it('finds matching lines in mock files', () => {
+            // Set up mock file system with code files directly in repo root
+            mockFsState.set(n(require('path').resolve('/repo/Service.cs')), 'namespace MyApp;\npublic class MyService\n{\n    public void Run() {}\n}\n');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['Service.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('MyService');
+            expect(result).toContain('Service.cs');
+            expect(result).toContain('MyService');
+        });
+
+        it('returns error for path outside repo root', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('test', '../../etc');
+            expect(result).toContain('Error');
+        });
+
+        it('falls back to literal match when regex is invalid', () => {
+            mockFsState.set(n(require('path').resolve('/repo/test.cs')), 'var x = foo[bar;\n');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['test.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // foo[bar is invalid regex, should fall back to literal
+            const result = (runner as any).localSearchCode('foo[bar');
+            expect(result).toContain('test.cs');
+        });
+
+        it('returns no matches message when nothing found', () => {
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, []);
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('nonExistentPattern123');
+            expect(result).toContain('No matches found');
+        });
+    });
+
+    describe('getImplementationTools', () => {
+        it('includes search_code tool alongside retrospect tools', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: [],
+                actions: [],
+            });
+            (runner as any).initRetrospect();
+            const tools = (runner as any).getImplementationTools();
+            const toolNames = tools.map((t: any) => t.function.name);
+            expect(toolNames).toContain('search_code');
+            expect(toolNames).toContain('read_file');
+            expect(toolNames).toContain('list_dir');
+            expect(toolNames).toContain('propose_change');
+        });
+    });
+
+    describe('runImplementationAnalysis', () => {
+        it('throws when investigation is still running', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            await expect((runner as any).runImplementationAnalysis(['rec_P0_0'])).rejects.toThrow('only available for completed');
+        });
+
+        it('throws when no valid recommendations are selected', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix bug**: desc\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            await expect((runner as any).runImplementationAnalysis(['nonexistent_id'])).rejects.toThrow('No valid recommendations');
+        });
+
+        it('throws when retrospect analysis is already running', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix bug**: desc\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).isRetrospectRunning = true;
+            await expect((runner as any).runImplementationAnalysis(['rec_P0_0'])).rejects.toThrow('retrospect analysis is in progress');
+        });
+
+        it('runs tool loop and produces implementation proposals', async () => {
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                return { choices: [{ message: { content: 'Implementation complete. All changes proposed.', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: The service crashes.\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            expect(retro).toBeDefined();
+            // Should have messages from the implementation
+            expect(retro.messages.length).toBeGreaterThanOrEqual(2); // user trigger + assistant response
+            expect(retro.messages[0].content).toContain('[Implementation]');
+            // isImplementationRunning should be reset
+            expect((runner as any).isImplementationRunning).toBe(false);
+        });
+
+        it('skips duplicate request when already running', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).isImplementationRunning = true;
+            // Should not throw, just silently return
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+        });
+    });
+
+    describe('handleProposeChange source tagging', () => {
+        it('tags proposals with source implementation when flag is set', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+            (runner as any).isImplementationRunning = true;
+
+            (runner as any).handleProposeChange({
+                filePath: 'src/Test.cs',
+                type: 'edit',
+                content: 'new content',
+                description: 'Fix the bug',
+            });
+
+            const proposals = (runner as any).state.retrospect.proposals;
+            expect(proposals.length).toBe(1);
+            expect(proposals[0].source).toBe('implementation');
+        });
+
+        it('tags proposals with source retrospect by default', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            (runner as any).handleProposeChange({
+                filePath: 'src/Test.cs',
+                type: 'edit',
+                content: 'new content',
+                description: 'Fix the bug',
+            });
+
+            const proposals = (runner as any).state.retrospect.proposals;
+            expect(proposals.length).toBe(1);
+            expect(proposals[0].source).toBe('retrospect');
+        });
+    });
+
 });
