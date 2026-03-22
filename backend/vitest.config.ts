@@ -9,13 +9,7 @@ export default defineConfig({
             provider: 'v8',
             reporter: ['text', 'lcov'],
             include: ['src/**/*.ts'],
-            exclude: [
-                'src/**/__tests__/**',
-                'src/server.ts',           // Module-level side effects, integration-tested
-                'src/**/index.ts',         // Barrel re-exports only
-                'src/agent/llm/LlmProvider.ts',        // Interface/type definitions
-                'src/agent/incidents/IncidentProvider.ts', // Interface/type definitions
-            ],
+            exclude: ['src/**/__tests__/**'],
             thresholds: {
                 lines: 100,
                 branches: 100,

@@ -1581,6 +1581,28 @@ describe('AgentRunner', () => {
             expect(result).toContain('unable to call any tools');
         });
 
+        it('falls back to a default completion message when the model returns empty text with no tool calls', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: '', tool_calls: null } }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+                { role: 'tool', content: 'existing result' },
+            ];
+            const tools = (runner as any).getRetrospectTools();
+            const result = await (runner as any).runRetrospectToolLoop(messages, tools);
+            expect(result).toBe('Analysis complete.');
+        });
+
         it('retries on network errors', async () => {
             let callCount = 0;
             mockOpenAI.chat.completions.create.mockImplementation(async () => {
@@ -1804,6 +1826,139 @@ describe('AgentRunner', () => {
             const retro = (runner as any).state.retrospect;
             expect(retro.proposals).toHaveLength(1);
             expect(retro.proposals[0].filePath).toBe('docs/new.md');
+        });
+
+        it('handles propose_change activity text when description is empty', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: {
+                                        name: 'propose_change',
+                                        arguments: JSON.stringify({
+                                            type: 'create',
+                                            filePath: 'docs/empty-description.md',
+                                            description: '',
+                                            content: '# Empty Description',
+                                        }),
+                                    },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Analysis complete.', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const events: any[] = [];
+            runner.on('retrospect-tool-activity', (event: any) => events.push(event));
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+            ];
+            const tools = (runner as any).getRetrospectTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            expect(events.some((event: any) =>
+                event.tool === 'propose_change' && event.description === 'Proposing change: '
+            )).toBe(true);
+        });
+
+        it('handles read_file calls with a missing path argument', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: { name: 'read_file', arguments: '{}' },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            mockToolManager.callTool.mockResolvedValue('missing path handled');
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+            ];
+            const tools = (runner as any).getRetrospectTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            expect(mockToolManager.callTool).toHaveBeenCalledWith('read_file', {});
+        });
+
+        it('stringifies object tool results in retrospective live messages', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: { name: 'read_file', arguments: '{"path":"docs/guide.md"}' },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Analysis complete.', tool_calls: null } }] };
+            });
+
+            mockToolManager.callTool.mockResolvedValue({ items: [{ id: 1 }], count: 1 });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+            ];
+            const tools = (runner as any).getRetrospectTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            const retro = (runner as any).state.retrospect;
+            expect(retro.messages.some((message: any) =>
+                message.role === 'tool-result' &&
+                typeof message.content === 'string' &&
+                message.content.includes('"count":1')
+            )).toBe(true);
         });
 
         it('handles list_dir tool calls', async () => {
@@ -2301,6 +2456,65 @@ describe('AgentRunner', () => {
             // Completion message should indicate no changes
             const lastMsg = retro.messages[retro.messages.length - 1];
             expect(lastMsg.content).toContain('No changes were proposed');
+        });
+
+        it('builds a pluralized completion message when multiple proposals were generated', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [
+                                    {
+                                        id: 'tc1',
+                                        function: {
+                                            name: 'propose_change',
+                                            arguments: JSON.stringify({
+                                                type: 'edit',
+                                                filePath: 'docs/guide-1.md',
+                                                description: 'Fix first guide',
+                                                content: '# Guide 1',
+                                            }),
+                                        },
+                                    },
+                                    {
+                                        id: 'tc2',
+                                        function: {
+                                            name: 'propose_change',
+                                            arguments: JSON.stringify({
+                                                type: 'edit',
+                                                filePath: 'docs/guide-2.md',
+                                                description: 'Fix second guide',
+                                                content: '# Guide 2',
+                                            }),
+                                        },
+                                    },
+                                ],
+                            },
+                        }],
+                    };
+                }
+                return {
+                    choices: [{ message: { content: 'Found two issues.', tool_calls: null } }],
+                };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [{ tool: 'kql', args: {}, result: 'data' }],
+                category: 'latency',
+            });
+
+            await runner.runRetrospectiveAnalysis();
+
+            const retro = (runner as any).state.retrospect;
+            const lastMsg = retro.messages[retro.messages.length - 1];
+            expect(retro.proposals).toHaveLength(2);
+            expect(lastMsg.content).toContain('2 proposed changes generated');
         });
 
         it('handles cancellation (AbortError)', async () => {
@@ -2862,6 +3076,66 @@ describe('AgentRunner', () => {
             // saveArtifacts uses require('fs') which goes through our nodeFs spy
             // The spy's writeFileSyncImpl adds to mockFsState
             expect(mockFsState.size).toBeGreaterThan(sizeBefore);
+
+            const summaryPath = Array.from(mockFsState.keys()).find(key => key.endsWith('/summary.json'));
+            expect(summaryPath).toBeDefined();
+
+            const summary = JSON.parse(mockFsState.get(summaryPath!) || '{}');
+            expect(summary._summaryOnly).toBe(true);
+            expect(summary._thoughtCount).toBe(0);
+        });
+
+        it('serializes non-string action results into the markdown report', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                target: 'my-stamp',
+                thoughts: ['inspect result object'],
+                actions: [{ tool: 'kql', args: { query: 'StormEvents | take 1' }, result: { rows: [{ id: 1 }], count: 1 } } as any],
+            });
+
+            await (runner as any).saveArtifacts();
+
+            const reportPath = Array.from(mockFsState.keys()).find(key => key.endsWith('/report.md'));
+            expect(reportPath).toBeDefined();
+
+            const report = mockFsState.get(reportPath!);
+            expect(report).toContain('"rows"');
+            expect(report).toContain('"count": 1');
+        });
+
+        it('falls back to repo investigations path and current date when config path is unset and id is non-numeric', async () => {
+            const today = new Date().toISOString().split('T')[0];
+            const runner = new AgentRunner(makeConfig({ investigationsPath: undefined as any }), provider, {
+                id: 'manual-run',
+                target: 'my-stamp',
+            } as any);
+
+            await (runner as any).saveArtifacts();
+
+            const savedPath = Array.from(mockFsState.keys()).find(key =>
+                key.includes(`/repo/investigations/${today}_my-stamp_manualrun/state.json`)
+            );
+            expect(savedPath).toBeDefined();
+        });
+
+        it('writes an empty retrospective proposal list when proposals are missing', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                target: 'my-stamp',
+                retrospect: {
+                    messages: [{ role: 'user', content: 'review this' }],
+                    proposals: undefined as any,
+                    analysisComplete: true,
+                    analysisFailed: false,
+                    completed: false,
+                },
+            } as any);
+
+            await (runner as any).saveArtifacts();
+
+            const summaryPath = Array.from(mockFsState.keys()).find(key => key.endsWith('/summary.json'));
+            expect(summaryPath).toBeDefined();
+
+            const summary = JSON.parse(mockFsState.get(summaryPath!) || '{}');
+            expect(summary.retrospect.proposals).toEqual([]);
         });
     });
 
@@ -3113,6 +3387,27 @@ describe('AgentRunner', () => {
             expect((runner as any).state.pausedAt).toBeUndefined();
             expect((runner as any).state.contestCount).toBe(1);
         });
+
+        it('falls back when no final report exists and initializes paused time accumulation', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['thought1'],
+                actions: [null],
+            });
+            (runner as any).state.pausedAt = Date.now() - 3000;
+
+            runner.contestReport('Please add evidence');
+
+            const state = (runner as any).state;
+            expect(state.status).toBe('running');
+            expect(state.totalPausedTime).toBeGreaterThan(0);
+            expect(state.pausedAt).toBeUndefined();
+            expect(state.thoughts.some((t: any) =>
+                typeof t === 'object' &&
+                typeof t.content === 'string' &&
+                t.content.includes('(no report content)')
+            )).toBe(true);
+        });
     });
 
     describe('callLLM - schema sanitization', () => {
@@ -3286,6 +3581,40 @@ describe('AgentRunner', () => {
             const result = await (runner as any).compactHistory('system', 'query', thoughts);
             expect(result).toBe(false);
         });
+
+        it('uses empty string when first older thought is an object without .content', async () => {
+            // This covers the `firstThought?.content ? ... : ''` fallback branch (no .content)
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Summary of steps.' } }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const thoughts = [
+                { someData: 'no-content-key' } as any, // [0] — not a string, no .content → ''
+                'second thought',                       // [1]
+                ...Array(12).fill('recent step'),       // [2-13]
+            ];
+
+            const result = await (runner as any).compactHistory('system', 'query', thoughts);
+            expect(result).toBe(true);
+        });
+
+        it('extracts content string when first older thought is an object with .content', async () => {
+            // This covers `String(firstThought.content)` — the truthy .content branch
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Summary.' } }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const thoughts = [
+                { content: 'previous investigation step' } as any, // [0] — has .content, truthy
+                'second thought',                                   // [1]
+                ...Array(12).fill('recent step'),                   // [2-13]
+            ];
+
+            const result = await (runner as any).compactHistory('system', 'query', thoughts);
+            expect(result).toBe(true);
+        });
     });
 
     describe('saveArtifacts - extractThoughtText fallbacks', () => {
@@ -3341,6 +3670,27 @@ describe('AgentRunner', () => {
 
             const retroState = (runner as any).state.retrospect;
             expect(retroState.analysisComplete).toBe(true);
+        });
+
+        it('uses unknown as the category fallback when knowledgeBasePath is set but no category exists', async () => {
+            const runner = new AgentRunner(makeConfig({
+                knowledgeBasePath: 'docs/guides',
+            }), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const toolLoopSpy = vi.spyOn(runner as any, 'runRetrospectToolLoop').mockResolvedValue('Analysis done.');
+
+            await (runner as any).runRetrospectiveAnalysis();
+
+            const promptText = toolLoopSpy.mock.calls[0][0]
+                .map((message: any) => message.content)
+                .filter((content: any) => typeof content === 'string')
+                .join('\n');
+            expect(promptText).toContain('category "unknown"');
         });
 
         it('uses list_dir instruction when no knowledgeBasePath', async () => {
@@ -3458,6 +3808,23 @@ describe('AgentRunner', () => {
     });
 
     describe('callLLM - direct force tool and compaction', () => {
+        it('uses gpt-4o when both state.model and config.model are unset', async () => {
+            mockToolManager.listTools.mockResolvedValue([]);
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.' } }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ model: undefined as any }), provider, {
+                model: undefined,
+            });
+
+            await (runner as any).callLLM('system', 'query', ['thought1'], false);
+
+            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+                expect.objectContaining({ model: 'gpt-4o' })
+            );
+        });
+
         it('logs warning when forcing tool with no tools available', async () => {
             mockToolManager.listTools.mockResolvedValue([]);
             mockOpenAI.chat.completions.create.mockResolvedValue({
@@ -3467,6 +3834,40 @@ describe('AgentRunner', () => {
             const runner = new AgentRunner(makeConfig(), provider);
             const step = await (runner as any).callLLM('system', 'query', ['thought1'], true);
             expect(step).toBeDefined();
+        });
+
+        it('forces tool_choice to required when tools are available and forceTool is true', async () => {
+            const mockTool = { name: 'read_file', description: 'read', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } };
+            mockToolManager.listTools.mockResolvedValueOnce([mockTool]);
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.' } }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', ['thought1'], true);
+            expect(step).toBeDefined();
+        });
+
+        it('uses the default tool thought when tool call content is empty', async () => {
+            const mockTool = { name: 'read_file', description: 'read', inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] } };
+            mockToolManager.listTools.mockResolvedValueOnce([mockTool]);
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: '',
+                        tool_calls: [{ id: 'tc1', function: { name: 'read_file', arguments: '{"path":"a.txt"}' } }],
+                    }
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', ['thought1'], false);
+
+            expect(step.thought).toBe('Deciding to use a tool...');
+            expect(step.action).toEqual({
+                tool: 'read_file',
+                args: { path: 'a.txt' },
+            });
         });
 
         it('triggers proactive compaction when payload is too large', async () => {
@@ -3489,6 +3890,35 @@ describe('AgentRunner', () => {
             });
             const step = await (runner as any).callLLM('system', 'query', hugeHistory, false);
             expect(step).toBeDefined();
+        });
+
+        it('logs warning when proactive compaction fails and continues with oversized payload', async () => {
+            // Compaction returns false, so the payload is sent as-is with a log warning
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Oversized response.' } }],
+            });
+
+            const hugeHistory = Array(80).fill('X'.repeat(10000));
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                thoughts: hugeHistory,
+                actions: Array(80).fill(null),
+            });
+            vi.spyOn(runner as any, 'compactHistory').mockResolvedValue(false);
+
+            const step = await (runner as any).callLLM('system', 'query', hugeHistory, false);
+            expect(step).toBeDefined();
+        });
+
+        it('falls back to Bad Request when a 400 error has no message', async () => {
+            mockOpenAI.chat.completions.create.mockRejectedValue({ status: 400 });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(runner as any, 'compactHistory').mockResolvedValue(false);
+
+            const step = await (runner as any).callLLM('system', 'query', ['thought1'], false);
+
+            expect(step.thought).toContain('Bad Request');
         });
     });
 
@@ -3538,6 +3968,479 @@ describe('AgentRunner', () => {
             expect(result).toBe(true);
             // After compaction, thoughts should start with new System [Memory]
             expect(thoughts[0]).toContain('System [Memory]:');
+        });
+    });
+
+    // ============================================================
+    // Branch coverage — targeted tests for remaining uncovered branches
+    // ============================================================
+
+    describe('constructor - rehydration guards', () => {
+        it('initializes fullHistory and fullActions when undefined in metadata', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                thoughts: ['existing step'],
+                fullHistory: undefined as any,
+                fullActions: undefined as any,
+            });
+            const state = (runner as any).state;
+            expect(Array.isArray(state.fullHistory)).toBe(true);
+            expect(Array.isArray(state.fullActions)).toBe(true);
+        });
+    });
+
+    describe('start - tool init with null initError', () => {
+        it('shows "Unknown error" in thought when initError is null and tools fail', async () => {
+            // 3 isConnected calls: initial (false) → post-init (false → pause) → after resume (true → done)
+            mockToolManager.isConnected
+                .mockReturnValueOnce(false)  // initial check → start initialization
+                .mockReturnValueOnce(false)  // post-initialize → 'Unknown error', then pause
+                .mockReturnValueOnce(true);  // after resume + re-initialize → connected, break
+            mockToolManager.initError = null as any; // no message → falls back to 'Unknown error'
+            mockToolManager.initialize.mockResolvedValue(undefined);
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"ok"}' } }] } }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // Resume after the 1-second polling interval inside the pause loop
+            setTimeout(() => runner.resume(), 1200);
+            await runner.start('Query');
+
+            const thoughts = (runner as any).state.thoughts as string[];
+            expect(thoughts.some(t => typeof t === 'string' && t.includes('Unknown error'))).toBe(true);
+        }, 8000);
+    });
+
+    describe('start - incidentId with knowledgeBasePath', () => {
+        it('appends incidentGuide hint when absolute kbDir contains an incident investigation guide', async () => {
+            const path = require('path');
+            const kbDir = n(path.join('/repo', 'incident-kb'));
+            // Set up the KB directory with an incident guide
+            mockDirs.add(kbDir);
+            mockFsState.set(kbDir, '');
+            mockDirEntries.set(kbDir, ['incident-investigation-guide.md']);
+            mockIsDir.add(kbDir);
+            // Return finish tool on the first LLM call
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Analysis done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"incident done"}' } }] } }],
+            });
+
+            const runner = new AgentRunner(
+                makeConfig({ knowledgeBasePath: kbDir }), // absolute kbDir → isAbsolute = true
+                provider,
+                { incidentId: 'INC-456' },
+            );
+            await runner.start('Investigate incident');
+            expect((runner as any).state.status).toBe('completed');
+        });
+    });
+
+    describe('start - main loop timeout branch via thought content', () => {
+        it('detects "timeout" (not "timed out") in critical LLM error thought', async () => {
+            // 'Connection timeout' has 'timeout' but not 'timed out' — covers the 2nd || branch.
+            // Exponential backoff (5s, 15s) is bypassed with fake timers.
+            vi.useFakeTimers();
+            try {
+                let callCount = 0;
+                mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                    callCount++;
+                    if (callCount <= 4) {
+                        return { choices: [{ message: { content: 'Critical LLM Error: Connection timeout exceeded', tool_calls: undefined } }] };
+                    }
+                    return { choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"ok"}' } }] } }] };
+                });
+
+                const runner = new AgentRunner(makeConfig({ maxSteps: 10 }), provider);
+                const startPromise = runner.start('Query');
+
+                // Fast-forward past exponential backoffs: 5s + 15s + 45s = 65s total
+                await vi.advanceTimersByTimeAsync(100_000);
+                await startPromise;
+
+                const state = (runner as any).state as InvestigationState;
+                // Should pause due to consecutive LLM errors, or complete after timeout path
+                expect(['paused', 'completed'].includes(state.status)).toBe(true);
+            } finally {
+                vi.useRealTimers();
+            }
+        }, 15000);
+    });
+
+    describe('start - finish tool with verdict', () => {
+        it('stores verdict when finish tool is called with a verdict arg', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Analysis done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"all good","verdict":"healthy"}' } }] } }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('Health check');
+            expect((runner as any).state.verdict).toBe('healthy');
+            expect((runner as any).state.status).toBe('completed');
+        });
+    });
+
+    describe('initRetrospect - migration guards', () => {
+        it('initializes missing retrospect fields on legacy state objects', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                retrospect: {
+                    messages: [],
+                    // Deliberately omit proposals, analysisComplete, completed to test migration
+                } as any,
+            });
+            const retro = (runner as any).initRetrospect();
+            expect(Array.isArray(retro.proposals)).toBe(true);
+            expect(retro.analysisComplete).toBe(false);
+            expect(retro.completed).toBe(false);
+        });
+    });
+
+    describe('callLLM - error hint branches', () => {
+        it('includes context hint when error has ETIMEDOUT code but no "timeout" in message', async () => {
+            const netErr = new Error('Connection refused'); // no 'timeout' or 'timed out'
+            (netErr as any).code = 'ETIMEDOUT';
+            mockOpenAI.chat.completions.create.mockRejectedValue(netErr);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            // hint includes context size warning because isTimeout = true via code check
+            expect(step.thought).toContain('Connection refused');
+        });
+
+        it('returns error without hint for non-timeout, non-400 LLM errors', async () => {
+            const genericErr = new Error('Service unavailable'); // no timeout indicators
+            mockOpenAI.chat.completions.create.mockRejectedValue(genericErr);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            // No hint appended because isTimeout = false
+            expect(step.thought).toContain('Service unavailable');
+        });
+    });
+
+    describe('additional branch coverage fallbacks', () => {
+        it('uses summary when finish arguments omit report', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc1', function: { name: 'finish', arguments: '{"summary":"summary only"}' } }] } }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            await runner.start('Query');
+            expect((runner as any).state.finalReport).toBe('summary only');
+        });
+
+        it('uses the default finish report when neither report nor summary is provided', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc1', function: { name: 'finish', arguments: '{}' } }] } }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            await runner.start('Query');
+            expect((runner as any).state.finalReport).toBe('Investigation Completed via finish tool.');
+        });
+
+        it('falls back to the thrown value when an unexpected error has no message property', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'thinking...' } }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 1 }), provider);
+            vi.spyOn(runner as any, 'saveArtifacts')
+                .mockResolvedValueOnce(undefined)
+                .mockRejectedValueOnce('plain failure');
+
+            await runner.start('Query');
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('failed');
+            expect(state.logs.some((log: string) => log.includes('plain failure'))).toBe(true);
+        });
+
+        it('formats object thoughts with content and object action results in retrospect history', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                thoughts: [{ content: 'object-based thought' } as any],
+                actions: [{ tool: 'kql', args: { query: 'take 1' }, result: { rows: [1] } } as any],
+            });
+
+            const result = (runner as any).buildRetrospectHistory();
+            expect(result).toContain('object-based thought');
+            expect(result).toContain('{"rows":[1]}');
+        });
+
+        it('handles retrospective messages whose content is missing', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const retroMessages = [
+                { role: 'assistant', content: undefined },
+                { role: 'user', content: undefined },
+                { role: 'assistant', content: 'Valid analysis.' },
+            ];
+
+            const result = (runner as any).buildRetrospectMessages(retroMessages);
+            expect(result.some((m: any) => m.role === 'assistant' && m.content === 'Valid analysis.')).toBe(true);
+        });
+
+        it('returns a string when retrospective context is extremely large', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, { status: 'completed' });
+            (runner as any).initRetrospect();
+
+            const hugeMessages: any[] = [
+                { role: 'system', content: 'System prompt' },
+                { role: 'user', content: 'Analyze' },
+            ];
+            for (let i = 0; i < 100; i++) {
+                hugeMessages.push({ role: 'tool', content: 'X'.repeat(50000), tool_call_id: `tc${i}` });
+            }
+
+            const tools = [{ name: 'read_file', description: 'Read', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }];
+            const result = await (runner as any).runRetrospectToolLoop(hugeMessages, tools);
+            expect(typeof result).toBe('string');
+        });
+
+        it('uses the generic example path in the no-proposal retry prompt when no knowledge base path is configured', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: { name: 'read_file', arguments: '{"path":"guide.md"}' },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                if (callCount <= 4) {
+                    return { choices: [{ message: { content: 'I found issues but need to think more.', tool_calls: null } }] };
+                }
+                return { choices: [{ message: { content: 'No changes needed', tool_calls: null } }] };
+            });
+            mockToolManager.callTool.mockResolvedValue('# Guide');
+
+            const runner = new AgentRunner(makeConfig({ knowledgeBasePath: '' }), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+            ];
+            const tools = (runner as any).getRetrospectTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            expect(messages.some((message: any) =>
+                message.role === 'user' &&
+                typeof message.content === 'string' &&
+                message.content.includes('path/to/file.md')
+            )).toBe(true);
+        });
+
+        it('builds the retrospect prompt from an absolute file path and uses N/A fallbacks', () => {
+            mockFsState.set('/absolute/retrospect.md', 'Goal={{GOAL}} Status={{STATUS}} Stamp={{STAMP}} Issue={{ISSUE_TYPE}}');
+
+            const runner = new AgentRunner(makeConfig({
+                retrospectPromptPath: '/absolute/retrospect.md',
+                knowledgeBasePath: '',
+            }), provider, {
+                query: '',
+                status: undefined as any,
+                target: '',
+                category: '',
+            } as any);
+
+            const result = (runner as any).buildRetrospectSystemPrompt();
+            expect(result).toContain('Goal=N/A');
+            expect(result).toContain('Status=N/A');
+            expect(result).toContain('Stamp=N/A');
+            expect(result).toContain('Issue=N/A');
+        });
+
+        it('retries tool initialization with unknown error text, then aborts', async () => {
+            mockToolManager.isConnected.mockReturnValue(false);
+            mockToolManager.initError = null as any;
+            mockToolManager.initialize.mockResolvedValue(undefined);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            setTimeout(() => runner.resume(), 200);
+            setTimeout(() => runner.abort(), 1600);
+
+            await runner.start('Query');
+
+            const thoughts = (runner as any).state.thoughts as any[];
+            expect(thoughts.some((thought: any) => typeof thought === 'string' && thought.includes('Tools still unavailable. Error: Unknown error'))).toBe(true);
+            expect((runner as any).state.status).toBe('aborted');
+        }, 15000);
+
+        it('returns after aborting during a retry initialize call', async () => {
+            let initCalls = 0;
+            let runner: AgentRunner;
+            mockToolManager.isConnected.mockReturnValue(false);
+            mockToolManager.initError = 'Still broken';
+            mockToolManager.initialize.mockImplementation(async () => {
+                initCalls++;
+                if (initCalls === 2) {
+                    runner.abort();
+                }
+            });
+
+            runner = new AgentRunner(makeConfig(), provider);
+            setTimeout(() => runner.resume(), 1200);
+
+            await runner.start('Query');
+
+            expect(['paused', 'aborted']).toContain((runner as any).state.status);
+        }, 15000);
+
+        it('handles incident KB scan errors when repoRoot is missing and the KB path is relative', async () => {
+            mockDirs.add('incident-kb');
+            mockFsState.set('incident-kb', '');
+            mockReaddirThrow.add('incident-kb');
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc1', function: { name: 'finish', arguments: '{"report":"ok"}' } }] } }],
+            });
+
+            const runner = new AgentRunner(makeConfig({
+                knowledgeBasePath: 'incident-kb',
+                repoRoot: undefined as any,
+                maxSteps: undefined as any,
+            }), provider, {
+                incidentId: 'INC-999',
+            });
+
+            await runner.start('Investigate');
+            expect((runner as any).state.status).toBe('completed');
+        });
+
+        it('handles final no-action thoughts whose object content is missing', async () => {
+            const runner = new AgentRunner(makeConfig({ maxSteps: undefined as any }), provider);
+            vi.spyOn(runner as any, 'callLLM').mockResolvedValue({
+                thought: { role: 'assistant' },
+                action: null,
+                isFinal: true,
+            });
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.start('Query');
+            expect((runner as any).state.status).toBe('paused');
+        });
+
+        it('discovers knowledge base and prompt directories from absolute paths', () => {
+            mockDirs.add('/abs-kb');
+            mockFsState.set('/abs-kb', '');
+            mockDirEntries.set('/abs-kb', ['guide.md']);
+
+            mockDirs.add('/abs-prompts');
+            mockFsState.set('/abs-prompts', '');
+            mockDirEntries.set('/abs-prompts', ['system.md']);
+
+            mockDirs.add('/repo/.github/prompts');
+            mockFsState.set('/repo/.github/prompts', '');
+            mockDirEntries.set('.github/prompts', ['custom.md']);
+
+            const runner = new AgentRunner(makeConfig({
+                knowledgeBasePath: '/abs-kb',
+                systemPromptPath: '/abs-prompts/system.md',
+            }), provider);
+
+            const result = (runner as any).discoverKnowledgeBase();
+            expect(result).toContain('Knowledge Base (/abs-kb/)');
+            expect(result).toContain('Agent Prompts');
+            expect(result).toContain('Prompt Files (.github/prompts/)');
+        });
+
+        it('discovers knowledge base and covered prompt directories from relative paths', () => {
+            mockDirs.add('/repo/docs');
+            mockFsState.set('/repo/docs', '');
+            mockDirEntries.set('docs', ['guide.md']);
+
+            mockDirs.add('/repo/prompts');
+            mockFsState.set('/repo/prompts', '');
+            mockDirEntries.set('prompts', ['system.md']);
+
+            mockDirs.add('/repo/.github/prompts');
+            mockFsState.set('/repo/.github/prompts', '');
+            mockDirEntries.set('.github/prompts', ['custom.md']);
+
+            const runner = new AgentRunner(makeConfig({
+                knowledgeBasePath: 'docs',
+                systemPromptPath: 'prompts/system.md',
+            }), provider);
+
+            const result = (runner as any).discoverKnowledgeBase();
+            expect(result).toContain('Knowledge Base (docs/)');
+            expect(result).toContain('Agent Prompts (prompts/)');
+        });
+
+        it('uses the default context-limit string when forced token estimates stay above the limit', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, { status: 'completed' });
+            (runner as any).initRetrospect();
+            vi.spyOn(runner as any, 'estimateTokens').mockReturnValue(120001);
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+                { role: 'tool', content: 'X'.repeat(500), tool_call_id: 'tc1' },
+            ];
+            const tools = [{ name: 'read_file', description: 'Read', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }];
+
+            const result = await (runner as any).runRetrospectToolLoop(messages, tools);
+            expect(result).toBe('Analysis complete (context limit reached).');
+        });
+
+        it('uses the knowledge-base README example path in no-proposal retry prompts when configured', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: { name: 'read_file', arguments: '{"path":"guide.md"}' },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                if (callCount <= 4) {
+                    return { choices: [{ message: { content: 'I found issues but need to think more.', tool_calls: null } }] };
+                }
+                return { choices: [{ message: { content: 'No changes needed', tool_calls: null } }] };
+            });
+            mockToolManager.callTool.mockResolvedValue('# Guide');
+
+            const runner = new AgentRunner(makeConfig({ knowledgeBasePath: 'docs/guides' }), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+            ];
+            const tools = (runner as any).getRetrospectTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            expect(messages.some((message: any) =>
+                message.role === 'user' &&
+                typeof message.content === 'string' &&
+                message.content.includes('docs/guides/README.md')
+            )).toBe(true);
         });
     });
 

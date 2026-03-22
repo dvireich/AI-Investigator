@@ -100,6 +100,22 @@ describe('CopilotProvider', () => {
         });
     });
 
+    describe('constructor — homeDir fallback', () => {
+        it('uses "." when both USERPROFILE and HOME are unset', () => {
+            const savedProfile = process.env.USERPROFILE;
+            const savedHome = process.env.HOME;
+            delete process.env.USERPROFILE;
+            delete process.env.HOME;
+            try {
+                const p = new CopilotProvider();
+                expect(p).toBeDefined();
+            } finally {
+                if (savedProfile !== undefined) process.env.USERPROFILE = savedProfile;
+                if (savedHome !== undefined) process.env.HOME = savedHome;
+            }
+        });
+    });
+
     describe('startAuthFlow', () => {
         it('calls GitHub device code endpoint', async () => {
             (axios.post as any).mockResolvedValueOnce({
@@ -240,6 +256,15 @@ describe('CopilotProvider', () => {
             (axios.get as any).mockRejectedValueOnce({ response: { status: 401 } });
             await expect(provider.getClient()).rejects.toThrow('Failed to get Copilot token');
             expect(fs.unlinkSync).toHaveBeenCalled();
+        });
+
+        it('swallows errors when unlinkSync throws during 401 cleanup', async () => {
+            (axios.post as any).mockResolvedValueOnce({ data: { access_token: 'tok' } });
+            await provider.pollAuthFlow!('dc');
+
+            (axios.get as any).mockRejectedValueOnce({ response: { status: 401 } });
+            (fs.unlinkSync as any).mockImplementationOnce(() => { throw new Error('permission denied'); });
+            await expect(provider.getClient()).rejects.toThrow('Failed to get Copilot token');
         });
 
         it('parses expires_at from Copilot API token response', async () => {

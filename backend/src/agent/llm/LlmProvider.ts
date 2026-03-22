@@ -87,3 +87,15 @@ export interface LlmProvider {
     /** List available models from this provider. */
     listModels(): Promise<string[]>;
 }
+
+export function isLlmProvider(value: unknown): value is LlmProvider {
+    return !!value
+        && typeof value === 'object'
+        && typeof (value as LlmProvider).type === 'string'
+        && typeof (value as LlmProvider).displayName === 'string'
+        && typeof (value as LlmProvider).getAuthRequirement === 'function'
+        && typeof (value as LlmProvider).configure === 'function'
+        && typeof (value as LlmProvider).getAuthStatus === 'function'
+        && typeof (value as LlmProvider).getClient === 'function'
+        && typeof (value as LlmProvider).listModels === 'function';
+}

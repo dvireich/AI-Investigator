@@ -578,7 +578,6 @@ export class AgentRunner extends EventEmitter {
                 }
             }
         };
-
         // Scan the knowledge base path
         if (kbRelPath) {
             const kbAbsPath = path.isAbsolute(kbRelPath) ? kbRelPath : path.join(repoRoot, kbRelPath);
@@ -1009,7 +1008,6 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                     });
                     continue;
                 }
-
                 return responseText || "Analysis complete.";
             }
 
@@ -1474,6 +1472,44 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         const summaryText = this.state.finalReport
             || (reportThoughts.length > 0 ? extractThoughtText(reportThoughts[reportThoughts.length - 1]) : 'No summary available.');
 
+        const thoughtPreview = reportThoughts.length > 0
+            ? extractThoughtText(reportThoughts[reportThoughts.length - 1])
+            : undefined;
+        const summaryState = {
+            id: this.state.id,
+            status: this.state.status,
+            thoughts: thoughtPreview ? [thoughtPreview] : [],
+            actions: [],
+            logs: [],
+            title: this.state.title,
+            query: this.state.query,
+            target: this.state.target,
+            timeRange: this.state.timeRange,
+            correlationId: this.state.correlationId,
+            category: this.state.category,
+            incidentId: this.state.incidentId,
+            model: this.state.model,
+            productId: this.state.productId,
+            pausedAt: this.state.pausedAt,
+            totalPausedTime: this.state.totalPausedTime,
+            finalReport: this.state.finalReport,
+            retrospect: this.state.retrospect ? {
+                messages: [],
+                proposals: (this.state.retrospect.proposals || []).map(proposal => ({ id: proposal.id, status: proposal.status })),
+                analysisComplete: this.state.retrospect.analysisComplete,
+                analysisFailed: this.state.retrospect.analysisFailed,
+                completed: this.state.retrospect.completed,
+            } : undefined,
+            contestCount: this.state.contestCount,
+            tags: this.state.tags || [],
+            createdBy: this.state.createdBy,
+            source: this.state.source,
+            scheduleId: this.state.scheduleId,
+            verdict: this.state.verdict,
+            _summaryOnly: true,
+            _thoughtCount: reportThoughts.length,
+        };
+
         // Cap thought text in report to prevent multi-MB reports when fullHistory has
         // hundreds of entries (many with 72K+ char observations). Full data is in state.json.
         const MAX_REPORT_THOUGHT_CHARS = 2_000;
@@ -1504,6 +1540,10 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             }).join('\n');
 
         fs.writeFileSync(path.join(investigationDir, `report.md`), report);
+        const summaryPath = path.join(investigationDir, 'summary.json');
+        const summaryTmpPath = summaryPath + '.tmp';
+        fs.writeFileSync(summaryTmpPath, JSON.stringify(summaryState, null, 2));
+        fs.renameSync(summaryTmpPath, summaryPath);
         this.log(`Artifacts saved.`);
     }
 
@@ -1629,7 +1669,6 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 // Get or reuse OpenAI-compatible client from provider
                 this.openaiClient = await this.llmProvider.getClient(180_000);
                 const openai = this.openaiClient;
-
                 const model = this.state.model || this.config.model || 'gpt-4o';
 
                 this.log(`Calling LLM (${model}) [Attempt ${attempt + 1}]...`);

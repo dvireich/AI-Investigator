@@ -67,3 +67,13 @@ export interface IncidentProvider {
      */
     fetchIncident(id: string, onProgress?: (event: IncidentProgressEvent) => void): Promise<IncidentData>;
 }
+
+export function isIncidentProvider(value: unknown): value is IncidentProvider {
+    return !!value
+        && typeof value === 'object'
+        && typeof (value as IncidentProvider).type === 'string'
+        && typeof (value as IncidentProvider).displayName === 'string'
+        && typeof (value as IncidentProvider).isAvailable === 'function'
+        && typeof (value as IncidentProvider).configure === 'function'
+        && typeof (value as IncidentProvider).fetchIncident === 'function';
+}

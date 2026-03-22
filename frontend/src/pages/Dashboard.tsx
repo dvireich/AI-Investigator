@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation } from '../api';
@@ -192,6 +192,8 @@ export const Dashboard = () => {
     const [showAnalytics, setShowAnalytics] = useState<boolean>(
         () => localStorage.getItem('inv-analytics') !== 'false'
     );
+    const deferredInvestigations = useDeferredValue(investigations);
+    const deferredSearch = useDeferredValue(search);
 
     const toggleAnalytics = () => {
         setShowAnalytics(prev => {
@@ -443,35 +445,35 @@ export const Dashboard = () => {
     // Get unique products from investigations
     const uniqueProducts = useMemo(() => Array.from(
         new Map(
-            investigations
+            deferredInvestigations
                 .filter(inv => inv.productId && inv.productName)
                 .map(inv => [inv.productId!, { id: inv.productId!, name: inv.productName! }])
         ).values()
-    ).sort((a, b) => a.name.localeCompare(b.name)), [investigations]);
+    ).sort((a, b) => a.name.localeCompare(b.name)), [deferredInvestigations]);
 
     // Get unique tags from all investigations
     const uniqueTags = useMemo(() => Array.from(
         new Set(
-            investigations.flatMap(inv => inv.tags || [])
+            deferredInvestigations.flatMap(inv => inv.tags || [])
         )
-    ).sort(), [investigations]);
+    ).sort(), [deferredInvestigations]);
 
     // Get unique creators from investigations
     const uniqueCreators = useMemo(() => Array.from(
         new Set(
-            investigations.map(inv => inv.createdBy).filter((c): c is string => !!c)
+            deferredInvestigations.map(inv => inv.createdBy).filter((c): c is string => !!c)
         )
-    ).sort(), [investigations]);
+    ).sort(), [deferredInvestigations]);
 
-    const filtered = useMemo(() => investigations
+    const filtered = useMemo(() => deferredInvestigations
         .filter(inv => filter === 'all' || inv.status === filter)
         .filter(inv => productFilter === 'all' || inv.productId === productFilter)
         .filter(inv => sourceFilter === 'all' || (inv.source || 'manual') === sourceFilter)
         .filter(inv => tagFilter === 'all' || (inv.tags || []).includes(tagFilter))
         .filter(inv => createdByFilter === 'all' || inv.createdBy === createdByFilter)
         .filter(inv => {
-            if (!search) return true;
-            const s = search.toLowerCase();
+            if (!deferredSearch) return true;
+            const s = deferredSearch.toLowerCase();
             return (
                 (inv.title || '').toLowerCase().includes(s) ||
                 (inv.query || '').toLowerCase().includes(s) ||
@@ -484,7 +486,7 @@ export const Dashboard = () => {
                 inv.id.toLowerCase().includes(s) ||
                 inv.thoughts.some(t => typeof t === 'string' && t.toLowerCase().includes(s))
             );
-        }), [investigations, filter, productFilter, sourceFilter, tagFilter, createdByFilter, search]);
+        }), [deferredInvestigations, filter, productFilter, sourceFilter, tagFilter, createdByFilter, deferredSearch]);
 
     // Sort: Pinned first, then Running/Paused, then by selected order
     const sorted = useMemo(() => [...filtered].sort((a, b) => {
@@ -743,7 +745,7 @@ export const Dashboard = () => {
             {/* KPI Bar — always visible when analytics expanded */}
             {investigations.length > 0 && (
                 <div className={`transition-all duration-300 ease-in-out origin-top ${showAnalytics ? 'max-h-[400px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-95 overflow-hidden pointer-events-none'}`}>
-                    <KpiBar investigations={investigations} />
+                    <KpiBar investigations={deferredInvestigations} />
                 </div>
             )}
 
@@ -758,7 +760,7 @@ export const Dashboard = () => {
                             <div key={widgetId} className="glass-card p-4 chart-enter">
                                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">{widget.name}</div>
                                 <div className="h-36">
-                                    <WidgetComponent investigations={investigations} />
+                                    <WidgetComponent investigations={deferredInvestigations} />
                                 </div>
                             </div>
                         );

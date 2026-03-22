@@ -138,6 +138,13 @@ describe('ToolManager', () => {
             expect(manager.initError).toContain('Working directory does not exist');
         });
 
+        it('uses console.log as log function when no logger is provided', async () => {
+            const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+            await manager.initialize([], undefined);  // no logger argument
+            consoleSpy.mockRestore();
+            expect(manager.isConnected()).toBe(true);
+        });
+
         it('injects cwd into MCP server config', async () => {
             dirs.add('/workdir');
             const logger = vi.fn();
@@ -224,6 +231,21 @@ describe('ToolManager', () => {
         it('handles finish tool', async () => {
             const result = await manager.callTool('finish', { summary: 'Done' });
             expect(result).toBe('Investigation marked as finished.');
+        });
+
+        it('resolves path via cwd when file not found under repo root', async () => {
+            // Set repo root to the filesystem root so any cwd-relative path starts with it
+            const fsRoot = norm(path.parse(process.cwd()).root);
+            manager.setRepoRoot(fsRoot);
+            dirs.add(fsRoot);
+            await manager.initialize([], undefined, vi.fn());
+
+            // Add file at cwd-relative location only (not at fsRoot-relative location)
+            const cwdFile = norm(path.resolve('cwd-only-file.txt'));
+            files.set(cwdFile, 'cwd content');
+
+            const result = await manager.callTool('read_file', { path: 'cwd-only-file.txt' });
+            expect(result).toBe('cwd content');
         });
 
         it('delegates unknown tools to MCP bridge', async () => {

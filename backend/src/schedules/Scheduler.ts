@@ -231,7 +231,7 @@ export class Scheduler extends EventEmitter {
         if (result.status === 'failed' || result.status === 'aborted') {
             verdict = 'error';
         } else if (result.status === 'paused') {
-            verdict = verdict || 'paused'; // hit max steps — not an error, just incomplete
+            if (!verdict || verdict === 'unknown') verdict = 'paused'; // hit max steps — not an error, just incomplete
         } else if (result.status === 'completed' && (!verdict || verdict === 'unknown')) {
             // Non-health-check investigation completed successfully — no health verdict expected
             verdict = 'completed';
