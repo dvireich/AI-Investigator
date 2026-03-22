@@ -2013,6 +2013,79 @@ describe('AgentRunner', () => {
             expect((runner as any).state.logs.some((l: string) => l.includes('[Retrospect] search_code'))).toBe(true);
         });
 
+        it('uses default maxResults of 20 when search_code call omits maxResults', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: {
+                                        // omit both pattern and maxResults to hit both || fallbacks
+                                        name: 'search_code',
+                                        arguments: JSON.stringify({}),
+                                    },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            const resolvedRepo = n(require('path').resolve('/repo'));
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, []);
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed', thoughts: ['step1'], actions: [null],
+            });
+            (runner as any).initRetrospect();
+            const messages = [{ role: 'system', content: 'prompt' }, { role: 'user', content: 'Analyze' }];
+            const tools = (runner as any).getImplementationTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            expect((runner as any).state.logs.some((l: string) => l.includes('[Retrospect] search_code'))).toBe(true);
+        });
+
+        it('emits fnName as activityDesc and returns Unknown tool for unrecognized tool', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: { name: 'super_mystery_tool', arguments: '{}' },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed', thoughts: ['step1'], actions: [null],
+            });
+            (runner as any).initRetrospect();
+            const messages = [{ role: 'system', content: 'prompt' }, { role: 'user', content: 'Analyze' }];
+            const tools = (runner as any).getImplementationTools();
+            const events: any[] = [];
+            runner.on('retrospect-tool-activity', (e) => events.push(e));
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            // The description should fall back to the raw tool name
+            expect(events.some((e) => e.description === 'super_mystery_tool')).toBe(true);
+        });
+
         it('handles read_file calls with a missing path argument', async () => {
             let callCount = 0;
             mockOpenAI.chat.completions.create.mockImplementation(async () => {
@@ -4694,6 +4767,26 @@ Some appendix.
             expect(recs[1].title).toBe('Clear cache');
         });
 
+        it('falls back to empty title and desc when both non-bold capture groups are empty', () => {
+            // Input ": description" — colon-format where title (group 3) captures empty string
+            // and description captures the text. The item is then skipped due to !title.
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. : some description here\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            // Empty title → item is skipped
+            expect(recs).toHaveLength(0);
+        });
+
+        it('falls back to empty desc when bold title has no description text', () => {
+            // "1. **Title**:" with empty text after colon — group 2 captures ""
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Empty desc item**:\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs).toHaveLength(1);
+            expect(recs[0].title).toBe('Empty desc item');
+            expect(recs[0].description).toBe('');
+        });
+
         it('classifies code recommendations correctly', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValueOnce({
                 choices: [{ message: { content: '["code","code","code","code"]' } }]
@@ -4824,11 +4917,38 @@ Some appendix.
             );
         });
 
+        it('falls back to gpt-4o when both state.model and config.model are undefined', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '["code"]' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix', description: 'D.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig({ model: undefined as any }), provider);
+            (runner as any).state.model = undefined;
+            await runner.classifyRecommendations(recs);
+            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+                expect.objectContaining({ model: 'gpt-4o' })
+            );
+        });
+
         it('returns markdown absent from state as empty recommendations', () => {
             const runner = new AgentRunner(makeConfig(), provider);
             (runner as any).state.finalReport = undefined;
             const recs = runner.parseRecommendations(undefined);
             expect(recs).toEqual([]);
+        });
+
+        it('falls back to defaults when message content is null', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: null } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix bug', description: 'Crashes.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations(recs);
+            expect(classified[0].category).toBe('code');
         });
     });
 
@@ -4970,6 +5090,28 @@ Some appendix.
             expect(result).toContain('No matches found');
         });
 
+        it('walkDir handles lstatSync errors via direct call', () => {
+            // Call walkDir directly with an inline fs that always throws on lstatSync.
+            // This guarantees v8 can attribute the catch-block branch correctly.
+            const pth = require('path');
+            const repoRoot = pth.resolve('/repo');
+            const fakeFsThrowLstat = {
+                readdirSync: () => ['file.cs'],
+                lstatSync: () => { throw new Error('permission denied'); },
+                readFileSync: () => '',
+                existsSync: () => true,
+            };
+            const runner = new AgentRunner(makeConfig(), provider);
+            const results: string[] = [];
+            (runner as any).walkDir(
+                fakeFsThrowLstat, pth,
+                repoRoot, repoRoot, /anything/,
+                new Set<string>(), new Set(['.cs']),
+                results, 20
+            );
+            expect(results).toHaveLength(0);
+        });
+
         it('searches with a searchPath parameter', () => {
             const pth = require('path');
             const repoResolved = pth.resolve('/repo');
@@ -4995,6 +5137,28 @@ Some appendix.
             const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
             const result = (runner as any).localSearchCode('nothing', 'src');
             expect(result).toContain("in 'src'");
+        });
+
+        it('returns error with dot placeholder when repoRoot does not exist and no searchPath', () => {
+            // No mockDirs.add(resolvedRepo) → existsSync(repoRoot) returns false
+            // searchPath is undefined → the `searchPath || '.'` fallback uses '.'
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('anything');
+            expect(result).toContain("Error: Path '.' does not exist");
+        });
+
+        it('stops at loop entry check when previous entry exactly filled maxResults', () => {
+            // file.cs has exactly 2 matching lines — inner loop exits normally (no early return)
+            // second.cs would also match, but the mid-loop guard fires before we read it
+            mockFsState.set(n(require('path').resolve('/repo/file.cs')), 'target\ntarget');
+            mockFsState.set(n(require('path').resolve('/repo/second.cs')), 'target');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['file.cs', 'second.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('target', undefined, 2);
+            expect(result.split('\n').length).toBe(2);
+            expect(result).not.toContain('second.cs');
         });
     });
 

@@ -1513,7 +1513,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 // Collect continuation lines (non-item lines that follow)
                 const afterItem = groupText.slice(itemMatch.index + itemMatch[0].length);
                 const continuationMatch = afterItem.match(/^((?:\n\s{2,}.*|\n\s+\-\s+.*)*)/);
-                const fullDesc = desc + (continuationMatch ? continuationMatch[1].replace(/\n\s{2,}/g, ' ').trim() : '');
+                const fullDesc = desc + continuationMatch[1].replace(/\n\s{2,}/g, ' ').trim();
 
                 recommendations.push({
                     id: `rec_${groups[g].priority}_${recommendations.length}`,
@@ -1583,6 +1583,48 @@ Respond with ONLY a JSON array of category strings, one per recommendation, in t
      * Search for code patterns in the repository.
      * Cross-platform recursive search using Node.js.
      */
+    private walkDir(
+        fs: any, path: any,
+        dir: string, repoRoot: string, regex: RegExp,
+        skipDirs: Set<string>, codeExts: Set<string>,
+        results: string[], maxResults: number
+    ): void {
+        let entries: string[];
+        try {
+            entries = fs.readdirSync(dir);
+        } catch (_e) {
+            return;
+        }
+        for (const entry of entries) {
+            if (results.length >= maxResults) return;
+            const fullPath = path.join(dir, entry);
+            let stat: any = null;
+            try {
+                stat = fs.lstatSync(fullPath);
+            } catch (_e) {
+                stat = null;
+            }
+            if (!stat) continue;
+            if (stat.isDirectory()) {
+                if (!skipDirs.has(entry)) this.walkDir(fs, path, fullPath, repoRoot, regex, skipDirs, codeExts, results, maxResults);
+            } else {
+                const ext = path.extname(entry).toLowerCase();
+                if (!codeExts.has(ext)) continue;
+                try {
+                    const content = fs.readFileSync(fullPath, 'utf-8');
+                    const lines = content.split('\n');
+                    for (let i = 0; i < lines.length; i++) {
+                        if (results.length >= maxResults) return;
+                        if (regex.test(lines[i])) {
+                            const relPath = path.relative(repoRoot, fullPath).replace(/\\/g, '/');
+                            results.push(`${relPath}:${i + 1}: ${lines[i].trimStart().substring(0, 200)}`);
+                        }
+                    }
+                } catch (_e) { /* skip binary/unreadable files */ }
+            }
+        }
+    }
+
     private localSearchCode(pattern: string, searchPath?: string, maxResults: number = 20): string {
         const fs = require('fs');
         const path = require('path');
@@ -1612,36 +1654,7 @@ Respond with ONLY a JSON array of category strings, one per recommendation, in t
         const skipDirs = new Set(['node_modules', '.git', 'bin', 'obj', 'packages', 'TestResults', 'CoverageReport', 'coverage', '.vs', 'Stage']);
         const codeExts = new Set(['.cs', '.ts', '.tsx', '.js', '.jsx', '.json', '.xml', '.csproj', '.sln', '.yaml', '.yml', '.md', '.config', '.props', '.targets', '.py']);
 
-        function walk(dir: string) {
-            if (results.length >= maxResults) return;
-            let entries: string[];
-            try { entries = fs.readdirSync(dir); } catch { return; }
-            for (const entry of entries) {
-                if (results.length >= maxResults) return;
-                const fullPath = path.join(dir, entry);
-                let stat;
-                try { stat = fs.lstatSync(fullPath); } catch { continue; }
-                if (stat.isDirectory()) {
-                    if (!skipDirs.has(entry)) walk(fullPath);
-                } else {
-                    const ext = path.extname(entry).toLowerCase();
-                    if (!codeExts.has(ext)) continue;
-                    try {
-                        const content = fs.readFileSync(fullPath, 'utf-8');
-                        const lines = content.split('\n');
-                        for (let i = 0; i < lines.length; i++) {
-                            if (results.length >= maxResults) return;
-                            if (regex.test(lines[i])) {
-                                const relPath = path.relative(repoRoot, fullPath).replace(/\\/g, '/');
-                                results.push(`${relPath}:${i + 1}: ${lines[i].trimStart().substring(0, 200)}`);
-                            }
-                        }
-                    } catch { /* skip binary/unreadable files */ }
-                }
-            }
-        }
-
-        walk(startDir);
+        this.walkDir(fs, path, startDir, repoRoot, regex, skipDirs, codeExts, results, maxResults);
 
         if (results.length === 0) {
             return `No matches found for pattern '${pattern}'${searchPath ? ` in '${searchPath}'` : ''}.`;
