@@ -104,6 +104,11 @@ vi.mock('../../api', () => ({
             { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
         ]),
         implementRecommendations: vi.fn().mockResolvedValue({ started: true }),
+        reclassifyRecommendations: vi.fn().mockResolvedValue([
+            { id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes', category: 'code' },
+            { id: 'rec_P0_1', priority: 'P0', title: 'Engage Kusto SRE', description: 'Contact the team', category: 'operational' },
+            { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
+        ]),
     },
     BASE_URL: 'http://localhost:3000',
 }));
@@ -131,6 +136,19 @@ describe('InvestigationDetail', () => {
         const { api } = await import('../../api');
         vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation());
         vi.mocked(api.listModels).mockResolvedValue(['gpt-4o', 'gpt-4-turbo', 'claude-3-opus']);
+        vi.mocked(api.updateProposal).mockResolvedValue({ success: true });
+        vi.mocked(api.applyProposals).mockResolvedValue({ applied: ['p1'], errors: [] });
+        vi.mocked(api.getRecommendations).mockResolvedValue([
+            { id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes', category: 'code' },
+            { id: 'rec_P0_1', priority: 'P0', title: 'Engage Kusto SRE', description: 'Contact the team', category: 'operational' },
+            { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
+        ]);
+        vi.mocked(api.implementRecommendations).mockResolvedValue({ started: true });
+        vi.mocked(api.reclassifyRecommendations).mockResolvedValue([
+            { id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes', category: 'code' },
+            { id: 'rec_P0_1', priority: 'P0', title: 'Engage Kusto SRE', description: 'Contact the team', category: 'operational' },
+            { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
+        ]);
     });
 
     afterEach(() => {
@@ -6600,6 +6618,77 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             expect(opsBadges.length).toBe(1); // Engage Kusto SRE
         });
 
+        it('toggles checkbox selection for code recommendations', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            // P0 code item is auto-selected; uncheck it
+            const checkboxes = screen.getAllByRole('checkbox');
+            const firstCheckbox = checkboxes[0];
+            expect(firstCheckbox).toBeChecked();
+            await user.click(firstCheckbox);
+            expect(firstCheckbox).not.toBeChecked();
+
+            // Re-check it
+            await user.click(firstCheckbox);
+            expect(firstCheckbox).toBeChecked();
+        });
+
+        it('calls reclassifyRecommendations and updates modal on Re-classify click', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            await user.click(screen.getByText('Re-classify'));
+
+            await waitFor(() => {
+                expect(api.reclassifyRecommendations).toHaveBeenCalledWith('1700000000000');
+            });
+        });
+
+        it('shows error toast when reclassify fails', async () => {
+            const { api } = await import('../../api');
+            (api.reclassifyRecommendations as any).mockRejectedValueOnce(new Error('LLM unavailable'));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            await user.click(screen.getByText('Re-classify'));
+
+            await waitFor(() => {
+                expect(screen.getByText(/Failed to re-classify/)).toBeInTheDocument();
+            });
+        });
+
         it('operational recommendations have no checkbox', async () => {
             const { api } = await import('../../api');
             (api.getRecommendations as any).mockResolvedValue([
@@ -6632,6 +6721,167 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             // Operational item is still visible but with strikethrough text
             expect(screen.getByText('Engage Kusto SRE')).toBeInTheDocument();
         });
+
+        it('auto-selects only non-operational P0 recommendations', async () => {
+            const { api } = await import('../../api');
+            (api.getRecommendations as any).mockResolvedValue([
+                { id: 'rec-code-p0', priority: 'P0', title: 'Patch parser', description: 'Fix parser edge case', category: 'code' },
+                { id: 'rec-ops-p0', priority: 'P0', title: 'Page SRE', description: 'Escalate operationally', category: 'operational' },
+                { id: 'rec-code-p1', priority: 'P1', title: 'Add tracing', description: 'Improve telemetry', category: 'code' },
+            ]);
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => screen.getByText('Patch parser'));
+
+            const checkboxes = screen.getAllByRole('checkbox');
+            expect(checkboxes).toHaveLength(2);
+            expect(checkboxes[0]).toBeChecked();
+            expect(checkboxes[1]).not.toBeChecked();
+            expect(screen.getByText(/Generate Implementation \(1\)/i)).toBeInTheDocument();
+        });
+
+        it('shows implementation running state, success toast, and clears it after completion refresh', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => screen.getByText('Fix the bug'));
+            await user.click(screen.getByText(/Generate Implementation/i));
+
+            await waitFor(() => {
+                expect(api.implementRecommendations).toHaveBeenCalledWith('1700000000000', ['rec_P0_0']);
+                expect(screen.getByText(/Implementation agent started/i)).toBeInTheDocument();
+                expect(screen.getByText(/Analyzing codebase and generating proposals/i)).toBeInTheDocument();
+                expect(screen.getByText('Implementing...')).toBeInTheDocument();
+            });
+
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [
+                        { role: 'assistant', content: 'Implementation complete. Ready for proposal review.' },
+                    ],
+                    proposals: [],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'retrospect' });
+                await vi.advanceTimersByTimeAsync(400);
+            });
+
+            await waitFor(() => {
+                expect(screen.queryByText('Implementing...')).not.toBeInTheDocument();
+                expect(screen.getByText(/Implement Recommendations/i)).toBeInTheDocument();
+            });
+        });
+
+        it('renders implementation proposal cards and proposal actions', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [],
+                    proposals: [
+                        {
+                            id: 'impl-pending',
+                            source: 'implementation',
+                            type: 'create',
+                            filePath: 'src/new-file.ts',
+                            description: 'Create a new helper file',
+                            content: 'export const created = true;',
+                            status: 'pending',
+                        },
+                        {
+                            id: 'impl-approved',
+                            source: 'implementation',
+                            type: 'edit',
+                            filePath: 'src/existing.ts',
+                            description: 'Update existing logic',
+                            content: 'export const updated = true;',
+                            status: 'approved',
+                        },
+                        {
+                            id: 'impl-applied',
+                            source: 'implementation',
+                            type: 'edit',
+                            filePath: 'src/applied.ts',
+                            description: 'Already applied change',
+                            content: 'export const applied = true;',
+                            status: 'applied',
+                        },
+                    ],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Proposed Code Changes/i)).toBeInTheDocument();
+                expect(screen.getAllByText('3').length).toBeGreaterThan(0);
+                expect(screen.getAllByRole('button', { name: /Apply 1/i }).length).toBeGreaterThan(0);
+                expect(screen.getAllByText('src/new-file.ts').length).toBeGreaterThan(0);
+                expect(screen.getAllByText('src/existing.ts').length).toBeGreaterThan(0);
+                expect(screen.getAllByText('src/applied.ts').length).toBeGreaterThan(0);
+            });
+
+            await user.click(screen.getAllByText('src/new-file.ts')[0]);
+            await waitFor(() => {
+                expect(screen.getAllByText('Create a new helper file').length).toBeGreaterThan(0);
+                expect(screen.getAllByText(/export const created = true;/i).length).toBeGreaterThan(0);
+                expect(screen.getAllByRole('button', { name: /^Approve$/i }).length).toBeGreaterThan(0);
+                expect(screen.getAllByRole('button', { name: /^Reject$/i }).length).toBeGreaterThan(0);
+            });
+
+            await user.click(screen.getAllByRole('button', { name: /^Approve$/i })[0]);
+            await waitFor(() => {
+                expect(api.updateProposal).toHaveBeenCalledWith('1700000000000', 'impl-pending', 'approved');
+            });
+
+            await user.click(screen.getAllByText('src/existing.ts')[0]);
+            await waitFor(() => {
+                expect(screen.getAllByText('Update existing logic').length).toBeGreaterThan(0);
+                expect(screen.getAllByRole('button', { name: /Undo/i }).length).toBeGreaterThan(0);
+            });
+
+            await user.click(screen.getAllByRole('button', { name: /Undo/i })[0]);
+            await waitFor(() => {
+                expect(api.updateProposal).toHaveBeenCalledWith('1700000000000', 'impl-approved', 'rejected');
+            });
+
+            await user.click(screen.getAllByRole('button', { name: /Apply 1/i })[0]);
+            await waitFor(() => {
+                expect(api.applyProposals).toHaveBeenCalledWith('1700000000000');
+            });
+        }, 10000);
     });
 
 });

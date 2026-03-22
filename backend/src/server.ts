@@ -2615,13 +2615,13 @@ app.post('/api/investigations/:id/implement', async (req, res) => {
 
         // Wire up SSE events for real-time updates
         runner.on('retrospect', (retro: any) => {
-            broadcastEvent(id, 'retrospect', retro);
+            broadcast(id, 'retrospect', retro);
         });
         runner.on('retrospect-proposal', (proposal: any) => {
-            broadcastEvent(id, 'retrospect-proposal', proposal);
+            broadcast(id, 'retrospect-proposal', proposal);
         });
         runner.on('retrospect-tool-activity', (activity: any) => {
-            broadcastEvent(id, 'retrospect-tool-activity', activity);
+            broadcast(id, 'retrospect-tool-activity', activity);
         });
     }
 

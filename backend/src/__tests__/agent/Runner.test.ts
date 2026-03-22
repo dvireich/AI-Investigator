@@ -251,6 +251,93 @@ describe('AgentRunner', () => {
             expect(state.verdict).toBe('healthy');
         });
 
+        it('classifies recommendations when finish tool report has them', async () => {
+            const reportWithRecs = '## Final Report\nDetails here.\n\n## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the parser**: The parser fails on edge cases.\n';
+            // First call: return content with finish tool as function_call
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Done.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: { name: 'finish', arguments: JSON.stringify({ report: reportWithRecs }) },
+                            }],
+                        },
+                    }],
+                })
+                // Second call: for classifyRecommendations LLM call
+                .mockResolvedValueOnce({
+                    choices: [{ message: { content: '["code"]' } }],
+                });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            await runner.start('Investigate');
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('completed');
+            expect(state.recommendations).toBeDefined();
+            expect(state.recommendations!.length).toBe(1);
+            expect(state.recommendations![0].category).toBe('code');
+        });
+
+        it('falls back to unclassified recommendations when classification throws', async () => {
+            const reportWithRecs = '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crashes\n';
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Finished.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: { name: 'finish', arguments: JSON.stringify({ report: reportWithRecs }) },
+                            }],
+                        },
+                    }],
+                })
+                .mockRejectedValueOnce(new Error('LLM API is down'));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            await runner.start('Investigate');
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('completed');
+            // Falls back to parseRecommendations without classification
+            expect(state.recommendations).toBeDefined();
+            expect(state.recommendations!.length).toBe(1);
+            expect(state.recommendations![0].category).toBe('code'); // default from parseRecommendations
+        });
+
+        it('recovers when parseRecommendations throws in the try block', async () => {
+            const reportWithRecs = '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix bug**: details\n';
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Done.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: { name: 'finish', arguments: JSON.stringify({ report: reportWithRecs }) },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // Make parseRecommendations throw on first call, succeed on second (in catch block)
+            const parseSpy = vi.spyOn(runner as any, 'parseRecommendations')
+                .mockImplementationOnce(() => { throw new Error('parse explosion'); })
+                .mockReturnValueOnce([{ id: 'rec_P0_0', priority: 'P0', title: 'Fallback', description: 'x', category: 'code' }]);
+
+            await runner.start('Investigate');
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('completed');
+            expect(state.recommendations).toHaveLength(1);
+            expect(state.recommendations![0].title).toBe('Fallback');
+            expect(parseSpy).toHaveBeenCalledTimes(2);
+        });
+
         it('executes tool actions and feeds results back', async () => {
             mockOpenAI.chat.completions.create
                 .mockResolvedValueOnce({
@@ -1878,6 +1965,52 @@ describe('AgentRunner', () => {
             expect(events.some((event: any) =>
                 event.tool === 'propose_change' && event.description === 'Proposing change: '
             )).toBe(true);
+        });
+
+        it('handles search_code tool calls', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: {
+                                        name: 'search_code',
+                                        arguments: JSON.stringify({ pattern: 'MyService', path: '', maxResults: 10 }),
+                                    },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            const resolvedRepo = n(require('path').resolve('/repo'));
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['App.cs']);
+            mockFsState.set(n(require('path').resolve('/repo/App.cs')), 'public class MyService { }');
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+            ];
+            const tools = (runner as any).getImplementationTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            // search_code should have been logged
+            expect((runner as any).state.logs.some((l: string) => l.includes('[Retrospect] search_code'))).toBe(true);
         });
 
         it('handles read_file calls with a missing path argument', async () => {
@@ -4550,6 +4683,17 @@ Some appendix.
             expect(recs[0].title).toBe('Patch config');
         });
 
+        it('treats entire section as P0 when no group headings exist', () => {
+            const markdown = `## Recommendations\n\n1. **Restart service**: The service needs a restart.\n2. **Clear cache**: Stale entries found.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(2);
+            expect(recs[0].priority).toBe('P0');
+            expect(recs[1].priority).toBe('P0');
+            expect(recs[0].title).toBe('Restart service');
+            expect(recs[1].title).toBe('Clear cache');
+        });
+
         it('classifies code recommendations correctly', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValueOnce({
                 choices: [{ message: { content: '["code","code","code","code"]' } }]
@@ -4625,6 +4769,67 @@ Some appendix.
             expect(classified).toEqual([]);
             expect(mockOpenAI.chat.completions.create).not.toHaveBeenCalled();
         });
+
+        it('parses non-bold title format (Title: Description)', () => {
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. Fix the crash: Service restarts frequently.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Fix the crash');
+            expect(recs[0].description).toContain('Service restarts');
+        });
+
+        it('skips items with empty titles', () => {
+            // A numbered item that doesn't match a title pattern
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Valid**: Do things.\n2. ** **: Empty bold.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            // The second item has empty bold text, should be skipped
+            expect(recs.every(r => r.title.length > 0)).toBe(true);
+        });
+
+        it('returns empty string for continuation when no indent follows', () => {
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Short item**: No continuation lines follow this.\n\n## Next Section\nOther content.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].description).toBe('No continuation lines follow this.');
+        });
+
+        it('falls back to defaults when LLM returns non-JSON response', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: 'I cannot classify these.' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix bug', description: 'Crashes.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations(recs);
+            expect(classified[0].category).toBe('code'); // returns unchanged
+        });
+
+        it('uses config model when state model is undefined', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '["code"]' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix', description: 'D.', category: 'code' },
+            ];
+            // makeConfig sets model to 'test-model' but state has no model
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).state.model = undefined;
+            await runner.classifyRecommendations(recs);
+            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+                expect.objectContaining({ model: 'test-model' })
+            );
+        });
+
+        it('returns markdown absent from state as empty recommendations', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).state.finalReport = undefined;
+            const recs = runner.parseRecommendations(undefined);
+            expect(recs).toEqual([]);
+        });
     });
 
     describe('localSearchCode', () => {
@@ -4666,6 +4871,130 @@ Some appendix.
             const runner = new AgentRunner(makeConfig(), provider);
             const result = (runner as any).localSearchCode('nonExistentPattern123');
             expect(result).toContain('No matches found');
+        });
+
+        it('returns error when search path does not exist', () => {
+            mockDirs.add(resolvedRepo);
+            const runner = new AgentRunner(makeConfig({ repoRoot: require('path').resolve('/repo') }), provider);
+            const result = (runner as any).localSearchCode('test', 'nonexistent-subdir');
+            expect(result).toContain('Error');
+            expect(result).toContain('does not exist');
+        });
+
+        it('walks into subdirectories to find matches', () => {
+            const pth = require('path');
+            const fs = require('fs');
+            const repoResolved = pth.resolve('/repo');
+            const subDir = n(pth.resolve('/repo/submod'));
+            mockDirs.add(n(repoResolved));
+            mockDirs.add(subDir);
+            // Insert more-specific paths first so readdirSyncImpl's includes check
+            // matches the deepest path before its parent
+            mockDirEntries.set(subDir, ['Deep.cs']);
+            mockDirEntries.set(n(repoResolved), ['submod']);
+            mockFsState.set(n(pth.resolve('/repo/submod/Deep.cs')), 'public class DeepClass { }');
+
+            // Override lstatSync to use exact set for precise directory checks
+            // (the default mock's includes-based check falsely marks files as dirs)
+            const dirSet = new Set([n(repoResolved), subDir]);
+            vi.mocked(fs.lstatSync).mockImplementation((p: string) => ({
+                isDirectory: () => dirSet.has(n(p as string)),
+            }));
+
+            const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
+            const result = (runner as any).localSearchCode('DeepClass');
+            expect(result).toContain('Deep.cs');
+            expect(result).toContain('DeepClass');
+        });
+
+        it('stops when maxResults is reached', () => {
+            mockFsState.set(n(require('path').resolve('/repo/a.cs')), 'hit1\nhit2\nhit3');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['a.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('hit', undefined, 1);
+            expect(result.split('\n').length).toBe(1);
+        });
+
+        it('skips entries in skipDirs list', () => {
+            const pth = require('path');
+            const fs = require('fs');
+            const repoResolved = pth.resolve('/repo');
+            const nmDir = n(pth.resolve('/repo/node_modules'));
+            mockDirs.add(n(repoResolved));
+            mockDirEntries.set(n(repoResolved), ['node_modules', 'app.cs']);
+            mockDirEntries.set(nmDir, ['secret.cs']);
+            mockFsState.set(n(pth.resolve('/repo/app.cs')), 'found it');
+            mockFsState.set(n(pth.resolve('/repo/node_modules/secret.cs')), 'hidden');
+
+            const dirSet = new Set([n(repoResolved), nmDir]);
+            vi.mocked(fs.lstatSync).mockImplementation((p: string) => ({
+                isDirectory: () => dirSet.has(n(p as string)),
+            }));
+
+            const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
+            const result = (runner as any).localSearchCode('found');
+            expect(result).toContain('app.cs');
+            expect(result).not.toContain('secret');
+        });
+
+        it('skips files with non-code extensions', () => {
+            mockFsState.set(n(require('path').resolve('/repo/data.dll')), 'binary stuff match');
+            mockFsState.set(n(require('path').resolve('/repo/code.cs')), 'match here');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['data.dll', 'code.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('match');
+            expect(result).toContain('code.cs');
+            expect(result).not.toContain('data.dll');
+        });
+
+        it('handles readdirSync errors gracefully', () => {
+            mockDirs.add(resolvedRepo);
+            mockReaddirThrow.add(resolvedRepo);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('anything');
+            expect(result).toContain('No matches found');
+        });
+
+        it('handles lstatSync errors gracefully', () => {
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['bad.cs']);
+            mockStatThrow.add(n(require('path').resolve('/repo/bad.cs')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('anything');
+            expect(result).toContain('No matches found');
+        });
+
+        it('searches with a searchPath parameter', () => {
+            const pth = require('path');
+            const repoResolved = pth.resolve('/repo');
+            const srcDir = n(pth.resolve('/repo/src'));
+            mockDirs.add(n(repoResolved));
+            mockDirs.add(srcDir);
+            mockDirEntries.set(srcDir, ['file.cs']);
+            mockFsState.set(n(pth.resolve('/repo/src/file.cs')), 'target code');
+
+            const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
+            const result = (runner as any).localSearchCode('target', 'src');
+            expect(result).toContain('file.cs');
+        });
+
+        it('includes searchPath in no-matches message', () => {
+            const pth = require('path');
+            const repoResolved = pth.resolve('/repo');
+            const srcDir = n(pth.resolve('/repo/src'));
+            mockDirs.add(n(repoResolved));
+            mockDirs.add(srcDir);
+            mockDirEntries.set(srcDir, []);
+
+            const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
+            const result = (runner as any).localSearchCode('nothing', 'src');
+            expect(result).toContain("in 'src'");
         });
     });
 
@@ -4789,6 +5118,120 @@ Some appendix.
             const proposals = (runner as any).state.retrospect.proposals;
             expect(proposals.length).toBe(1);
             expect(proposals[0].source).toBe('retrospect');
+        });
+    });
+
+    describe('runImplementationAnalysis coverage', () => {
+        it('reports proposal count when proposals exist', async () => {
+            // Mock LLM to return a response, then manually inject a proposal
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                return { choices: [{ message: { content: 'Done with changes.', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: The service crashes.\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            // Pre-inject a proposal so the proposalCount > 0 branch is hit
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockImplementation(async () => {
+                const retro = (runner as any).state.retrospect;
+                retro.proposals.push({ id: 'p1', source: 'implementation', filePath: 'src/Fix.cs', type: 'edit', status: 'pending' });
+                return 'Changes applied.';
+            });
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            const lastMsg = retro.messages[retro.messages.length - 1];
+            expect(lastMsg.content).toContain('1 code change proposed');
+            expect(lastMsg.content).toContain('Implementation complete');
+        });
+
+        it('uses plural when multiple proposals exist', async () => {
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockImplementation(async () => {
+                const retro = (runner as any).state.retrospect;
+                retro.proposals.push({ id: 'p1', source: 'implementation', filePath: 'a.cs', type: 'edit', status: 'pending' });
+                retro.proposals.push({ id: 'p2', source: 'implementation', filePath: 'b.cs', type: 'edit', status: 'pending' });
+                return 'All fixed.';
+            });
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            const lastMsg = retro.messages[retro.messages.length - 1];
+            expect(lastMsg.content).toContain('2 code changes proposed');
+        });
+
+        it('handles error during implementation tool loop', async () => {
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                return { choices: [{ message: { content: 'thinking', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockRejectedValue(new Error('LLM connection lost'));
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            const lastMsg = retro.messages[retro.messages.length - 1];
+            expect(lastMsg.content).toContain('Error during implementation: LLM connection lost');
+            expect((runner as any).isImplementationRunning).toBe(false);
+        });
+
+        it('handles AbortError as cancellation', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            const abortError = new Error('Aborted');
+            abortError.name = 'AbortError';
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockRejectedValue(abortError);
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            const lastMsg = retro.messages[retro.messages.length - 1];
+            expect(lastMsg.content).toBe('Implementation was cancelled.');
+            expect((runner as any).isImplementationRunning).toBe(false);
+        });
+
+        it('handles undefined finalReport in context building', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            // Mock parseRecommendations to return recs even without a finalReport
+            vi.spyOn(runner as any, 'parseRecommendations').mockReturnValue([
+                { id: 'rec_P0_0', priority: 'P0', title: 'Fix', description: 'Fix it', category: 'code' },
+            ]);
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockResolvedValue('Done.');
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+            expect((runner as any).isImplementationRunning).toBe(false);
         });
     });
 
