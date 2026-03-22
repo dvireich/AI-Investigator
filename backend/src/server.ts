@@ -211,10 +211,7 @@ let activeLlmProvider: LlmProvider | null = null;
 let activeIncidentProvider: IncidentProvider | null = null;
 
 app.use(cors());
-app.use((req, res, next) => {
-    const limit = req.path === '/api/investigations/import' ? Infinity : '100kb';
-    express.json({ limit })(req, res, next);
-});
+app.use(express.json({ limit: Infinity }));
 
 export function jsonParseErrorHandler(err: any, req: express.Request, res: express.Response, next: express.NextFunction) {
     if (err.type === 'entity.parse.failed') {
