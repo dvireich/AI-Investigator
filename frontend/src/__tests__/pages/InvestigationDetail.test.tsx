@@ -6923,6 +6923,70 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 expect(api.applyProposals).toHaveBeenCalledWith('1700000000000');
             });
         }, 10000);
+
+        it('rejects a pending implementation proposal via Reject button', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [],
+                    proposals: [
+                        {
+                            id: 'impl-pending',
+                            source: 'implementation',
+                            type: 'create',
+                            filePath: 'src/new-file.ts',
+                            description: 'Create a new helper file',
+                            content: 'export const created = true;',
+                            status: 'pending',
+                        },
+                    ],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => screen.getAllByText('src/new-file.ts'));
+            await user.click(screen.getAllByText('src/new-file.ts')[0]);
+            await waitFor(() => screen.getAllByRole('button', { name: /^Reject$/i }));
+
+            await user.click(screen.getAllByRole('button', { name: /^Reject$/i })[0]);
+            await waitFor(() => {
+                expect(api.updateProposal).toHaveBeenCalledWith('1700000000000', 'impl-pending', 'rejected');
+            });
+        });
+
+        it('closes recommendation modal when clicking backdrop overlay', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            // Find the backdrop via a unique modal-only element, then fireEvent
+            // (userEvent clicks the center which hits the inner stopPropagation div)
+            const backdrop = screen.getByText('Fix the bug').closest('.fixed');
+            expect(backdrop).toBeTruthy();
+            fireEvent.click(backdrop!);
+
+            await waitFor(() => {
+                expect(screen.queryByText('Fix the bug')).not.toBeInTheDocument();
+            });
+        });
     });
 
 });
