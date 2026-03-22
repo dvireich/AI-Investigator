@@ -471,6 +471,14 @@ export const api = {
         return res.json();
     },
 
+    reclassifyRecommendations: async (id: string): Promise<Recommendation[]> => {
+        const res = await fetch(`${API_URL}/investigations/${id}/recommendations/reclassify`, {
+            method: 'POST',
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     implementRecommendations: async (id: string, recommendations: string[]) => {
         const res = await fetch(`${API_URL}/investigations/${id}/implement`, {
             method: 'POST',

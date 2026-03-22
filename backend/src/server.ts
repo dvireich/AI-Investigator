@@ -2549,21 +2549,48 @@ app.post('/api/investigations/:id/retrospect/apply', async (req, res) => {
     }
 });
 
-// --- Parse recommendations from final report ---
-app.get('/api/investigations/:id/recommendations', (req, res) => {
+// --- Get recommendations (cached from investigation completion, or parse on demand) ---
+app.get('/api/investigations/:id/recommendations', async (req, res) => {
     const id = req.params.id;
     const runner = runners.get(id);
     const state = runner ? (runner as any).state : history.get(id);
 
     if (!state) return res.status(404).json({ error: 'Investigation not found' });
 
-    const finalReport = runner ? state.finalReport : state.finalReport;
+    // Return cached recommendations if available
+    if (state.recommendations && state.recommendations.length > 0) {
+        return res.json(state.recommendations);
+    }
+
+    const finalReport = state.finalReport;
     if (!finalReport) return res.json([]);
 
-    // Create a temporary runner just for parsing (stateless operation)
+    // Lazy classification for older investigations without cached recommendations
     const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
     const recommendations = tempRunner.parseRecommendations(finalReport);
-    res.json(recommendations);
+    if (recommendations.length > 0) {
+        const classified = await tempRunner.classifyRecommendations(recommendations);
+        // Cache in state for next load
+        state.recommendations = classified;
+        return res.json(classified);
+    }
+    res.json([]);
+});
+
+// --- Force re-classify recommendations ---
+app.post('/api/investigations/:id/recommendations/reclassify', async (req, res) => {
+    const id = req.params.id;
+    const runner = runners.get(id);
+    const state = runner ? (runner as any).state : history.get(id);
+
+    if (!state) return res.status(404).json({ error: 'Investigation not found' });
+    if (!state.finalReport) return res.json([]);
+
+    const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
+    const recommendations = tempRunner.parseRecommendations(state.finalReport);
+    const classified = await tempRunner.classifyRecommendations(recommendations);
+    state.recommendations = classified;
+    res.json(classified);
 });
 
 // --- Run implementation agent for selected recommendations ---

@@ -77,6 +77,7 @@ export interface InvestigationState {
     pausedAt?: number;
     totalPausedTime?: number;
     finalReport?: string;
+    recommendations?: Recommendation[];
     retrospect?: RetrospectState;
     contestCount?: number;
     tags?: string[];
@@ -370,6 +371,20 @@ export class AgentRunner extends EventEmitter {
 
                         this.state.finalReport = report;
                         this.state.thoughts.push(`Observation: Report Generated.`);
+
+                        // Parse and classify recommendations from the report
+                        try {
+                            const recs = this.parseRecommendations(report);
+                            if (recs.length > 0) {
+                                this.state.recommendations = await this.classifyRecommendations(recs);
+                                this.log(`Classified ${this.state.recommendations.length} recommendations.`);
+                            } else {
+                                this.state.recommendations = [];
+                            }
+                        } catch (err: any) {
+                            this.log(`Warning: recommendation classification failed: ${err.message}`);
+                            this.state.recommendations = this.parseRecommendations(report);
+                        }
 
                         // Update last action result (the finish action, before pushing null alignment entry)
                         const finishAction = this.state.actions[this.state.actions.length - 1];
@@ -1505,7 +1520,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                     priority: groups[g].priority,
                     title,
                     description: fullDesc,
-                    category: this.classifyRecommendation(title, fullDesc)
+                    category: 'code'  // default; refined by classifyRecommendations()
                 });
             }
         }
@@ -1513,45 +1528,55 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         return recommendations;
     }
 
-    private classifyRecommendation(title: string, description: string): 'code' | 'operational' {
-        const text = `${title} ${description}`.toLowerCase();
+    async classifyRecommendations(recs: Recommendation[]): Promise<Recommendation[]> {
+        if (recs.length === 0) return recs;
 
-        // Operational keywords — actions that involve people, infrastructure, or process
-        const operationalPatterns = [
-            /\bengage\b/, /\bcontact\b/, /\bescalate\b/, /\bcoordinate\b/,
-            /\bmonitor\b(?!ing\s+(code|class|method|function|service\s+class))/,
-            /\binvestigate\b(?!\s+(the\s+)?(code|class|bug|error\s+handling|root\s+cause\s+in))/,
-            /\bconfirm\b/, /\bvalidate\b(?!\s+(input|parameter|argument|request))/,
-            /\bscale\s+(out|up|down|in)\b/, /\bincrease\s+(instance|cluster|vm|node|replica)/i,
-            /\bset\s+vmss\b/i, /\brequest\s+scaling\b/,
-            /\btest\s+(with|throughput|performance|latency)\b/,
-            /\bsre\b/i, /\bkusto\s+cluster\s+health\b/,
-            /\bdetermine\s+(the\s+)?(optimal|maximum|minimum)\b/,
-        ];
+        const numbered = recs.map((r, i) => `${i + 1}. "${r.title}": ${r.description}`).join('\n');
 
-        // Code keywords — actions that involve writing, changing, or creating code
-        const codePatterns = [
-            /\bimplement\b/, /\brefactor\b/, /\bcreate\s+(a\s+)?(class|method|function|module|service|handler|interface)/,
-            /\badd\s+(a\s+)?(pre-|validation|logging|metric|check|handler|field|parameter|method|retry|circuit|dedup)/,
-            /\bfix\s+(the\s+)?(bug|crash|error|code|race\s+condition|exception|null|deadlock)/,
-            /\breclassify\s+(the\s+)?error\b/, /\bchange\s+(the\s+)?(code|logic|algorithm|class)/,
-            /\bdeduplicate\b/, /\buse\s+unique\b/,
-            /\badd\s+.*\b(pattern|logic)\b/,
-            /\bupdate\s+(the\s+)?(code|handler|processor|service\s+code|class|mapping|config(uration)?)\b/,
-        ];
+        try {
+            const openai = await this.llmProvider.getClient(30_000);
+            const model = this.state.model || this.config.model || 'gpt-4o';
 
-        let codeScore = 0;
-        let opsScore = 0;
+            const completion = await openai.chat.completions.create({
+                model,
+                messages: [
+                    {
+                        role: 'system',
+                        content: `You classify investigation recommendations as either "code" or "operational".
 
-        for (const p of codePatterns) {
-            if (p.test(text)) codeScore++;
+A recommendation is "code" if it can be implemented by modifying source code in the repository — adding logic, fixing bugs, refactoring classes, adding metrics/logging code, changing configuration constants in code, adding validation, implementing patterns, etc.
+
+A recommendation is "operational" if it requires human action outside the codebase — contacting teams, engaging SREs, monitoring dashboards, scaling infrastructure, investigating external services, running performance tests, filing tickets, etc.
+
+When a recommendation says "investigate" a specific class or service that exists in the repo's source code, that is "code" (investigating code to find a bug). When it says "investigate" an external cluster or infrastructure, that is "operational".
+
+Respond with ONLY a JSON array of category strings, one per recommendation, in the same order. Example: ["code","operational","code"]`
+                    },
+                    {
+                        role: 'user',
+                        content: numbered
+                    }
+                ]
+            });
+
+            const raw = completion.choices[0].message.content?.trim() || '';
+            // Extract JSON array from response (handle markdown code blocks)
+            const jsonMatch = raw.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                const categories: string[] = JSON.parse(jsonMatch[0]);
+                if (categories.length === recs.length) {
+                    return recs.map((r, i) => ({
+                        ...r,
+                        category: categories[i] === 'operational' ? 'operational' : 'code'
+                    }));
+                }
+            }
+            this.log('Warning: LLM classification response did not match expected format, using defaults');
+        } catch (err: any) {
+            this.log(`Warning: LLM classification failed (${err.message}), using defaults`);
         }
-        for (const p of operationalPatterns) {
-            if (p.test(text)) opsScore++;
-        }
 
-        // Default to 'code' when ambiguous — the user can still deselect
-        return opsScore > codeScore ? 'operational' : 'code';
+        return recs;
     }
 
     /**
@@ -1848,6 +1873,7 @@ ${recsText}
             pausedAt: this.state.pausedAt,
             totalPausedTime: this.state.totalPausedTime,
             finalReport: this.state.finalReport,
+            recommendations: this.state.recommendations,
             retrospect: this.state.retrospect ? {
                 messages: [],
                 proposals: (this.state.retrospect.proposals || []).map(proposal => ({ id: proposal.id, status: proposal.status })),
@@ -1967,6 +1993,7 @@ ${recsText}
 
         // Clear the final report
         this.state.finalReport = undefined;
+        this.state.recommendations = undefined;
 
         // Reset retrospective (it analyzed a now-rejected report)
         this.state.retrospect = { messages: [], proposals: [], analysisComplete: false, completed: false };

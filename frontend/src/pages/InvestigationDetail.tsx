@@ -2439,9 +2439,33 @@ export const InvestigationDetail = () => {
                                 )}
                             </div>
                             <div className="px-6 py-4 border-t border-slate-700/50 flex items-center justify-between">
-                                <button onClick={() => setShowImplModal(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">
-                                    Cancel
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => setShowImplModal(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                                        Cancel
+                                    </button>
+                                    {implRecommendations.length > 0 && (
+                                        <button
+                                            onClick={async () => {
+                                                setImplLoading(true);
+                                                try {
+                                                    const recs = await api.reclassifyRecommendations(investigation!.id);
+                                                    setImplRecommendations(recs);
+                                                    setImplSelected(new Set(recs.filter(r => r.priority === 'P0' && r.category !== 'operational').map(r => r.id)));
+                                                } catch (err: any) {
+                                                    toast('error', 'Failed to re-classify: ' + err.message);
+                                                } finally {
+                                                    setImplLoading(false);
+                                                }
+                                            }}
+                                            disabled={implLoading}
+                                            className="flex items-center gap-1.5 px-3 py-2 text-xs text-slate-400 hover:text-slate-200 border border-slate-700/50 hover:border-slate-600 rounded-lg transition-all"
+                                            title="Re-analyze recommendations with the LLM to fix misclassifications"
+                                        >
+                                            <RotateCcw className="w-3 h-3" />
+                                            Re-classify
+                                        </button>
+                                    )}
+                                </div>
                                 <button
                                     onClick={handleStartImplementation}
                                     disabled={implSelected.size === 0 || implLoading}
