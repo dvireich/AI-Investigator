@@ -211,7 +211,10 @@ let activeLlmProvider: LlmProvider | null = null;
 let activeIncidentProvider: IncidentProvider | null = null;
 
 app.use(cors());
-app.use(express.json());
+app.use((req, res, next) => {
+    const limit = req.path === '/api/investigations/import' ? '50mb' : '100kb';
+    express.json({ limit })(req, res, next);
+});
 
 export function jsonParseErrorHandler(err: any, req: express.Request, res: express.Response, next: express.NextFunction) {
     if (err.type === 'entity.parse.failed') {
@@ -2269,7 +2272,7 @@ app.get('/api/investigations/:id/export', async (req, res) => {
 });
 
 // --- Import investigation (from shared JSON) ---
-app.post('/api/investigations/import', express.json({ limit: '50mb' }), async (req, res) => {
+app.post('/api/investigations/import', async (req, res) => {
     invalidateListCache();
     const importedState = req.body;
 
