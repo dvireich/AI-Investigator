@@ -6750,6 +6750,47 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             expect(screen.getByText(/Generate Implementation \(1\)/i)).toBeInTheDocument();
         });
 
+        it('shows error toast when getRecommendations fails', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getRecommendations).mockRejectedValueOnce(new Error('Recommendations unavailable'));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => {
+                expect(screen.getByText(/Failed to parse recommendations: Recommendations unavailable/)).toBeInTheDocument();
+            });
+        });
+
+        it('shows error toast when implementRecommendations fails', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.implementRecommendations).mockRejectedValueOnce(new Error('LLM provider offline'));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            await user.click(screen.getByText(/Generate Implementation/i));
+
+            await waitFor(() => {
+                expect(screen.getByText(/Failed to start implementation: LLM provider offline/)).toBeInTheDocument();
+            });
+        });
+
         it('shows implementation running state, success toast, and clears it after completion refresh', async () => {
             const { api } = await import('../../api');
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -6882,6 +6923,198 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 expect(api.applyProposals).toHaveBeenCalledWith('1700000000000');
             });
         }, 10000);
+
+        it('rejects a pending implementation proposal via Reject button', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [],
+                    proposals: [
+                        {
+                            id: 'impl-pending',
+                            source: 'implementation',
+                            type: 'create',
+                            filePath: 'src/new-file.ts',
+                            description: 'Create a new helper file',
+                            content: 'export const created = true;',
+                            status: 'pending',
+                        },
+                    ],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => screen.getAllByText('src/new-file.ts'));
+            await user.click(screen.getAllByText('src/new-file.ts')[0]);
+            await waitFor(() => screen.getAllByRole('button', { name: /^Reject$/i }));
+
+            await user.click(screen.getAllByRole('button', { name: /^Reject$/i })[0]);
+            await waitFor(() => {
+                expect(api.updateProposal).toHaveBeenCalledWith('1700000000000', 'impl-pending', 'rejected');
+            });
+        });
+
+        it('closes recommendation modal when clicking backdrop overlay', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            // Find the backdrop via a unique modal-only element, then fireEvent
+            // (userEvent clicks the center which hits the inner stopPropagation div)
+            const backdrop = screen.getByText('Fix the bug').closest('.fixed');
+            expect(backdrop).toBeTruthy();
+            fireEvent.click(backdrop!);
+
+            await waitFor(() => {
+                expect(screen.queryByText('Fix the bug')).not.toBeInTheDocument();
+            });
+        });
+
+        it('renders rejected status badge and handles undefined content in proposals', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [],
+                    proposals: [
+                        {
+                            id: 'impl-rejected',
+                            source: 'implementation',
+                            type: 'edit',
+                            filePath: 'src/rejected.ts',
+                            description: 'Rejected change',
+                            content: '',
+                            status: 'rejected',
+                        },
+                    ],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => {
+                expect(screen.getAllByText('src/rejected.ts').length).toBeGreaterThan(0);
+                expect(screen.getAllByText('rejected').length).toBeGreaterThan(0);
+            });
+
+            // Expand the rejected proposal to trigger content || '' fallback
+            await user.click(screen.getAllByText('src/rejected.ts')[0]);
+            await waitFor(() => {
+                expect(screen.getAllByText('Rejected change').length).toBeGreaterThan(0);
+            });
+        });
+
+        it('collapses expanded proposal when clicking the same proposal again', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [],
+                    proposals: [
+                        {
+                            id: 'impl-toggle',
+                            source: 'implementation',
+                            type: 'create',
+                            filePath: 'src/toggle-collapse-test.ts',
+                            description: 'Unique collapse toggle description xyz',
+                            content: 'export const toggle = true;',
+                            status: 'pending',
+                        },
+                    ],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => screen.getAllByText('src/toggle-collapse-test.ts'));
+
+            // Expand the proposal — description appears in impl mini-panel AND retro panel, so use getAllByText
+            await user.click(screen.getAllByText('src/toggle-collapse-test.ts')[0]);
+            const descBefore = screen.getAllByText('Unique collapse toggle description xyz');
+            expect(descBefore.length).toBeGreaterThanOrEqual(1);
+
+            // Click the same proposal again to collapse it (exercises the null branch of the ternary)
+            await user.click(screen.getAllByText('src/toggle-collapse-test.ts')[0]);
+            // After collapsing, the impl mini-panel no longer shows the description
+            // but the retro panel might still show it — check the mini-panel content container
+            await waitFor(() => {
+                const implPanel = document.querySelector('.space-y-2.max-h-64');
+                expect(implPanel?.textContent).not.toContain('Unique collapse toggle description xyz');
+            });
+        });
+
+        it('shows truncation marker for long proposal content', async () => {
+            const { api } = await import('../../api');
+            const longContent = 'x'.repeat(2500);
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [],
+                    proposals: [
+                        {
+                            id: 'impl-long',
+                            source: 'implementation',
+                            type: 'create',
+                            filePath: 'src/big-file.ts',
+                            description: 'A file with long content',
+                            content: longContent,
+                            status: 'pending',
+                        },
+                    ],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => screen.getAllByText('src/big-file.ts'));
+            await user.click(screen.getAllByText('src/big-file.ts')[0]);
+
+            await waitFor(() => {
+                expect(screen.getByText(/\.\.\. \[truncated\]/)).toBeInTheDocument();
+            });
+        });
     });
 
 });

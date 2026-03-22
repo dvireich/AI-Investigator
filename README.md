@@ -16,7 +16,7 @@ An agentic system that runs, monitors, and learns from investigations — comple
 
 ---
 
-> **🚀 Quick Start:** [Download the latest release](../../releases/latest) — extract, configure, double-click. No Node.js required.
+> **🚀 Quick Start:** [Download the latest release](../../releases/latest) — extract, double-click `ai-investigator.exe`, configure your LLM provider in the onboarding wizard. No Node.js required.
 > See [docs/QUICKSTART.md](docs/QUICKSTART.md) for all installation options.
 
 ---
@@ -63,22 +63,34 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Dashboard Analytics** | Interactive charts — configurable 3-widget layout from 8 chart types, KPI bar, creator badges, and filter-by-creator |
 | **Multi-Product Support** | Configure multiple investigation targets with independent paths, prompts, and knowledge bases |
 | **Multi-User Tracking** | Every investigation records who created it (GitHub login, OS username, or scheduler) with dashboard filtering |
+| **Standalone Executable** | Download a single `.exe` — no Node.js installation required. Bundled Chromium for PDF export |
+| **First-Launch Onboarding** | Multi-step setup wizard guides new users through LLM provider selection and product discovery |
+| **Auto-Update Checking** | Checks for new releases on startup, shows a dismissible banner with download and release notes links |
+| **Implementation Agent** | Select recommendations from the final report and let an AI coding agent propose exact code changes |
 
 ---
 
 ## Visual Walkthrough
 
-<!-- ### 1. Dashboard
+---
+
+### 1. Onboarding Wizard
+
+First-launch experience that walks you through LLM provider selection and optional product discovery. Four steps: Welcome → LLM Provider → Product → Ready.
+
+![Onboarding Wizard](docs/screenshots/onboarding-wizard.png)
+
+---
+
+### 2. Dashboard
 
 The main dashboard shows all investigations as color-coded cards with live status, duration timers, and retrospective badges.
 
 ![Dashboard](docs/screenshots/dashboard.png)
 
-Screenshot: The investigation cards grid showing a mix of running (blue pulse), completed (green), and failed (red) investigations. The stats bar at the top shows Active / Completed / Failed counts. -->
-
 ---
 
-### 1. New Investigation
+### 3. New Investigation
 
 Launch investigations with structured context: target name, category, time window (8 quick presets or custom range), and model selection. Toggle between **Standard** and **Incident** modes to start from an incident ID with auto-extracted context.
 
@@ -88,7 +100,7 @@ Launch investigations with structured context: target name, category, time windo
 
 ---
 
-### 2. Investigation Start
+### 4. Investigation Start
 
 Once launched, the investigation begins with the agent initializing and preparing to execute the task.
 
@@ -98,19 +110,15 @@ Once launched, the investigation begins with the agent initializing and preparin
 
 ---
 
-<!-- ### 3. Live Session
+### 5. Live Session
 
 Watch the agent think and act in real-time. Each step shows the agent's reasoning (rendered Markdown) and tool executions with full arguments and results.
 
 ![Live Session](docs/screenshots/live-session.png)
 
-Screenshot: An active investigation showing several thought bubbles and tool call results (queries with table output). The sidebar shows investigation metadata.
-
---- -->
-
 ---
 
-### 3. Paused Investigation
+### 6. Paused Investigation
 
 Pause a running investigation at any time to review progress or prepare for intervention.
 
@@ -120,7 +128,7 @@ Pause a running investigation at any time to review progress or prepare for inte
 
 ---
 
-### 4. User Intervention
+### 7. User Intervention
 
 Inject custom instructions to a running investigation to guide the agent in a specific direction or provide additional context without pausing.
 
@@ -130,7 +138,7 @@ Inject custom instructions to a running investigation to guide the agent in a sp
 
 ---
 
-### 5. Contest Report
+### 8. Contest Report
 
 Disagree with the final report? Click **Contest Report** at the bottom of the Report tab, provide your feedback, and the investigation resumes — the agent re-examines its findings with your corrections.
 
@@ -138,7 +146,7 @@ Disagree with the final report? Click **Contest Report** at the bottom of the Re
 
 ---
 
-### 6. Investigation Resumed After Contest
+### 9. Investigation Resumed After Contest
 
 After contesting, the Live Session shows your feedback as an amber user bubble and a system notification. The agent acknowledges the feedback and continues investigating.
 
@@ -146,19 +154,15 @@ After contesting, the Live Session shows your feedback as an amber user bubble a
 
 ---
 
-<!-- ### 7. Token Management
+### 10. Token Management
 
 When the context window fills up, a banner appears with a one-click Summarize button that compacts history while preserving recent context.
 
 ![Token Alert](docs/screenshots/token-alert.png)
 
-Screenshot: The yellow/amber token alert banner at the top of the live session with the "Summarize" button.
-
---- -->
-
 ---
 
-### 7. Final Report
+### 11. Final Report
 
 Auto-generated Markdown report with findings, queries used, and conclusions — styled with prose typography.
 
@@ -168,7 +172,15 @@ Auto-generated Markdown report with findings, queries used, and conclusions — 
 
 ---
 
-### 8. Failed Investigation
+### 12. Implement Recommendations
+
+Select actionable recommendations from the final report and let an AI coding agent propose exact code changes. Code items get checkboxes; operational items are grayed out with an "OPS" badge. P0 code items are auto-selected.
+
+![Implement Recommendations](docs/screenshots/implement-recommendations.png)
+
+---
+
+### 13. Failed Investigation
 
 When an investigation encounters unrecoverable errors (consecutive LLM failures, tool disconnection), it transitions to a failed state with preserved context for debugging.
 
@@ -176,7 +188,7 @@ When an investigation encounters unrecoverable errors (consecutive LLM failures,
 
 ---
 
-### 9. Retrospective — Auto-Analysis
+### 14. Retrospective — Auto-Analysis
 
 When you open the Retrospect tab, an AI agent automatically reads the investigation transcript and knowledge base files, then proposes improvements.
 
@@ -186,7 +198,7 @@ When you open the Retrospect tab, an AI agent automatically reads the investigat
 
 ---
 
-### 10. Retrospective — Knowledge Base Analysis
+### 15. Retrospective — Knowledge Base Analysis
 
 The retrospective agent reads the investigation transcript and existing knowledge base files, then identifies gaps and proposes new documentation.
 
@@ -196,7 +208,7 @@ The retrospective agent reads the investigation transcript and existing knowledg
 
 ---
 
-### 11. Retrospective — Proposed Changes
+### 16. Retrospective — Proposed Changes
 
 The agent proposes concrete file changes (edit existing or create new). Review each proposal, approve or reject, then apply all approved changes to disk.
 
@@ -206,19 +218,15 @@ The agent proposes concrete file changes (edit existing or create new). Review e
 
 ---
 
-<!-- ### 12. Retrospective — Conversational Follow-up
+### 17. Retrospective — Conversational Follow-up
 
 After auto-analysis, continue chatting with the retrospective agent to explore additional improvements.
 
 ![Retrospective Chat](docs/screenshots/retrospective-chat.png)
 
-Screenshot: The chat panel with the auto-analysis message, followed by a user question and an agent response.
-
---- -->
-
 ---
 
-### 12. Settings
+### 18. Settings
 
 Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across five tabs: Products, Agent Behavior, Analytics, Appearance, and System.
 
@@ -228,7 +236,7 @@ Configure agent behavior, model selection, investigation storage path (with serv
 
 ---
 
-### 13. Settings — Analytics Widgets
+### 19. Settings — Analytics Widgets
 
 Choose which 3 analytics charts appear on the dashboard from a registry of 8 widget types. Each widget shows a preview of its chart style.
 
@@ -238,7 +246,7 @@ Choose which 3 analytics charts appear on the dashboard from a registry of 8 wid
 
 ---
 
-### 14. Resume All After Server Restart
+### 20. Resume All After Server Restart
 
 When the backend restarts, all running investigations are automatically paused. The dashboard shows a **Resume All** button with the count of paused investigations. Click it to resume them all at once (respecting the max concurrent limit). A separate **Restart Server** button lets you trigger a graceful restart directly from the UI.
 
@@ -248,7 +256,7 @@ When the backend restarts, all running investigations are automatically paused. 
 
 ---
 
-### 15. Share & Export
+### 21. Share & Export
 
 Non-running investigations show **Share** (sky-blue) and **PDF** (violet) buttons in the sidebar. Share exports the full investigation state as a JSON file; PDF renders the final report into a styled, downloadable PDF document via Puppeteer.
 
@@ -258,7 +266,7 @@ Non-running investigations show **Share** (sky-blue) and **PDF** (violet) button
 
 ---
 
-### 16. Import Investigation (Drag & Drop)
+### 22. Import Investigation (Drag & Drop)
 
 Import previously exported investigations via the **Import Investigation** button in the floating action dock, or simply drag and drop a `.json` file anywhere on the dashboard. A full-screen animated drop zone appears with gradient borders and a pulsing upload icon.
 
@@ -268,7 +276,7 @@ Import previously exported investigations via the **Import Investigation** butto
 
 ---
 
-### 17. Scheduled Investigations
+### 23. Scheduled Investigations
 
 Set up recurring automated health checks with configurable intervals. The Schedules page shows all schedules as cards with live verdict badges (healthy / warning / critical / error), next-run countdown, and full run history. A floating dock lets you start/stop the scheduler and create new schedules.
 
@@ -276,7 +284,7 @@ Set up recurring automated health checks with configurable intervals. The Schedu
 
 ---
 
-### 18. New / Edit Schedule
+### 24. New / Edit Schedule
 
 Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — target, category, time range, model, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
 
@@ -284,7 +292,7 @@ Create or edit a schedule with a multi-step wizard: choose a saved query from th
 
 ---
 
-### 19. Query Bank
+### 25. Query Bank
 
 Save investigation configurations as reusable templates. Access the Query Bank from the New Investigation form to instantly load a saved target, query, time range, category, and model — or use them when creating schedules.
 
@@ -292,15 +300,19 @@ Save investigation configurations as reusable templates. Access the Query Bank f
 
 ---
 
-<!-- ### 13. GitHub Copilot Authentication
+### 26. GitHub Copilot Authentication
 
 Secure OAuth device flow — enter the code on GitHub, and you're connected.
 
 ![Auth Flow](docs/screenshots/auth-flow.png)
 
-Screenshot: The login modal showing the device code and "Open Login Page" button. Also show the green "Connected" indicator in the header after login.
+---
 
---- -->
+### 27. About
+
+Project information, feature showcase, architecture pipeline, tech stack, and version info with auto-update checking.
+
+![About Page](docs/screenshots/about-page.png)
 
 ---
 
@@ -476,6 +488,48 @@ Every investigation records who created it for team-level visibility:
 - **Search Integration** — Full-text search matches against creator names
 - **Persistent** — The `createdBy` field is saved in `state.json` and survives server restarts
 
+### 📦 Standalone Executable
+
+AI Investigator is distributed as a single Windows executable — no Node.js installation required:
+
+- **Single `.exe`** — Download `ai-investigator.exe` from [GitHub Releases](../../releases/latest), extract, and double-click
+- **Bundled Chromium** — PDF report export works out of the box with a bundled Chromium runtime (in `chromium/` alongside the exe)
+- **Automatic Path Resolution** — The exe detects whether it's running in packaged or dev mode and resolves all paths (prompts, knowledge base, config) accordingly
+- **Version Metadata** — Each release includes `version.json` with semantic version, commit SHA, and build timestamp
+
+### 🧭 First-Launch Onboarding
+
+A guided multi-step wizard appears on first launch to get new users productive immediately:
+
+- **Step 1: Welcome** — Introduction to the platform with a feature overview
+- **Step 2: LLM Provider** — Choose from available providers (OpenAI, Anthropic, GitHub Copilot, Azure OpenAI, Ollama) with auth requirement indicators
+- **Step 3: Product Discovery** — Optionally point to a repository path; the system auto-discovers `.investigator.json` manifests or scans for known patterns
+- **Step 4: Ready** — Confirmation screen with a link to the dashboard
+- **Progress Bar** — Visual step completion indicator
+- **Skippable** — The product step can be skipped; the wizard stays out of the way once an LLM provider is configured
+
+### 🔄 Auto-Update Checking
+
+The application checks for newer versions on startup and shows a non-intrusive update banner:
+
+- **Version Endpoint** — `GET /api/version` returns current version, commit SHA, build date, latest available version, and update availability
+- **Update Banner** — A fixed top banner appears when a newer version is available, showing current vs. latest version with "Release Notes" and "Download" links
+- **Per-Version Dismiss** — Dismissing the banner persists in localStorage for that specific version; a new release re-shows the banner
+- **About Page** — The About page displays version info with a "Check for Updates" button for on-demand checking
+- **Secure Verification** — Releases include SHA256 hashes for integrity verification
+- **1-Hour Cache** — Version checks are cached to avoid excessive network requests
+
+### 🔧 Implementation Recommendations
+
+After an investigation completes, the final report's recommendations can be turned into concrete code changes:
+
+- **Recommendation Parsing** — Automatically extracts structured recommendations from the report's `## Recommendations` section with priority grouping (P0–P3)
+- **AI Classification** — Each recommendation is classified as `code` (implementable in source) or `operational` (requires human action) using the LLM
+- **Implementation Modal** — Select which code recommendations to implement via checkboxes; operational items are grayed out with an "OPS" badge
+- **Coding Agent** — A Senior Software Engineer agent searches the codebase, reads relevant files, and proposes targeted code changes using `search_code`, `read_file`, `list_dir`, and `propose_change` tools
+- **Review Workflow** — Proposed changes appear in the Retrospect tab's proposals panel with the same approve/reject/apply workflow as retrospective proposals
+- **Re-classify** — A "Re-classify" button lets you re-run the code vs. operational classification if the initial pass was incorrect
+
 ### 🧠 Context Management
 
 - **Auto-Compaction** — Proactively triggers when payload exceeds ~400K chars (~100K tokens) before sending to LLM. Also auto-recovers from HTTP 400 errors by compacting and retrying (up to 2 attempts). Preserves the last 4 thoughts intact during summarization
@@ -640,13 +694,27 @@ Includes a server-side **file browser** for selecting directories.
 
 | Requirement | Purpose |
 |------------|---------|
-| **Node.js 18+** | Backend + Frontend |
+| **Node.js 18+** | Backend + Frontend *(not needed if using the standalone exe)* |
 | **LLM Provider** | Any of: OpenAI API key, Anthropic API key, GitHub Copilot subscription, Azure OpenAI endpoint, or local Ollama instance |
 | **MCP Server(s)** *(optional)* | For data querying (e.g., MCP KQL Server, or any custom MCP server) |
 
 > **Note:** `Setup-Dashboard.ps1` automatically installs Node.js via `winget` if not found.
 
-### Quick Start
+### Option A: Standalone Executable (Recommended)
+
+```powershell
+# 1. Download the latest release zip from GitHub
+#    https://github.com/dvireich/AI-Investigator/releases/latest
+
+# 2. Extract the zip to a folder of your choice
+
+# 3. Double-click ai-investigator.exe
+#    The onboarding wizard will guide you through LLM provider setup
+```
+
+The dashboard opens automatically. No Node.js installation required.
+
+### Option B: From Source
 
 ```powershell
 # Clone the repo
@@ -660,7 +728,7 @@ cd AI-Investigator
 .\Run-Dashboard.ps1
 ```
 
-The dashboard opens automatically in an Edge standalone window at **http://localhost:5173**. Configure your LLM provider in Settings when prompted.
+The dashboard opens automatically in an Edge standalone window at **http://localhost:5173**. The onboarding wizard appears on first launch to configure your LLM provider.
 
 ### Setting Up Your Product
 
@@ -884,6 +952,10 @@ The dashboard is fully responsive with mobile-optimized layouts:
 |:---------:|:-------------------:|:--------------:|
 | ![Mobile Dashboard](docs/screenshots/mobile-dashboard.png) | ![Mobile Investigation](docs/screenshots/mobile-investigation-detail.png) | ![Mobile Contest](docs/screenshots/mobile-contest-report.png) |
 
+| New Investigation | Settings |
+|:-----------------:|:--------:|
+| ![Mobile New Investigation](docs/screenshots/mobile-new-investigation.png) | ![Mobile Settings](docs/screenshots/mobile-settings.png) |
+
 </div>
 
 ### Managing Remote Investigations
@@ -1028,6 +1100,17 @@ Each product in the `products` array has:
 | `GET` | `/api/models` | List available LLM models |
 | `GET/POST` | `/api/settings` | Get / Save configuration |
 | `GET` | `/api/files/list` | Browse server filesystem |
+| `GET` | `/api/version` | Version status: current, latest, update availability, SHA256, download URL |
+| `GET` | `/api/onboarding/status` | Check if first-launch onboarding is complete |
+| `GET` | `/api/auth/providers` | List available LLM providers with auth requirements |
+
+### Recommendations & Implementation
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/investigations/:id/recommendations` | Parse and classify report recommendations (cached) |
+| `POST` | `/api/investigations/:id/recommendations/reclassify` | Force re-classify recommendations with the LLM |
+| `POST` | `/api/investigations/:id/implement` | Run the implementation agent for selected recommendation IDs |
 
 ### Incidents
 
@@ -1070,6 +1153,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 | **Tools** | MCP Tool Bridge — connect any MCP-compatible data source |
 | **Auth** | Per-provider: API key, OAuth device flow, or none |
 | **Persistence** | JSON state files · Markdown reports |
+| **Packaging** | @yao-pkg/pkg (standalone exe) · Bundled Chromium · GitHub Actions CI/CD |
 
 ---
 
@@ -1081,18 +1165,26 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 ├── Run-Dashboard.ps1                 # Launch services + dev tunnel (-NoTunnel, -Anonymous, -Classic)
 ├── Setup-Dashboard.ps1               # Install dependencies + devtunnel check
 ├── Stop-Dashboard.ps1                # Kill dashboard + tunnel processes
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                    # CI pipeline: test, coverage badges, auto-release
+│       └── release.yml               # Release pipeline: build exe, bundle Chromium, sign, publish
 ├── prompts/
 │   └── RetrospectPrompt.md           # Retrospective prompt template
 ├── scripts/
-│   ├── icm/                           # Bundled IcM incident automation scripts (optional)
-│   └── screenshots/                   # Automated screenshot capture (see Taking Screenshots)
+│   ├── build.js                   # Build the standalone exe (compile backend + frontend)
+│   ├── package.js                 # Package exe + Chromium into distributable zip
+│   ├── icm/                       # Bundled IcM incident automation scripts (optional)
+│   └── screenshots/               # Automated screenshot capture (see Taking Screenshots)
 ├── backend/
 │   ├── config.json               # Runtime configuration (git-ignored, user-specific)
 │   ├── config.sample.json        # Template config for new setups
 │   ├── .gitignore                # Ignores config.json + build artifacts
 │   ├── src/
 │   │   ├── server.ts             # Express + WebSocket server
-│   │   ├── pdfRenderer.ts        # PDF report generation (Puppeteer + Markdown)
+│   │   ├── appRoot.ts            # Exe vs. dev mode path resolution
+│   │   ├── updateChecker.ts      # Auto-update version checking (1h cache)
+│   │   ├── pdfRenderer.ts        # PDF report generation (Puppeteer + bundled Chromium)
 │   │   ├── agent/
 │   │   │   ├── Runner.ts         # Core agent loop + retrospective
 │   │   │   ├── llm/              # LLM provider abstraction (OpenAI, Anthropic, Copilot, Ollama, Azure)
@@ -1109,7 +1201,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │   ├── public/
 │   │   └── favicon.svg           # Custom AI Investigator icon
 │   └── src/
-│       ├── App.tsx               # Router configuration (/, /new, /investigation/:id, /schedules, /settings, /about)
+│       ├── App.tsx               # Router configuration + onboarding redirect
 │       ├── api.ts                # API client (all endpoints)
 │       ├── constants.ts          # Time presets + schedule intervals + investigation modes
 │       ├── types/
@@ -1118,6 +1210,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │       │   └── schedule.ts       # Schedule + history type definitions
 │       ├── components/
 │       │   ├── Layout.tsx        # App shell, nav, auth, branding
+│       │   ├── UpdateBanner.tsx  # Auto-update notification banner
 │       │   ├── FileBrowserModal.tsx
 │       │   ├── Toast.tsx         # Toast notifications + confirm dialogs
 │       │   └── charts/           # Dashboard analytics (recharts)
@@ -1134,11 +1227,12 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │       └── pages/
 │           ├── Dashboard.tsx         # Investigation cards grid/list + analytics charts
 │           ├── NewInvestigation.tsx   # Investigation launch form (Standard + Incident) + query bank
-│           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect
+│           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect + Implementation
 │           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
 │           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
 │           ├── Settings.tsx          # Configuration management (5 tabs: Products, Agent, Analytics, Appearance, System)
-│           └── About.tsx             # Feature showcase + credits
+│           ├── About.tsx             # Feature showcase + version info + update check
+│           └── OnboardingWizard.tsx  # First-launch setup wizard (LLM + product discovery)
 └── docs/
     └── screenshots/              # UI screenshots (see Visual Walkthrough)
 ```
@@ -1191,40 +1285,43 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 30 files in `docs/screenshots/`:
+The capture script produces these 33 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
-| 1 | `dashboard-overview.png` | Dashboard — main grid overview with creator badges and KPI bar |
-| 2 | `dashboard.png` | Dashboard — mixed investigation statuses |
-| 3 | `dashboard-resume-all.png` | Dashboard — post-restart with Resume All button |
-| 4 | `new-investigation.png` | New Investigation form (filled) |
-| 5 | `investigation-start.png` | Investigation detail — early running state |
-| 6 | `live-session.png` | Investigation detail — multi-step with tool calls |
-| 7 | `paused-by-user.png` | Investigation detail — paused state |
-| 8 | `user-intervention.png` | Investigation detail — intervention input filled |
-| 9 | `token-alert.png` | Investigation detail — token limit warning banner |
-| 10 | `final-report.png` | Investigation detail — Report tab with Markdown report |
-| 11 | `Consent-report.png` | Investigation detail — Contest form with feedback |
-| 12 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
-| 13 | `failed-investigation.png` | Investigation detail — failed state |
-| 14 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
-| 15 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
-| 16 | `proposals-panel.png` | Retrospective tab — expanded proposals |
-| 17 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
-| 18 | `settings.png` | Settings — Products tab expanded |
-| 19 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
-| 20 | `auth-flow.png` | Unauthenticated state |
-| 21 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
-| 22 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
-| 23 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
-| 24 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
-| 25 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
-| 26 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
-| 27 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
-| 28 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
-| 29 | `schedule-form.png` | Schedule creation wizard with query bank |
-| 30 | `query-bank.png` | New Investigation — query bank dropdown |
+| 1 | `onboarding-wizard.png` | Onboarding — LLM provider selection step |
+| 2 | `dashboard-overview.png` | Dashboard — main grid overview with creator badges and KPI bar |
+| 3 | `dashboard.png` | Dashboard — mixed investigation statuses |
+| 4 | `dashboard-resume-all.png` | Dashboard — post-restart with Resume All button |
+| 5 | `new-investigation.png` | New Investigation form (filled) |
+| 6 | `investigation-start.png` | Investigation detail — early running state |
+| 7 | `live-session.png` | Investigation detail — multi-step with tool calls |
+| 8 | `paused-by-user.png` | Investigation detail — paused state |
+| 9 | `user-intervention.png` | Investigation detail — intervention input filled |
+| 10 | `token-alert.png` | Investigation detail — token limit warning banner |
+| 11 | `final-report.png` | Investigation detail — Report tab with Markdown report |
+| 12 | `implement-recommendations.png` | Investigation detail — Implement Recommendations modal |
+| 13 | `Consent-report.png` | Investigation detail — Contest form with feedback |
+| 14 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
+| 15 | `failed-investigation.png` | Investigation detail — failed state |
+| 16 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
+| 17 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
+| 18 | `proposals-panel.png` | Retrospective tab — expanded proposals |
+| 19 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
+| 20 | `settings.png` | Settings — Products tab expanded |
+| 21 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
+| 22 | `auth-flow.png` | Unauthenticated state |
+| 23 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
+| 24 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
+| 25 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
+| 26 | `schedule-form.png` | Schedule creation wizard with query bank |
+| 27 | `query-bank.png` | New Investigation — query bank dropdown |
+| 28 | `about-page.png` | About — feature showcase, pipeline, version info |
+| 29 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 30 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 31 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 32 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 33 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
 
 ### Architecture
 

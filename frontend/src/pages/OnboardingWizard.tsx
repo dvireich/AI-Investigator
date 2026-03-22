@@ -44,7 +44,6 @@ export const OnboardingWizard = () => {
     };
 
     const handleDiscover = async () => {
-        if (!repoPath.trim()) return;
         setDiscovering(true);
         setDiscoveryResult(null);
         setError(null);
@@ -75,7 +74,7 @@ export const OnboardingWizard = () => {
                         <div className="h-full bg-gradient-to-r from-brand-500 to-purple-500 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
                     </div>
                     <div className="flex justify-between mt-2 text-[10px] text-slate-600 font-semibold uppercase tracking-wider">
-                        <span className={stepIndex >= 0 ? 'text-brand-400' : ''}>Welcome</span>
+                        <span className="text-brand-400">Welcome</span>
                         <span className={stepIndex >= 1 ? 'text-brand-400' : ''}>LLM Provider</span>
                         <span className={stepIndex >= 2 ? 'text-brand-400' : ''}>Product</span>
                         <span className={stepIndex >= 3 ? 'text-brand-400' : ''}>Ready</span>

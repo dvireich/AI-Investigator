@@ -22,7 +22,7 @@ const SCREENSHOTS_DIR = resolve(__dirname, '..', '..', 'docs', 'screenshots');
 const FIXTURES_DIR = join(__dirname, 'fixtures');
 const FRONTEND_DIR = resolve(__dirname, '..', '..', 'frontend');
 const MOCK_PORT = 3099;
-const VITE_PORT = 5174;
+const VITE_PORT = parseInt(process.env.VITE_PORT || '5174', 10);
 const VITE_URL = `http://localhost:${VITE_PORT}`;
 const MOCK_URL = `http://localhost:${MOCK_PORT}`;
 
@@ -63,6 +63,10 @@ async function setAuth(authObj) {
     await controlPost('/__control/set-auth', authObj);
 }
 
+async function setOnboarding(complete) {
+    await controlPost('/__control/set-onboarding', { complete });
+}
+
 async function screenshot(page, name, opts = {}) {
     const path = join(SCREENSHOTS_DIR, `${name}.png`);
     await page.screenshot({ path, fullPage: false, ...opts });
@@ -87,6 +91,32 @@ async function navigateTo(page, path) {
 // ---------------------------------------------------------------------------
 // Screenshot capture functions
 // ---------------------------------------------------------------------------
+
+async function captureOnboardingWizard(page) {
+    console.log('\n📸 Onboarding Wizard...');
+    await resetMock();
+    await setOnboarding(false);
+    await page.goto(`${VITE_URL}/onboarding`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(1200);
+
+    // Advance to LLM provider step (more visually informative)
+    const getStarted = page.locator('button:has-text("Get Started"), button:has-text("Get started")').first();
+    if (await getStarted.isVisible()) {
+        await getStarted.click();
+        await page.waitForTimeout(800);
+    }
+
+    await screenshot(page, 'onboarding-wizard');
+    await setOnboarding(true); // restore
+}
+
+async function captureAboutPage(page) {
+    console.log('\n📸 About page...');
+    await resetMock();
+    await navigateTo(page, '/about');
+    await page.waitForTimeout(800);
+    await screenshot(page, 'about-page');
+}
 
 async function captureDashboardOverview(page) {
     console.log('\n📸 Dashboard screenshots...');
@@ -277,6 +307,30 @@ async function captureFinalReport(page) {
         await page.waitForTimeout(800);
     }
     await screenshot(page, 'final-report');
+}
+
+async function captureImplementRecommendations(page) {
+    console.log('\n📸 Implement Recommendations...');
+    const inv = loadFixture('investigation-completed.json');
+    await setDetailOverride(inv.id, inv);
+    await navigateTo(page, `/investigation/${inv.id}`);
+    await page.waitForTimeout(600);
+
+    // Switch to Report tab
+    const reportTab = page.locator('button:has-text("Report")').first();
+    if (await reportTab.isVisible()) {
+        await reportTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    // Click "Implement Recommendations" button to open the modal
+    const implBtn = page.locator('button:has-text("Implement Recommendations")').first();
+    if (await implBtn.isVisible()) {
+        await implBtn.click();
+        await page.waitForTimeout(800);
+    }
+
+    await screenshot(page, 'implement-recommendations');
 }
 
 async function captureFailedInvestigation(page) {
@@ -704,7 +758,10 @@ async function main() {
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
     try {
-        // ---- Capture all 30 screenshots ----
+        // ---- Capture all 33 screenshots ----
+
+        // Onboarding
+        await captureOnboardingWizard(page);
 
         // Dashboard
         await captureDashboardOverview(page);
@@ -723,6 +780,7 @@ async function main() {
 
         // Report & Contest
         await captureFinalReport(page);
+        await captureImplementRecommendations(page);
         await captureConsentReport(page);
         await captureInvestigationConsentResume(page);
 
@@ -751,6 +809,9 @@ async function main() {
         await captureScheduleForm(page);
         await captureQueryBank(page);
 
+        // About
+        await captureAboutPage(page);
+
         // Mobile screenshots
         await captureMobileDashboard(page);
         await captureMobileInvestigationDetail(page);
@@ -759,7 +820,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 30 screenshots captured successfully!');
+        console.log('  ✅ All 33 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

@@ -50,6 +50,7 @@ for (const inv of [invRunning, invPaused, invLiveSession, invCompleted, invConte
 let currentInvestigations = investigationsIndex.investigations;
 let overrideDetail = {};    // id → fixture override for GET /api/investigations/:id
 let authStatus = { authenticated: true, username: 'user@microsoft.com' };
+let onboardingComplete = true;
 
 // ---------------------------------------------------------------------------
 // Express app
@@ -147,6 +148,36 @@ app.get('/api/investigations/:id/pdf', (req, res) => {
     res.send(Buffer.from(pdfHeader));
 });
 
+// ---- Onboarding ----
+
+app.get('/api/onboarding/status', (_req, res) => {
+    res.json({ complete: onboardingComplete });
+});
+
+app.get('/api/auth/providers', (_req, res) => {
+    res.json([
+        { type: 'copilot', displayName: 'GitHub Copilot', authRequirement: { type: 'oauth' } },
+        { type: 'openai', displayName: 'OpenAI', authRequirement: { type: 'api_key' } },
+        { type: 'anthropic', displayName: 'Anthropic', authRequirement: { type: 'api_key' } },
+        { type: 'azure', displayName: 'Azure OpenAI', authRequirement: { type: 'msal' } },
+        { type: 'ollama', displayName: 'Ollama (Local)', authRequirement: { type: 'none' } },
+    ]);
+});
+
+// ---- Version ----
+
+app.get('/api/version', (_req, res) => {
+    res.json({
+        current: '1.4.0',
+        commit: 'd7b5dd2e',
+        buildDate: '2026-03-22T12:00:00Z',
+        latest: '1.4.1',
+        updateAvailable: true,
+        downloadUrl: 'https://github.com/dvireich/AI-Investigator/releases/download/v1.4.1/ai-investigator.exe',
+        releaseNotesUrl: 'https://github.com/dvireich/AI-Investigator/releases/tag/v1.4.1',
+    });
+});
+
 // ---- Auth ----
 
 app.get('/api/auth/status', (_req, res) => {
@@ -217,6 +248,25 @@ app.post('/api/products/clone', (req, res) => {
 });
 
 // ---- Retrospect ----
+
+app.get('/api/investigations/:id/recommendations', (req, res) => {
+    res.json([
+        { id: 'rec_P0_0', priority: 'P0', title: 'Add cluster capacity pre-check before bulk ingestion', description: 'The investigation shows ingestion failures occurred because the cluster ran out of capacity. Add a pre-check step that queries cluster capacity before starting bulk operations.', category: 'code' },
+        { id: 'rec_P0_1', priority: 'P0', title: 'Add IngestionCapacityExceeded to retry-exclude list', description: 'This error type is non-transient and should not trigger retries. Add it to the permanent exception list.', category: 'code' },
+        { id: 'rec_P0_2', priority: 'P0', title: 'Engage Kusto SRE team for capacity planning', description: 'The cluster consistently hits capacity limits during peak hours. Coordinate with the SRE team to evaluate scaling options.', category: 'operational' },
+        { id: 'rec_P1_3', priority: 'P1', title: 'Add structured logging for ingestion batch sizes', description: 'Current logging lacks batch-level metrics. Add structured telemetry for batch size, duration, and error rates.', category: 'code' },
+        { id: 'rec_P1_4', priority: 'P1', title: 'Create runbook for bulk operation coordination', description: 'Document the coordination process for scheduling bulk operations across stamps to avoid capacity contention.', category: 'operational' },
+        { id: 'rec_P2_5', priority: 'P2', title: 'Add circuit breaker for repeated capacity errors', description: 'Implement a circuit breaker pattern that pauses ingestion after N consecutive capacity errors to prevent cascading failures.', category: 'code' },
+    ]);
+});
+
+app.post('/api/investigations/:id/recommendations/reclassify', (req, res) => {
+    res.json([]);
+});
+
+app.post('/api/investigations/:id/implement', (req, res) => {
+    res.json({ success: true });
+});
 
 app.post('/api/investigations/:id/retrospect/start', (req, res) => {
     res.json({ success: true });
@@ -470,10 +520,16 @@ app.post('/__control/set-investigations-all-paused', (_req, res) => {
     res.json({ ok: true });
 });
 
+app.post('/__control/set-onboarding', (req, res) => {
+    onboardingComplete = req.body.complete ?? true;
+    res.json({ ok: true });
+});
+
 app.post('/__control/reset', (_req, res) => {
     currentInvestigations = investigationsIndex.investigations;
     overrideDetail = {};
     authStatus = { authenticated: true, username: 'user@microsoft.com' };
+    onboardingComplete = true;
     res.json({ ok: true });
 });
 

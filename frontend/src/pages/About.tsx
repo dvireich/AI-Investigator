@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2, RefreshCw, Download } from 'lucide-react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2, RefreshCw, Download, Package, Rocket, Bell, Cpu } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -191,6 +191,26 @@ export const About = () => {
                         bg="bg-slate-900/60 border-slate-800 hover:border-stone-500/20"
                         title="External config file"
                         desc="Keep your team's config in your own repo and pass it at launch with --config. Version-controlled settings that survive re-clones and enable one-click team onboarding." />
+                    <FeatureCard icon={<Package className="w-4 h-4" />}
+                        color="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-emerald-500/20"
+                        title="Standalone executable"
+                        desc="Download a single .exe — no Node.js required. Bundled Chromium for PDF export, auto-resolved paths, and version metadata baked in at build time." />
+                    <FeatureCard icon={<Rocket className="w-4 h-4" />}
+                        color="bg-lime-500/10 border border-lime-500/20 text-lime-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-lime-500/20"
+                        title="First-launch onboarding"
+                        desc="A guided wizard on first launch walks you through LLM provider selection and product discovery. Skippable, and stays out of the way once configured." />
+                    <FeatureCard icon={<Bell className="w-4 h-4" />}
+                        color="bg-brand-500/10 border border-brand-500/20 text-brand-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-brand-500/20"
+                        title="Auto-update checking"
+                        desc="Checks for new releases on startup and shows a dismissible banner with download and release notes links. Per-version dismiss persists in localStorage." />
+                    <FeatureCard icon={<Cpu className="w-4 h-4" />}
+                        color="bg-rose-500/10 border border-rose-500/20 text-rose-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-rose-500/20"
+                        title="Implementation recommendations"
+                        desc="Select recommendations from the final report and let an AI coding agent search the codebase and propose targeted code changes — with the same approve/reject workflow." />
                 </div>
             </section>
 
@@ -252,6 +272,10 @@ export const About = () => {
                         [Smartphone,        'text-violet-400',  'Remote access — Dev Tunnel with mobile-responsive UI, manage from any device'],
                         [Pin,               'text-yellow-400',  'Pin & tag — pin investigations to top and organize with custom tags'],
                         [Settings2,         'text-stone-400',   'External config — pass --config to load team settings from your own repo'],
+                        [Package,           'text-emerald-400', 'Standalone exe — single Windows executable, no Node.js required, bundled Chromium'],
+                        [Rocket,            'text-lime-400',    'Onboarding wizard — guided first-launch setup for LLM provider and product discovery'],
+                        [Bell,              'text-brand-400',   'Auto-update — checks for new releases on startup with dismissible download banner'],
+                        [Cpu,               'text-rose-400',    'Implementation agent — select report recommendations and generate code change proposals'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
                             <Icon className={`w-4 h-4 ${color} shrink-0`} />
@@ -271,6 +295,7 @@ export const About = () => {
                     <TechPill label="Tools"    value="MCP Tool Bridge"                color="bg-emerald-500" />
                     <TechPill label="Comms"    value="WebSockets (ws)"                color="bg-amber-500" />
                     <TechPill label="State"    value="File-based JSON persistence"    color="bg-pink-500" />
+                    <TechPill label="Package"  value="Standalone exe via @yao-pkg/pkg" color="bg-emerald-500" />
                 </div>
             </section>
 
