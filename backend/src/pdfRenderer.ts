@@ -4,6 +4,34 @@
  */
 
 import puppeteer, { Browser } from 'puppeteer';
+import * as path from 'path';
+import * as fs from 'fs';
+import { appRoot, isPackaged } from './utils/appRoot';
+
+/**
+ * Resolve the Chromium executable path.
+ * Priority: bundled chromium/ dir next to exe → Puppeteer default download.
+ */
+function resolveChromiumPath(): string | undefined {
+    /* v8 ignore start -- exe-only path, tested in packaged builds */
+    if (isPackaged) {
+        // Look for bundled Chromium next to the exe
+        const bundledDir = path.join(appRoot, 'chromium');
+        if (fs.existsSync(bundledDir)) {
+            // chrome.exe is inside a versioned subfolder
+            const entries = fs.readdirSync(bundledDir);
+            for (const entry of entries) {
+                const chrome = path.join(bundledDir, entry, 'chrome.exe');
+                if (fs.existsSync(chrome)) return chrome;
+            }
+            // Flat layout
+            const flat = path.join(bundledDir, 'chrome.exe');
+            if (fs.existsSync(flat)) return flat;
+        }
+    }
+    /* v8 ignore stop */
+    return undefined; // Let Puppeteer use its default
+}
 
 // Singleton browser instance to avoid re-launching Chromium for each export
 let browserInstance: Browser | null = null;
@@ -12,8 +40,11 @@ async function getBrowser(): Promise<Browser> {
     if (browserInstance && browserInstance.connected) {
         return browserInstance;
     }
+    const executablePath = resolveChromiumPath();
     browserInstance = await puppeteer.launch({
         headless: true,
+        /* v8 ignore next */
+        ...(executablePath ? { executablePath } : {}),
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
     // Clean up on process exit

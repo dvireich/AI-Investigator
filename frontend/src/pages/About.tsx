@@ -1,5 +1,5 @@
-import React from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2, RefreshCw, Download } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -49,7 +49,20 @@ const SectionHeader = ({ icon, title }: { icon: React.ReactNode; title: string }
     </div>
 );
 
-export const About = () => (
+export const About = () => {
+    const [version, setVersion] = useState<{ current: string; commit: string; buildDate: string; latest: string | null; updateAvailable: boolean; downloadUrl: string | null; releaseNotesUrl: string | null } | null>(null);
+    const [checking, setChecking] = useState(false);
+
+    useEffect(() => {
+        fetch('/api/version').then(r => r.ok ? r.json() : null).then(setVersion).catch(() => {});
+    }, []);
+
+    const checkForUpdates = () => {
+        setChecking(true);
+        fetch('/api/version?check=true').then(r => r.ok ? r.json() : null).then(data => { setVersion(data); setChecking(false); }).catch(() => setChecking(false));
+    };
+
+    return (
     <div className="min-h-screen pt-16">
 
         {/* ── Hero ── */}
@@ -298,10 +311,42 @@ export const About = () => (
                 </div>
             </section>
 
+            {/* ── Version Info ── */}
+            {version && (
+                <section>
+                    <SectionHeader icon={<GitBranch className="w-4 h-4 text-brand-400" />} title="Version" />
+                    <div className="mt-6 bg-slate-900/60 border border-slate-800 rounded-2xl p-6 space-y-4">
+                        <div className="flex flex-wrap gap-3">
+                            <TechPill label="Version" value={version.current} color="bg-brand-500" />
+                            <TechPill label="Build" value={version.commit} color="bg-purple-500" />
+                            <TechPill label="Built" value={new Date(version.buildDate).toLocaleDateString()} color="bg-sky-500" />
+                        </div>
+                        {version.updateAvailable && version.latest && (
+                            <div className="flex items-center gap-3 p-3 bg-brand-600/10 border border-brand-500/30 rounded-xl">
+                                <Download size={16} className="text-brand-400 shrink-0" />
+                                <span className="text-sm text-slate-300">
+                                    Version <strong className="text-white">{version.latest}</strong> is available.
+                                </span>
+                                {version.downloadUrl && (
+                                    <a href={version.downloadUrl} target="_blank" rel="noopener noreferrer" className="ml-auto px-3 py-1 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-xs font-bold transition-colors">
+                                        Download
+                                    </a>
+                                )}
+                            </div>
+                        )}
+                        <button onClick={checkForUpdates} disabled={checking} className="inline-flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-xs font-semibold transition-colors border border-slate-700 disabled:opacity-50">
+                            <RefreshCw size={12} className={checking ? 'animate-spin' : ''} />
+                            {checking ? 'Checking…' : 'Check for updates'}
+                        </button>
+                    </div>
+                </section>
+            )}
+
         </div>
 
         <div className="border-t border-white/[0.06] py-6 text-center text-slate-500 text-xs">
-            AI Investigator &bull; Internal tool &bull; {new Date().getFullYear()}
+            AI Investigator{version ? ` v${version.current}` : ''} &bull; Internal tool &bull; {new Date().getFullYear()}
         </div>
     </div>
-);
+    );
+};

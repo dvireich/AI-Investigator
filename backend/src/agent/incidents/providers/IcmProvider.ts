@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 import { IncidentProvider, IncidentProviderConfig, IncidentData, IncidentProgressEvent } from '../IncidentProvider';
+import { nodeExecutable } from '../../../utils/appRoot';
 
 /**
  * Microsoft IcM (Incident Management) provider.
@@ -32,7 +33,7 @@ export class IcmProvider implements IncidentProvider {
         }
 
         return new Promise((resolve, reject) => {
-            const child = spawn('node', [scriptFile, id], {
+            const child = spawn(nodeExecutable, [scriptFile, id], {
                 cwd: this.scriptsPath!,
                 stdio: ['ignore', 'pipe', 'pipe']
             });

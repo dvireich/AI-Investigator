@@ -3,6 +3,7 @@ import { LayoutDashboard, PlusCircle, Settings, Info, Menu, X, Clock, User } fro
 import { useEffect, useState, useRef } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
+import { UpdateBanner } from './UpdateBanner';
 
 interface GitHubUser {
     login: string;
@@ -111,6 +112,7 @@ export const Layout = () => {
 
     return (
         <div className="min-h-screen bg-transparent text-slate-100 font-sans selection:bg-brand-500/30">
+            <UpdateBanner />
             {/* Header */}
             <header className="fixed top-0 left-0 right-0 h-14 sm:h-16 bg-slate-900/70 backdrop-blur-xl border-b border-white/[0.06] z-50 flex items-center justify-between px-3 sm:px-6 shadow-2xl shadow-black/20">
                 <div className="flex items-center gap-2 sm:gap-4">

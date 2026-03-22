@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
-import { readFileSync, existsSync, readdirSync } from 'fs';
-import { join, isAbsolute } from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 import { ToolManager } from './tools/ToolManager';
 import { McpServerConfig } from './tools/McpToolBridge';
 import { LlmProvider } from './llm/LlmProvider';
@@ -225,9 +225,9 @@ export class AgentRunner extends EventEmitter {
             const kbDir = this.config.knowledgeBasePath;
             if (kbDir) {
                 try {
-                    const kbAbsPath = isAbsolute(kbDir) ? kbDir : join(this.config.repoRoot || '', kbDir);
-                    if (existsSync(kbAbsPath)) {
-                        const files = readdirSync(kbAbsPath);
+                    const kbAbsPath = path.isAbsolute(kbDir) ? kbDir : path.join(this.config.repoRoot || '', kbDir);
+                    if (fs.existsSync(kbAbsPath)) {
+                        const files = fs.readdirSync(kbAbsPath);
                         const incidentGuide = files.find(f => /incident.*investigation/i.test(f) && f.endsWith('.md'));
                         if (incidentGuide) {
                             incidentGuideHint = ` Follow the incident investigation guide (${incidentGuide}).`;
@@ -556,7 +556,6 @@ export class AgentRunner extends EventEmitter {
      * Priority: config.repoRoot > env REPO_ROOT > heuristic (../../.. from cwd).
      */
     private getRepoRoot(): string {
-        const path = require('path');
         return this.config.repoRoot
             || process.env.REPO_ROOT
             || path.resolve(process.cwd(), '../../..');
@@ -567,8 +566,6 @@ export class AgentRunner extends EventEmitter {
      * Result is a markdown-style tree indented by depth, paths relative to repoRoot.
      */
     private discoverKnowledgeBase(): string {
-        const path = require('path');
-        const fs = require('fs');
         const repoRoot = this.getRepoRoot();
         const kbRelPath = this.config.knowledgeBasePath || '';
 
@@ -650,8 +647,6 @@ export class AgentRunner extends EventEmitter {
     }
 
     private buildRetrospectSystemPrompt(): string {
-        const path = require('path');
-        const fs = require('fs');
 
         // Discover KB files to inject into templates
         const kbFileListing = this.discoverKnowledgeBase();
@@ -1175,8 +1170,6 @@ Be thorough but focused. Only propose changes that would directly improve the ou
     }
 
     private localReadFile(filePath: string): string {
-        const fs = require('fs');
-        const path = require('path');
         const repoRoot = path.resolve(this.getRepoRoot());
         
         const candidates = [
@@ -1195,8 +1188,6 @@ Be thorough but focused. Only propose changes that would directly improve the ou
     }
 
     private localListDir(dirPath: string): string {
-        const fs = require('fs');
-        const path = require('path');
         const repoRoot = path.resolve(this.getRepoRoot());
 
         const candidates = [
@@ -1216,7 +1207,6 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
     private handleProposeChange(args: { type: string; filePath: string; description: string; content: string }): string {
         // Validate filePath: block path traversal
-        const path = require('path');
         const repoRoot = path.resolve(this.getRepoRoot());
         const resolved = path.resolve(repoRoot, args.filePath);
         if (!resolved.startsWith(repoRoot + path.sep) && resolved !== repoRoot) {
@@ -1406,8 +1396,6 @@ Be thorough but focused. Only propose changes that would directly improve the ou
     }
 
     async applyApprovedProposals(): Promise<{ applied: string[]; errors: string[] }> {
-        const fs = require('fs');
-        const path = require('path');
         const repoRoot = this.getRepoRoot();
         const retro = this.initRetrospect();
 
@@ -1513,7 +1501,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 // Collect continuation lines (non-item lines that follow)
                 const afterItem = groupText.slice(itemMatch.index + itemMatch[0].length);
                 const continuationMatch = afterItem.match(/^((?:\n\s{2,}.*|\n\s+\-\s+.*)*)/);
-                const fullDesc = desc + continuationMatch[1].replace(/\n\s{2,}/g, ' ').trim();
+                const fullDesc = desc + (continuationMatch?.[1] ?? /* v8 ignore next */ '').replace(/\n\s{2,}/g, ' ').trim();
 
                 recommendations.push({
                     id: `rec_${groups[g].priority}_${recommendations.length}`,
@@ -1626,8 +1614,6 @@ Respond with ONLY a JSON array of category strings, one per recommendation, in t
     }
 
     private localSearchCode(pattern: string, searchPath?: string, maxResults: number = 20): string {
-        const fs = require('fs');
-        const path = require('path');
         const repoRoot = path.resolve(this.getRepoRoot());
         const startDir = searchPath
             ? path.resolve(repoRoot, searchPath)
@@ -1820,8 +1806,6 @@ ${recsText}
         // Sync fullHistory before persisting so the saved state has the complete record
         this.syncFullHistory();
 
-        const fs = require('fs');
-        const path = require('path');
         const baseDir = this.config.investigationsPath || path.join(this.getRepoRoot(), 'investigations');
 
         if (!fs.existsSync(baseDir)) {
@@ -2026,8 +2010,8 @@ ${recsText}
     }
 
     private loadSystemPrompt(): string {
-        if (existsSync(this.config.systemPromptPath)) {
-            return readFileSync(this.config.systemPromptPath, 'utf8');
+        if (fs.existsSync(this.config.systemPromptPath)) {
+            return fs.readFileSync(this.config.systemPromptPath, 'utf8');
         }
         return "You are a helpful assistant.";
     }
