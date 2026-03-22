@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -8,9 +8,10 @@ import type { ScheduleDefinition, ScheduleHistoryEntry } from '../types/schedule
 import type { Product } from '../types/product';
 import {
     Clock, Play, Pause, Plus, Trash2, Pencil, CheckCircle2, AlertTriangle,
-    XCircle, Activity, RefreshCw, ChevronDown, ChevronRight, Server, Timer,
+    XCircle, Activity, RefreshCw, ChevronDown, ChevronRight, ChevronLeft, Server, Timer,
     ExternalLink, Eye, EyeOff, Loader2, Check, X, Cpu, Calendar
 } from 'lucide-react';
+import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
 
 // ── Verdict helpers ──────────────────────────────────────────────────────
 
@@ -46,6 +47,10 @@ export const Schedules = () => {
     const [editFields, setEditFields] = useState<{ model?: string; target?: string; timeRange?: string; category?: string }>({});
     const [timeRangePopupId, setTimeRangePopupId] = useState<string | null>(null);
     const timeRangePopupRef = useRef<HTMLDivElement>(null);
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState<number>(
+        () => Number(localStorage.getItem('sched-page-size')) || DEFAULT_PAGE_SIZE
+    );
 
     // Close time range popup on outside click
     useEffect(() => {
@@ -81,6 +86,10 @@ export const Schedules = () => {
         api.getSettings().then((s: any) => {
             if (s?.scheduledInvestigationMaxSteps) setDefaultMaxSteps(s.scheduledInvestigationMaxSteps);
             if (s?.model) setDefaultModel(s.model);
+            if (!localStorage.getItem('sched-page-size') && typeof s?.defaultPageSize === 'number' && s.defaultPageSize > 0) {
+                setPageSize(s.defaultPageSize);
+                localStorage.setItem('sched-page-size', String(s.defaultPageSize));
+            }
         }).catch(() => {});
         const interval = setInterval(refresh, 15_000);
         return () => clearInterval(interval);
@@ -164,6 +173,11 @@ export const Schedules = () => {
     const okCount = schedules.filter(s => s.lastVerdict === 'healthy' || s.lastVerdict === 'completed').length;
     const warningCount = schedules.filter(s => s.lastVerdict === 'warning' || s.lastVerdict === 'paused').length;
     const issueCount = schedules.filter(s => s.lastVerdict === 'critical' || s.lastVerdict === 'error').length;
+
+    // Pagination
+    const totalPages = Math.max(1, Math.ceil(schedules.length / pageSize));
+    useEffect(() => { if (currentPage > totalPages) setCurrentPage(totalPages); }, [currentPage, totalPages]);
+    const paginatedSchedules = useMemo(() => schedules.slice((currentPage - 1) * pageSize, currentPage * pageSize), [schedules, currentPage, pageSize]);
 
     const getRelativeTime = (iso?: string) => {
         if (!iso) return 'Never';
@@ -256,7 +270,7 @@ export const Schedules = () => {
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {schedules.map(sched => {
+                    {paginatedSchedules.map(sched => {
                         const effectiveVerdict: Verdict = sched.activeInvestigationId ? 'running' : (sched.lastVerdict || 'unknown') as Verdict;
                         const vc = verdictConfig[effectiveVerdict];
                         const isExpanded = expandedId === sched.id;
@@ -554,6 +568,21 @@ export const Schedules = () => {
                         );
                     })}
                 </div>
+            )}
+
+            {/* Pagination */}
+            {schedules.length > 0 && (
+                <Pagination
+                    totalItems={schedules.length}
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(size) => {
+                        setPageSize(size);
+                        localStorage.setItem('sched-page-size', String(size));
+                    }}
+                    noun="schedules"
+                />
             )}
 
         </div>

@@ -507,7 +507,7 @@ describe('Dashboard', () => {
             });
 
             // Click clear button
-            const clearButton = screen.getByRole('button', { name: /x/i });
+            const clearButton = screen.getByRole('button', { name: /reset search/i });
             await user.click(clearButton);
 
             await waitFor(() => {
@@ -1504,11 +1504,13 @@ describe('Dashboard', () => {
         it('does not override existing localStorage settings', async () => {
             localStorage.setItem('inv-view', 'grid');
             localStorage.setItem('inv-sort', 'newest');
+            localStorage.setItem('inv-page-size', '12');
 
             const api = await getApi();
             vi.mocked(api.getSettings).mockResolvedValue({
                 defaultView: 'list',
                 defaultSortOrder: 'oldest',
+                defaultPageSize: 48,
             });
             vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
 
@@ -1519,6 +1521,7 @@ describe('Dashboard', () => {
             // Should NOT override - localStorage was already set
             expect(localStorage.getItem('inv-view')).toBe('grid');
             expect(localStorage.getItem('inv-sort')).toBe('newest');
+            expect(localStorage.getItem('inv-page-size')).toBe('12');
         });
     });
 
@@ -4028,6 +4031,156 @@ describe('Dashboard additional coverage', () => {
             // so both branches of (x.lastModified ?? Number(x.id)) are exercised
             await waitFor(() => screen.getByText('Sort A'));
             await waitFor(() => screen.getByText('Sort B'));
+        });
+    });
+
+    // === Pagination ===
+    describe('Pagination', () => {
+        it('shows pagination controls when there are items', async () => {
+            const api = await getApi();
+            (api.listInvestigations as any).mockResolvedValue(mockInvestigations);
+            renderDashboard();
+
+            await waitFor(() => {
+                expect(screen.getByText(/of 5 investigations/)).toBeInTheDocument();
+            });
+        });
+
+        it('paginates grid view with many items', async () => {
+            const api = await getApi();
+            const manyInvestigations = Array.from({ length: 20 }, (_, i) =>
+                createMockInvestigation({
+                    id: String(1000 + i),
+                    title: `Investigation ${i + 1}`,
+                    status: 'completed',
+                })
+            );
+            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            localStorage.setItem('inv-page-size', '6');
+            renderDashboard();
+
+            // Should show first page info
+            await waitFor(() => {
+                expect(screen.getByText('1–6 of 20 investigations')).toBeInTheDocument();
+            });
+
+            // Should show page 2 button
+            expect(screen.getByText('2')).toBeInTheDocument();
+        });
+
+        it('navigates to next page', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            const api = await getApi();
+            const manyInvestigations = Array.from({ length: 15 }, (_, i) =>
+                createMockInvestigation({
+                    id: String(2000 + i),
+                    title: `Inv ${i + 1}`,
+                    status: 'completed',
+                })
+            );
+            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            localStorage.setItem('inv-page-size', '6');
+            renderDashboard();
+
+            await waitFor(() => screen.getByText('1–6 of 15 investigations'));
+
+            await user.click(screen.getByLabelText('Next page'));
+
+            await waitFor(() => {
+                expect(screen.getByText('7–12 of 15 investigations')).toBeInTheDocument();
+            });
+        });
+
+        it('persists page size to localStorage', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            const api = await getApi();
+            const manyInvestigations = Array.from({ length: 30 }, (_, i) =>
+                createMockInvestigation({
+                    id: String(3000 + i),
+                    title: `Inv ${i + 1}`,
+                    status: 'completed',
+                })
+            );
+            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            renderDashboard();
+
+            await waitFor(() => screen.getByText(/of 30 investigations/));
+
+            const select = screen.getByRole('combobox', { name: /per page/i });
+            await user.selectOptions(select, '24');
+
+            expect(localStorage.getItem('inv-page-size')).toBe('24');
+        });
+
+        it('loads defaultPageSize from server settings when no localStorage', async () => {
+            const api = await getApi();
+            localStorage.removeItem('inv-page-size');
+            (api.getSettings as any).mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest', defaultPageSize: 6 });
+            const manyInvestigations = Array.from({ length: 20 }, (_, i) =>
+                createMockInvestigation({
+                    id: String(4000 + i),
+                    title: `Inv ${i + 1}`,
+                    status: 'completed',
+                })
+            );
+            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            renderDashboard();
+
+            await waitFor(() => {
+                expect(screen.getByText('1–6 of 20 investigations')).toBeInTheDocument();
+            });
+        });
+
+        it('clamps currentPage when items are removed', async () => {
+            const api = await getApi();
+            const items = Array.from({ length: 14 }, (_, i) =>
+                createMockInvestigation({ id: String(6000 + i), title: `Clamp ${i + 1}`, status: 'completed' })
+            );
+            (api.listInvestigations as any).mockResolvedValue(items);
+            localStorage.setItem('inv-page-size', '6');
+            renderDashboard();
+
+            await waitFor(() => screen.getByText('1–6 of 14 investigations'));
+
+            // Navigate to page 3 (items 13-14)
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            await user.click(screen.getByText('3'));
+            await waitFor(() => screen.getByText('13–14 of 14 investigations'));
+
+            // Simulate items being removed — shrink to 6 items, page 3 no longer exists
+            (api.listInvestigations as any).mockResolvedValue(items.slice(0, 6));
+            vi.advanceTimersByTime(3000);
+
+            await waitFor(() => screen.getByText('1–6 of 6 investigations'));
+        });
+
+        it('resets to page 1 when search changes', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            const api = await getApi();
+            const manyInvestigations = Array.from({ length: 20 }, (_, i) =>
+                createMockInvestigation({
+                    id: String(5000 + i),
+                    title: `Item ${i + 1}`,
+                    status: 'completed',
+                })
+            );
+            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            localStorage.setItem('inv-page-size', '6');
+            renderDashboard();
+
+            await waitFor(() => screen.getByText('1–6 of 20 investigations'));
+
+            // Navigate to page 2
+            await user.click(screen.getByLabelText('Next page'));
+            await waitFor(() => screen.getByText('7–12 of 20 investigations'));
+
+            // Search should reset to page 1
+            const searchInput = screen.getByPlaceholderText(/search/i);
+            await user.type(searchInput, 'Item');
+
+            await waitFor(() => {
+                expect(screen.getByText(/1–/)).toBeInTheDocument();
+            });
         });
     });
 });

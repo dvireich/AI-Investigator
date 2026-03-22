@@ -17,6 +17,7 @@ vi.mock('../../api', () => ({
             defaultTimeRange: 'ago(1h)',
             defaultView: 'grid',
             defaultSortOrder: 'newest',
+            defaultPageSize: 12,
             notifications: true,
         }),
         saveSettings: vi.fn().mockResolvedValue({}),
@@ -164,6 +165,7 @@ async function resetApiMocks() {
         defaultTimeRange: 'ago(1h)',
         defaultView: 'grid',
         defaultSortOrder: 'newest',
+        defaultPageSize: 12,
         notifications: true,
     });
     vi.mocked(api.saveSettings).mockResolvedValue({});
@@ -1387,6 +1389,36 @@ describe('Settings', () => {
             await user.click(screen.getByText('Last Modified'));
 
             expect(localStorage.getItem('inv-sort')).toBe('modified');
+        });
+
+        it('displays default page size selector', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByText('Settings'));
+
+            await user.click(screen.getByText('Appearance'));
+            await waitFor(() => {
+                expect(screen.getByText('Default Page Size')).toBeInTheDocument();
+            });
+        });
+
+        it('changes default page size when button is clicked', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByText('Settings'));
+
+            await user.click(screen.getByText('Appearance'));
+            await waitFor(() => screen.getByText('Default Page Size'));
+
+            // Click the "24" page size button
+            const pageSizeSection = screen.getByText('Default Page Size').closest('div')?.parentElement;
+            const btn24 = within(pageSizeSection!).getByText('24');
+            await user.click(btn24);
+
+            // Verify the button is now highlighted (active state)
+            await waitFor(() => {
+                expect(btn24.className).toContain('bg-brand-500');
+            });
         });
 
         it('displays auto-refresh interval input', async () => {
