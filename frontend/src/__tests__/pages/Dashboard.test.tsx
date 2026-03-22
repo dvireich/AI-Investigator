@@ -1504,11 +1504,13 @@ describe('Dashboard', () => {
         it('does not override existing localStorage settings', async () => {
             localStorage.setItem('inv-view', 'grid');
             localStorage.setItem('inv-sort', 'newest');
+            localStorage.setItem('inv-page-size', '12');
 
             const api = await getApi();
             vi.mocked(api.getSettings).mockResolvedValue({
                 defaultView: 'list',
                 defaultSortOrder: 'oldest',
+                defaultPageSize: 48,
             });
             vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
 
@@ -1519,6 +1521,7 @@ describe('Dashboard', () => {
             // Should NOT override - localStorage was already set
             expect(localStorage.getItem('inv-view')).toBe('grid');
             expect(localStorage.getItem('inv-sort')).toBe('newest');
+            expect(localStorage.getItem('inv-page-size')).toBe('12');
         });
     });
 
@@ -4126,6 +4129,29 @@ describe('Dashboard additional coverage', () => {
             await waitFor(() => {
                 expect(screen.getByText('1–6 of 20 investigations')).toBeInTheDocument();
             });
+        });
+
+        it('clamps currentPage when items are removed', async () => {
+            const api = await getApi();
+            const items = Array.from({ length: 14 }, (_, i) =>
+                createMockInvestigation({ id: String(6000 + i), title: `Clamp ${i + 1}`, status: 'completed' })
+            );
+            (api.listInvestigations as any).mockResolvedValue(items);
+            localStorage.setItem('inv-page-size', '6');
+            renderDashboard();
+
+            await waitFor(() => screen.getByText('1–6 of 14 investigations'));
+
+            // Navigate to page 3 (items 13-14)
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            await user.click(screen.getByText('3'));
+            await waitFor(() => screen.getByText('13–14 of 14 investigations'));
+
+            // Simulate items being removed — shrink to 6 items, page 3 no longer exists
+            (api.listInvestigations as any).mockResolvedValue(items.slice(0, 6));
+            vi.advanceTimersByTime(3000);
+
+            await waitFor(() => screen.getByText('1–6 of 6 investigations'));
         });
 
         it('resets to page 1 when search changes', async () => {

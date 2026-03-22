@@ -1942,6 +1942,29 @@ describe('Schedules additional coverage', () => {
             expect(localStorage.getItem('sched-page-size')).toBe('24');
         });
 
+        it('clamps currentPage when schedules are removed', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            const api = (await import('../../api')).api;
+            const schedules = Array.from({ length: 14 }, (_, i) =>
+                createSchedule({ id: `c${i}`, name: `Clamp ${i + 1}`, target: `stamp-${i}` })
+            );
+            (api.getSchedules as any).mockResolvedValue(schedules);
+            localStorage.setItem('sched-page-size', '6');
+            renderSchedules();
+
+            await waitFor(() => screen.getByText('1–6 of 14 schedules'));
+
+            // Navigate to page 3
+            await user.click(screen.getByText('3'));
+            await waitFor(() => screen.getByText('13–14 of 14 schedules'));
+
+            // Simulate schedules being removed — shrink to 6
+            (api.getSchedules as any).mockResolvedValue(schedules.slice(0, 6));
+            vi.advanceTimersByTime(15000);
+
+            await waitFor(() => screen.getByText('1–6 of 6 schedules'));
+        });
+
         it('loads defaultPageSize from server settings', async () => {
             const api = (await import('../../api')).api;
             localStorage.removeItem('sched-page-size');
