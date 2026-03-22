@@ -64,7 +64,7 @@ export const Layout = () => {
             // Poll
             const poller = setInterval(async () => {
                 try {
-                    const result = await api.pollLogin(data.device_code, data.interval);
+                    const result = await api.pollLogin(data.deviceCode, data.interval);
                     if (result.pending) return; // Still waiting for user to authorize
                     if (result.success) {
                         clearInterval(poller);
@@ -288,12 +288,12 @@ export const Layout = () => {
                         <p className="text-slate-400 mb-6 text-sm sm:text-base">Please visit the URL below and enter the code to authorize.</p>
 
                         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 mb-6 text-center">
-                            <div className="text-2xl sm:text-4xl font-mono font-black text-brand-400 tracking-widest mb-2">{loginData.user_code}</div>
+                            <div className="text-2xl sm:text-4xl font-mono font-black text-brand-400 tracking-widest mb-2">{loginData.userCode}</div>
                             <div className="text-xs text-slate-500">USER CODE</div>
                         </div>
 
                         <div className="flex flex-col gap-4">
-                            <a href={loginData.verification_uri} target="_blank" rel="noreferrer" className="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold text-center transition-colors">
+                            <a href={loginData.verificationUri} target="_blank" rel="noreferrer" className="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold text-center transition-colors">
                                 Open Login Page
                             </a>
                             <button onClick={() => { if (loginPollerRef.current) { clearInterval(loginPollerRef.current); loginPollerRef.current = null; } setShowLoginModal(false); }} className="text-slate-500 hover:text-white text-sm">
