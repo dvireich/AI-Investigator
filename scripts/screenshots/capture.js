@@ -22,7 +22,7 @@ const SCREENSHOTS_DIR = resolve(__dirname, '..', '..', 'docs', 'screenshots');
 const FIXTURES_DIR = join(__dirname, 'fixtures');
 const FRONTEND_DIR = resolve(__dirname, '..', '..', 'frontend');
 const MOCK_PORT = 3099;
-const VITE_PORT = 5174;
+const VITE_PORT = parseInt(process.env.VITE_PORT || '5174', 10);
 const VITE_URL = `http://localhost:${VITE_PORT}`;
 const MOCK_URL = `http://localhost:${MOCK_PORT}`;
 

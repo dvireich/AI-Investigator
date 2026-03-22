@@ -16,7 +16,7 @@ An agentic system that runs, monitors, and learns from investigations — comple
 
 ---
 
-> **🚀 Quick Start:** [Download the latest release](../../releases/latest) — extract, configure, double-click. No Node.js required.
+> **🚀 Quick Start:** [Download the latest release](../../releases/latest) — extract, double-click `ai-investigator.exe`, configure your LLM provider in the onboarding wizard. No Node.js required.
 > See [docs/QUICKSTART.md](docs/QUICKSTART.md) for all installation options.
 
 ---
@@ -63,6 +63,10 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Dashboard Analytics** | Interactive charts — configurable 3-widget layout from 8 chart types, KPI bar, creator badges, and filter-by-creator |
 | **Multi-Product Support** | Configure multiple investigation targets with independent paths, prompts, and knowledge bases |
 | **Multi-User Tracking** | Every investigation records who created it (GitHub login, OS username, or scheduler) with dashboard filtering |
+| **Standalone Executable** | Download a single `.exe` — no Node.js installation required. Bundled Chromium for PDF export |
+| **First-Launch Onboarding** | Multi-step setup wizard guides new users through LLM provider selection and product discovery |
+| **Auto-Update Checking** | Checks for new releases on startup, shows a dismissible banner with download and release notes links |
+| **Implementation Agent** | Select recommendations from the final report and let an AI coding agent propose exact code changes |
 
 ---
 
@@ -476,6 +480,48 @@ Every investigation records who created it for team-level visibility:
 - **Search Integration** — Full-text search matches against creator names
 - **Persistent** — The `createdBy` field is saved in `state.json` and survives server restarts
 
+### 📦 Standalone Executable
+
+AI Investigator is distributed as a single Windows executable — no Node.js installation required:
+
+- **Single `.exe`** — Download `ai-investigator.exe` from [GitHub Releases](../../releases/latest), extract, and double-click
+- **Bundled Chromium** — PDF report export works out of the box with a bundled Chromium runtime (in `chromium/` alongside the exe)
+- **Automatic Path Resolution** — The exe detects whether it's running in packaged or dev mode and resolves all paths (prompts, knowledge base, config) accordingly
+- **Version Metadata** — Each release includes `version.json` with semantic version, commit SHA, and build timestamp
+
+### 🧭 First-Launch Onboarding
+
+A guided multi-step wizard appears on first launch to get new users productive immediately:
+
+- **Step 1: Welcome** — Introduction to the platform with a feature overview
+- **Step 2: LLM Provider** — Choose from available providers (OpenAI, Anthropic, GitHub Copilot, Azure OpenAI, Ollama) with auth requirement indicators
+- **Step 3: Product Discovery** — Optionally point to a repository path; the system auto-discovers `.investigator.json` manifests or scans for known patterns
+- **Step 4: Ready** — Confirmation screen with a link to the dashboard
+- **Progress Bar** — Visual step completion indicator
+- **Skippable** — The product step can be skipped; the wizard stays out of the way once an LLM provider is configured
+
+### 🔄 Auto-Update Checking
+
+The application checks for newer versions on startup and shows a non-intrusive update banner:
+
+- **Version Endpoint** — `GET /api/version` returns current version, commit SHA, build date, latest available version, and update availability
+- **Update Banner** — A fixed top banner appears when a newer version is available, showing current vs. latest version with "Release Notes" and "Download" links
+- **Per-Version Dismiss** — Dismissing the banner persists in localStorage for that specific version; a new release re-shows the banner
+- **About Page** — The About page displays version info with a "Check for Updates" button for on-demand checking
+- **Secure Verification** — Releases include SHA256 hashes for integrity verification
+- **1-Hour Cache** — Version checks are cached to avoid excessive network requests
+
+### 🔧 Implementation Recommendations
+
+After an investigation completes, the final report's recommendations can be turned into concrete code changes:
+
+- **Recommendation Parsing** — Automatically extracts structured recommendations from the report's `## Recommendations` section with priority grouping (P0–P3)
+- **AI Classification** — Each recommendation is classified as `code` (implementable in source) or `operational` (requires human action) using the LLM
+- **Implementation Modal** — Select which code recommendations to implement via checkboxes; operational items are grayed out with an "OPS" badge
+- **Coding Agent** — A Senior Software Engineer agent searches the codebase, reads relevant files, and proposes targeted code changes using `search_code`, `read_file`, `list_dir`, and `propose_change` tools
+- **Review Workflow** — Proposed changes appear in the Retrospect tab's proposals panel with the same approve/reject/apply workflow as retrospective proposals
+- **Re-classify** — A "Re-classify" button lets you re-run the code vs. operational classification if the initial pass was incorrect
+
 ### 🧠 Context Management
 
 - **Auto-Compaction** — Proactively triggers when payload exceeds ~400K chars (~100K tokens) before sending to LLM. Also auto-recovers from HTTP 400 errors by compacting and retrying (up to 2 attempts). Preserves the last 4 thoughts intact during summarization
@@ -640,13 +686,27 @@ Includes a server-side **file browser** for selecting directories.
 
 | Requirement | Purpose |
 |------------|---------|
-| **Node.js 18+** | Backend + Frontend |
+| **Node.js 18+** | Backend + Frontend *(not needed if using the standalone exe)* |
 | **LLM Provider** | Any of: OpenAI API key, Anthropic API key, GitHub Copilot subscription, Azure OpenAI endpoint, or local Ollama instance |
 | **MCP Server(s)** *(optional)* | For data querying (e.g., MCP KQL Server, or any custom MCP server) |
 
 > **Note:** `Setup-Dashboard.ps1` automatically installs Node.js via `winget` if not found.
 
-### Quick Start
+### Option A: Standalone Executable (Recommended)
+
+```powershell
+# 1. Download the latest release zip from GitHub
+#    https://github.com/dvireich/AI-Investigator/releases/latest
+
+# 2. Extract the zip to a folder of your choice
+
+# 3. Double-click ai-investigator.exe
+#    The onboarding wizard will guide you through LLM provider setup
+```
+
+The dashboard opens automatically. No Node.js installation required.
+
+### Option B: From Source
 
 ```powershell
 # Clone the repo
@@ -660,7 +720,7 @@ cd AI-Investigator
 .\Run-Dashboard.ps1
 ```
 
-The dashboard opens automatically in an Edge standalone window at **http://localhost:5173**. Configure your LLM provider in Settings when prompted.
+The dashboard opens automatically in an Edge standalone window at **http://localhost:5173**. The onboarding wizard appears on first launch to configure your LLM provider.
 
 ### Setting Up Your Product
 
@@ -1028,6 +1088,17 @@ Each product in the `products` array has:
 | `GET` | `/api/models` | List available LLM models |
 | `GET/POST` | `/api/settings` | Get / Save configuration |
 | `GET` | `/api/files/list` | Browse server filesystem |
+| `GET` | `/api/version` | Version status: current, latest, update availability, SHA256, download URL |
+| `GET` | `/api/onboarding/status` | Check if first-launch onboarding is complete |
+| `GET` | `/api/auth/providers` | List available LLM providers with auth requirements |
+
+### Recommendations & Implementation
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/investigations/:id/recommendations` | Parse and classify report recommendations (cached) |
+| `POST` | `/api/investigations/:id/recommendations/reclassify` | Force re-classify recommendations with the LLM |
+| `POST` | `/api/investigations/:id/implement` | Run the implementation agent for selected recommendation IDs |
 
 ### Incidents
 
@@ -1070,6 +1141,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 | **Tools** | MCP Tool Bridge — connect any MCP-compatible data source |
 | **Auth** | Per-provider: API key, OAuth device flow, or none |
 | **Persistence** | JSON state files · Markdown reports |
+| **Packaging** | @yao-pkg/pkg (standalone exe) · Bundled Chromium · GitHub Actions CI/CD |
 
 ---
 
@@ -1081,18 +1153,26 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 ├── Run-Dashboard.ps1                 # Launch services + dev tunnel (-NoTunnel, -Anonymous, -Classic)
 ├── Setup-Dashboard.ps1               # Install dependencies + devtunnel check
 ├── Stop-Dashboard.ps1                # Kill dashboard + tunnel processes
+├── .github/
+│   └── workflows/
+│       ├── ci.yml                    # CI pipeline: test, coverage badges, auto-release
+│       └── release.yml               # Release pipeline: build exe, bundle Chromium, sign, publish
 ├── prompts/
 │   └── RetrospectPrompt.md           # Retrospective prompt template
 ├── scripts/
-│   ├── icm/                           # Bundled IcM incident automation scripts (optional)
-│   └── screenshots/                   # Automated screenshot capture (see Taking Screenshots)
+│   ├── build.js                   # Build the standalone exe (compile backend + frontend)
+│   ├── package.js                 # Package exe + Chromium into distributable zip
+│   ├── icm/                       # Bundled IcM incident automation scripts (optional)
+│   └── screenshots/               # Automated screenshot capture (see Taking Screenshots)
 ├── backend/
 │   ├── config.json               # Runtime configuration (git-ignored, user-specific)
 │   ├── config.sample.json        # Template config for new setups
 │   ├── .gitignore                # Ignores config.json + build artifacts
 │   ├── src/
 │   │   ├── server.ts             # Express + WebSocket server
-│   │   ├── pdfRenderer.ts        # PDF report generation (Puppeteer + Markdown)
+│   │   ├── appRoot.ts            # Exe vs. dev mode path resolution
+│   │   ├── updateChecker.ts      # Auto-update version checking (1h cache)
+│   │   ├── pdfRenderer.ts        # PDF report generation (Puppeteer + bundled Chromium)
 │   │   ├── agent/
 │   │   │   ├── Runner.ts         # Core agent loop + retrospective
 │   │   │   ├── llm/              # LLM provider abstraction (OpenAI, Anthropic, Copilot, Ollama, Azure)
@@ -1109,7 +1189,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │   ├── public/
 │   │   └── favicon.svg           # Custom AI Investigator icon
 │   └── src/
-│       ├── App.tsx               # Router configuration (/, /new, /investigation/:id, /schedules, /settings, /about)
+│       ├── App.tsx               # Router configuration + onboarding redirect
 │       ├── api.ts                # API client (all endpoints)
 │       ├── constants.ts          # Time presets + schedule intervals + investigation modes
 │       ├── types/
@@ -1118,6 +1198,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │       │   └── schedule.ts       # Schedule + history type definitions
 │       ├── components/
 │       │   ├── Layout.tsx        # App shell, nav, auth, branding
+│       │   ├── UpdateBanner.tsx  # Auto-update notification banner
 │       │   ├── FileBrowserModal.tsx
 │       │   ├── Toast.tsx         # Toast notifications + confirm dialogs
 │       │   └── charts/           # Dashboard analytics (recharts)
@@ -1134,11 +1215,12 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │       └── pages/
 │           ├── Dashboard.tsx         # Investigation cards grid/list + analytics charts
 │           ├── NewInvestigation.tsx   # Investigation launch form (Standard + Incident) + query bank
-│           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect
+│           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect + Implementation
 │           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
 │           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
 │           ├── Settings.tsx          # Configuration management (5 tabs: Products, Agent, Analytics, Appearance, System)
-│           └── About.tsx             # Feature showcase + credits
+│           ├── About.tsx             # Feature showcase + version info + update check
+│           └── OnboardingWizard.tsx  # First-launch setup wizard (LLM + product discovery)
 └── docs/
     └── screenshots/              # UI screenshots (see Visual Walkthrough)
 ```
