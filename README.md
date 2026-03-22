@@ -172,7 +172,15 @@ Auto-generated Markdown report with findings, queries used, and conclusions — 
 
 ---
 
-### 8. Failed Investigation
+### 8. Implement Recommendations
+
+Select actionable recommendations from the final report and let an AI coding agent propose exact code changes. Code items get checkboxes; operational items are grayed out with an "OPS" badge. P0 code items are auto-selected.
+
+![Implement Recommendations](docs/screenshots/implement-recommendations.png)
+
+---
+
+### 9. Failed Investigation
 
 When an investigation encounters unrecoverable errors (consecutive LLM failures, tool disconnection), it transitions to a failed state with preserved context for debugging.
 
@@ -180,7 +188,7 @@ When an investigation encounters unrecoverable errors (consecutive LLM failures,
 
 ---
 
-### 9. Retrospective — Auto-Analysis
+### 10. Retrospective — Auto-Analysis
 
 When you open the Retrospect tab, an AI agent automatically reads the investigation transcript and knowledge base files, then proposes improvements.
 
@@ -190,7 +198,7 @@ When you open the Retrospect tab, an AI agent automatically reads the investigat
 
 ---
 
-### 10. Retrospective — Knowledge Base Analysis
+### 11. Retrospective — Knowledge Base Analysis
 
 The retrospective agent reads the investigation transcript and existing knowledge base files, then identifies gaps and proposes new documentation.
 
@@ -200,7 +208,7 @@ The retrospective agent reads the investigation transcript and existing knowledg
 
 ---
 
-### 11. Retrospective — Proposed Changes
+### 12. Retrospective — Proposed Changes
 
 The agent proposes concrete file changes (edit existing or create new). Review each proposal, approve or reject, then apply all approved changes to disk.
 
@@ -210,7 +218,7 @@ The agent proposes concrete file changes (edit existing or create new). Review e
 
 ---
 
-<!-- ### 12. Retrospective — Conversational Follow-up
+<!-- ### 13. Retrospective — Conversational Follow-up
 
 After auto-analysis, continue chatting with the retrospective agent to explore additional improvements.
 
@@ -222,7 +230,7 @@ Screenshot: The chat panel with the auto-analysis message, followed by a user qu
 
 ---
 
-### 12. Settings
+### 13. Settings
 
 Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across five tabs: Products, Agent Behavior, Analytics, Appearance, and System.
 
@@ -232,7 +240,7 @@ Configure agent behavior, model selection, investigation storage path (with serv
 
 ---
 
-### 13. Settings — Analytics Widgets
+### 14. Settings — Analytics Widgets
 
 Choose which 3 analytics charts appear on the dashboard from a registry of 8 widget types. Each widget shows a preview of its chart style.
 
@@ -242,7 +250,7 @@ Choose which 3 analytics charts appear on the dashboard from a registry of 8 wid
 
 ---
 
-### 14. Resume All After Server Restart
+### 15. Resume All After Server Restart
 
 When the backend restarts, all running investigations are automatically paused. The dashboard shows a **Resume All** button with the count of paused investigations. Click it to resume them all at once (respecting the max concurrent limit). A separate **Restart Server** button lets you trigger a graceful restart directly from the UI.
 
@@ -252,7 +260,7 @@ When the backend restarts, all running investigations are automatically paused. 
 
 ---
 
-### 15. Share & Export
+### 16. Share & Export
 
 Non-running investigations show **Share** (sky-blue) and **PDF** (violet) buttons in the sidebar. Share exports the full investigation state as a JSON file; PDF renders the final report into a styled, downloadable PDF document via Puppeteer.
 
@@ -262,7 +270,7 @@ Non-running investigations show **Share** (sky-blue) and **PDF** (violet) button
 
 ---
 
-### 16. Import Investigation (Drag & Drop)
+### 17. Import Investigation (Drag & Drop)
 
 Import previously exported investigations via the **Import Investigation** button in the floating action dock, or simply drag and drop a `.json` file anywhere on the dashboard. A full-screen animated drop zone appears with gradient borders and a pulsing upload icon.
 
@@ -272,7 +280,7 @@ Import previously exported investigations via the **Import Investigation** butto
 
 ---
 
-### 17. Scheduled Investigations
+### 18. Scheduled Investigations
 
 Set up recurring automated health checks with configurable intervals. The Schedules page shows all schedules as cards with live verdict badges (healthy / warning / critical / error), next-run countdown, and full run history. A floating dock lets you start/stop the scheduler and create new schedules.
 
@@ -280,7 +288,7 @@ Set up recurring automated health checks with configurable intervals. The Schedu
 
 ---
 
-### 18. New / Edit Schedule
+### 19. New / Edit Schedule
 
 Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — target, category, time range, model, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
 
@@ -288,7 +296,7 @@ Create or edit a schedule with a multi-step wizard: choose a saved query from th
 
 ---
 
-### 19. Query Bank
+### 20. Query Bank
 
 Save investigation configurations as reusable templates. Access the Query Bank from the New Investigation form to instantly load a saved target, query, time range, category, and model — or use them when creating schedules.
 
@@ -296,7 +304,7 @@ Save investigation configurations as reusable templates. Access the Query Bank f
 
 ---
 
-<!-- ### 13. GitHub Copilot Authentication
+<!-- ### 14. GitHub Copilot Authentication
 
 Secure OAuth device flow — enter the code on GitHub, and you're connected.
 
@@ -1273,7 +1281,7 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 30 files in `docs/screenshots/`:
+The capture script produces these 31 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
@@ -1287,26 +1295,27 @@ The capture script produces these 30 files in `docs/screenshots/`:
 | 8 | `user-intervention.png` | Investigation detail — intervention input filled |
 | 9 | `token-alert.png` | Investigation detail — token limit warning banner |
 | 10 | `final-report.png` | Investigation detail — Report tab with Markdown report |
-| 11 | `Consent-report.png` | Investigation detail — Contest form with feedback |
-| 12 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
-| 13 | `failed-investigation.png` | Investigation detail — failed state |
-| 14 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
-| 15 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
-| 16 | `proposals-panel.png` | Retrospective tab — expanded proposals |
-| 17 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
-| 18 | `settings.png` | Settings — Products tab expanded |
-| 19 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
-| 20 | `auth-flow.png` | Unauthenticated state |
-| 21 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
-| 22 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
-| 23 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
-| 24 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
-| 25 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
-| 26 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
-| 27 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
-| 28 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
-| 29 | `schedule-form.png` | Schedule creation wizard with query bank |
-| 30 | `query-bank.png` | New Investigation — query bank dropdown |
+| 11 | `implement-recommendations.png` | Investigation detail — Implement Recommendations modal |
+| 12 | `Consent-report.png` | Investigation detail — Contest form with feedback |
+| 13 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
+| 14 | `failed-investigation.png` | Investigation detail — failed state |
+| 15 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
+| 16 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
+| 17 | `proposals-panel.png` | Retrospective tab — expanded proposals |
+| 18 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
+| 19 | `settings.png` | Settings — Products tab expanded |
+| 20 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
+| 21 | `auth-flow.png` | Unauthenticated state |
+| 22 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 23 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 24 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 25 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 26 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
+| 27 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
+| 28 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
+| 29 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
+| 30 | `schedule-form.png` | Schedule creation wizard with query bank |
+| 31 | `query-bank.png` | New Investigation — query bank dropdown |
 
 ### Architecture
 

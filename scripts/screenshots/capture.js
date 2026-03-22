@@ -279,6 +279,30 @@ async function captureFinalReport(page) {
     await screenshot(page, 'final-report');
 }
 
+async function captureImplementRecommendations(page) {
+    console.log('\n📸 Implement Recommendations...');
+    const inv = loadFixture('investigation-completed.json');
+    await setDetailOverride(inv.id, inv);
+    await navigateTo(page, `/investigation/${inv.id}`);
+    await page.waitForTimeout(600);
+
+    // Switch to Report tab
+    const reportTab = page.locator('button:has-text("Report")').first();
+    if (await reportTab.isVisible()) {
+        await reportTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    // Click "Implement Recommendations" button to open the modal
+    const implBtn = page.locator('button:has-text("Implement Recommendations")').first();
+    if (await implBtn.isVisible()) {
+        await implBtn.click();
+        await page.waitForTimeout(800);
+    }
+
+    await screenshot(page, 'implement-recommendations');
+}
+
 async function captureFailedInvestigation(page) {
     console.log('\n📸 Failed Investigation...');
     const inv = loadFixture('investigation-failed.json');
@@ -723,6 +747,7 @@ async function main() {
 
         // Report & Contest
         await captureFinalReport(page);
+        await captureImplementRecommendations(page);
         await captureConsentReport(page);
         await captureInvestigationConsentResume(page);
 
@@ -759,7 +784,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 30 screenshots captured successfully!');
+        console.log('  ✅ All 31 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 
