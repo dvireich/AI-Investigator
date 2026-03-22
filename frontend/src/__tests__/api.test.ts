@@ -1166,4 +1166,78 @@ describe('api', () => {
             await expect(api.updateSavedQuery('q1', {})).rejects.toThrow('Failed to update saved query');
         });
     });
+
+    describe('getRecommendations', () => {
+        it('fetches recommendations for an investigation', async () => {
+            mockFetch.mockResolvedValue({
+                ok: true, status: 200, headers: new Headers(),
+                json: vi.fn().mockResolvedValue([{ id: 'r1', priority: 'P0', title: 'Fix it', category: 'code' }]),
+                text: vi.fn().mockResolvedValue(''),
+            });
+            const result = await api.getRecommendations('inv1');
+            expect(result).toEqual([{ id: 'r1', priority: 'P0', title: 'Fix it', category: 'code' }]);
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/investigations/inv1/recommendations'));
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false, status: 500, headers: new Headers(),
+                text: vi.fn().mockResolvedValue('Recommendations failed'),
+            });
+            await expect(api.getRecommendations('inv1')).rejects.toThrow('Recommendations failed');
+        });
+    });
+
+    describe('reclassifyRecommendations', () => {
+        it('sends POST to reclassify endpoint', async () => {
+            mockFetch.mockResolvedValue({
+                ok: true, status: 200, headers: new Headers(),
+                json: vi.fn().mockResolvedValue([{ id: 'r1', priority: 'P0', title: 'Fix it', category: 'operational' }]),
+                text: vi.fn().mockResolvedValue(''),
+            });
+            const result = await api.reclassifyRecommendations('inv1');
+            expect(result).toEqual([{ id: 'r1', priority: 'P0', title: 'Fix it', category: 'operational' }]);
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.stringContaining('/investigations/inv1/recommendations/reclassify'),
+                expect.objectContaining({ method: 'POST' }),
+            );
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false, status: 500, headers: new Headers(),
+                text: vi.fn().mockResolvedValue('Reclassify failed'),
+            });
+            await expect(api.reclassifyRecommendations('inv1')).rejects.toThrow('Reclassify failed');
+        });
+    });
+
+    describe('implementRecommendations', () => {
+        it('sends POST with recommendation IDs', async () => {
+            mockFetch.mockResolvedValue({
+                ok: true, status: 200, headers: new Headers(),
+                json: vi.fn().mockResolvedValue({ started: true, recommendations: 2 }),
+                text: vi.fn().mockResolvedValue(''),
+            });
+            const result = await api.implementRecommendations('inv1', ['rec_P0_0', 'rec_P1_1']);
+            expect(result).toEqual({ started: true, recommendations: 2 });
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.stringContaining('/investigations/inv1/implement'),
+                expect.objectContaining({
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                }),
+            );
+            const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+            expect(body.recommendations).toEqual(['rec_P0_0', 'rec_P1_1']);
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false, status: 500, headers: new Headers(),
+                text: vi.fn().mockResolvedValue('Implementation failed'),
+            });
+            await expect(api.implementRecommendations('inv1', ['rec_P0_0'])).rejects.toThrow('Implementation failed');
+        });
+    });
 });

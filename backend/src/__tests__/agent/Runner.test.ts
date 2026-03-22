@@ -104,7 +104,7 @@ vi.spyOn(nodeFs, 'readdirSync').mockImplementation(readdirSyncImpl);
 vi.spyOn(nodeFs, 'statSync').mockImplementation(statSyncImpl);
 vi.spyOn(nodeFs, 'lstatSync').mockImplementation(lstatSyncImpl);
 
-import { AgentRunner, AgentConfig, InvestigationState } from '../../agent/Runner';
+import { AgentRunner, AgentConfig, InvestigationState, Recommendation } from '../../agent/Runner';
 
 // --- Helpers ---
 function makeLlmProvider(overrides: any = {}) {
@@ -249,6 +249,93 @@ describe('AgentRunner', () => {
 
             const state = (runner as any).state as InvestigationState;
             expect(state.verdict).toBe('healthy');
+        });
+
+        it('classifies recommendations when finish tool report has them', async () => {
+            const reportWithRecs = '## Final Report\nDetails here.\n\n## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the parser**: The parser fails on edge cases.\n';
+            // First call: return content with finish tool as function_call
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Done.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: { name: 'finish', arguments: JSON.stringify({ report: reportWithRecs }) },
+                            }],
+                        },
+                    }],
+                })
+                // Second call: for classifyRecommendations LLM call
+                .mockResolvedValueOnce({
+                    choices: [{ message: { content: '["code"]' } }],
+                });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            await runner.start('Investigate');
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('completed');
+            expect(state.recommendations).toBeDefined();
+            expect(state.recommendations!.length).toBe(1);
+            expect(state.recommendations![0].category).toBe('code');
+        });
+
+        it('falls back to unclassified recommendations when classification throws', async () => {
+            const reportWithRecs = '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crashes\n';
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Finished.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: { name: 'finish', arguments: JSON.stringify({ report: reportWithRecs }) },
+                            }],
+                        },
+                    }],
+                })
+                .mockRejectedValueOnce(new Error('LLM API is down'));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            await runner.start('Investigate');
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('completed');
+            // Falls back to parseRecommendations without classification
+            expect(state.recommendations).toBeDefined();
+            expect(state.recommendations!.length).toBe(1);
+            expect(state.recommendations![0].category).toBe('code'); // default from parseRecommendations
+        });
+
+        it('recovers when parseRecommendations throws in the try block', async () => {
+            const reportWithRecs = '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix bug**: details\n';
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Done.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: { name: 'finish', arguments: JSON.stringify({ report: reportWithRecs }) },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // Make parseRecommendations throw on first call, succeed on second (in catch block)
+            const parseSpy = vi.spyOn(runner as any, 'parseRecommendations')
+                .mockImplementationOnce(() => { throw new Error('parse explosion'); })
+                .mockReturnValueOnce([{ id: 'rec_P0_0', priority: 'P0', title: 'Fallback', description: 'x', category: 'code' }]);
+
+            await runner.start('Investigate');
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('completed');
+            expect(state.recommendations).toHaveLength(1);
+            expect(state.recommendations![0].title).toBe('Fallback');
+            expect(parseSpy).toHaveBeenCalledTimes(2);
         });
 
         it('executes tool actions and feeds results back', async () => {
@@ -510,6 +597,7 @@ describe('AgentRunner', () => {
             const runner = new AgentRunner(makeConfig(), provider, {
                 status: 'completed',
                 finalReport: 'Original report',
+                recommendations: [{ id: 'r0', priority: 'P0', title: 'Fix bug', description: '', category: 'code' as const }],
             });
 
             runner.contestReport('Report is missing root cause');
@@ -517,6 +605,7 @@ describe('AgentRunner', () => {
             const state = (runner as any).state as InvestigationState;
             expect(state.status).toBe('running');
             expect(state.finalReport).toBeUndefined();
+            expect(state.recommendations).toBeUndefined();
             expect(state.contestCount).toBe(1);
             // Should have the contest message in thoughts
             expect(state.thoughts.some((t: any) =>
@@ -1876,6 +1965,125 @@ describe('AgentRunner', () => {
             expect(events.some((event: any) =>
                 event.tool === 'propose_change' && event.description === 'Proposing change: '
             )).toBe(true);
+        });
+
+        it('handles search_code tool calls', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: {
+                                        name: 'search_code',
+                                        arguments: JSON.stringify({ pattern: 'MyService', path: '', maxResults: 10 }),
+                                    },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            const resolvedRepo = n(require('path').resolve('/repo'));
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['App.cs']);
+            mockFsState.set(n(require('path').resolve('/repo/App.cs')), 'public class MyService { }');
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+            ];
+            const tools = (runner as any).getImplementationTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            // search_code should have been logged
+            expect((runner as any).state.logs.some((l: string) => l.includes('[Retrospect] search_code'))).toBe(true);
+        });
+
+        it('uses default maxResults of 20 when search_code call omits maxResults', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: {
+                                        // omit both pattern and maxResults to hit both || fallbacks
+                                        name: 'search_code',
+                                        arguments: JSON.stringify({}),
+                                    },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            const resolvedRepo = n(require('path').resolve('/repo'));
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, []);
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed', thoughts: ['step1'], actions: [null],
+            });
+            (runner as any).initRetrospect();
+            const messages = [{ role: 'system', content: 'prompt' }, { role: 'user', content: 'Analyze' }];
+            const tools = (runner as any).getImplementationTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            expect((runner as any).state.logs.some((l: string) => l.includes('[Retrospect] search_code'))).toBe(true);
+        });
+
+        it('emits fnName as activityDesc and returns Unknown tool for unrecognized tool', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: { name: 'super_mystery_tool', arguments: '{}' },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed', thoughts: ['step1'], actions: [null],
+            });
+            (runner as any).initRetrospect();
+            const messages = [{ role: 'system', content: 'prompt' }, { role: 'user', content: 'Analyze' }];
+            const tools = (runner as any).getImplementationTools();
+            const events: any[] = [];
+            runner.on('retrospect-tool-activity', (e) => events.push(e));
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            // The description should fall back to the raw tool name
+            expect(events.some((e) => e.description === 'super_mystery_tool')).toBe(true);
         });
 
         it('handles read_file calls with a missing path argument', async () => {
@@ -4441,6 +4649,753 @@ describe('AgentRunner', () => {
                 typeof message.content === 'string' &&
                 message.content.includes('docs/guides/README.md')
             )).toBe(true);
+        });
+    });
+
+    describe('parseRecommendations', () => {
+        it('extracts recommendations from markdown with priority groups', () => {
+            const markdown = `# Investigation Report
+
+## Summary
+Some summary text.
+
+## Recommendations
+
+### Immediate (P0)
+
+1. **Fix the bug**: The service crashes on null input.
+2. **Add retry logic**: Messages are lost when the queue is unavailable.
+
+### Short-Term (P1)
+
+1. **Add logging**: More telemetry is needed for debugging.
+
+### Medium-Term (P2)
+
+- **Refactor processor**: The class is too large and complex.
+
+## Appendix
+Some appendix.
+`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(4);
+            expect(recs[0]).toMatchObject({ priority: 'P0', title: 'Fix the bug' });
+            expect(recs[1]).toMatchObject({ priority: 'P0', title: 'Add retry logic' });
+            expect(recs[2]).toMatchObject({ priority: 'P1', title: 'Add logging' });
+            expect(recs[3]).toMatchObject({ priority: 'P2', title: 'Refactor processor' });
+            // Each should have a unique id
+            const ids = recs.map(r => r.id);
+            expect(new Set(ids).size).toBe(4);
+        });
+
+        it('returns empty array when no Recommendations section exists', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations('# Report\n\n## Summary\nNo recs here.');
+            expect(recs).toEqual([]);
+        });
+
+        it('uses finalReport from state when no markdown is passed', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Critical (P0)\n\n1. **Do the thing**: desc\n',
+                thoughts: [],
+                actions: [],
+            });
+            const recs = runner.parseRecommendations();
+            expect(recs.length).toBe(1);
+            expect(recs[0].priority).toBe('P0');
+            expect(recs[0].title).toBe('Do the thing');
+        });
+
+        it('handles bold heading format (**Heading (P1)**)', () => {
+            const markdown = `## Recommendations\n\n**Short-Term (P1)**\n\n1. **Improve caching**: Add TTL to cache entries.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].priority).toBe('P1');
+        });
+
+        it('defaults to P2 when no priority code is specified', () => {
+            const markdown = `## Recommendations\n\n### General Improvements\n\n1. **Clean up code**: Remove dead code.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].priority).toBe('P2');
+        });
+
+        it('matches "## Recommended Actions" heading', () => {
+            const markdown = `## Recommended Actions\n\n### Critical (P0)\n\n1. **Fix crash**: The service crashes.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Fix crash');
+        });
+
+        it('matches "## RECOMMENDATIONS" heading (case-insensitive)', () => {
+            const markdown = `## RECOMMENDATIONS\n\n### Immediate (P0)\n\n1. **Scale out**: Add more instances.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Scale out');
+        });
+
+        it('matches "## Recommendations (Ordered by Impact)" heading with suffix', () => {
+            const markdown = `## Recommendations (Ordered by Impact)\n\n### High (P0)\n\n1. **Increase timeout**: Prevent timeouts.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Increase timeout');
+        });
+
+        it('matches "## Recommended Fixes" heading', () => {
+            const markdown = `## Recommended Fixes\n\n### Short-Term (P1)\n\n1. **Patch config**: Update the config file.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Patch config');
+        });
+
+        it('treats entire section as P0 when no group headings exist', () => {
+            const markdown = `## Recommendations\n\n1. **Restart service**: The service needs a restart.\n2. **Clear cache**: Stale entries found.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(2);
+            expect(recs[0].priority).toBe('P0');
+            expect(recs[1].priority).toBe('P0');
+            expect(recs[0].title).toBe('Restart service');
+            expect(recs[1].title).toBe('Clear cache');
+        });
+
+        it('falls back to empty title and desc when both non-bold capture groups are empty', () => {
+            // Input ": description" — colon-format where title (group 3) captures empty string
+            // and description captures the text. The item is then skipped due to !title.
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. : some description here\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            // Empty title → item is skipped
+            expect(recs).toHaveLength(0);
+        });
+
+        it('falls back to empty desc when bold title has no description text', () => {
+            // "1. **Title**:" with empty text after colon — group 2 captures ""
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Empty desc item**:\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs).toHaveLength(1);
+            expect(recs[0].title).toBe('Empty desc item');
+            expect(recs[0].description).toBe('');
+        });
+
+        it('classifies code recommendations correctly', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '["code","code","code","code"]' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Implement retry backoff', description: 'Break the retry loop.', category: 'code' },
+                { id: 'r1', priority: 'P0', title: 'Add validation', description: 'Detect missing mappings.', category: 'code' },
+                { id: 'r2', priority: 'P0', title: 'Deduplicate notifications', description: 'Eliminates root cause.', category: 'code' },
+                { id: 'r3', priority: 'P0', title: 'Fix mapping errors', description: 'Permanent and will never self-heal.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations(recs);
+            expect(classified.every(r => r.category === 'code')).toBe(true);
+            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledOnce();
+        });
+
+        it('classifies operational recommendations correctly', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '["operational","operational","operational","operational"]' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Engage Kusto SRE', description: 'Majority of failures.', category: 'code' },
+                { id: 'r1', priority: 'P0', title: 'Monitor dashboards', description: 'Detect recurrence.', category: 'code' },
+                { id: 'r2', priority: 'P0', title: 'Investigate Entity Not Found', description: 'Stale configurations.', category: 'code' },
+                { id: 'r3', priority: 'P0', title: 'Scale out BlobReader', description: 'Match other cluster.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations(recs);
+            expect(classified.every(r => r.category === 'operational')).toBe(true);
+        });
+
+        it('classifies a mixed set of recommendations', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '["operational","code"]' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Engage Kusto SRE', description: 'Contact the team.', category: 'code' },
+                { id: 'r1', priority: 'P0', title: 'Add circuit breaker', description: 'Back off when overloaded.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations(recs);
+            expect(classified[0].category).toBe('operational');
+            expect(classified[1].category).toBe('code');
+        });
+
+        it('falls back to defaults when LLM returns wrong count', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '["code"]' } }]  // only 1, but 2 recs
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix bug', description: 'Crashes.', category: 'code' },
+                { id: 'r1', priority: 'P0', title: 'Engage SRE', description: 'Contact team.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations(recs);
+            // Falls back — all stay as default 'code'
+            expect(classified.every(r => r.category === 'code')).toBe(true);
+        });
+
+        it('falls back to defaults when LLM call fails', async () => {
+            mockOpenAI.chat.completions.create.mockRejectedValueOnce(new Error('API error'));
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix bug', description: 'Crashes.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations(recs);
+            expect(classified[0].category).toBe('code');
+        });
+
+        it('returns empty array for empty input', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations([]);
+            expect(classified).toEqual([]);
+            expect(mockOpenAI.chat.completions.create).not.toHaveBeenCalled();
+        });
+
+        it('parses non-bold title format (Title: Description)', () => {
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. Fix the crash: Service restarts frequently.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Fix the crash');
+            expect(recs[0].description).toContain('Service restarts');
+        });
+
+        it('skips items with empty titles', () => {
+            // A numbered item that doesn't match a title pattern
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Valid**: Do things.\n2. ** **: Empty bold.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            // The second item has empty bold text, should be skipped
+            expect(recs.every(r => r.title.length > 0)).toBe(true);
+        });
+
+        it('returns empty string for continuation when no indent follows', () => {
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Short item**: No continuation lines follow this.\n\n## Next Section\nOther content.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].description).toBe('No continuation lines follow this.');
+        });
+
+        it('falls back to defaults when LLM returns non-JSON response', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: 'I cannot classify these.' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix bug', description: 'Crashes.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations(recs);
+            expect(classified[0].category).toBe('code'); // returns unchanged
+        });
+
+        it('uses config model when state model is undefined', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '["code"]' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix', description: 'D.', category: 'code' },
+            ];
+            // makeConfig sets model to 'test-model' but state has no model
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).state.model = undefined;
+            await runner.classifyRecommendations(recs);
+            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+                expect.objectContaining({ model: 'test-model' })
+            );
+        });
+
+        it('falls back to gpt-4o when both state.model and config.model are undefined', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '["code"]' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix', description: 'D.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig({ model: undefined as any }), provider);
+            (runner as any).state.model = undefined;
+            await runner.classifyRecommendations(recs);
+            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+                expect.objectContaining({ model: 'gpt-4o' })
+            );
+        });
+
+        it('returns markdown absent from state as empty recommendations', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).state.finalReport = undefined;
+            const recs = runner.parseRecommendations(undefined);
+            expect(recs).toEqual([]);
+        });
+
+        it('falls back to defaults when message content is null', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: null } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix bug', description: 'Crashes.', category: 'code' },
+            ];
+            const runner = new AgentRunner(makeConfig(), provider);
+            const classified = await runner.classifyRecommendations(recs);
+            expect(classified[0].category).toBe('code');
+        });
+    });
+
+    describe('localSearchCode', () => {
+        // path.resolve('/repo') may produce 'C:\repo' on Windows, so we need resolved paths for existsSync
+        const resolvedRepo = n(require('path').resolve('/repo'));
+
+        it('finds matching lines in mock files', () => {
+            // Set up mock file system with code files directly in repo root
+            mockFsState.set(n(require('path').resolve('/repo/Service.cs')), 'namespace MyApp;\npublic class MyService\n{\n    public void Run() {}\n}\n');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['Service.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('MyService');
+            expect(result).toContain('Service.cs');
+            expect(result).toContain('MyService');
+        });
+
+        it('returns error for path outside repo root', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('test', '../../etc');
+            expect(result).toContain('Error');
+        });
+
+        it('falls back to literal match when regex is invalid', () => {
+            mockFsState.set(n(require('path').resolve('/repo/test.cs')), 'var x = foo[bar;\n');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['test.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // foo[bar is invalid regex, should fall back to literal
+            const result = (runner as any).localSearchCode('foo[bar');
+            expect(result).toContain('test.cs');
+        });
+
+        it('returns no matches message when nothing found', () => {
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, []);
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('nonExistentPattern123');
+            expect(result).toContain('No matches found');
+        });
+
+        it('returns error when search path does not exist', () => {
+            mockDirs.add(resolvedRepo);
+            const runner = new AgentRunner(makeConfig({ repoRoot: require('path').resolve('/repo') }), provider);
+            const result = (runner as any).localSearchCode('test', 'nonexistent-subdir');
+            expect(result).toContain('Error');
+            expect(result).toContain('does not exist');
+        });
+
+        it('walks into subdirectories to find matches', () => {
+            const pth = require('path');
+            const fs = require('fs');
+            const repoResolved = pth.resolve('/repo');
+            const subDir = n(pth.resolve('/repo/submod'));
+            mockDirs.add(n(repoResolved));
+            mockDirs.add(subDir);
+            // Insert more-specific paths first so readdirSyncImpl's includes check
+            // matches the deepest path before its parent
+            mockDirEntries.set(subDir, ['Deep.cs']);
+            mockDirEntries.set(n(repoResolved), ['submod']);
+            mockFsState.set(n(pth.resolve('/repo/submod/Deep.cs')), 'public class DeepClass { }');
+
+            // Override lstatSync to use exact set for precise directory checks
+            // (the default mock's includes-based check falsely marks files as dirs)
+            const dirSet = new Set([n(repoResolved), subDir]);
+            vi.mocked(fs.lstatSync).mockImplementation((p: string) => ({
+                isDirectory: () => dirSet.has(n(p as string)),
+            }));
+
+            const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
+            const result = (runner as any).localSearchCode('DeepClass');
+            expect(result).toContain('Deep.cs');
+            expect(result).toContain('DeepClass');
+        });
+
+        it('stops when maxResults is reached', () => {
+            mockFsState.set(n(require('path').resolve('/repo/a.cs')), 'hit1\nhit2\nhit3');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['a.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('hit', undefined, 1);
+            expect(result.split('\n').length).toBe(1);
+        });
+
+        it('skips entries in skipDirs list', () => {
+            const pth = require('path');
+            const fs = require('fs');
+            const repoResolved = pth.resolve('/repo');
+            const nmDir = n(pth.resolve('/repo/node_modules'));
+            mockDirs.add(n(repoResolved));
+            mockDirEntries.set(n(repoResolved), ['node_modules', 'app.cs']);
+            mockDirEntries.set(nmDir, ['secret.cs']);
+            mockFsState.set(n(pth.resolve('/repo/app.cs')), 'found it');
+            mockFsState.set(n(pth.resolve('/repo/node_modules/secret.cs')), 'hidden');
+
+            const dirSet = new Set([n(repoResolved), nmDir]);
+            vi.mocked(fs.lstatSync).mockImplementation((p: string) => ({
+                isDirectory: () => dirSet.has(n(p as string)),
+            }));
+
+            const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
+            const result = (runner as any).localSearchCode('found');
+            expect(result).toContain('app.cs');
+            expect(result).not.toContain('secret');
+        });
+
+        it('skips files with non-code extensions', () => {
+            mockFsState.set(n(require('path').resolve('/repo/data.dll')), 'binary stuff match');
+            mockFsState.set(n(require('path').resolve('/repo/code.cs')), 'match here');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['data.dll', 'code.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('match');
+            expect(result).toContain('code.cs');
+            expect(result).not.toContain('data.dll');
+        });
+
+        it('handles readdirSync errors gracefully', () => {
+            mockDirs.add(resolvedRepo);
+            mockReaddirThrow.add(resolvedRepo);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('anything');
+            expect(result).toContain('No matches found');
+        });
+
+        it('handles lstatSync errors gracefully', () => {
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['bad.cs']);
+            mockStatThrow.add(n(require('path').resolve('/repo/bad.cs')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('anything');
+            expect(result).toContain('No matches found');
+        });
+
+        it('walkDir handles lstatSync errors via direct call', () => {
+            // Call walkDir directly with an inline fs that always throws on lstatSync.
+            // This guarantees v8 can attribute the catch-block branch correctly.
+            const pth = require('path');
+            const repoRoot = pth.resolve('/repo');
+            const fakeFsThrowLstat = {
+                readdirSync: () => ['file.cs'],
+                lstatSync: () => { throw new Error('permission denied'); },
+                readFileSync: () => '',
+                existsSync: () => true,
+            };
+            const runner = new AgentRunner(makeConfig(), provider);
+            const results: string[] = [];
+            (runner as any).walkDir(
+                fakeFsThrowLstat, pth,
+                repoRoot, repoRoot, /anything/,
+                new Set<string>(), new Set(['.cs']),
+                results, 20
+            );
+            expect(results).toHaveLength(0);
+        });
+
+        it('searches with a searchPath parameter', () => {
+            const pth = require('path');
+            const repoResolved = pth.resolve('/repo');
+            const srcDir = n(pth.resolve('/repo/src'));
+            mockDirs.add(n(repoResolved));
+            mockDirs.add(srcDir);
+            mockDirEntries.set(srcDir, ['file.cs']);
+            mockFsState.set(n(pth.resolve('/repo/src/file.cs')), 'target code');
+
+            const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
+            const result = (runner as any).localSearchCode('target', 'src');
+            expect(result).toContain('file.cs');
+        });
+
+        it('includes searchPath in no-matches message', () => {
+            const pth = require('path');
+            const repoResolved = pth.resolve('/repo');
+            const srcDir = n(pth.resolve('/repo/src'));
+            mockDirs.add(n(repoResolved));
+            mockDirs.add(srcDir);
+            mockDirEntries.set(srcDir, []);
+
+            const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
+            const result = (runner as any).localSearchCode('nothing', 'src');
+            expect(result).toContain("in 'src'");
+        });
+
+        it('returns error with dot placeholder when repoRoot does not exist and no searchPath', () => {
+            // No mockDirs.add(resolvedRepo) → existsSync(repoRoot) returns false
+            // searchPath is undefined → the `searchPath || '.'` fallback uses '.'
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('anything');
+            expect(result).toContain("Error: Path '.' does not exist");
+        });
+
+        it('stops at loop entry check when previous entry exactly filled maxResults', () => {
+            // file.cs has exactly 2 matching lines — inner loop exits normally (no early return)
+            // second.cs would also match, but the mid-loop guard fires before we read it
+            mockFsState.set(n(require('path').resolve('/repo/file.cs')), 'target\ntarget');
+            mockFsState.set(n(require('path').resolve('/repo/second.cs')), 'target');
+            mockDirs.add(resolvedRepo);
+            mockDirEntries.set(resolvedRepo, ['file.cs', 'second.cs']);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = (runner as any).localSearchCode('target', undefined, 2);
+            expect(result.split('\n').length).toBe(2);
+            expect(result).not.toContain('second.cs');
+        });
+    });
+
+    describe('getImplementationTools', () => {
+        it('includes search_code tool alongside retrospect tools', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: [],
+                actions: [],
+            });
+            (runner as any).initRetrospect();
+            const tools = (runner as any).getImplementationTools();
+            const toolNames = tools.map((t: any) => t.function.name);
+            expect(toolNames).toContain('search_code');
+            expect(toolNames).toContain('read_file');
+            expect(toolNames).toContain('list_dir');
+            expect(toolNames).toContain('propose_change');
+        });
+    });
+
+    describe('runImplementationAnalysis', () => {
+        it('throws when investigation is still running', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            await expect((runner as any).runImplementationAnalysis(['rec_P0_0'])).rejects.toThrow('only available for completed');
+        });
+
+        it('throws when no valid recommendations are selected', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix bug**: desc\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            await expect((runner as any).runImplementationAnalysis(['nonexistent_id'])).rejects.toThrow('No valid recommendations');
+        });
+
+        it('throws when retrospect analysis is already running', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix bug**: desc\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).isRetrospectRunning = true;
+            await expect((runner as any).runImplementationAnalysis(['rec_P0_0'])).rejects.toThrow('retrospect analysis is in progress');
+        });
+
+        it('runs tool loop and produces implementation proposals', async () => {
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                return { choices: [{ message: { content: 'Implementation complete. All changes proposed.', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: The service crashes.\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            expect(retro).toBeDefined();
+            // Should have messages from the implementation
+            expect(retro.messages.length).toBeGreaterThanOrEqual(2); // user trigger + assistant response
+            expect(retro.messages[0].content).toContain('[Implementation]');
+            // isImplementationRunning should be reset
+            expect((runner as any).isImplementationRunning).toBe(false);
+        });
+
+        it('skips duplicate request when already running', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).isImplementationRunning = true;
+            // Should not throw, just silently return
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+        });
+    });
+
+    describe('handleProposeChange source tagging', () => {
+        it('tags proposals with source implementation when flag is set', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+            (runner as any).isImplementationRunning = true;
+
+            (runner as any).handleProposeChange({
+                filePath: 'src/Test.cs',
+                type: 'edit',
+                content: 'new content',
+                description: 'Fix the bug',
+            });
+
+            const proposals = (runner as any).state.retrospect.proposals;
+            expect(proposals.length).toBe(1);
+            expect(proposals[0].source).toBe('implementation');
+        });
+
+        it('tags proposals with source retrospect by default', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            (runner as any).handleProposeChange({
+                filePath: 'src/Test.cs',
+                type: 'edit',
+                content: 'new content',
+                description: 'Fix the bug',
+            });
+
+            const proposals = (runner as any).state.retrospect.proposals;
+            expect(proposals.length).toBe(1);
+            expect(proposals[0].source).toBe('retrospect');
+        });
+    });
+
+    describe('runImplementationAnalysis coverage', () => {
+        it('reports proposal count when proposals exist', async () => {
+            // Mock LLM to return a response, then manually inject a proposal
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                return { choices: [{ message: { content: 'Done with changes.', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: The service crashes.\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            // Pre-inject a proposal so the proposalCount > 0 branch is hit
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockImplementation(async () => {
+                const retro = (runner as any).state.retrospect;
+                retro.proposals.push({ id: 'p1', source: 'implementation', filePath: 'src/Fix.cs', type: 'edit', status: 'pending' });
+                return 'Changes applied.';
+            });
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            const lastMsg = retro.messages[retro.messages.length - 1];
+            expect(lastMsg.content).toContain('1 code change proposed');
+            expect(lastMsg.content).toContain('Implementation complete');
+        });
+
+        it('uses plural when multiple proposals exist', async () => {
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockImplementation(async () => {
+                const retro = (runner as any).state.retrospect;
+                retro.proposals.push({ id: 'p1', source: 'implementation', filePath: 'a.cs', type: 'edit', status: 'pending' });
+                retro.proposals.push({ id: 'p2', source: 'implementation', filePath: 'b.cs', type: 'edit', status: 'pending' });
+                return 'All fixed.';
+            });
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            const lastMsg = retro.messages[retro.messages.length - 1];
+            expect(lastMsg.content).toContain('2 code changes proposed');
+        });
+
+        it('handles error during implementation tool loop', async () => {
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                return { choices: [{ message: { content: 'thinking', tool_calls: null } }] };
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockRejectedValue(new Error('LLM connection lost'));
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            const lastMsg = retro.messages[retro.messages.length - 1];
+            expect(lastMsg.content).toContain('Error during implementation: LLM connection lost');
+            expect((runner as any).isImplementationRunning).toBe(false);
+        });
+
+        it('handles AbortError as cancellation', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+
+            const abortError = new Error('Aborted');
+            abortError.name = 'AbortError';
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockRejectedValue(abortError);
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+
+            const retro = (runner as any).state.retrospect;
+            const lastMsg = retro.messages[retro.messages.length - 1];
+            expect(lastMsg.content).toBe('Implementation was cancelled.');
+            expect((runner as any).isImplementationRunning).toBe(false);
+        });
+
+        it('handles undefined finalReport in context building', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            // Mock parseRecommendations to return recs even without a finalReport
+            vi.spyOn(runner as any, 'parseRecommendations').mockReturnValue([
+                { id: 'rec_P0_0', priority: 'P0', title: 'Fix', description: 'Fix it', category: 'code' },
+            ]);
+            vi.spyOn(runner as any, 'runRetrospectToolLoop').mockResolvedValue('Done.');
+
+            await (runner as any).runImplementationAnalysis(['rec_P0_0']);
+            expect((runner as any).isImplementationRunning).toBe(false);
         });
     });
 

@@ -4282,4 +4282,214 @@ describe('server utilities and routes', () => {
             realScheduler.stop();
         });
     });
+
+    describe('GET /api/investigations/:id/recommendations', () => {
+        it('returns 404 when investigation not found', async () => {
+            const response = await api().get('/api/investigations/missing/recommendations');
+            expect(response.status).toBe(404);
+        });
+
+        it('returns empty array when no final report', async () => {
+            __testUtils.getHistory().set('no-report', makeState({ id: 'no-report', status: 'completed' }) as any);
+            const response = await api().get('/api/investigations/no-report/recommendations');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual([]);
+        });
+
+        it('returns cached recommendations when available', async () => {
+            const cached = [{ id: 'r1', priority: 'P0', title: 'Fix', category: 'code' }];
+            const state = makeState({ id: 'cached-recs', status: 'completed', finalReport: 'report' }) as any;
+            state.recommendations = cached;
+            __testUtils.getHistory().set('cached-recs', state);
+            const response = await api().get('/api/investigations/cached-recs/recommendations');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual(cached);
+        });
+
+        it('lazy classifies when no cached recommendations', async () => {
+            const state = makeState({
+                id: 'lazy-recs',
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix it**: broken\n',
+            }) as any;
+            __testUtils.getHistory().set('lazy-recs', state);
+            setFakeLlmProvider();
+
+            vi.spyOn(AgentRunner.prototype, 'parseRecommendations').mockReturnValue([
+                { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'code' },
+            ]);
+            vi.spyOn(AgentRunner.prototype, 'classifyRecommendations').mockResolvedValue([
+                { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'code' },
+            ]);
+
+            const response = await api().get('/api/investigations/lazy-recs/recommendations');
+            expect(response.status).toBe(200);
+            expect(response.body.length).toBe(1);
+            expect(response.body[0].title).toBe('Fix it');
+        });
+
+        it('returns empty array when report has no recommendations', async () => {
+            const state = makeState({
+                id: 'no-recs',
+                status: 'completed',
+                finalReport: 'Just a simple report with no recommendations section.',
+            }) as any;
+            __testUtils.getHistory().set('no-recs', state);
+            setFakeLlmProvider();
+
+            const response = await api().get('/api/investigations/no-recs/recommendations');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual([]);
+        });
+
+        it('returns recommendations from active runner state', async () => {
+            const runner = makeRunner({ id: 'active-recs', status: 'completed' });
+            const cached = [{ id: 'r1', priority: 'P0', title: 'Active', category: 'code' }];
+            (runner as any).state.recommendations = cached;
+            __testUtils.getRunners().set('active-recs', runner);
+
+            const response = await api().get('/api/investigations/active-recs/recommendations');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual(cached);
+        });
+    });
+
+    describe('POST /api/investigations/:id/recommendations/reclassify', () => {
+        it('returns 404 when investigation not found', async () => {
+            const response = await api().post('/api/investigations/missing/recommendations/reclassify');
+            expect(response.status).toBe(404);
+        });
+
+        it('returns empty array when no final report', async () => {
+            __testUtils.getHistory().set('no-rep-rc', makeState({ id: 'no-rep-rc', status: 'completed' }) as any);
+            const response = await api().post('/api/investigations/no-rep-rc/recommendations/reclassify');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual([]);
+        });
+
+        it('reclassifies recommendations from final report', async () => {
+            const state = makeState({
+                id: 'reclassify-inv',
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix it**: broken\n',
+            }) as any;
+            __testUtils.getHistory().set('reclassify-inv', state);
+            setFakeLlmProvider();
+
+            vi.spyOn(AgentRunner.prototype, 'parseRecommendations').mockReturnValue([
+                { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'code' },
+            ]);
+            vi.spyOn(AgentRunner.prototype, 'classifyRecommendations').mockResolvedValue([
+                { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'operational' },
+            ]);
+
+            const response = await api().post('/api/investigations/reclassify-inv/recommendations/reclassify');
+            expect(response.status).toBe(200);
+            expect(response.body[0].category).toBe('operational');
+            // Should cache the result
+            expect(state.recommendations[0].category).toBe('operational');
+        });
+
+        it('reclassifies using active runner state', async () => {
+            const runner = makeRunner({
+                id: 'active-reclassify',
+                status: 'completed',
+                finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix**: broken\n',
+            });
+            __testUtils.getRunners().set('active-reclassify', runner);
+            setFakeLlmProvider();
+
+            vi.spyOn(AgentRunner.prototype, 'parseRecommendations').mockReturnValue([
+                { id: 'r1', priority: 'P0', title: 'Fix', description: 'broken', category: 'code' },
+            ]);
+            vi.spyOn(AgentRunner.prototype, 'classifyRecommendations').mockResolvedValue([
+                { id: 'r1', priority: 'P0', title: 'Fix', description: 'broken', category: 'operational' },
+            ]);
+
+            const response = await api().post('/api/investigations/active-reclassify/recommendations/reclassify');
+            expect(response.status).toBe(200);
+            expect(response.body[0].category).toBe('operational');
+        });
+    });
+
+    describe('POST /api/investigations/:id/implement', () => {
+        it('returns 400 when no recommendations provided', async () => {
+            const runner = makeRunner({ status: 'completed' });
+            __testUtils.getRunners().set('impl-inv-1', runner);
+            const response = await api().post('/api/investigations/impl-inv-1/implement').send({});
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('At least one recommendation');
+        });
+
+        it('returns 400 when recommendations is empty array', async () => {
+            const runner = makeRunner({ status: 'completed' });
+            __testUtils.getRunners().set('impl-inv-1', runner);
+            const response = await api().post('/api/investigations/impl-inv-1/implement').send({ recommendations: [] });
+            expect(response.status).toBe(400);
+        });
+
+        it('returns 404 when investigation not found', async () => {
+            const response = await api().post('/api/investigations/nonexistent/implement').send({ recommendations: ['rec_P0_0'] });
+            expect(response.status).toBe(404);
+        });
+
+        it('returns 409 when concurrent operation in progress', async () => {
+            __testUtils.getHistory().set('concurrent-impl', makeState({ id: 'concurrent-impl', status: 'completed' }) as any);
+            // Simulate a runner already set up (e.g., from a concurrent request)
+            __testUtils.getRunners().set('concurrent-impl', undefined as any);
+
+            const response = await api().post('/api/investigations/concurrent-impl/implement').send({ recommendations: ['rec_P0_0'] });
+            expect(response.status).toBe(409);
+            expect(response.body.error).toContain('Concurrent');
+        });
+
+        it('starts implementation for active runner', async () => {
+            const runner = makeRunner({ status: 'completed' });
+            runner.runImplementationAnalysis = vi.fn().mockResolvedValue(undefined);
+            __testUtils.getRunners().set('impl-active', runner);
+            const response = await api().post('/api/investigations/impl-active/implement').send({ recommendations: ['rec_P0_0'] });
+            expect(response.status).toBe(200);
+            expect(response.body.started).toBe(true);
+            expect(response.body.recommendations).toBe(1);
+        });
+
+        it('creates temporary runner from history and cleans up', async () => {
+            const histState = makeState({ id: 'impl-hist', status: 'completed' });
+            __testUtils.getHistory().set('impl-hist', histState as any);
+            setFakeLlmProvider();
+
+            vi.spyOn(AgentRunner.prototype, 'runImplementationAnalysis').mockImplementation(async function (this: any) {
+                // Emit all three SSE events to cover the callback lines
+                this.emit('retrospect', { messages: [] });
+                this.emit('retrospect-proposal', { id: 'p1' });
+                this.emit('retrospect-tool-activity', { tool: 'read_file' });
+            });
+            vi.spyOn(AgentRunner.prototype, 'saveArtifacts' as any).mockResolvedValue(undefined);
+
+            const response = await api().post('/api/investigations/impl-hist/implement').send({ recommendations: ['rec_P0_0'] });
+            expect(response.status).toBe(200);
+            expect(response.body.started).toBe(true);
+
+            // Wait for the async work to complete
+            await vi.waitFor(() => {
+                expect(AgentRunner.prototype.runImplementationAnalysis).toHaveBeenCalledWith(['rec_P0_0']);
+            });
+        });
+
+        it('handles error during implementation gracefully', async () => {
+            const runner = makeRunner({ status: 'completed' });
+            runner.runImplementationAnalysis = vi.fn().mockRejectedValue(new Error('LLM down'));
+            __testUtils.getRunners().set('impl-err', runner);
+
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const response = await api().post('/api/investigations/impl-err/implement').send({ recommendations: ['rec_P0_0'] });
+            expect(response.status).toBe(200);
+
+            // Wait for async error handler to run
+            await vi.waitFor(() => {
+                expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('[implement]'), 'LLM down');
+            });
+            consoleSpy.mockRestore();
+        });
+    });
 });

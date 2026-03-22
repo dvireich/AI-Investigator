@@ -27,6 +27,15 @@ export interface ProposedChange {
     content: string;
     originalContent?: string;
     status: 'pending' | 'approved' | 'rejected' | 'applied';
+    source?: 'retrospect' | 'implementation';
+}
+
+export interface Recommendation {
+    id: string;
+    priority: string;
+    title: string;
+    description: string;
+    category: 'code' | 'operational';
 }
 
 export interface RetrospectMessage {
@@ -68,6 +77,7 @@ export interface InvestigationState {
     pausedAt?: number;
     totalPausedTime?: number;
     finalReport?: string;
+    recommendations?: Recommendation[];
     retrospect?: RetrospectState;
     contestCount?: number;
     tags?: string[];
@@ -361,6 +371,20 @@ export class AgentRunner extends EventEmitter {
 
                         this.state.finalReport = report;
                         this.state.thoughts.push(`Observation: Report Generated.`);
+
+                        // Parse and classify recommendations from the report
+                        try {
+                            const recs = this.parseRecommendations(report);
+                            if (recs.length > 0) {
+                                this.state.recommendations = await this.classifyRecommendations(recs);
+                                this.log(`Classified ${this.state.recommendations.length} recommendations.`);
+                            } else {
+                                this.state.recommendations = [];
+                            }
+                        } catch (err: any) {
+                            this.log(`Warning: recommendation classification failed: ${err.message}`);
+                            this.state.recommendations = this.parseRecommendations(report);
+                        }
 
                         // Update last action result (the finish action, before pushing null alignment entry)
                         const finishAction = this.state.actions[this.state.actions.length - 1];
@@ -1052,6 +1076,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 const activityDesc = fnName === 'read_file' ? `Reading ${args.path}`
                     : fnName === 'list_dir' ? `Listing ${args.path}`
                     : fnName === 'propose_change' ? `Proposing change: ${(args.description || '').substring(0, 60)}`
+                    : fnName === 'search_code' ? `Searching for: ${(args.pattern || '').substring(0, 60)}`
                     : fnName;
                 this.emit('retrospect-tool-activity', { tool: fnName, description: activityDesc, iteration: i + 1 });
 
@@ -1079,6 +1104,9 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                             ? await this.toolManager.callTool('list_dir', args)
                             : this.localListDir(args.path);
                         this.log(`[Retrospect] list_dir: ${args.path}`);
+                    } else if (fnName === 'search_code') {
+                        result = this.localSearchCode(args.pattern, args.path, args.maxResults || 20);
+                        this.log(`[Retrospect] search_code: pattern='${args.pattern}', path='${args.path || '.'}' (${result.split('\n').length} results)`);
                     } else if (fnName === 'propose_change') {
                         result = this.handleProposeChange(args);
                     } else {
@@ -1214,7 +1242,8 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             description: args.description,
             content: args.content,
             originalContent,
-            status: 'pending'
+            status: 'pending',
+            source: this.isImplementationRunning ? 'implementation' : 'retrospect'
         };
 
         retro.proposals.push(proposal);
@@ -1270,6 +1299,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
     private retrospectAbortController: AbortController | null = null;
     private isRetrospectRunning = false;
+    private isImplementationRunning = false;
     private _lastRetroSave: number = 0;
 
     abortRetrospective() {
@@ -1423,6 +1453,369 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         return { applied, errors };
     }
 
+    // ─── Implementation Agent (Code Changes from Report Recommendations) ────
+
+    /**
+     * Parse recommendations from a markdown investigation report.
+     * Looks for a ## Recommendations section and extracts structured items.
+     */
+    parseRecommendations(markdown?: string): Recommendation[] {
+        const text = markdown || this.state.finalReport || '';
+        const recommendations: Recommendation[] = [];
+
+        // Find the Recommendations section (handles variants like "Recommended Actions", "RECOMMENDATIONS", etc.)
+        const recsMatch = text.match(/^##\s+Recommend(?:ations|ed\b)[^\n]*/im);
+        if (!recsMatch) return recommendations;
+
+        const recsStart = recsMatch.index! + recsMatch[0].length;
+        // End at next ## heading or end of document
+        const nextH2 = text.slice(recsStart).match(/^##\s+/m);
+        const recsSection = nextH2
+            ? text.slice(recsStart, recsStart + nextH2.index!)
+            : text.slice(recsStart);
+
+        // Match priority group headings like:
+        //   ### Immediate (P0)
+        //   ### Short-Term (P1)
+        //   **Immediate (P0)**
+        const groupPattern = /(?:^###\s+(.+?)\s*$|^\*\*(.+?)\*\*\s*$)/gm;
+        let groupMatch: RegExpExecArray | null;
+        const groups: { priority: string; label: string; start: number }[] = [];
+
+        while ((groupMatch = groupPattern.exec(recsSection)) !== null) {
+            const heading = groupMatch[1] || groupMatch[2];
+            // Extract priority code like P0, P1, P2, P3
+            const pMatch = heading.match(/P(\d)/);
+            const priority = pMatch ? `P${pMatch[1]}` : 'P2'; // default to P2 if unclear
+            groups.push({ priority, label: heading, start: groupMatch.index + groupMatch[0].length });
+        }
+
+        // If no groups found, treat the entire section as P0
+        if (groups.length === 0) {
+            groups.push({ priority: 'P0', label: 'Recommendations', start: 0 });
+        }
+
+        for (let g = 0; g < groups.length; g++) {
+            const groupStart = groups[g].start;
+            const groupEnd = g + 1 < groups.length ? groups[g + 1].start - (groups[g + 1].label.length + 10) : recsSection.length;
+            const groupText = recsSection.slice(groupStart, groupEnd);
+
+            // Match numbered items or bullet items (first bold text is the title)
+            // Patterns: "1. **Title**: Description" or "- **Title**: Description" or "1. Title: Description"
+            const itemPattern = /(?:^|\n)\s*(?:\d+\.\s+|\-\s+)(?:\*\*(.+?)\*\*[:\s]*(.*)|(.*?):\s+(.*))/g;
+            let itemMatch: RegExpExecArray | null;
+
+            while ((itemMatch = itemPattern.exec(groupText)) !== null) {
+                const title = (itemMatch[1] || itemMatch[3] || '').trim();
+                const desc = (itemMatch[2] || itemMatch[4] || '').trim();
+                if (!title) continue;
+
+                // Collect continuation lines (non-item lines that follow)
+                const afterItem = groupText.slice(itemMatch.index + itemMatch[0].length);
+                const continuationMatch = afterItem.match(/^((?:\n\s{2,}.*|\n\s+\-\s+.*)*)/);
+                const fullDesc = desc + continuationMatch[1].replace(/\n\s{2,}/g, ' ').trim();
+
+                recommendations.push({
+                    id: `rec_${groups[g].priority}_${recommendations.length}`,
+                    priority: groups[g].priority,
+                    title,
+                    description: fullDesc,
+                    category: 'code'  // default; refined by classifyRecommendations()
+                });
+            }
+        }
+
+        return recommendations;
+    }
+
+    async classifyRecommendations(recs: Recommendation[]): Promise<Recommendation[]> {
+        if (recs.length === 0) return recs;
+
+        const numbered = recs.map((r, i) => `${i + 1}. "${r.title}": ${r.description}`).join('\n');
+
+        try {
+            const openai = await this.llmProvider.getClient(30_000);
+            const model = this.state.model || this.config.model || 'gpt-4o';
+
+            const completion = await openai.chat.completions.create({
+                model,
+                messages: [
+                    {
+                        role: 'system',
+                        content: `You classify investigation recommendations as either "code" or "operational".
+
+A recommendation is "code" if it can be implemented by modifying source code in the repository — adding logic, fixing bugs, refactoring classes, adding metrics/logging code, changing configuration constants in code, adding validation, implementing patterns, etc.
+
+A recommendation is "operational" if it requires human action outside the codebase — contacting teams, engaging SREs, monitoring dashboards, scaling infrastructure, investigating external services, running performance tests, filing tickets, etc.
+
+When a recommendation says "investigate" a specific class or service that exists in the repo's source code, that is "code" (investigating code to find a bug). When it says "investigate" an external cluster or infrastructure, that is "operational".
+
+Respond with ONLY a JSON array of category strings, one per recommendation, in the same order. Example: ["code","operational","code"]`
+                    },
+                    {
+                        role: 'user',
+                        content: numbered
+                    }
+                ]
+            });
+
+            const raw = completion.choices[0].message.content?.trim() || '';
+            // Extract JSON array from response (handle markdown code blocks)
+            const jsonMatch = raw.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                const categories: string[] = JSON.parse(jsonMatch[0]);
+                if (categories.length === recs.length) {
+                    return recs.map((r, i) => ({
+                        ...r,
+                        category: categories[i] === 'operational' ? 'operational' : 'code'
+                    }));
+                }
+            }
+            this.log('Warning: LLM classification response did not match expected format, using defaults');
+        } catch (err: any) {
+            this.log(`Warning: LLM classification failed (${err.message}), using defaults`);
+        }
+
+        return recs;
+    }
+
+    /**
+     * Search for code patterns in the repository.
+     * Cross-platform recursive search using Node.js.
+     */
+    private walkDir(
+        fs: any, path: any,
+        dir: string, repoRoot: string, regex: RegExp,
+        skipDirs: Set<string>, codeExts: Set<string>,
+        results: string[], maxResults: number
+    ): void {
+        let entries: string[];
+        try {
+            entries = fs.readdirSync(dir);
+        } catch (_e) {
+            return;
+        }
+        for (const entry of entries) {
+            if (results.length >= maxResults) return;
+            const fullPath = path.join(dir, entry);
+            let stat: any = null;
+            try {
+                stat = fs.lstatSync(fullPath);
+            } catch (_e) {
+                stat = null;
+            }
+            if (!stat) continue;
+            if (stat.isDirectory()) {
+                if (!skipDirs.has(entry)) this.walkDir(fs, path, fullPath, repoRoot, regex, skipDirs, codeExts, results, maxResults);
+            } else {
+                const ext = path.extname(entry).toLowerCase();
+                if (!codeExts.has(ext)) continue;
+                try {
+                    const content = fs.readFileSync(fullPath, 'utf-8');
+                    const lines = content.split('\n');
+                    for (let i = 0; i < lines.length; i++) {
+                        if (results.length >= maxResults) return;
+                        if (regex.test(lines[i])) {
+                            const relPath = path.relative(repoRoot, fullPath).replace(/\\/g, '/');
+                            results.push(`${relPath}:${i + 1}: ${lines[i].trimStart().substring(0, 200)}`);
+                        }
+                    }
+                } catch (_e) { /* skip binary/unreadable files */ }
+            }
+        }
+    }
+
+    private localSearchCode(pattern: string, searchPath?: string, maxResults: number = 20): string {
+        const fs = require('fs');
+        const path = require('path');
+        const repoRoot = path.resolve(this.getRepoRoot());
+        const startDir = searchPath
+            ? path.resolve(repoRoot, searchPath)
+            : repoRoot;
+
+        // Security: only allow searching within repo root
+        if (!startDir.startsWith(repoRoot)) {
+            return `Error: Search path '${searchPath}' resolves outside the repository root.`;
+        }
+
+        if (!fs.existsSync(startDir)) {
+            return `Error: Path '${searchPath || '.'}' does not exist.`;
+        }
+
+        const results: string[] = [];
+        let regex: RegExp;
+        try {
+            regex = new RegExp(pattern, 'i');
+        } catch {
+            // Fall back to literal match if regex is invalid
+            regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+        }
+
+        const skipDirs = new Set(['node_modules', '.git', 'bin', 'obj', 'packages', 'TestResults', 'CoverageReport', 'coverage', '.vs', 'Stage']);
+        const codeExts = new Set(['.cs', '.ts', '.tsx', '.js', '.jsx', '.json', '.xml', '.csproj', '.sln', '.yaml', '.yml', '.md', '.config', '.props', '.targets', '.py']);
+
+        this.walkDir(fs, path, startDir, repoRoot, regex, skipDirs, codeExts, results, maxResults);
+
+        if (results.length === 0) {
+            return `No matches found for pattern '${pattern}'${searchPath ? ` in '${searchPath}'` : ''}.`;
+        }
+
+        return results.join('\n');
+    }
+
+    private getImplementationTools(): any[] {
+        return [
+            ...this.getRetrospectTools(), // Includes read_file, list_dir, propose_change
+            {
+                type: 'function',
+                function: {
+                    name: 'search_code',
+                    description: 'Search for code patterns (string or regex) in the repository. Returns matching file paths and line content.',
+                    parameters: {
+                        type: 'object',
+                        properties: {
+                            pattern: { type: 'string', description: 'Search pattern (string or regex). Example: "ParquetIngestionNotificationMessageProcessor" or "class.*Processor"' },
+                            path: { type: 'string', description: 'Optional subdirectory to search within (relative to repo root). Example: "src/Teleduct"' },
+                            maxResults: { type: 'number', description: 'Maximum number of matching lines to return (default: 20)' }
+                        },
+                        required: ['pattern']
+                    }
+                }
+            }
+        ];
+    }
+
+    private buildImplementationSystemPrompt(selectedRecs: Recommendation[]): string {
+        const recsText = selectedRecs.map((r, i) =>
+            `${i + 1}. **[${r.priority}] ${r.title}**: ${r.description}`
+        ).join('\n');
+
+        return `You are a **Senior Software Engineer** implementing code changes based on investigation recommendations.
+
+## Your Mission
+Implement the selected recommendations from an investigation report by proposing specific code changes to the repository.
+
+## Investigation Context
+- **Goal**: ${this.state.query || 'N/A'}
+- **Target**: ${this.state.target || 'N/A'}
+- **Category**: ${this.state.category || 'N/A'}
+- **Verdict**: ${this.state.verdict || 'N/A'}
+
+## Selected Recommendations to Implement
+${recsText}
+
+## Your Tools
+1. **search_code** — Search for code patterns in the repository (supports string and regex)
+2. **read_file** — Read a file from the repository
+3. **list_dir** — List directory contents
+4. **propose_change** — Propose a file modification or creation (shown for user approval)
+
+## CRITICAL: Tool Usage Rules
+- **ALWAYS call tools directly** — NEVER describe what you plan to do. Just call search_code/read_file immediately.
+- Your FIRST action must be a tool call (typically search_code to find relevant code).
+- You can call multiple tools in a single response.
+- Only output text when presenting your analysis or after proposing all changes.
+
+## Implementation Guidelines
+1. **Start by searching** — Use search_code to find the classes, methods, and files mentioned in the recommendations.
+2. **Read the relevant files** — Use read_file to understand the full context of the code you need to modify.
+3. **Propose minimal, focused changes** — Each propose_change should be a complete file with the change applied. For edits, provide the FULL file content.
+4. **Preserve existing behavior** — Don't break existing functionality. Add new code paths, not replace existing ones.
+5. **Follow the codebase conventions** — Match the existing code style, naming conventions, and patterns.
+6. **One recommendation per proposal** — Make each proposal implement exactly one recommendation for easy review.
+7. **Tag descriptions** — Prefix descriptions with the recommendation priority: [P0], [P1], [P2], [P3].
+
+## Important Constraints
+- This is a .NET codebase using Service Fabric
+- Unit tests use Telerik JustMock for mocking
+- Only propose changes you are confident about. If a recommendation is too vague or risky, explain why instead of guessing.
+- NEVER modify test files unless explicitly asked. Focus on production code.`;
+    }
+
+    async runImplementationAnalysis(selectedRecommendationIds: string[]): Promise<void> {
+        if (['running', 'paused'].includes(this.state.status)) {
+            throw new Error('Implementation is only available for completed investigations.');
+        }
+
+        if (this.isImplementationRunning) {
+            this.log('[Implementation] Already in progress, skipping duplicate request.');
+            return;
+        }
+
+        if (this.isRetrospectRunning) {
+            throw new Error('Cannot run implementation while retrospect analysis is in progress.');
+        }
+
+        const allRecs = this.parseRecommendations();
+        const selectedRecs = allRecs.filter(r => selectedRecommendationIds.includes(r.id));
+
+        if (selectedRecs.length === 0) {
+            throw new Error('No valid recommendations selected.');
+        }
+
+        this.isImplementationRunning = true;
+
+        const retro = this.initRetrospect();
+        const tools = this.getImplementationTools();
+
+        const systemPrompt = this.buildImplementationSystemPrompt(selectedRecs);
+        const reportContext = (this.state.finalReport || '').substring(0, 8000);
+        const userMessage = `## Investigation Report (Context)\n${reportContext}\n\n---\n\nImplement the ${selectedRecs.length} selected recommendation(s) now. Start by using search_code to find the relevant code, then read_file to understand it, and finally propose_change to suggest modifications.`;
+
+        const messages = [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage }
+        ];
+
+        // Push trigger message for UI
+        retro.messages.push({ role: 'user', content: `[Implementation] Implementing ${selectedRecs.length} recommendation(s): ${selectedRecs.map(r => `[${r.priority}] ${r.title}`).join(', ')}` });
+        this.emit('retrospect', this.state.retrospect);
+
+        const timeoutMinutes = this.config.retrospectTimeoutMinutes || 10;
+        const TIMEOUT_MS = timeoutMinutes * 60 * 1000;
+        let timeoutId: NodeJS.Timeout;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timeoutId = setTimeout(() => reject(new Error(`Implementation timed out after ${timeoutMinutes} minutes`)), TIMEOUT_MS);
+        });
+
+        try {
+            const responseText = await Promise.race([
+                this.runRetrospectToolLoop(messages, tools),
+                timeoutPromise
+            ]);
+
+            // Count only implementation proposals (tagged with source: 'implementation')
+            const implProposals = retro.proposals.filter(p => p.source === 'implementation');
+            const proposalCount = implProposals.length;
+            const summaryParts: string[] = [];
+            if (responseText && !responseText.startsWith('Analysis complete')) {
+                summaryParts.push(responseText);
+            }
+            summaryParts.push('---');
+            if (proposalCount > 0) {
+                summaryParts.push(`**Implementation complete.** ${proposalCount} code change${proposalCount === 1 ? '' : 's'} proposed. Review them in the Proposed Code Changes panel and approve or reject each one.`);
+            } else {
+                summaryParts.push('**Implementation complete.** No code changes were proposed. The recommendations may require manual implementation or further clarification.');
+            }
+            retro.messages.push({ role: 'assistant', content: summaryParts.join('\n\n') });
+            this.emit('retrospect', this.state.retrospect);
+            await this.saveArtifacts();
+        } catch (error: any) {
+            const isCancelled = error.name === 'AbortError';
+            const errMsg = isCancelled
+                ? 'Implementation was cancelled.'
+                : `Error during implementation: ${error.message}`;
+            this.log(`[Implementation] ERROR: ${errMsg}`);
+            retro.messages.push({ role: 'assistant', content: errMsg });
+            this.emit('retrospect', this.state.retrospect);
+            await this.saveArtifacts();
+        } finally {
+            clearTimeout(timeoutId!);
+            this.retrospectAbortController = null;
+            this.isImplementationRunning = false;
+        }
+    }
+
     private async saveArtifacts() {
         // Sync fullHistory before persisting so the saved state has the complete record
         this.syncFullHistory();
@@ -1493,6 +1886,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             pausedAt: this.state.pausedAt,
             totalPausedTime: this.state.totalPausedTime,
             finalReport: this.state.finalReport,
+            recommendations: this.state.recommendations,
             retrospect: this.state.retrospect ? {
                 messages: [],
                 proposals: (this.state.retrospect.proposals || []).map(proposal => ({ id: proposal.id, status: proposal.status })),
@@ -1612,6 +2006,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
         // Clear the final report
         this.state.finalReport = undefined;
+        this.state.recommendations = undefined;
 
         // Reset retrospective (it analyzed a now-rejected report)
         this.state.retrospect = { messages: [], proposals: [], analysisComplete: false, completed: false };

@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api, BASE_URL, type Investigation } from '../api';
+import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -430,31 +430,38 @@ const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedb
 
     if (!showForm) {
         return (
-            <div className="px-6 py-3 flex items-center justify-between">
-                <p className="text-sm text-slate-400">Not satisfied with this report?</p>
-                <button
-                    onClick={() => setShowForm(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 font-semibold rounded-lg border border-amber-500/20 hover:border-amber-500/30 transition-all text-sm"
-                >
-                    <RotateCcw className="w-4 h-4" />
+            <button
+                onClick={() => setShowForm(true)}
+                className="group relative flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 overflow-hidden text-amber-200/90 hover:text-amber-100"
+            >
+                {/* Animated gradient border */}
+                <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-amber-500/25 via-orange-500/25 to-amber-500/25 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                <span className="absolute inset-[1px] rounded-[11px] bg-slate-900/90 backdrop-blur-sm" />
+                {/* Subtle border */}
+                <span className="absolute inset-0 rounded-xl border border-amber-500/20 group-hover:border-amber-400/40 transition-colors duration-300" />
+                {/* Content */}
+                <span className="relative flex items-center gap-2.5">
+                    <RotateCcw className="w-4 h-4 text-amber-400 group-hover:rotate-[-45deg] transition-transform duration-500 ease-out" />
                     Contest Report
-                </button>
-            </div>
+                </span>
+            </button>
         );
     }
 
     return (
-        <div className="p-4 space-y-3">
+        <div className="w-full basis-full p-5 space-y-3">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-500" />
-                    <span className="font-bold text-amber-300 text-sm">Contest This Report</span>
+                    <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                        <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                    </div>
+                    <span className="font-bold text-amber-200 text-sm">Contest This Report</span>
                 </div>
                 <button
                     onClick={() => { setShowForm(false); setFeedback(''); }}
-                    className="text-slate-500 hover:text-slate-300 transition-colors"
+                    className="w-6 h-6 rounded-lg flex items-center justify-center text-slate-500 hover:text-slate-300 hover:bg-slate-700/50 transition-all"
                 >
-                    <X className="w-4 h-4" />
+                    <X className="w-3.5 h-3.5" />
                 </button>
             </div>
             <textarea
@@ -462,22 +469,27 @@ const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedb
                 value={feedback}
                 onChange={e => setFeedback(e.target.value)}
                 placeholder="Explain what's wrong with this report or what the investigation should explore further..."
-                className="w-full h-20 px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/40 focus:border-amber-500/40"
+                className="w-full h-20 px-3.5 py-2.5 bg-slate-800/80 border border-slate-700/60 rounded-xl text-slate-200 placeholder-slate-500 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500/30 transition-all"
             />
             <div className="flex items-center justify-end gap-3">
                 <button
                     onClick={() => { setShowForm(false); setFeedback(''); }}
-                    className="px-3 py-1.5 text-sm font-medium text-slate-500 hover:text-slate-300 transition-colors"
+                    className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 rounded-lg hover:bg-slate-800/50 transition-all"
                 >
                     Cancel
                 </button>
                 <button
                     onClick={handleSubmit}
                     disabled={!feedback.trim() || actingAction === 'contest'}
-                    className="flex items-center gap-2 px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/30 disabled:bg-slate-800 disabled:border-slate-700 disabled:cursor-not-allowed text-amber-300 font-bold rounded-lg transition-all shadow-md shadow-amber-500/10 text-sm"
+                    className="group relative flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all duration-300 overflow-hidden text-amber-200 disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                    {actingAction === 'contest' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-                    {actingAction === 'contest' ? 'Contesting...' : 'Contest & Resume'}
+                    <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-amber-600/30 to-orange-600/30 group-hover:from-amber-600/50 group-hover:to-orange-600/50 transition-all duration-300" />
+                    <span className="absolute inset-[1px] rounded-[11px] bg-slate-900/80" />
+                    <span className="absolute inset-0 rounded-xl border border-amber-500/30 group-hover:border-amber-400/50 transition-colors duration-300" />
+                    <span className="relative flex items-center gap-2">
+                        {actingAction === 'contest' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
+                        {actingAction === 'contest' ? 'Contesting...' : 'Contest & Resume'}
+                    </span>
                 </button>
             </div>
         </div>
@@ -605,6 +617,11 @@ export const InvestigationDetail = () => {
     const [tagInput, setTagInput] = useState('');
     const [addingTag, setAddingTag] = useState(false);
     const tagInputRef = useRef<HTMLInputElement>(null);
+    const [showImplModal, setShowImplModal] = useState(false);
+    const [implRecommendations, setImplRecommendations] = useState<Recommendation[]>([]);
+    const [implSelected, setImplSelected] = useState<Set<string>>(new Set());
+    const [implLoading, setImplLoading] = useState(false);
+    const [implRunning, setImplRunning] = useState(false);
 
     useEffect(() => {
         api.listModels()
@@ -828,6 +845,20 @@ export const InvestigationDetail = () => {
         }
     }, [investigation?.retrospect?.analysisComplete]);
 
+    // Detect when implementation agent finishes (message with "Implementation complete" or error)
+    useEffect(() => {
+        if (!implRunning || !investigation?.retrospect?.messages) return;
+        const msgs = investigation.retrospect.messages;
+        const lastAssistant = [...msgs].reverse().find(m => m.role === 'assistant');
+        if (lastAssistant && (
+            lastAssistant.content.includes('Implementation complete') ||
+            lastAssistant.content.includes('Implementation was cancelled') ||
+            lastAssistant.content.includes('Error during implementation')
+        )) {
+            setImplRunning(false);
+        }
+    }, [implRunning, investigation?.retrospect?.messages]);
+
     // Helper to update proposal status
     const handleProposalAction = useCallback(async (proposalId: string, status: 'approved' | 'rejected') => {
         try {
@@ -853,6 +884,34 @@ export const InvestigationDetail = () => {
             setApplyingProposals(false);
         }
     }, [investigation?.id]);
+
+    const handleOpenImplModal = useCallback(async () => {
+        setImplLoading(true);
+        setShowImplModal(true);
+        try {
+            const recs = await api.getRecommendations(investigation!.id);
+            setImplRecommendations(recs);
+            setImplSelected(new Set(recs.filter(r => r.priority === 'P0' && r.category !== 'operational').map(r => r.id)));
+        } catch (err: any) {
+            toast('error', 'Failed to parse recommendations: ' + err.message);
+            setShowImplModal(false);
+        } finally {
+            setImplLoading(false);
+        }
+    }, [investigation?.id]);
+
+    const handleStartImplementation = useCallback(async () => {
+        if (implSelected.size === 0) return;
+        setShowImplModal(false);
+        setImplRunning(true);
+        try {
+            await api.implementRecommendations(investigation!.id, Array.from(implSelected));
+            toast('success', 'Implementation agent started. Proposals will appear as they are generated.');
+        } catch (err: any) {
+            toast('error', 'Failed to start implementation: ' + err.message);
+            setImplRunning(false);
+        }
+    }, [investigation?.id, implSelected]);
 
     const handleAction = async (action: string, message?: string) => {
         setActingAction(action);
@@ -1608,10 +1667,124 @@ export const InvestigationDetail = () => {
                                 </div>
                             )}
 
-                            {/* Contest Report Bar — fixed at bottom of Report tab, always visible */}
+                            {/* Premium Action Bar */}
                             {investigation.finalReport && investigation.status === 'completed' && (
-                                <div className="shrink-0 border-t border-slate-700/50 bg-slate-900/80">
-                                    <ContestForm onContest={handleContest} actingAction={actingAction} />
+                                <div className="shrink-0 relative overflow-hidden">
+                                    {/* Background: subtle mesh gradient with glass effect */}
+                                    <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/95 to-slate-900" />
+                                    <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_50%_at_20%_40%,rgba(245,158,11,0.04),transparent),radial-gradient(ellipse_80%_50%_at_80%_60%,rgba(56,189,248,0.04),transparent)]" />
+                                    {/* Top edge glow line */}
+                                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-slate-500/30 to-transparent" />
+
+                                    {/* Proposed Code Changes Section */}
+                                    {(() => {
+                                        const implProposals = (investigation.retrospect?.proposals || []).filter(p => p.source === 'implementation');
+                                        if (implProposals.length === 0 && !implRunning) return null;
+                                        const implApprovedCount = implProposals.filter(p => p.status === 'approved').length;
+                                        return (
+                                            <div className="relative border-b border-white/[0.06]">
+                                                <div className="px-5 py-3 flex items-center justify-between">
+                                                    <div className="flex items-center gap-2.5">
+                                                        <div className="w-6 h-6 rounded-lg bg-sky-500/10 border border-sky-500/20 flex items-center justify-center">
+                                                            <Code className="w-3.5 h-3.5 text-sky-400" />
+                                                        </div>
+                                                        <span className="text-sm font-bold text-slate-200">Proposed Code Changes</span>
+                                                        {implProposals.length > 0 && (
+                                                            <span className="bg-sky-500/15 text-sky-300 text-[11px] font-bold px-2 py-0.5 rounded-full border border-sky-500/20">
+                                                                {implProposals.length}
+                                                            </span>
+                                                        )}
+                                                        {implRunning && <Loader2 className="w-3.5 h-3.5 text-sky-400 animate-spin" />}
+                                                    </div>
+                                                    {implApprovedCount > 0 && (
+                                                        <button
+                                                            onClick={handleApplyProposals}
+                                                            disabled={applyingProposals}
+                                                            className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all shadow-sm shadow-emerald-900/30"
+                                                        >
+                                                            {applyingProposals ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowDownToLine className="w-3 h-3" />}
+                                                            Apply {implApprovedCount}
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <div className="px-5 pb-3 space-y-2 max-h-64 overflow-y-auto custom-scrollbar">
+                                                    {implProposals.map(proposal => (
+                                                        <div key={proposal.id} className="bg-slate-800/40 rounded-xl border border-white/[0.06] overflow-hidden backdrop-blur-sm">
+                                                            <button
+                                                                className="w-full flex items-center gap-2 px-3.5 py-2.5 text-left hover:bg-white/[0.03] transition-colors"
+                                                                onClick={() => setExpandedProposal(expandedProposal === proposal.id ? null : proposal.id)}
+                                                            >
+                                                                {proposal.type === 'create' ? <FilePlus className="w-3.5 h-3.5 text-emerald-400 shrink-0" /> : <FileEdit className="w-3.5 h-3.5 text-sky-400 shrink-0" />}
+                                                                <span className="text-xs text-slate-300 truncate flex-1 font-medium">{proposal.filePath}</span>
+                                                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                                                                    proposal.status === 'applied' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
+                                                                    proposal.status === 'approved' ? 'bg-sky-500/15 text-sky-400 border border-sky-500/20' :
+                                                                    proposal.status === 'rejected' ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
+                                                                    'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                                                                }`}>{proposal.status}</span>
+                                                                {expandedProposal === proposal.id ? <ChevronDown className="w-3 h-3 text-slate-500 shrink-0" /> : <ChevronRight className="w-3 h-3 text-slate-500 shrink-0" />}
+                                                            </button>
+                                                            {expandedProposal === proposal.id && (
+                                                                <div className="border-t border-white/[0.06]">
+                                                                    <div className="px-3.5 py-2.5 text-xs text-slate-400">{proposal.description}</div>
+                                                                    <pre className="px-3.5 py-2.5 text-[11px] text-slate-400 bg-black/20 max-h-48 overflow-auto custom-scrollbar whitespace-pre-wrap">
+                                                                        {(proposal.content || '').substring(0, 2000)}
+                                                                        {(proposal.content || '').length > 2000 && '\n... [truncated]'}
+                                                                    </pre>
+                                                                    {proposal.status === 'pending' && (
+                                                                        <div className="flex items-center gap-2 p-2.5 border-t border-white/[0.06]">
+                                                                            <button onClick={(e) => { e.stopPropagation(); handleProposalAction(proposal.id, 'approved'); }} className="flex-1 flex items-center justify-center gap-1 bg-emerald-600/15 hover:bg-emerald-600/30 text-emerald-400 text-xs font-bold py-1.5 rounded-lg border border-emerald-500/20 hover:border-emerald-500/40 transition-all">
+                                                                                <Check className="w-3 h-3" /> Approve
+                                                                            </button>
+                                                                            <button onClick={(e) => { e.stopPropagation(); handleProposalAction(proposal.id, 'rejected'); }} className="flex-1 flex items-center justify-center gap-1 bg-red-600/15 hover:bg-red-600/30 text-red-400 text-xs font-bold py-1.5 rounded-lg border border-red-500/20 hover:border-red-500/40 transition-all">
+                                                                                <X className="w-3 h-3" /> Reject
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                    {proposal.status === 'approved' && (
+                                                                        <div className="flex items-center gap-2 p-2.5 border-t border-white/[0.06]">
+                                                                            <button onClick={(e) => { e.stopPropagation(); handleProposalAction(proposal.id, 'rejected'); }} className="flex-1 flex items-center justify-center gap-1 bg-slate-700/20 hover:bg-red-600/15 text-slate-400 hover:text-red-400 text-xs font-bold py-1.5 rounded-lg border border-white/[0.06] hover:border-red-500/30 transition-all">
+                                                                                <X className="w-3 h-3" /> Undo
+                                                                            </button>
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                    {implRunning && implProposals.length === 0 && (
+                                                        <div className="flex items-center gap-2.5 px-3.5 py-3 text-xs text-slate-500">
+                                                            <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-500/60" />
+                                                            Analyzing codebase and generating proposals...
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
+                                    {/* Action Buttons Bar */}
+                                    <div className="relative px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+                                        <ContestForm onContest={handleContest} actingAction={actingAction} />
+                                        <button
+                                            onClick={handleOpenImplModal}
+                                            disabled={implRunning}
+                                            className="group relative flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 overflow-hidden text-sky-200/90 hover:text-sky-100 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                                        >
+                                            {/* Animated gradient border */}
+                                            <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-sky-500/25 via-indigo-500/25 to-sky-500/25 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                                            <span className="absolute inset-[1px] rounded-[11px] bg-slate-900/90 backdrop-blur-sm" />
+                                            {/* Subtle border */}
+                                            <span className="absolute inset-0 rounded-xl border border-sky-500/20 group-hover:border-sky-400/40 transition-colors duration-300" />
+                                            {/* Glow on hover */}
+                                            <span className="absolute inset-0 rounded-xl shadow-[0_0_15px_-3px] shadow-sky-500/0 group-hover:shadow-sky-500/15 transition-shadow duration-500" />
+                                            {/* Content */}
+                                            <span className="relative flex items-center gap-2.5">
+                                                {implRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wrench className="w-4 h-4 text-sky-400 group-hover:rotate-[-20deg] transition-transform duration-500 ease-out" />}
+                                                {implRunning ? 'Implementing...' : 'Implement Recommendations'}
+                                            </span>
+                                        </button>
+                                    </div>
                                 </div>
                             )}
                         </div>
@@ -2193,6 +2366,118 @@ export const InvestigationDetail = () => {
                         </div>
                     )
                 }
+
+                {/* Recommendation Selection Modal */}
+                {showImplModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setShowImplModal(false)}>
+                        <div className="bg-slate-900 rounded-2xl border border-slate-700/50 shadow-2xl w-full max-w-xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                            <div className="px-6 py-4 border-b border-slate-700/50 flex items-center gap-3">
+                                <Wrench className="w-5 h-5 text-sky-400" />
+                                <h3 className="text-lg font-bold text-slate-100">Implement Recommendations</h3>
+                            </div>
+                            <div className="flex-1 overflow-y-auto px-6 py-4 custom-scrollbar">
+                                {implLoading ? (
+                                    <div className="flex items-center justify-center py-12 text-slate-400 gap-2">
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                        <span>Parsing recommendations...</span>
+                                    </div>
+                                ) : implRecommendations.length === 0 ? (
+                                    <div className="text-center py-12 text-slate-500">
+                                        No recommendations found in the report.
+                                    </div>
+                                ) : (
+                                    <>
+                                        <p className="text-sm text-slate-400 mb-4">Select recommendations to implement. A coding agent will analyze the codebase and propose changes.</p>
+                                        {(['P0', 'P1', 'P2', 'P3'] as const).map(priority => {
+                                            const group = implRecommendations.filter(r => r.priority === priority);
+                                            if (group.length === 0) return null;
+                                            const colorMap = { P0: 'text-red-400 bg-red-500/10 border-red-500/20', P1: 'text-orange-400 bg-orange-500/10 border-orange-500/20', P2: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20', P3: 'text-sky-400 bg-sky-500/10 border-sky-500/20' };
+                                            return (
+                                                <div key={priority} className="mb-4">
+                                                    <div className={`inline-block text-xs font-bold px-2 py-0.5 rounded border mb-2 ${colorMap[priority]}`}>{priority}</div>
+                                                    <div className="space-y-2">
+                                                        {group.map(rec => rec.category === 'operational' ? (
+                                                            <div key={rec.id} className="flex items-start gap-3 p-3 rounded-lg border bg-slate-800/20 border-slate-700/15 opacity-60">
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-semibold text-slate-400 line-through decoration-slate-600">{rec.title}</span>
+                                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 whitespace-nowrap" title="Operational — cannot be implemented as code">
+                                                                            OPS
+                                                                        </span>
+                                                                    </div>
+                                                                    {rec.description && <div className="text-xs text-slate-500 mt-1">{rec.description}</div>}
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <label key={rec.id} className="flex items-start gap-3 p-3 rounded-lg border bg-slate-800/50 border-slate-700/30 hover:border-slate-600/50 cursor-pointer transition-all">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={implSelected.has(rec.id)}
+                                                                    onChange={() => {
+                                                                        const next = new Set(implSelected);
+                                                                        if (next.has(rec.id)) next.delete(rec.id); else next.add(rec.id);
+                                                                        setImplSelected(next);
+                                                                    }}
+                                                                    className="mt-0.5 rounded border-slate-600 bg-slate-700 text-sky-500 focus:ring-sky-500 focus:ring-offset-0"
+                                                                />
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-semibold text-slate-200">{rec.title}</span>
+                                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap" title="Code change — can be implemented by the coding agent">
+                                                                            CODE
+                                                                        </span>
+                                                                    </div>
+                                                                    {rec.description && <div className="text-xs text-slate-400 mt-1">{rec.description}</div>}
+                                                                </div>
+                                                            </label>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </>
+                                )}
+                            </div>
+                            <div className="px-6 py-4 border-t border-slate-700/50 flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <button onClick={() => setShowImplModal(false)} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                                        Cancel
+                                    </button>
+                                    {implRecommendations.length > 0 && (
+                                        <button
+                                            onClick={async () => {
+                                                setImplLoading(true);
+                                                try {
+                                                    const recs = await api.reclassifyRecommendations(investigation!.id);
+                                                    setImplRecommendations(recs);
+                                                    setImplSelected(new Set(recs.filter(r => r.priority === 'P0' && r.category !== 'operational').map(r => r.id)));
+                                                } catch (err: any) {
+                                                    toast('error', 'Failed to re-classify: ' + err.message);
+                                                } finally {
+                                                    setImplLoading(false);
+                                                }
+                                            }}
+                                            disabled={implLoading}
+                                            className="flex items-center gap-1.5 px-3 py-2 text-xs text-slate-400 hover:text-slate-200 border border-slate-700/50 hover:border-slate-600 rounded-lg transition-all"
+                                            title="Re-analyze recommendations with the LLM to fix misclassifications"
+                                        >
+                                            <RotateCcw className="w-3 h-3" />
+                                            Re-classify
+                                        </button>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={handleStartImplementation}
+                                    disabled={implSelected.size === 0 || implLoading}
+                                    className="flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-bold rounded-xl transition-all shadow-lg"
+                                >
+                                    <Sparkles className="w-4 h-4" />
+                                    Generate Implementation ({implSelected.size})
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
         </div>

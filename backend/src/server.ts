@@ -2549,6 +2549,100 @@ app.post('/api/investigations/:id/retrospect/apply', async (req, res) => {
     }
 });
 
+// --- Get recommendations (cached from investigation completion, or parse on demand) ---
+app.get('/api/investigations/:id/recommendations', async (req, res) => {
+    const id = req.params.id;
+    const runner = runners.get(id);
+    const state = runner ? (runner as any).state : history.get(id);
+
+    if (!state) return res.status(404).json({ error: 'Investigation not found' });
+
+    // Return cached recommendations if available
+    if (state.recommendations && state.recommendations.length > 0) {
+        return res.json(state.recommendations);
+    }
+
+    const finalReport = state.finalReport;
+    if (!finalReport) return res.json([]);
+
+    // Lazy classification for older investigations without cached recommendations
+    const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
+    const recommendations = tempRunner.parseRecommendations(finalReport);
+    if (recommendations.length > 0) {
+        const classified = await tempRunner.classifyRecommendations(recommendations);
+        // Cache in state for next load
+        state.recommendations = classified;
+        return res.json(classified);
+    }
+    res.json([]);
+});
+
+// --- Force re-classify recommendations ---
+app.post('/api/investigations/:id/recommendations/reclassify', async (req, res) => {
+    const id = req.params.id;
+    const runner = runners.get(id);
+    const state = runner ? (runner as any).state : history.get(id);
+
+    if (!state) return res.status(404).json({ error: 'Investigation not found' });
+    if (!state.finalReport) return res.json([]);
+
+    const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
+    const recommendations = tempRunner.parseRecommendations(state.finalReport);
+    const classified = await tempRunner.classifyRecommendations(recommendations);
+    state.recommendations = classified;
+    res.json(classified);
+});
+
+// --- Run implementation agent for selected recommendations ---
+app.post('/api/investigations/:id/implement', async (req, res) => {
+    const id = req.params.id;
+    const { recommendations } = req.body;
+
+    if (!recommendations || !Array.isArray(recommendations) || recommendations.length === 0) {
+        return res.status(400).json({ error: 'At least one recommendation ID is required' });
+    }
+
+    let runner = runners.get(id);
+    let isTemporary = false;
+
+    if (!runner && history.has(id)) {
+        if (runners.has(id)) return res.status(409).json({ error: 'Concurrent operation in progress' });
+        const state = history.get(id)!;
+        runner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
+        runners.set(id, runner);
+        (runner as any)._isTemporary = true;
+        isTemporary = true;
+
+        // Wire up SSE events for real-time updates
+        runner.on('retrospect', (retro: any) => {
+            broadcast(id, 'retrospect', retro);
+        });
+        runner.on('retrospect-proposal', (proposal: any) => {
+            broadcast(id, 'retrospect-proposal', proposal);
+        });
+        runner.on('retrospect-tool-activity', (activity: any) => {
+            broadcast(id, 'retrospect-tool-activity', activity);
+        });
+    }
+
+    if (!runner) return res.status(404).json({ error: 'Investigation not found' });
+
+    // Return immediately — the agent runs asynchronously
+    res.json({ started: true, recommendations: recommendations.length });
+
+    try {
+        await runner.runImplementationAnalysis(recommendations);
+    } catch (e: any) {
+        console.error(`[implement] Error for ${id}:`, e.message);
+    } finally {
+        if (isTemporary) {
+            history.set(id, (runner as any).state);
+            await (runner as any).saveArtifacts();
+            runners.delete(id);
+        }
+    }
+});
+
 app.post('/api/investigations/:id/compact', async (req, res) => {
     const id = req.params.id;
     let runner = runners.get(id);
