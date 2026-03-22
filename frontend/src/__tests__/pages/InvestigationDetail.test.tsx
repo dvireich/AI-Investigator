@@ -6600,7 +6600,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             expect(opsBadges.length).toBe(1); // Engage Kusto SRE
         });
 
-        it('auto-selects only code P0 recommendations, not operational', async () => {
+        it('operational recommendations have no checkbox', async () => {
             const { api } = await import('../../api');
             (api.getRecommendations as any).mockResolvedValue([
                 { id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes', category: 'code' },
@@ -6620,15 +6620,17 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
 
             await waitFor(() => screen.getByText('Fix the bug'));
 
-            // Only 1 selected (code P0), not the operational P0
+            // Only code items get checkboxes (2 code items), operational gets none
+            const checkboxes = screen.getAllByRole('checkbox');
+            expect(checkboxes.length).toBe(2);
+
+            // Only 1 auto-selected (code P0)
             await waitFor(() => {
                 expect(screen.getByText(/Generate Implementation \(1\)/i)).toBeInTheDocument();
             });
 
-            // The operational P0 checkbox should NOT be checked
-            const checkboxes = screen.getAllByRole('checkbox');
-            const opsCheckbox = checkboxes[1]; // second P0 item is operational
-            expect(opsCheckbox).not.toBeChecked();
+            // Operational item is still visible but with strikethrough text
+            expect(screen.getByText('Engage Kusto SRE')).toBeInTheDocument();
         });
     });
 

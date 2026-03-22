@@ -2396,8 +2396,20 @@ export const InvestigationDetail = () => {
                                                 <div key={priority} className="mb-4">
                                                     <div className={`inline-block text-xs font-bold px-2 py-0.5 rounded border mb-2 ${colorMap[priority]}`}>{priority}</div>
                                                     <div className="space-y-2">
-                                                        {group.map(rec => (
-                                                            <label key={rec.id} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${rec.category === 'operational' ? 'bg-slate-800/30 border-slate-700/20 opacity-70 hover:opacity-100 hover:border-slate-600/40' : 'bg-slate-800/50 border-slate-700/30 hover:border-slate-600/50'}`}>
+                                                        {group.map(rec => rec.category === 'operational' ? (
+                                                            <div key={rec.id} className="flex items-start gap-3 p-3 rounded-lg border bg-slate-800/20 border-slate-700/15 opacity-60">
+                                                                <div className="flex-1 min-w-0">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-semibold text-slate-400 line-through decoration-slate-600">{rec.title}</span>
+                                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 whitespace-nowrap" title="Operational — cannot be implemented as code">
+                                                                            OPS
+                                                                        </span>
+                                                                    </div>
+                                                                    {rec.description && <div className="text-xs text-slate-500 mt-1">{rec.description}</div>}
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <label key={rec.id} className="flex items-start gap-3 p-3 rounded-lg border bg-slate-800/50 border-slate-700/30 hover:border-slate-600/50 cursor-pointer transition-all">
                                                                 <input
                                                                     type="checkbox"
                                                                     checked={implSelected.has(rec.id)}
@@ -2411,15 +2423,9 @@ export const InvestigationDetail = () => {
                                                                 <div className="flex-1 min-w-0">
                                                                     <div className="flex items-center gap-2">
                                                                         <span className="text-sm font-semibold text-slate-200">{rec.title}</span>
-                                                                        {rec.category === 'operational' ? (
-                                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 whitespace-nowrap" title="Operational — not a code change">
-                                                                                OPS
-                                                                            </span>
-                                                                        ) : (
-                                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap" title="Code change — can be implemented by the coding agent">
-                                                                                CODE
-                                                                            </span>
-                                                                        )}
+                                                                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap" title="Code change — can be implemented by the coding agent">
+                                                                            CODE
+                                                                        </span>
                                                                     </div>
                                                                     {rec.description && <div className="text-xs text-slate-400 mt-1">{rec.description}</div>}
                                                                 </div>
