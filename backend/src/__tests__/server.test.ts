@@ -249,6 +249,8 @@ describe('server utilities and routes', () => {
             const cfg = {
                 repoRoot: 'repo-root',
                 workingDirectory: 'workdir',
+                incidentProvider: { scriptsPath: 'scripts/icm' },
+                mcpServers: [{ name: 'srv', cwd: 'mcp-dir' }],
                 products: [{
                     id: 'prod-1',
                     name: 'Prod 1',
@@ -274,6 +276,9 @@ describe('server utilities and routes', () => {
             // Product with repoRoot gets its own resolved base
             expect(cfg.products[1].repoRoot).toBe(path.resolve('C:/base', 'custom-root'));
             expect(cfg.products[1].systemPromptPath).toBe(path.resolve('C:/base', 'custom-root', 'prompts/system.md'));
+            // Incident provider scriptsPath and MCP server cwd are resolved
+            expect(cfg.incidentProvider.scriptsPath).toBe(path.resolve('C:/base', 'scripts/icm'));
+            expect(cfg.mcpServers[0].cwd).toBe(path.resolve('C:/base', 'mcp-dir'));
         });
 
         it('returns product-specific effective config when a product is selected', () => {
@@ -4236,6 +4241,41 @@ describe('server utilities and routes', () => {
             const settledSchedule = realStore!.get(created.id)!;
             expect(settledSchedule.activeInvestigationId).toBeUndefined();
             expect(settledSchedule.lastVerdict).toBe('healthy');
+
+            realScheduler.stop();
+        });
+
+        it('settles a scheduled investigation found in the runners map', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-runners-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            setFakeLlmProvider();
+            vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+
+            initScheduler();
+
+            const realStore = __testUtils.getScheduleStore();
+            const realScheduler = __testUtils.getScheduler() as any;
+
+            const created = realStore!.create({
+                name: 'Runner Settle',
+                enabled: true,
+                target: 'stamp-runner',
+                query: 'Check health',
+                intervalMinutes: 15,
+            });
+
+            await realScheduler.runNow(created.id);
+
+            const activeId = realStore!.get(created.id)!.activeInvestigationId!;
+            // Keep the runner in the map but give it a completed state
+            const runner = __testUtils.getRunners().get(activeId) as any;
+            runner.state = makeState({ id: activeId, status: 'completed', verdict: 'unhealthy', finalReport: 'Found in runners' });
+
+            await realScheduler.tick();
+
+            const settled = realStore!.get(created.id)!;
+            expect(settled.activeInvestigationId).toBeUndefined();
+            expect(settled.lastVerdict).toBe('unhealthy');
 
             realScheduler.stop();
         });
