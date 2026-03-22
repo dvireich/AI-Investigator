@@ -2430,7 +2430,7 @@ export const InvestigationDetail = () => {
                                     disabled={implSelected.size === 0 || implLoading}
                                     className="flex items-center gap-2 px-5 py-2.5 bg-sky-600 hover:bg-sky-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-bold rounded-xl transition-all shadow-lg"
                                 >
-                                    <Code className="w-4 h-4" />
+                                    <Sparkles className="w-4 h-4" />
                                     Generate Implementation ({implSelected.size})
                                 </button>
                             </div>

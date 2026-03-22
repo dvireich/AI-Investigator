@@ -4515,6 +4515,38 @@ Some appendix.
             expect(recs.length).toBe(1);
             expect(recs[0].priority).toBe('P2');
         });
+
+        it('matches "## Recommended Actions" heading', () => {
+            const markdown = `## Recommended Actions\n\n### Critical (P0)\n\n1. **Fix crash**: The service crashes.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Fix crash');
+        });
+
+        it('matches "## RECOMMENDATIONS" heading (case-insensitive)', () => {
+            const markdown = `## RECOMMENDATIONS\n\n### Immediate (P0)\n\n1. **Scale out**: Add more instances.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Scale out');
+        });
+
+        it('matches "## Recommendations (Ordered by Impact)" heading with suffix', () => {
+            const markdown = `## Recommendations (Ordered by Impact)\n\n### High (P0)\n\n1. **Increase timeout**: Prevent timeouts.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Increase timeout');
+        });
+
+        it('matches "## Recommended Fixes" heading', () => {
+            const markdown = `## Recommended Fixes\n\n### Short-Term (P1)\n\n1. **Patch config**: Update the config file.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Patch config');
+        });
     });
 
     describe('localSearchCode', () => {

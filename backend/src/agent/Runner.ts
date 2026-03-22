@@ -1447,8 +1447,8 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         const text = markdown || this.state.finalReport || '';
         const recommendations: Recommendation[] = [];
 
-        // Find the Recommendations section
-        const recsMatch = text.match(/^##\s+Recommendations\s*$/m);
+        // Find the Recommendations section (handles variants like "Recommended Actions", "RECOMMENDATIONS", etc.)
+        const recsMatch = text.match(/^##\s+Recommend(?:ations|ed\b)[^\n]*/im);
         if (!recsMatch) return recommendations;
 
         const recsStart = recsMatch.index! + recsMatch[0].length;
