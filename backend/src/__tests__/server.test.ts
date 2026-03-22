@@ -640,7 +640,7 @@ describe('server utilities and routes', () => {
             const json = vi.fn();
             errorLayer.handle(new Error('route boom'), { method: 'GET', url: '/boom' }, { headersSent: false, status, json }, vi.fn());
             expect(status).toHaveBeenCalledWith(500);
-            expect(json).toHaveBeenCalledWith({ error: 'Internal server error', details: 'route boom' });
+            expect(json).toHaveBeenCalledWith({ error: 'route boom' });
 
             errorLayer.handle(new Error('already-sent'), { method: 'GET', url: '/boom' }, { headersSent: true, status: vi.fn(), json: vi.fn() }, vi.fn());
             expect(errorLogger).toHaveBeenCalled();
@@ -3911,7 +3911,7 @@ describe('server utilities and routes', () => {
             const json = vi.fn();
             errorLayer.handle('plain failure', { method: 'GET', url: '/plain-failure' }, { headersSent: false, status, json }, vi.fn());
             expect(status).toHaveBeenCalledWith(500);
-            expect(json).toHaveBeenCalledWith({ error: 'Internal server error', details: 'plain failure' });
+            expect(json).toHaveBeenCalledWith({ error: 'Internal server error' });
         });
 
         it('deletes schedules even when their tracked investigation state is missing entirely', async () => {
