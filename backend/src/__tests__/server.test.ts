@@ -3077,9 +3077,11 @@ describe('server utilities and routes', () => {
             const importLayer = stack.find((layer) => layer.route?.path === '/api/investigations/import' && layer.route.methods?.post);
             expect(importLayer).toBeTruthy();
 
+            const routeStack = importLayer.route.stack;
+            const handler = routeStack[routeStack.length - 1].handle;
             const status = vi.fn().mockReturnThis();
             const json = vi.fn();
-            await importLayer.route.stack[0].handle({ body: 123 }, { status, json });
+            await handler({ body: 123 }, { status, json });
             expect(status).toHaveBeenCalledWith(400);
             expect(json).toHaveBeenCalledWith({ error: 'Request body must be a valid investigation state object' });
 

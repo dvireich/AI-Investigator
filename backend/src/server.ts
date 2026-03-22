@@ -211,7 +211,7 @@ let activeLlmProvider: LlmProvider | null = null;
 let activeIncidentProvider: IncidentProvider | null = null;
 
 app.use(cors());
-app.use(express.json({ limit: '50mb' }));
+app.use(express.json({ limit: Infinity }));
 
 export function jsonParseErrorHandler(err: any, req: express.Request, res: express.Response, next: express.NextFunction) {
     if (err.type === 'entity.parse.failed') {
