@@ -43,16 +43,6 @@ const defaultPersistedConfig = JSON.parse(JSON.stringify(__testUtils.getPersiste
 const api = () => request(__testUtils.app);
 const backendConfigFile = path.resolve(process.cwd(), 'config.json');
 
-// Ensure config.json exists for tests that read/write it (CI only has config.sample.json)
-if (!fs.existsSync(backendConfigFile)) {
-    const sampleFile = path.resolve(process.cwd(), 'config.sample.json');
-    if (fs.existsSync(sampleFile)) {
-        fs.copyFileSync(sampleFile, backendConfigFile);
-    } else {
-        fs.writeFileSync(backendConfigFile, JSON.stringify({ model: 'gpt-4o', maxSteps: 50, products: [] }));
-    }
-}
-
 function setFakeLlmProvider() {
     __testUtils.setActiveLlmProvider({
         type: 'fake',
@@ -267,6 +257,12 @@ describe('server utilities and routes', () => {
                     knowledgeBasePath: 'docs',
                     workingDirectory: 'work',
                     investigationsPath: 'investigations',
+                }, {
+                    id: 'prod-2',
+                    name: 'Prod 2',
+                    repoRoot: 'custom-root',
+                    systemPromptPath: 'prompts/system.md',
+                    workingDirectory: 'work',
                 }],
             } as any;
 
@@ -275,6 +271,9 @@ describe('server utilities and routes', () => {
             expect(cfg.repoRoot).toBe(path.resolve('C:/base', 'repo-root'));
             expect(cfg.products[0].systemPromptPath).toBe(path.resolve('C:/base', 'prompts/system.md'));
             expect(cfg.products[0].investigationsPath).toBe(path.resolve('C:/base', 'investigations'));
+            // Product with repoRoot gets its own resolved base
+            expect(cfg.products[1].repoRoot).toBe(path.resolve('C:/base', 'custom-root'));
+            expect(cfg.products[1].systemPromptPath).toBe(path.resolve('C:/base', 'custom-root', 'prompts/system.md'));
         });
 
         it('returns product-specific effective config when a product is selected', () => {
