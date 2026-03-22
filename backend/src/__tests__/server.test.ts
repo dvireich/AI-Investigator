@@ -717,8 +717,8 @@ describe('server utilities and routes', () => {
             wsHandlers.get('close')?.();
             expect(__testUtils.clients.has('inv-3')).toBe(false);
 
-            expect(__testUtils.resolveConfigFilePath(['node', 'server.js'], 'C:/repo/backend/src')).toBe(path.join('C:/repo/backend/src', '..', 'config.json'));
-            expect(__testUtils.resolveConfigFilePath(['node', 'server.js', '--config', 'C:/tmp/custom.json'], 'C:/repo/backend/src')).toBe(path.resolve('C:/tmp/custom.json'));
+            expect(__testUtils.resolveConfigFilePath(['node', 'server.js'], 'C:/repo/backend/src', 'C:/repo')).toBe(path.join('C:/repo', 'config.json'));
+            expect(__testUtils.resolveConfigFilePath(['node', 'server.js', '--config', 'C:/tmp/custom.json'], 'C:/repo/backend/src', 'C:/repo')).toBe(path.resolve('C:/tmp/custom.json'));
 
             const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-config-load-'));
             const configPath = path.join(configDir, 'config.json');

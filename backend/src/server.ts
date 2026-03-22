@@ -577,14 +577,16 @@ export function getEffectiveConfig(state?: Partial<InvestigationState>): typeof 
 // Config Persistence
 // Support --config <path> CLI argument to load config from an external file.
 // This allows teams to keep their config.json in their own repo.
-export function resolveConfigFilePath(argv: string[], currentDir: string): string {
+// In exe mode, look next to the executable. In normal mode, look in repo root.
+export function resolveConfigFilePath(argv: string[], currentDir: string, root: string): string {
     const configArgIndex = argv.indexOf('--config');
-    return (configArgIndex !== -1 && argv[configArgIndex + 1])
-        ? path.resolve(argv[configArgIndex + 1])
-        : path.join(currentDir, '..', 'config.json');
+    if (configArgIndex !== -1 && argv[configArgIndex + 1]) {
+        return path.resolve(argv[configArgIndex + 1]);
+    }
+    return path.join(root, 'config.json');
 }
 
-const configFile = resolveConfigFilePath(process.argv, __dirname);
+const configFile = resolveConfigFilePath(process.argv, __dirname, appRoot);
 
 // The directory containing the config file — used to resolve relative paths in config values.
 // When --config points to a product repo's investigator-config.json, relative paths
