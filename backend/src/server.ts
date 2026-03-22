@@ -3198,12 +3198,71 @@ if (fs.existsSync(publicDir)) {
 
 let serverStarted = false;
 
+/* v8 ignore start -- port conflict handling tested manually in exe mode */
+function killProcessOnPort(targetPort: number): Promise<boolean> {
+    return new Promise((resolve) => {
+        if (process.platform !== 'win32') {
+            resolve(false);
+            return;
+        }
+        const { exec } = require('child_process');
+        exec(`netstat -ano | findstr :${targetPort} | findstr LISTENING`, (err: Error | null, stdout: string) => {
+            if (err || !stdout.trim()) {
+                resolve(false);
+                return;
+            }
+            const lines = stdout.trim().split('\n');
+            const pids = new Set<string>();
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                const pid = parts[parts.length - 1];
+                if (pid && pid !== '0') pids.add(pid);
+            }
+            if (pids.size === 0) {
+                resolve(false);
+                return;
+            }
+            let killed = 0;
+            for (const pid of pids) {
+                console.log(`Killing process ${pid} on port ${targetPort}...`);
+                exec(`taskkill /PID ${pid} /F`, () => {
+                    killed++;
+                    if (killed === pids.size) resolve(true);
+                });
+            }
+        });
+    });
+}
+/* v8 ignore stop */
+
 export function startServer() {
     if (serverStarted) {
         return server;
     }
 
     serverStarted = true;
+
+    /* v8 ignore start -- port conflict handling tested manually in exe mode */
+    server.on('error', async (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+            console.log(`Port ${port} is in use. Attempting to free it...`);
+            const killed = await killProcessOnPort(port);
+            if (killed) {
+                console.log(`Port ${port} freed. Retrying...`);
+                setTimeout(() => {
+                    server.listen(port);
+                }, 1000);
+            } else {
+                console.error(`Could not free port ${port}. Please close the application using it and try again.`);
+                process.exit(1);
+            }
+        } else {
+            console.error('Server error:', err);
+            process.exit(1);
+        }
+    });
+    /* v8 ignore stop */
+
     server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
         handleServerStarted();
