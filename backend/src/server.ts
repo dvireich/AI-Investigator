@@ -211,7 +211,7 @@ let activeLlmProvider: LlmProvider | null = null;
 let activeIncidentProvider: IncidentProvider | null = null;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
 
 export function jsonParseErrorHandler(err: any, req: express.Request, res: express.Response, next: express.NextFunction) {
     if (err.type === 'entity.parse.failed') {
@@ -2292,12 +2292,16 @@ app.post('/api/investigations/import', async (req, res) => {
         importCreatedBy = require('os').userInfo().username;
     }
 
+    // Re-map productId to the active product — the source system's productId is meaningless here
+    const localProductId = config.activeProductId || importedState.productId;
+
     const state: InvestigationState = {
         ...importedState,
         id: newId,
         // Force terminal status — imported investigations should never be 'running'
         status: ['completed', 'failed', 'aborted'].includes(importedState.status) ? importedState.status : 'completed',
         createdBy: importCreatedBy,
+        productId: localProductId,
     };
 
     // Add an import note to thoughts
@@ -2310,21 +2314,22 @@ app.post('/api/investigations/import', async (req, res) => {
 
     // Determine investigations directory
     let investigationsDir = getGlobalInvestigationsDir();
-    if (state.productId) {
-        const product = (config.products || []).find((p: Product) => p.id === state.productId);
+    if (localProductId) {
+        const product = (config.products || []).find((p: Product) => p.id === localProductId);
         if (product && product.investigationsPath) {
             investigationsDir = product.investigationsPath;
         }
     }
 
     // Save to disk using the same folder naming pattern as AgentRunner.saveArtifacts()
+    let investigationDir: string | undefined;
     try {
         const startDate = new Date(Number(newId));
         const timestamp = startDate.toISOString().split('T')[0];
         const safeTarget = (state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
         const safeId = newId.replace(/[^a-zA-Z0-9]/g, '');
         const folderName = `${timestamp}_${safeTarget}_${safeId}`;
-        const investigationDir = path.join(investigationsDir, folderName);
+        investigationDir = path.join(investigationsDir, folderName);
 
         ensureDirectoryExists(investigationDir);
 
@@ -2353,8 +2358,14 @@ app.post('/api/investigations/import', async (req, res) => {
         // Continue — we'll still add to memory
     }
 
-    // Add to history
-    history.set(newId, state);
+    // Add to history with storage metadata so the list endpoint can find it
+    const storedState = state as StoredInvestigationState;
+    if (investigationDir) {
+        storedState._storagePath = investigationDir;
+        storedState._statePath = path.join(investigationDir, 'state.json');
+        storagePathCache.set(newId, investigationDir);
+    }
+    history.set(newId, storedState);
 
     // Broadcast so dashboard auto-updates
     broadcast(newId, 'status', { status: state.status });
@@ -3034,7 +3045,8 @@ app.delete('/api/query-bank/:id', (req, res) => {
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error(`Unhandled error on ${req.method} ${req.url}:`, err);
     if (!res.headersSent) {
-        res.status(500).json({ error: 'Internal server error', details: err.message || String(err) });
+        const status = err.status || err.statusCode || 500;
+        res.status(status).json({ error: err.message || 'Internal server error' });
     }
 });
 
