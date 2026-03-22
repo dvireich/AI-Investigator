@@ -3222,9 +3222,14 @@ function killProcessOnPort(targetPort: number): Promise<boolean> {
                 resolve(false);
                 return;
             }
+            console.log('');
+            console.log('='.repeat(50));
+            console.log('  Previous AI Investigator instance detected');
+            console.log('  Shutting it down to start a fresh session...');
+            console.log('='.repeat(50));
+            console.log('');
             let killed = 0;
             for (const pid of pids) {
-                console.log(`Killing process ${pid} on port ${targetPort}...`);
                 exec(`taskkill /PID ${pid} /F`, () => {
                     killed++;
                     if (killed === pids.size) resolve(true);
@@ -3245,15 +3250,15 @@ export function startServer() {
     /* v8 ignore start -- port conflict handling tested manually in exe mode */
     server.on('error', async (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
-            console.log(`Port ${port} is in use. Attempting to free it...`);
             const killed = await killProcessOnPort(port);
             if (killed) {
-                console.log(`Port ${port} freed. Retrying...`);
+                console.log('Restarting...\n');
                 setTimeout(() => {
                     server.listen(port);
                 }, 1000);
             } else {
-                console.error(`Could not free port ${port}. Please close the application using it and try again.`);
+                console.error(`\nPort ${port} is already in use by another application.`);
+                console.error('Please close it and try again.\n');
                 process.exit(1);
             }
         } else {
