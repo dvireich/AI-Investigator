@@ -1765,12 +1765,11 @@ describe('ScheduleForm', () => {
             const user = userEvent.setup();
             renderScheduleForm();
             
+            let modelSelect!: HTMLSelectElement;
             await waitFor(() => {
-                expect(screen.getByRole('heading', { name: 'Create Schedule' })).toBeInTheDocument();
+                modelSelect = getModelSelector()!;
+                expect(modelSelect).not.toBeNull();
             });
-
-            const modelSelect = getModelSelector()!;
-            expect(modelSelect).not.toBeNull();
             await user.selectOptions(modelSelect, 'claude-3');
 
             expect(modelSelect.value).toBe('claude-3');
