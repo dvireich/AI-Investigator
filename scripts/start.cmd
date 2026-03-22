@@ -1,6 +1,10 @@
 @echo off
 title AI Investigator
 setlocal
+echo.
+echo   AI Investigator
+echo   ================
+echo.
 
 :: Check for port 3000 in use
 set PORT=3000
