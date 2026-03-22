@@ -193,7 +193,8 @@ export const Settings = () => {
         defaultTimeRange: 'ago(1h)',
         notifications: true,
         model: 'gpt-4-turbo',
-        defaultView: 'grid' as 'grid' | 'list'
+        defaultView: 'grid' as 'grid' | 'list',
+        defaultPageSize: 12
     });
 
     useEffect(() => {
@@ -1217,6 +1218,26 @@ export const Settings = () => {
                                             }`}
                                         >
                                             {label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm flex items-center justify-between">
+                                <div>
+                                    <h3 className="font-semibold text-slate-200">Default Page Size</h3>
+                                    <p className="text-sm text-slate-500">Number of items shown per page on Investigations and Schedules.</p>
+                                </div>
+                                <div className="flex items-center bg-slate-800 rounded-xl p-1 gap-1 border border-slate-700/40">
+                                    {[6, 12, 24, 48].map(n => (
+                                        <button
+                                            key={n}
+                                            onClick={() => handleChange('defaultPageSize', n)}
+                                            className={`px-3 py-2 rounded-lg text-sm font-bold transition-all ${
+                                                (config as any).defaultPageSize === n ? 'bg-brand-500/20 text-brand-300 border border-brand-500/20' : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                                            }`}
+                                        >
+                                            {n}
                                         </button>
                                     ))}
                                 </div>

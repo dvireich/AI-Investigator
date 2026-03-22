@@ -827,7 +827,7 @@ app.post('/api/settings', (req, res) => {
             'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
             'notifications', 'investigationsPath', 'products', 'activeProductId',
             'llmProvider', 'incidentProvider',
-            'defaultView', 'defaultSortOrder'
+            'defaultView', 'defaultSortOrder', 'defaultPageSize'
         ]);
         const filtered = Object.fromEntries(
             Object.entries(newSettings).filter(([k]) => ALLOWED_KEYS.has(k))

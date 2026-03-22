@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag, User } from 'lucide-react';
+import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, ChevronLeft, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag, User } from 'lucide-react';
+import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
 import { KpiBar } from '../components/charts/KpiBar';
 import { getSelectedWidgetIds, getWidgetById } from '../components/charts/widgetRegistry';
 
@@ -156,7 +157,8 @@ export const Dashboard = () => {
     useEffect(() => {
         const needsView = !localStorage.getItem('inv-view');
         const needsSort = !localStorage.getItem('inv-sort');
-        if (!needsView && !needsSort) return;
+        const needsPageSize = !localStorage.getItem('inv-page-size');
+        if (!needsView && !needsSort && !needsPageSize) return;
         api.getSettings().then((settings: any) => {
             if (needsView && (settings.defaultView === 'grid' || settings.defaultView === 'list')) {
                 setViewMode(settings.defaultView);
@@ -165,6 +167,10 @@ export const Dashboard = () => {
             if (needsSort && ['newest', 'oldest', 'steps', 'modified'].includes(settings.defaultSortOrder)) {
                 setSortOrder(settings.defaultSortOrder);
                 localStorage.setItem('inv-sort', settings.defaultSortOrder);
+            }
+            if (needsPageSize && typeof settings.defaultPageSize === 'number' && settings.defaultPageSize > 0) {
+                setPageSize(settings.defaultPageSize);
+                localStorage.setItem('inv-page-size', String(settings.defaultPageSize));
             }
         }).catch(() => {});
     }, []);
@@ -191,6 +197,10 @@ export const Dashboard = () => {
     const [dragOver, setDragOver] = useState(false);
     const [showAnalytics, setShowAnalytics] = useState<boolean>(
         () => localStorage.getItem('inv-analytics') !== 'false'
+    );
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState<number>(
+        () => Number(localStorage.getItem('inv-page-size')) || DEFAULT_PAGE_SIZE
     );
     const deferredInvestigations = useDeferredValue(investigations);
     const deferredSearch = useDeferredValue(search);
@@ -504,10 +514,20 @@ export const Dashboard = () => {
         return b.id.localeCompare(a.id); // newest
     }), [filtered, pinnedIds, sortOrder]);
 
+    // Reset to page 1 when filters, search, or sort change
+    useEffect(() => { setCurrentPage(1); }, [filter, productFilter, sourceFilter, tagFilter, createdByFilter, deferredSearch, sortOrder]);
+
+    // Clamp currentPage if sorted list shrinks (e.g. items deleted)
+    const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+    useEffect(() => { if (currentPage > totalPages) setCurrentPage(totalPages); }, [currentPage, totalPages]);
+
+    // Current page slice
+    const paginatedSorted = useMemo(() => sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize), [sorted, currentPage, pageSize]);
+
     // Refs so the keyboard handler always sees the latest values without re-registering
-    const sortedRef = useRef(sorted);
+    const sortedRef = useRef(paginatedSorted);
     const focusedIdxRef = useRef(focusedIdx);
-    sortedRef.current = sorted;
+    sortedRef.current = paginatedSorted;
     focusedIdxRef.current = focusedIdx;
 
     // Keyboard shortcuts: '/' = search, j/k = navigate cards, Enter = open focused
@@ -785,7 +805,7 @@ export const Dashboard = () => {
                         <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded-md pointer-events-none border border-slate-700">/</kbd>
                     )}
                     {search && (
-                        <button onClick={() => setSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs font-bold">x</button>
+                        <button onClick={() => setSearch('')} aria-label="Reset search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs font-bold">x</button>
                     )}
                 </div>
 
@@ -1038,7 +1058,7 @@ export const Dashboard = () => {
             {/* Grid view */}
             {viewMode === 'grid' && sorted.length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 animate-fade-in">
-                    {sorted.map((inv, sortedGridIdx) => {
+                    {paginatedSorted.map((inv, sortedGridIdx) => {
                         const isPaused = inv.status === 'paused';
                         const isCompleted = inv.status === 'completed';
                         const isFailed = inv.status === 'failed';
@@ -1232,13 +1252,13 @@ export const Dashboard = () => {
 
             {/* List view */}
             {viewMode === 'list' && sorted.length > 0 && (() => {
-                type Group = { label: string; items: typeof sorted };
+                type Group = { label: string; items: typeof paginatedSorted };
                 const groups: Group[] = [];
 
                 if (groupByTarget) {
                     // Group by target value, ungrouped items under 'No target'
-                    const map: Record<string, typeof sorted> = {};
-                    sorted.forEach(inv => {
+                    const map: Record<string, typeof paginatedSorted> = {};
+                    paginatedSorted.forEach(inv => {
                         const key = inv.target || 'No target';
                         (map[key] ??= []).push(inv);
                     });
@@ -1250,14 +1270,14 @@ export const Dashboard = () => {
                     const useGroups = sortOrder !== 'steps' && !search;
                     if (useGroups) {
                         const order = ['Today', 'Yesterday', 'This week', 'Older'];
-                        const map: Record<string, typeof sorted> = {};
-                        sorted.forEach(inv => {
+                        const map: Record<string, typeof paginatedSorted> = {};
+                        paginatedSorted.forEach(inv => {
                             const g = (inv.status === 'running' || inv.status === 'paused') ? 'Today' : getDateGroup(inv);
                             (map[g] ??= []).push(inv);
                         });
                         order.forEach(g => { if (map[g]?.length) groups.push({ label: g, items: map[g] }); });
                     } else {
-                        groups.push({ label: '', items: sorted });
+                        groups.push({ label: '', items: paginatedSorted });
                     }
                 }
 
@@ -1436,6 +1456,21 @@ export const Dashboard = () => {
                     </div>
                 );
             })()}
+
+            {/* Pagination */}
+            {sorted.length > 0 && (
+                <Pagination
+                    totalItems={sorted.length}
+                    currentPage={currentPage}
+                    pageSize={pageSize}
+                    onPageChange={setCurrentPage}
+                    onPageSizeChange={(size) => {
+                        setPageSize(size);
+                        localStorage.setItem('inv-page-size', String(size));
+                    }}
+                    noun="investigations"
+                />
+            )}
 
             {sorted.length === 0 && (() => {
                 const es = search

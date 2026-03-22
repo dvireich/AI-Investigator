@@ -10,6 +10,7 @@
   "notifications": true,
   "defaultView": "grid",
   "defaultSortOrder": "newest",
+  "defaultPageSize": 12,
   "llmProvider": {
     "type": "openai",
     "apiKey": "sk-..."

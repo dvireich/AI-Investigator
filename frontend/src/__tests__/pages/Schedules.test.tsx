@@ -1878,4 +1878,83 @@ describe('Schedules additional coverage', () => {
             await waitFor(() => expect(document.body.textContent).toContain(customRange));
         });
     });
+
+    // === Pagination ===
+    describe('Pagination', () => {
+        it('shows pagination controls when there are schedules', async () => {
+            const api = (await import('../../api')).api;
+            const schedules = [createSchedule({ id: 's1', name: 'Schedule 1' })];
+            (api.getSchedules as any).mockResolvedValue(schedules);
+            renderSchedules();
+
+            await waitFor(() => {
+                expect(screen.getByText(/of 1 schedule/)).toBeInTheDocument();
+            });
+        });
+
+        it('paginates schedule list with many items', async () => {
+            const api = (await import('../../api')).api;
+            const schedules = Array.from({ length: 15 }, (_, i) =>
+                createSchedule({ id: `s${i}`, name: `Schedule ${i + 1}`, target: `stamp-${i}` })
+            );
+            (api.getSchedules as any).mockResolvedValue(schedules);
+            localStorage.setItem('sched-page-size', '6');
+            renderSchedules();
+
+            await waitFor(() => {
+                expect(screen.getByText('1–6 of 15 schedules')).toBeInTheDocument();
+            });
+        });
+
+        it('navigates to next page of schedules', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            const api = (await import('../../api')).api;
+            const schedules = Array.from({ length: 15 }, (_, i) =>
+                createSchedule({ id: `s${i}`, name: `Schedule ${i + 1}`, target: `stamp-${i}` })
+            );
+            (api.getSchedules as any).mockResolvedValue(schedules);
+            localStorage.setItem('sched-page-size', '6');
+            renderSchedules();
+
+            await waitFor(() => screen.getByText('1–6 of 15 schedules'));
+
+            await user.click(screen.getByLabelText('Next page'));
+
+            await waitFor(() => {
+                expect(screen.getByText('7–12 of 15 schedules')).toBeInTheDocument();
+            });
+        });
+
+        it('persists schedule page size to localStorage', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            const api = (await import('../../api')).api;
+            const schedules = Array.from({ length: 30 }, (_, i) =>
+                createSchedule({ id: `s${i}`, name: `Schedule ${i + 1}`, target: `stamp-${i}` })
+            );
+            (api.getSchedules as any).mockResolvedValue(schedules);
+            renderSchedules();
+
+            await waitFor(() => screen.getByText(/of 30 schedules/));
+
+            const select = screen.getByRole('combobox', { name: /per page/i });
+            await user.selectOptions(select, '24');
+
+            expect(localStorage.getItem('sched-page-size')).toBe('24');
+        });
+
+        it('loads defaultPageSize from server settings', async () => {
+            const api = (await import('../../api')).api;
+            localStorage.removeItem('sched-page-size');
+            (api.getSettings as any).mockResolvedValue({ model: 'gpt-4o', scheduledInvestigationMaxSteps: 50, defaultPageSize: 6 });
+            const schedules = Array.from({ length: 20 }, (_, i) =>
+                createSchedule({ id: `s${i}`, name: `Schedule ${i + 1}`, target: `stamp-${i}` })
+            );
+            (api.getSchedules as any).mockResolvedValue(schedules);
+            renderSchedules();
+
+            await waitFor(() => {
+                expect(screen.getByText('1–6 of 20 schedules')).toBeInTheDocument();
+            });
+        });
+    });
 });
