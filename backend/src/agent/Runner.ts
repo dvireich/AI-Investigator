@@ -35,6 +35,7 @@ export interface Recommendation {
     priority: string;
     title: string;
     description: string;
+    category: 'code' | 'operational';
 }
 
 export interface RetrospectMessage {
@@ -1503,12 +1504,54 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                     id: `rec_${groups[g].priority}_${recommendations.length}`,
                     priority: groups[g].priority,
                     title,
-                    description: fullDesc
+                    description: fullDesc,
+                    category: this.classifyRecommendation(title, fullDesc)
                 });
             }
         }
 
         return recommendations;
+    }
+
+    private classifyRecommendation(title: string, description: string): 'code' | 'operational' {
+        const text = `${title} ${description}`.toLowerCase();
+
+        // Operational keywords — actions that involve people, infrastructure, or process
+        const operationalPatterns = [
+            /\bengage\b/, /\bcontact\b/, /\bescalate\b/, /\bcoordinate\b/,
+            /\bmonitor\b(?!ing\s+(code|class|method|function|service\s+class))/,
+            /\binvestigate\b(?!\s+(the\s+)?(code|class|bug|error\s+handling|root\s+cause\s+in))/,
+            /\bconfirm\b/, /\bvalidate\b(?!\s+(input|parameter|argument|request))/,
+            /\bscale\s+(out|up|down|in)\b/, /\bincrease\s+(instance|cluster|vm|node|replica)/i,
+            /\bset\s+vmss\b/i, /\brequest\s+scaling\b/,
+            /\btest\s+(with|throughput|performance|latency)\b/,
+            /\bsre\b/i, /\bkusto\s+cluster\s+health\b/,
+            /\bdetermine\s+(the\s+)?(optimal|maximum|minimum)\b/,
+        ];
+
+        // Code keywords — actions that involve writing, changing, or creating code
+        const codePatterns = [
+            /\bimplement\b/, /\brefactor\b/, /\bcreate\s+(a\s+)?(class|method|function|module|service|handler|interface)/,
+            /\badd\s+(a\s+)?(pre-|validation|logging|metric|check|handler|field|parameter|method|retry|circuit|dedup)/,
+            /\bfix\s+(the\s+)?(bug|crash|error|code|race\s+condition|exception|null|deadlock)/,
+            /\breclassify\s+(the\s+)?error\b/, /\bchange\s+(the\s+)?(code|logic|algorithm|class)/,
+            /\bdeduplicate\b/, /\buse\s+unique\b/,
+            /\badd\s+.*\b(pattern|logic)\b/,
+            /\bupdate\s+(the\s+)?(code|handler|processor|service\s+code|class|mapping|config(uration)?)\b/,
+        ];
+
+        let codeScore = 0;
+        let opsScore = 0;
+
+        for (const p of codePatterns) {
+            if (p.test(text)) codeScore++;
+        }
+        for (const p of operationalPatterns) {
+            if (p.test(text)) opsScore++;
+        }
+
+        // Default to 'code' when ambiguous — the user can still deselect
+        return opsScore > codeScore ? 'operational' : 'code';
     }
 
     /**

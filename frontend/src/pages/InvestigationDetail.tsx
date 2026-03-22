@@ -891,7 +891,7 @@ export const InvestigationDetail = () => {
         try {
             const recs = await api.getRecommendations(investigation!.id);
             setImplRecommendations(recs);
-            setImplSelected(new Set(recs.filter(r => r.priority === 'P0').map(r => r.id)));
+            setImplSelected(new Set(recs.filter(r => r.priority === 'P0' && r.category !== 'operational').map(r => r.id)));
         } catch (err: any) {
             toast('error', 'Failed to parse recommendations: ' + err.message);
             setShowImplModal(false);
@@ -2397,7 +2397,7 @@ export const InvestigationDetail = () => {
                                                     <div className={`inline-block text-xs font-bold px-2 py-0.5 rounded border mb-2 ${colorMap[priority]}`}>{priority}</div>
                                                     <div className="space-y-2">
                                                         {group.map(rec => (
-                                                            <label key={rec.id} className="flex items-start gap-3 p-3 rounded-lg bg-slate-800/50 border border-slate-700/30 hover:border-slate-600/50 cursor-pointer transition-all">
+                                                            <label key={rec.id} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-all ${rec.category === 'operational' ? 'bg-slate-800/30 border-slate-700/20 opacity-70 hover:opacity-100 hover:border-slate-600/40' : 'bg-slate-800/50 border-slate-700/30 hover:border-slate-600/50'}`}>
                                                                 <input
                                                                     type="checkbox"
                                                                     checked={implSelected.has(rec.id)}
@@ -2409,7 +2409,18 @@ export const InvestigationDetail = () => {
                                                                     className="mt-0.5 rounded border-slate-600 bg-slate-700 text-sky-500 focus:ring-sky-500 focus:ring-offset-0"
                                                                 />
                                                                 <div className="flex-1 min-w-0">
-                                                                    <div className="text-sm font-semibold text-slate-200">{rec.title}</div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className="text-sm font-semibold text-slate-200">{rec.title}</span>
+                                                                        {rec.category === 'operational' ? (
+                                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 whitespace-nowrap" title="Operational — not a code change">
+                                                                                OPS
+                                                                            </span>
+                                                                        ) : (
+                                                                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 whitespace-nowrap" title="Code change — can be implemented by the coding agent">
+                                                                                CODE
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
                                                                     {rec.description && <div className="text-xs text-slate-400 mt-1">{rec.description}</div>}
                                                                 </div>
                                                             </label>

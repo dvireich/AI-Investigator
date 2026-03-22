@@ -4472,10 +4472,10 @@ Some appendix.
             const runner = new AgentRunner(makeConfig(), provider);
             const recs = runner.parseRecommendations(markdown);
             expect(recs.length).toBe(4);
-            expect(recs[0]).toMatchObject({ priority: 'P0', title: 'Fix the bug' });
-            expect(recs[1]).toMatchObject({ priority: 'P0', title: 'Add retry logic' });
-            expect(recs[2]).toMatchObject({ priority: 'P1', title: 'Add logging' });
-            expect(recs[3]).toMatchObject({ priority: 'P2', title: 'Refactor processor' });
+            expect(recs[0]).toMatchObject({ priority: 'P0', title: 'Fix the bug', category: 'code' });
+            expect(recs[1]).toMatchObject({ priority: 'P0', title: 'Add retry logic', category: 'code' });
+            expect(recs[2]).toMatchObject({ priority: 'P1', title: 'Add logging', category: 'code' });
+            expect(recs[3]).toMatchObject({ priority: 'P2', title: 'Refactor processor', category: 'code' });
             // Each should have a unique id
             const ids = recs.map(r => r.id);
             expect(new Set(ids).size).toBe(4);
@@ -4546,6 +4546,31 @@ Some appendix.
             const recs = runner.parseRecommendations(markdown);
             expect(recs.length).toBe(1);
             expect(recs[0].title).toBe('Patch config');
+        });
+
+        it('classifies code recommendations correctly', () => {
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Implement retry backoff with jitter**: Break the retry amplification feedback loop.\n2. **Add pre-ingestion mapping validation**: Detect missing mappings before attempting streaming ingestion.\n3. **Deduplicate notifications before parallel processing**: Eliminates the root cause.\n4. **Fix permanent mapping errors**: These are permanent and will never self-heal.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(4);
+            expect(recs.every(r => r.category === 'code')).toBe(true);
+        });
+
+        it('classifies operational recommendations correctly', () => {
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Engage Kusto SRE for the cluster**: This cluster accounts for the majority of failures.\n2. **Monitor Kusto cluster health dashboards**: Detect recurrence of error patterns.\n3. **Investigate the Entity Not Found failures**: These customers likely have stale configurations.\n4. **Scale out BlobReader instances from 6 to 15**: Match the other cluster.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(4);
+            expect(recs.every(r => r.category === 'operational')).toBe(true);
+        });
+
+        it('classifies a mixed set of recommendations', () => {
+            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Engage Kusto SRE**: Contact the Kusto team.\n2. **Add circuit breaker pattern**: Upstream services should back off when overloaded.\n`;
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = runner.parseRecommendations(markdown);
+            expect(recs.length).toBe(2);
+            expect(recs[0].category).toBe('operational');
+            expect(recs[1].category).toBe('code');
         });
     });
 

@@ -68,6 +68,7 @@ export interface Recommendation {
     priority: string;
     title: string;
     description: string;
+    category: 'code' | 'operational';
 }
 
 export interface RetrospectMessage {

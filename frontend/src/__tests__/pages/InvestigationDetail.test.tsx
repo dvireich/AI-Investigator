@@ -99,8 +99,9 @@ vi.mock('../../api', () => ({
         applyProposals: vi.fn().mockResolvedValue({ applied: ['p1'], errors: [] }),
         completeRetrospect: vi.fn().mockResolvedValue({ success: true }),
         getRecommendations: vi.fn().mockResolvedValue([
-            { id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes' },
-            { id: 'rec_P1_1', priority: 'P1', title: 'Add logging', description: 'More telemetry needed' },
+            { id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes', category: 'code' },
+            { id: 'rec_P0_1', priority: 'P0', title: 'Engage Kusto SRE', description: 'Contact the team', category: 'operational' },
+            { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
         ]),
         implementRecommendations: vi.fn().mockResolvedValue({ started: true }),
     },
@@ -6474,6 +6475,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             await waitFor(() => {
                 expect(api.getRecommendations).toHaveBeenCalledWith('1700000000000');
                 expect(screen.getByText('Fix the bug')).toBeInTheDocument();
+                expect(screen.getByText('Engage Kusto SRE')).toBeInTheDocument();
                 expect(screen.getByText('Add logging')).toBeInTheDocument();
             });
         });
@@ -6569,6 +6571,64 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             await waitFor(() => {
                 expect(screen.getByText(/No recommendations found/i)).toBeInTheDocument();
             });
+        });
+
+        it('shows CODE and OPS category badges on recommendations', async () => {
+            const { api } = await import('../../api');
+            (api.getRecommendations as any).mockResolvedValue([
+                { id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes', category: 'code' },
+                { id: 'rec_P0_1', priority: 'P0', title: 'Engage Kusto SRE', description: 'Contact the team', category: 'operational' },
+                { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
+            ]);
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            // Should show CODE badges for code recommendations and OPS badge for operational
+            const codeBadges = screen.getAllByText('CODE');
+            const opsBadges = screen.getAllByText('OPS');
+            expect(codeBadges.length).toBe(2); // Fix the bug + Add logging
+            expect(opsBadges.length).toBe(1); // Engage Kusto SRE
+        });
+
+        it('auto-selects only code P0 recommendations, not operational', async () => {
+            const { api } = await import('../../api');
+            (api.getRecommendations as any).mockResolvedValue([
+                { id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes', category: 'code' },
+                { id: 'rec_P0_1', priority: 'P0', title: 'Engage Kusto SRE', description: 'Contact the team', category: 'operational' },
+                { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
+            ]);
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            // Only 1 selected (code P0), not the operational P0
+            await waitFor(() => {
+                expect(screen.getByText(/Generate Implementation \(1\)/i)).toBeInTheDocument();
+            });
+
+            // The operational P0 checkbox should NOT be checked
+            const checkboxes = screen.getAllByRole('checkbox');
+            const opsCheckbox = checkboxes[1]; // second P0 item is operational
+            expect(opsCheckbox).not.toBeChecked();
         });
     });
 
