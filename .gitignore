@@ -52,3 +52,4 @@ frontend/settings_coverage.txt
 frontend/test-out*.txt
 frontend/test-output.txt
 frontend/test-results.txt
+ci-run-status.json
