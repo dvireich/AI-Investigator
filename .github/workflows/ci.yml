@@ -32,6 +32,22 @@ jobs:
           flags: backend
           token: ${{ secrets.CODECOV_TOKEN }}
 
+      - name: Extract backend coverage
+        if: github.ref == 'refs/heads/main'
+        id: backend-cov
+        run: |
+          COV=$(node -e "const s=require('./coverage/coverage-summary.json');console.log(s.total.lines.pct)")
+          TESTS=$(node -e "const s=require('./coverage/coverage-summary.json');const f=Object.keys(s).filter(k=>k!=='total');console.log(f.length)")
+          echo "coverage=$COV" >> $GITHUB_OUTPUT
+          echo "files=$TESTS" >> $GITHUB_OUTPUT
+
+      - name: Upload coverage summary
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-summary
+          path: backend/coverage/coverage-summary.json
+
   frontend-tests:
     name: Frontend Tests & Coverage
     runs-on: ubuntu-latest
@@ -56,3 +72,73 @@ jobs:
           files: ./coverage/lcov.info
           flags: frontend
           token: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload coverage summary
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-summary
+          path: frontend/coverage/coverage-summary.json
+
+  publish-badges:
+    name: Publish Coverage Badges
+    needs: [backend-tests, frontend-tests]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download backend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: backend-coverage-summary
+          path: badges/backend
+
+      - name: Download frontend coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-coverage-summary
+          path: badges/frontend
+
+      - name: Generate badge JSON files
+        run: |
+          mkdir -p badges/output
+
+          BE_COV=$(node -e "const s=require('./badges/backend/coverage-summary.json');console.log(s.total.lines.pct)")
+          FE_COV=$(node -e "const s=require('./badges/frontend/coverage-summary.json');console.log(s.total.lines.pct)")
+
+          # Color: green for 100, yellowgreen for 90+, yellow for 80+, orange for 70+, red otherwise
+          get_color() {
+            local pct=$1
+            if [ "$pct" = "100" ]; then echo "brightgreen"
+            elif (( $(echo "$pct >= 90" | bc -l) )); then echo "green"
+            elif (( $(echo "$pct >= 80" | bc -l) )); then echo "yellowgreen"
+            elif (( $(echo "$pct >= 70" | bc -l) )); then echo "yellow"
+            elif (( $(echo "$pct >= 60" | bc -l) )); then echo "orange"
+            else echo "red"
+            fi
+          }
+
+          BE_COLOR=$(get_color $BE_COV)
+          FE_COLOR=$(get_color $FE_COV)
+
+          echo "{\"schemaVersion\":1,\"label\":\"backend coverage\",\"message\":\"${BE_COV}%\",\"color\":\"${BE_COLOR}\"}" > badges/output/backend-coverage.json
+          echo "{\"schemaVersion\":1,\"label\":\"frontend coverage\",\"message\":\"${FE_COV}%\",\"color\":\"${FE_COLOR}\"}" > badges/output/frontend-coverage.json
+
+          echo "Backend: ${BE_COV}% (${BE_COLOR})"
+          echo "Frontend: ${FE_COV}% (${FE_COLOR})"
+
+      - name: Publish badges to badges branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Create orphan badges branch or switch to it
+          git checkout --orphan badges-temp
+          git rm -rf . 2>/dev/null || true
+          cp badges/output/*.json .
+          git add backend-coverage.json frontend-coverage.json
+          git commit -m "Update coverage badges"
+          git push origin HEAD:badges --force

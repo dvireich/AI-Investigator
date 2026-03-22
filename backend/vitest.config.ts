@@ -8,7 +8,7 @@ export default defineConfig({
         setupFiles: ['src/__tests__/setup.ts'],
         coverage: {
             provider: 'v8',
-            reporter: ['text', 'lcov'],
+            reporter: ['text', 'lcov', 'json-summary'],
             include: ['src/**/*.ts'],
             exclude: ['src/**/__tests__/**'],
             thresholds: {
