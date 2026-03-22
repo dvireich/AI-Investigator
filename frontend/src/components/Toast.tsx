@@ -76,7 +76,7 @@ const ToastItem = ({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string)
 
     return (
         <div
-            className={`flex items-start gap-3 px-4 py-3 rounded-xl border backdrop-blur-xl shadow-2xl max-w-sm transition-all duration-300 ${cfg.bg} ${cfg.border} ${
+            className={`pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-xl border backdrop-blur-xl shadow-2xl max-w-sm transition-all duration-300 ${cfg.bg} ${cfg.border} ${
                 exiting ? 'opacity-0 translate-x-4' : 'opacity-100 translate-x-0'
             }`}
         >
@@ -186,7 +186,7 @@ export const ToastProvider = ({ children }: { children: React.ReactNode }) => {
             {children}
 
             {/* Toast stack */}
-            <div className="fixed top-4 right-4 z-[110] flex flex-col gap-2 pointer-events-auto">
+            <div className="fixed top-4 right-4 z-[110] flex flex-col gap-2 pointer-events-none">
                 {toasts.map(t => (
                     <ToastItem key={t.id} toast={t} onDismiss={dismissToast} />
                 ))}
