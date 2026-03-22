@@ -85,11 +85,7 @@ jobs:
     needs: [backend-tests, frontend-tests]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - uses: actions/checkout@v4
-
       - name: Download backend coverage
         uses: actions/download-artifact@v4
         with:
@@ -102,14 +98,14 @@ jobs:
           name: frontend-coverage-summary
           path: badges/frontend
 
-      - name: Generate badge JSON files
+      - name: Update coverage badge Gist
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          GIST_ID: ${{ vars.BADGE_GIST_ID }}
         run: |
-          mkdir -p badges/output
-
           BE_COV=$(node -e "const s=require('./badges/backend/coverage-summary.json');console.log(s.total.lines.pct)")
           FE_COV=$(node -e "const s=require('./badges/frontend/coverage-summary.json');console.log(s.total.lines.pct)")
 
-          # Color: green for 100, yellowgreen for 90+, yellow for 80+, orange for 70+, red otherwise
           get_color() {
             local pct=$1
             if [ "$pct" = "100" ]; then echo "brightgreen"
@@ -124,21 +120,20 @@ jobs:
           BE_COLOR=$(get_color $BE_COV)
           FE_COLOR=$(get_color $FE_COV)
 
-          echo "{\"schemaVersion\":1,\"label\":\"backend coverage\",\"message\":\"${BE_COV}%\",\"color\":\"${BE_COLOR}\"}" > badges/output/backend-coverage.json
-          echo "{\"schemaVersion\":1,\"label\":\"frontend coverage\",\"message\":\"${FE_COV}%\",\"color\":\"${FE_COLOR}\"}" > badges/output/frontend-coverage.json
+          BE_JSON='{"schemaVersion":1,"label":"backend coverage","message":"'${BE_COV}'%","color":"'${BE_COLOR}'"}'
+          FE_JSON='{"schemaVersion":1,"label":"frontend coverage","message":"'${FE_COV}'%","color":"'${FE_COLOR}'"}'
 
           echo "Backend: ${BE_COV}% (${BE_COLOR})"
           echo "Frontend: ${FE_COV}% (${FE_COLOR})"
 
-      - name: Publish badges to badges branch
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          curl -s -X PATCH \
+            -H "Authorization: token ${GIST_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/gists/${GIST_ID}" \
+            -d "$(jq -n \
+              --arg be "$BE_JSON" \
+              --arg fe "$FE_JSON" \
+              '{files: {"backend-coverage.json": {content: $be}, "frontend-coverage.json": {content: $fe}}}'
+            )"
 
-          # Create orphan badges branch or switch to it
-          git checkout --orphan badges-temp
-          git rm -rf . 2>/dev/null || true
-          cp badges/output/*.json .
-          git add backend-coverage.json frontend-coverage.json
-          git commit -m "Update coverage badges"
-          git push origin HEAD:badges --force
+          echo "Badge Gist updated successfully"
