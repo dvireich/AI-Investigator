@@ -16,6 +16,11 @@ An agentic system that runs, monitors, and learns from investigations — comple
 
 ---
 
+> **🚀 Quick Start:** [Download the latest release](../../releases/latest) — extract, configure, double-click. No Node.js required.
+> See [docs/QUICKSTART.md](docs/QUICKSTART.md) for all installation options.
+
+---
+
 ## Table of Contents
 
 - [Overview](#overview)

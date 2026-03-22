@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../App';
 import { ToastProvider } from '../components/Toast';
@@ -25,6 +25,9 @@ vi.mock('../pages/ScheduleForm', () => ({
 }));
 vi.mock('../pages/About', () => ({
     About: () => <div data-testid="about">About</div>,
+}));
+vi.mock('../pages/OnboardingWizard', () => ({
+    OnboardingWizard: () => <div data-testid="onboarding">Onboarding</div>,
 }));
 
 // Mock Layout to render its Outlet
@@ -55,9 +58,19 @@ function renderApp(route: string) {
 }
 
 describe('App', () => {
-    it('renders Dashboard at root', () => {
+    beforeEach(() => {
+        // Mock onboarding status as complete so Dashboard renders
+        vi.stubGlobal('fetch', vi.fn((url: string) => {
+            if (url === '/api/onboarding/status') {
+                return Promise.resolve({ ok: true, json: () => Promise.resolve({ complete: true }) });
+            }
+            return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
+        }));
+    });
+
+    it('renders Dashboard at root', async () => {
         renderApp('/');
-        expect(screen.getByTestId('dashboard')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
     });
 
     it('renders NewInvestigation at /new', () => {

@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from 'fs';
-import { join } from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // Placeholder for LLM SDK
 export class RetrospectAgent {
@@ -7,8 +7,6 @@ export class RetrospectAgent {
 
     async runRetrospect(investigationId: string, baseDir: string): Promise<string> {
         // Find the JSON file
-        const fs = require('fs');
-        const path = require('path');
         const files = fs.readdirSync(baseDir);
         const jsonFile = files.find((f: string) => f.includes(investigationId) && f.endsWith('.json'));
 

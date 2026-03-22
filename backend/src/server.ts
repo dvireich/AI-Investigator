@@ -11,6 +11,8 @@ import { McpServerConfig } from './agent/tools/McpToolBridge';
 import { renderPdf } from './pdfRenderer';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
+import { appRoot, isPackaged, resolveFromRoot } from './utils/appRoot';
 import { ScheduleStore, ScheduleDefinition } from './schedules/ScheduleStore';
 import { Scheduler, SchedulerConfig } from './schedules/Scheduler';
 import { QueryBankStore, SavedQuery } from './querybank/QueryBankStore';
@@ -223,6 +225,12 @@ export function jsonParseErrorHandler(err: any, req: express.Request, res: expre
 
 // Handle JSON parse errors from body-parser gracefully
 app.use(jsonParseErrorHandler);
+
+// In production mode, serve the frontend build from dist/public/
+const publicDir = path.join(__dirname, 'public');
+if (fs.existsSync(publicDir)) {
+    app.use(express.static(publicDir));
+}
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -581,12 +589,15 @@ const configFile = resolveConfigFilePath(process.argv, __dirname);
 // like "docs/investigations" resolve relative to that repo root.
 const configFileDir = path.dirname(configFile);
 
-// The AI-Investigator installation root (two levels up from backend/src or backend/dist).
-const investigatorRoot = path.resolve(__dirname, '..', '..');
+// The AI-Investigator installation root.
+// Normal mode: two levels up from backend/dist/. Exe mode: directory of the executable.
+const investigatorRoot = appRoot;
 
-// Derive a sensible default repoRoot: climb from backend/src/ (dev) or backend/dist/ (prod) to repo root
-// Expected layout: <repoRoot>/tools/InvestigationDashboard/backend/src/server.ts (4 levels up)
-const defaultRepoRoot = path.resolve(__dirname, '..', '..', '..', '..');
+// Derive a sensible default repoRoot: in exe mode, use the exe dir.
+// In normal mode, climb from backend/dist/ to the expected outer repo root.
+const defaultRepoRoot = isPackaged
+    ? appRoot
+    : path.resolve(__dirname, '..', '..', '..', '..');
 
 interface Product {
     id: string;
@@ -626,7 +637,7 @@ let config: {
 } = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
-    retrospectPromptPath: path.resolve(__dirname, '..', '..', 'prompts', 'RetrospectPrompt.md'),
+    retrospectPromptPath: resolveFromRoot('prompts', 'RetrospectPrompt.md'),
     knowledgeBasePath: '',
     mcpServers: [],
     maxSteps: 50,
@@ -795,7 +806,34 @@ initializeProviders();
 // Initial load of history (after config is loaded)
 loadHistory();
 
+// Version / update API
+import { getVersionStatus, setUpdateManifestUrl } from './utils/updateChecker';
+
+app.get('/api/version', async (req, res) => {
+    try {
+        const forceCheck = req.query.check === 'true';
+        const status = await getVersionStatus(forceCheck);
+        res.json(status);
+    } catch {
+        res.status(500).json({ error: 'Failed to check version' });
+    }
+});
+
 // Settings API
+
+// Onboarding status — checks if minimum config exists
+app.get('/api/onboarding/status', (req, res) => {
+    const hasLlm = !!(config.llmProvider && config.llmProvider.type && config.llmProvider.type !== 'none');
+    const hasProduct = config.products && config.products.length > 0;
+    const configExists = fs.existsSync(configFile);
+    res.json({
+        complete: hasLlm && configExists,
+        hasLlmProvider: hasLlm,
+        hasProduct: !!hasProduct,
+        hasConfig: configExists,
+    });
+});
+
 app.get('/api/settings', (req, res) => {
     res.json(config);
 });
@@ -1494,7 +1532,7 @@ app.post('/api/investigations', async (req, res) => {
     // Resolve createdBy: use provided value, fall back to OS username
     let resolvedCreatedBy = createdBy;
     if (!resolvedCreatedBy) {
-        resolvedCreatedBy = require('os').userInfo().username;
+        resolvedCreatedBy = os.userInfo().username;
     }
 
     // Validate required fields - target and timeRange are optional when incidentId is provided
@@ -2289,7 +2327,7 @@ app.post('/api/investigations/import', async (req, res) => {
     // Resolve createdBy: preserve from export, fall back to OS username
     let importCreatedBy = importedState.createdBy;
     if (!importCreatedBy) {
-        importCreatedBy = require('os').userInfo().username;
+        importCreatedBy = os.userInfo().username;
     }
 
     // Re-map productId to the active product — the source system's productId is meaningless here
@@ -2930,7 +2968,7 @@ app.post('/api/schedules', async (req, res) => {
     }
 
     // Resolve schedule creator: OS username
-    const scheduleCreatedBy = require('os').userInfo().username;
+    const scheduleCreatedBy = os.userInfo().username;
 
     const schedule = scheduleStore.create({
         name,
@@ -3144,6 +3182,13 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     }
 });
 
+// SPA fallback: serve index.html for any non-API route (must come after all API routes)
+if (fs.existsSync(publicDir)) {
+    app.get('*', (req, res) => {
+        res.sendFile(path.join(publicDir, 'index.html'));
+    });
+}
+
 let serverStarted = false;
 
 export function startServer() {
@@ -3155,6 +3200,17 @@ export function startServer() {
     server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
         handleServerStarted();
+
+        // Auto-open browser in production/exe mode (unless --no-open flag)
+        if (!process.argv.includes('--no-open') && (isPackaged || process.env.NODE_ENV === 'production')) {
+            const url = `http://localhost:${port}`;
+            const { exec } = require('child_process');
+            // Windows: start; macOS: open; Linux: xdg-open
+            const cmd = process.platform === 'win32' ? `start "" "${url}"`
+                : process.platform === 'darwin' ? `open "${url}"`
+                : `xdg-open "${url}"`;
+            exec(cmd, () => { /* ignore errors */ });
+        }
     });
 
     return server;

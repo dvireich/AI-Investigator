@@ -105,6 +105,7 @@ vi.spyOn(nodeFs, 'statSync').mockImplementation(statSyncImpl);
 vi.spyOn(nodeFs, 'lstatSync').mockImplementation(lstatSyncImpl);
 
 import { AgentRunner, AgentConfig, InvestigationState, Recommendation } from '../../agent/Runner';
+import * as mockedFs from 'fs';
 
 // --- Helpers ---
 function makeLlmProvider(overrides: any = {}) {
@@ -5003,7 +5004,6 @@ Some appendix.
 
         it('walks into subdirectories to find matches', () => {
             const pth = require('path');
-            const fs = require('fs');
             const repoResolved = pth.resolve('/repo');
             const subDir = n(pth.resolve('/repo/submod'));
             mockDirs.add(n(repoResolved));
@@ -5017,9 +5017,9 @@ Some appendix.
             // Override lstatSync to use exact set for precise directory checks
             // (the default mock's includes-based check falsely marks files as dirs)
             const dirSet = new Set([n(repoResolved), subDir]);
-            vi.mocked(fs.lstatSync).mockImplementation((p: string) => ({
+            vi.mocked(mockedFs.lstatSync).mockImplementation((p: any) => ({
                 isDirectory: () => dirSet.has(n(p as string)),
-            }));
+            }) as any);
 
             const runner = new AgentRunner(makeConfig({ repoRoot: repoResolved }), provider);
             const result = (runner as any).localSearchCode('DeepClass');

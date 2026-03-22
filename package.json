@@ -1,0 +1,20 @@
+{
+    "name": "ai-investigator",
+    "version": "1.0.0",
+    "description": "AI-powered investigation dashboard for telemetry and incident analysis",
+    "private": true,
+    "scripts": {
+        "build": "node scripts/build.js",
+        "package": "node scripts/build.js && node scripts/package.js",
+        "package:no-chromium": "node scripts/build.js && node scripts/package.js --no-chromium",
+        "dev": "concurrently \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+        "start": "node backend/dist/server.js",
+        "test": "npm test --prefix backend && npm test --prefix frontend",
+        "test:backend": "npm test --prefix backend",
+        "test:frontend": "npm test --prefix frontend",
+        "setup": "npm install --prefix backend && npm install --prefix frontend"
+    },
+    "bin": {
+        "ai-investigator": "backend/dist/server.js"
+    }
+}

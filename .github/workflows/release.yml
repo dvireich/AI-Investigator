@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Install dependencies
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      # Run tests
+      - name: Run backend tests
+        run: npm test
+        working-directory: backend
+
+      - name: Run frontend tests
+        run: npm test
+        working-directory: frontend
+
+      # Build
+      - name: Build application
+        run: node scripts/build.js
+
+      # Package exe
+      - name: Package executable
+        run: npx @yao-pkg/pkg . --target node20-win-x64 --output ../release/ai-investigator.exe
+        working-directory: backend
+
+      # Install Chromium for PDF export
+      - name: Install Chromium
+        run: npx puppeteer browsers install chrome
+        working-directory: backend
+
+      - name: Bundle Chromium
+        shell: pwsh
+        run: |
+          $chromePath = npm exec --yes puppeteer browsers install chrome 2>&1 | Select-String -Pattern "chrome" | Select-Object -Last 1
+          $puppeteerCache = Join-Path $env:USERPROFILE ".cache\puppeteer"
+          $chromeExe = Get-ChildItem -Path $puppeteerCache -Filter "chrome.exe" -Recurse | Select-Object -First 1
+          if ($chromeExe) {
+            $chromeDir = $chromeExe.Directory.FullName
+            $destDir = "release\chromium\$(Split-Path $chromeDir -Leaf)"
+            Copy-Item -Path $chromeDir -Destination $destDir -Recurse -Force
+            Write-Host "Bundled Chromium from $chromeDir"
+          } else {
+            Write-Warning "Chromium not found - PDF export will not work in packaged exe"
+          }
+        working-directory: backend
+
+      # Copy runtime assets
+      - name: Copy runtime assets
+        shell: pwsh
+        run: |
+          if (Test-Path prompts) { Copy-Item -Path prompts -Destination release\prompts -Recurse -Force }
+          if (Test-Path scripts\icm) {
+            New-Item -ItemType Directory -Path release\scripts\icm -Force | Out-Null
+            Copy-Item -Path scripts\icm\* -Destination release\scripts\icm -Recurse -Force
+          }
+          if (Test-Path backend\config.sample.json) { Copy-Item backend\config.sample.json release\ }
+          Copy-Item backend\dist\version.json release\ -ErrorAction SilentlyContinue
+
+      # Code signing (when secrets are configured)
+      - name: Sign executable
+        if: env.AZURE_TENANT_ID != ''
+        shell: pwsh
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          SIGNING_ACCOUNT: ${{ secrets.SIGNING_ACCOUNT }}
+          SIGNING_PROFILE: ${{ secrets.SIGNING_PROFILE }}
+        run: |
+          dotnet tool install --global AzureSignTool
+          AzureSignTool sign `
+            --azure-key-vault-url "https://$env:SIGNING_ACCOUNT.vault.azure.net" `
+            --azure-key-vault-tenant-id $env:AZURE_TENANT_ID `
+            --azure-key-vault-client-id $env:AZURE_CLIENT_ID `
+            --azure-key-vault-client-secret $env:AZURE_CLIENT_SECRET `
+            --azure-key-vault-certificate $env:SIGNING_PROFILE `
+            --timestamp-rfc3161 "http://timestamp.digicert.com" `
+            --file-digest sha256 `
+            release\ai-investigator.exe
+
+          # Verify signature
+          $sig = Get-AuthenticodeSignature release\ai-investigator.exe
+          if ($sig.Status -ne 'Valid') {
+            Write-Error "Code signing verification failed: $($sig.Status)"
+            exit 1
+          }
+          Write-Host "Signature verified: $($sig.SignerCertificate.Subject)"
+
+      # Create update manifest
+      - name: Create update manifest
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $tag = "${{ github.ref_name }}"
+          $repo = "${{ github.repository }}"
+          $zipName = "ai-investigator-win-x64.zip"
+
+          # Calculate SHA256 of exe
+          $sha256 = (Get-FileHash release\ai-investigator.exe -Algorithm SHA256).Hash.ToLower()
+
+          $manifest = @{
+            version = $version
+            releaseDate = (Get-Date -Format "yyyy-MM-dd")
+            downloadUrl = "https://github.com/$repo/releases/download/$tag/$zipName"
+            releaseNotesUrl = "https://github.com/$repo/releases/tag/$tag"
+            sha256 = $sha256
+          } | ConvertTo-Json
+          $manifest | Out-File -FilePath release\latest.json -Encoding utf8
+
+      # Create README
+      - name: Create release README
+        shell: pwsh
+        run: |
+          @"
+          AI Investigator
+          ===============
+
+          Quick Start:
+            1. Copy config.sample.json to config.json and edit with your settings
+            2. Double-click ai-investigator.exe (or run from command line)
+            3. Open http://localhost:3000 in your browser
+
+          Command-line options:
+            --config <path>    Use a specific config file
+            --no-open          Don't auto-open the browser
+          "@ | Out-File -FilePath release\README.txt -Encoding utf8
+
+      # Create zip
+      - name: Create release zip
+        shell: pwsh
+        run: |
+          Compress-Archive -Path release\* -DestinationPath ai-investigator-win-x64.zip -Force
+          Write-Host "Created ai-investigator-win-x64.zip"
+          $size = (Get-Item ai-investigator-win-x64.zip).Length / 1MB
+          Write-Host "Size: $([math]::Round($size, 1)) MB"
+
+      # Publish to GitHub Releases
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ai-investigator-win-x64.zip
+            release/latest.json
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+
+      # Update 'latest' release for stable update checking
+      - name: Update latest release manifest
+        if: "!contains(github.ref_name, '-')"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          files: release/latest.json
+          body: "Auto-updated latest.json manifest for update checking. See the actual release for download links."
+          draft: false
+          prerelease: false
