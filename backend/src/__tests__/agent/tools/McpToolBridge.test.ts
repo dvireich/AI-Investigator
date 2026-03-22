@@ -192,6 +192,14 @@ describe('McpToolBridge', () => {
         it('no-op for unknown server', async () => {
             await bridge.disconnect('nonexistent');
         });
+
+        it('ignores errors thrown by transport.close()', async () => {
+            const config: McpServerConfig = { name: 'srv', command: 'node' };
+            mockClient.request.mockResolvedValueOnce({ tools: [] });
+            await bridge.connect(config);
+            mockTransport.close.mockImplementationOnce(() => { throw new Error('close failed'); });
+            await expect(bridge.disconnect('srv')).resolves.toBeUndefined();
+        });
     });
 
     describe('disconnectAll', () => {

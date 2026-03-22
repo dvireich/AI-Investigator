@@ -1,0 +1,4283 @@
+import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import request from 'supertest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import * as pdfRenderer from '../pdfRenderer';
+import { EventEmitter } from 'events';
+import { AgentRunner, type InvestigationState } from '../agent/Runner';
+import {
+    __testUtils,
+    autoDiscoverProduct,
+    createInvestigation,
+    createSummaryState,
+    getGlobalInvestigationsDir,
+    getEffectiveConfig,
+    getInvestigationStoragePath,
+    getScheduleInvestigationsPath,
+    getThoughtPreview,
+    getThoughtSource,
+    hasPersistedInvestigationState,
+    hydrateStoredState,
+    isPathWithinDirectory,
+    loadHistory,
+    normalizeHistoricalState,
+    autoStartServerIfNeeded,
+    handleServerStarted,
+    resolveConfigPath,
+    resolveConfigPaths,
+    resolveManifest,
+    shouldAutoStartServer,
+    shouldIncludeInvestigationInList,
+    shouldScanGlobalInvestigationsDir,
+    summarizeRetrospect,
+    startServer,
+    stopServer,
+    initScheduler,
+    initializeProviders,
+    validateProductPaths,
+} from '../server';
+
+const defaultConfig = JSON.parse(JSON.stringify(__testUtils.getConfig()));
+const defaultPersistedConfig = JSON.parse(JSON.stringify(__testUtils.getPersistedConfig()));
+const api = () => request(__testUtils.app);
+const backendConfigFile = path.resolve(process.cwd(), 'config.json');
+
+function setFakeLlmProvider() {
+    __testUtils.setActiveLlmProvider({
+        type: 'fake',
+        displayName: 'Fake',
+        getAuthRequirement: () => ({ type: 'none' }),
+        configure: vi.fn(),
+        getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true }),
+        getClient: vi.fn(),
+        listModels: vi.fn().mockResolvedValue(['model-a']),
+    } as any);
+}
+
+function makeState(overrides: Partial<InvestigationState> = {}): InvestigationState {
+    return {
+        id: 'inv-1',
+        status: 'paused',
+        thoughts: [],
+        actions: [],
+        logs: [],
+        query: 'Investigate the issue',
+        target: 'stamp-01',
+        timeRange: 'ago(1h)',
+        model: 'gpt-4o',
+        tags: [],
+        contestCount: 0,
+        ...overrides,
+    } as InvestigationState;
+}
+
+function makeRunner(
+    stateOverrides: Partial<InvestigationState> = {},
+    overrides: Record<string, any> = {},
+) {
+    const emitter = new EventEmitter() as EventEmitter & Record<string, any>;
+    emitter.state = makeState({ ...stateOverrides });
+    emitter.pause = vi.fn(() => {
+        emitter.state.status = 'paused';
+    });
+    emitter.resume = vi.fn(() => {
+        emitter.state.status = 'running';
+    });
+    emitter.abort = vi.fn(() => {
+        emitter.state.status = 'aborted';
+    });
+    emitter.intervene = vi.fn();
+    emitter.contestReport = vi.fn(() => {
+        emitter.state.status = 'running';
+    });
+    emitter.start = vi.fn().mockResolvedValue(undefined);
+    emitter.log = vi.fn();
+    emitter.setModel = vi.fn((model: string) => {
+        emitter.state.model = model;
+    });
+    emitter.runRetrospective = vi.fn().mockResolvedValue(undefined);
+    emitter.resetRetrospectiveAnalysis = vi.fn();
+    emitter.runRetrospectiveAnalysis = vi.fn().mockResolvedValue(undefined);
+    emitter.updateProposalStatus = vi.fn().mockReturnValue({ id: 'proposal-1', status: 'approved' });
+    emitter.setRetrospectCompleted = vi.fn().mockReturnValue({ completed: true });
+    emitter.abortRetrospective = vi.fn();
+    emitter.applyApprovedProposals = vi.fn().mockResolvedValue({ applied: 1 });
+    emitter.summarize = vi.fn().mockResolvedValue(undefined);
+    emitter.saveArtifacts = vi.fn().mockResolvedValue(undefined);
+    emitter.toolManager = {
+        isConnected: vi.fn().mockReturnValue(true),
+        restart: vi.fn().mockResolvedValue(undefined),
+    };
+    return Object.assign(emitter, overrides);
+}
+
+describe('server utilities and routes', () => {
+    beforeEach(() => {
+        __testUtils.resetRuntimeState();
+        __testUtils.setConfig(JSON.parse(JSON.stringify(defaultConfig)));
+        __testUtils.setPersistedConfig(JSON.parse(JSON.stringify(defaultPersistedConfig)));
+        vi.restoreAllMocks();
+    });
+
+    afterEach(async () => {
+        vi.restoreAllMocks();
+    });
+
+    describe('utility helpers', () => {
+        it('uses fullHistory when present', () => {
+            const state = {
+                thoughts: ['latest thought'],
+                fullHistory: ['first', 'second'],
+            } as unknown as InvestigationState;
+
+            expect(getThoughtSource(state)).toEqual(['first', 'second']);
+        });
+
+        it('extracts string and object thought previews', () => {
+            expect(getThoughtPreview('plain text')).toBe('plain text');
+            expect(getThoughtPreview({ content: 'from object' })).toBe('from object');
+            expect(getThoughtPreview({ role: 'assistant' })).toBe('');
+            expect(getThoughtPreview(undefined)).toBeUndefined();
+        });
+
+        it('covers helper fallbacks for missing arrays and retrospect proposals', () => {
+            expect(getThoughtSource({ thoughts: ['only thought'], fullHistory: [] } as any)).toEqual(['only thought']);
+            expect(getThoughtSource({ thoughts: 'not-an-array' } as any)).toEqual([]);
+            expect(summarizeRetrospect()).toBeUndefined();
+            expect(summarizeRetrospect({ analysisComplete: false } as any)).toEqual({
+                messages: [],
+                proposals: [],
+                analysisComplete: false,
+                analysisFailed: undefined,
+                completed: undefined,
+            });
+        });
+
+        it('summarizes retrospect proposals only', () => {
+            const result = summarizeRetrospect({
+                messages: [{ role: 'assistant', content: 'hidden' }],
+                proposals: [{ id: 'p1', status: 'pending', filePath: 'a.md' } as any],
+                analysisComplete: true,
+                analysisFailed: false,
+                completed: false,
+            } as any);
+
+            expect(result).toEqual({
+                messages: [],
+                proposals: [{ id: 'p1', status: 'pending' }],
+                analysisComplete: true,
+                analysisFailed: false,
+                completed: false,
+            });
+        });
+
+        it('normalizes running historical state into paused and applies productId', () => {
+            const result = normalizeHistoricalState({
+                id: '1',
+                status: 'running',
+                thoughts: [],
+                actions: undefined as any,
+                logs: undefined as any,
+            } as any, 'prod-1');
+
+            expect(result.status).toBe('paused');
+            expect(result.productId).toBe('prod-1');
+            expect(result.thoughts).toContain('System: Investigation automatically paused due to server restart.');
+            expect(result.actions).toEqual([]);
+            expect(result.logs).toEqual([]);
+        });
+
+        it('normalizes non-array thoughts to an empty list', () => {
+            const result = normalizeHistoricalState({
+                id: '2',
+                status: 'completed',
+                thoughts: undefined as any,
+                actions: [],
+                logs: [],
+            } as any);
+
+            expect(result.thoughts).toEqual([]);
+            expect(result.status).toBe('completed');
+        });
+
+        it('creates a summary state with a thought preview', () => {
+            const summary = createSummaryState({
+                id: '123',
+                status: 'completed',
+                thoughts: ['first', 'final thought'],
+                actions: [],
+                logs: [],
+                tags: ['tag'],
+            } as any, 'C:/tmp/inv', 'C:/tmp/inv/state.json', 42);
+
+            expect(summary.thoughts).toEqual(['final thought']);
+            expect(summary._summaryOnly).toBe(true);
+            expect(summary._thoughtCount).toBe(2);
+            expect(summary._storagePath).toBe('C:/tmp/inv');
+        });
+
+        it('creates a summary state with empty tags when they are omitted', () => {
+            const summary = createSummaryState({
+                id: 'no-tags',
+                status: 'completed',
+                thoughts: [],
+                actions: [],
+                logs: [],
+            } as any, 'C:/tmp/no-tags', 'C:/tmp/no-tags/state.json', 99);
+
+            expect(summary.tags).toEqual([]);
+            expect(summary.thoughts).toEqual([]);
+        });
+
+        it('checks directory containment correctly', () => {
+            expect(isPathWithinDirectory('C:/repo/docs/file.md', 'C:/repo')).toBe(true);
+            expect(isPathWithinDirectory('C:/other/docs/file.md', 'C:/repo')).toBe(false);
+            expect(isPathWithinDirectory(undefined, 'C:/repo')).toBe(false);
+        });
+
+        it('resolves investigator-root and relative config paths', () => {
+            const relative = resolveConfigPath('docs/guide.md', 'C:/repo');
+            expect(relative).toBe(path.resolve('C:/repo', 'docs/guide.md'));
+
+            const investigator = resolveConfigPath('$INVESTIGATOR_ROOT/scripts/icm', 'C:/repo');
+            expect(investigator.includes('scripts')).toBe(true);
+            expect(resolveConfigPath('', 'C:/repo')).toBe('');
+        });
+
+        it('resolves nested config paths using product fallback bases', () => {
+            const cfg = {
+                repoRoot: 'repo-root',
+                workingDirectory: 'workdir',
+                incidentProvider: { scriptsPath: 'scripts/icm' },
+                mcpServers: [{ name: 'srv', cwd: 'mcp-dir' }],
+                products: [{
+                    id: 'prod-1',
+                    name: 'Prod 1',
+                    repoRoot: '',
+                    systemPromptPath: 'prompts/system.md',
+                    knowledgeBasePath: 'docs',
+                    workingDirectory: 'work',
+                    investigationsPath: 'investigations',
+                }, {
+                    id: 'prod-2',
+                    name: 'Prod 2',
+                    repoRoot: 'custom-root',
+                    systemPromptPath: 'prompts/system.md',
+                    workingDirectory: 'work',
+                }],
+            } as any;
+
+            resolveConfigPaths(cfg, 'C:/base');
+
+            expect(cfg.repoRoot).toBe(path.resolve('C:/base', 'repo-root'));
+            expect(cfg.products[0].systemPromptPath).toBe(path.resolve('C:/base', 'prompts/system.md'));
+            expect(cfg.products[0].investigationsPath).toBe(path.resolve('C:/base', 'investigations'));
+            // Product with repoRoot gets its own resolved base
+            expect(cfg.products[1].repoRoot).toBe(path.resolve('C:/base', 'custom-root'));
+            expect(cfg.products[1].systemPromptPath).toBe(path.resolve('C:/base', 'custom-root', 'prompts/system.md'));
+            // Incident provider scriptsPath and MCP server cwd are resolved
+            expect(cfg.incidentProvider.scriptsPath).toBe(path.resolve('C:/base', 'scripts/icm'));
+            expect(cfg.mcpServers[0].cwd).toBe(path.resolve('C:/base', 'mcp-dir'));
+        });
+
+        it('returns product-specific effective config when a product is selected', () => {
+            __testUtils.setConfig({
+                repoRoot: 'C:/global-repo',
+                systemPromptPath: 'C:/global-prompt',
+                knowledgeBasePath: 'C:/global-kb',
+                workingDirectory: 'C:/global-working',
+                investigationsPath: 'C:/global-investigations',
+                products: [{
+                    id: 'prod-1',
+                    name: 'Product 1',
+                    repoRoot: 'C:/product-repo',
+                    systemPromptPath: 'C:/product-prompt',
+                    knowledgeBasePath: 'C:/product-kb',
+                    workingDirectory: 'C:/product-working',
+                    investigationsPath: 'C:/product-investigations',
+                }],
+            });
+
+            const effective = getEffectiveConfig({ productId: 'prod-1' });
+
+            expect(effective.repoRoot).toBe('C:/product-repo');
+            expect(effective.systemPromptPath).toBe('C:/product-prompt');
+            expect(effective.knowledgeBasePath).toBe('C:/product-kb');
+            expect(effective.workingDirectory).toBe('C:/product-working');
+            expect(effective.investigationsPath).toBe('C:/product-investigations');
+        });
+
+        it('falls back to the global config when there is no matching product', () => {
+            __testUtils.setConfig({ repoRoot: 'C:/global-repo', products: [] });
+
+            const effective = getEffectiveConfig({ productId: 'missing-product' });
+
+            expect(effective.repoRoot).toBe('C:/global-repo');
+        });
+
+        it('resolves a manifest relative to repo root', () => {
+            const result = resolveManifest('C:/repo', {
+                name: 'Repo',
+                systemPrompt: 'prompts/system.md',
+                knowledgeBase: 'docs',
+                workingDirectory: '.',
+                investigationsPath: 'investigations',
+            });
+
+            expect(result).toEqual({
+                name: 'Repo',
+                repoRoot: 'C:/repo',
+                systemPromptPath: path.resolve('C:/repo', 'prompts/system.md'),
+                knowledgeBasePath: path.resolve('C:/repo', 'docs'),
+                workingDirectory: path.resolve('C:/repo', '.'),
+                investigationsPath: path.resolve('C:/repo', 'investigations'),
+            });
+        });
+
+        it('auto-discovers product paths from repo structure', () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-product-'));
+            fs.mkdirSync(path.join(repoRoot, '.github', 'agents'), { recursive: true });
+            fs.writeFileSync(path.join(repoRoot, '.github', 'agents', 'teleduct.agent.md'), '# agent');
+            fs.mkdirSync(path.join(repoRoot, 'docs', 'investigations'), { recursive: true });
+            fs.mkdirSync(path.join(repoRoot, 'investigations'), { recursive: true });
+
+            const result = autoDiscoverProduct(repoRoot);
+
+            expect(result.product.repoRoot).toBe(repoRoot);
+            expect(result.product.systemPromptPath).toContain('teleduct.agent.md');
+            expect(result.product.knowledgeBasePath).toContain(path.join('docs', 'investigations'));
+            expect(result.product.investigationsPath).toContain('investigations');
+        });
+
+        it('hydrates a summary-only state from disk when the state file exists', () => {
+            const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-hydrate-'));
+            const statePath = path.join(rootDir, 'state.json');
+            fs.writeFileSync(statePath, JSON.stringify(makeState({ id: 'disk-1', status: 'running' })));
+
+            const hydrated = hydrateStoredState({
+                id: 'disk-1',
+                status: 'completed',
+                thoughts: ['summary'],
+                actions: [],
+                logs: [],
+                _summaryOnly: true,
+                _statePath: statePath,
+                _storagePath: rootDir,
+            } as any);
+
+            expect(hydrated?._summaryOnly).toBe(false);
+            expect(hydrated?.status).toBe('paused');
+            expect(hydrated?.thoughts).toContain('System: Investigation automatically paused due to server restart.');
+        });
+
+        it('returns the original stored state for hydration fallback paths', () => {
+            const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-hydrate-fallback-'));
+            const invalidPath = path.join(rootDir, 'invalid.json');
+            fs.writeFileSync(invalidPath, '{bad json');
+
+            const nonSummary = { id: 'plain', _summaryOnly: false } as any;
+            const missingFile = { id: 'missing', _summaryOnly: true, _statePath: path.join(rootDir, 'missing.json') } as any;
+            const invalidFile = { id: 'invalid', _summaryOnly: true, _statePath: invalidPath } as any;
+
+            expect(hydrateStoredState(nonSummary)).toBe(nonSummary);
+            expect(hydrateStoredState(missingFile)).toBe(missingFile);
+            expect(hydrateStoredState(invalidFile)).toBe(invalidFile);
+        });
+
+        it('hydrates summary-only state even when storagePath must be recomputed', () => {
+            const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-hydrate-recompute-'));
+            const statePath = path.join(rootDir, 'state.json');
+            fs.writeFileSync(statePath, JSON.stringify(makeState({ id: 'rehydrate-2', target: 'stamp-2' })));
+
+            const hydrated = hydrateStoredState({
+                id: 'rehydrate-2',
+                status: 'completed',
+                thoughts: ['summary'],
+                actions: [],
+                logs: [],
+                target: 'stamp-2',
+                _summaryOnly: true,
+                _statePath: statePath,
+            } as any);
+
+            expect(hydrated?._storagePath).toBeDefined();
+        });
+
+        it('hydrates summary-only records lazily through the history store', () => {
+            const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-history-get-'));
+            const statePath = path.join(rootDir, 'state.json');
+            fs.writeFileSync(statePath, JSON.stringify(makeState({ id: 'lazy-1', status: 'running' })));
+
+            __testUtils.getHistory().set('lazy-1', {
+                id: 'lazy-1',
+                status: 'completed',
+                thoughts: ['summary only'],
+                actions: [],
+                logs: [],
+                _summaryOnly: true,
+                _storagePath: rootDir,
+                _statePath: statePath,
+            } as any);
+
+            const first = __testUtils.getHistory().get('lazy-1');
+            const second = __testUtils.getHistory().get('lazy-1');
+
+            expect(first?._summaryOnly).toBe(false);
+            expect(first?.status).toBe('paused');
+            expect(second).toBe(first);
+        });
+
+        it('loads summaries, legacy json, and markdown history from disk', () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-history-'));
+            const folderWithSummary = path.join(invRoot, '2024-01-01_stamp_a1');
+            const folderWithoutSummary = path.join(invRoot, '2024-01-01_stamp_a2');
+            fs.mkdirSync(folderWithSummary, { recursive: true });
+            fs.mkdirSync(folderWithoutSummary, { recursive: true });
+
+            fs.writeFileSync(path.join(folderWithSummary, 'state.json'), JSON.stringify(makeState({ id: 'summary-1' })));
+            fs.writeFileSync(path.join(folderWithSummary, 'summary.json'), JSON.stringify(createSummaryState(
+                makeState({ id: 'summary-1', thoughts: ['done'] }),
+                folderWithSummary,
+                path.join(folderWithSummary, 'state.json'),
+                Date.now(),
+            )));
+            fs.writeFileSync(path.join(folderWithoutSummary, 'state.json'), JSON.stringify(makeState({ id: 'state-only-1', status: 'running' })));
+            fs.writeFileSync(path.join(invRoot, 'legacy.json'), JSON.stringify(makeState({ id: 'legacy-json-1' })));
+            fs.writeFileSync(path.join(invRoot, 'legacy-report.md'), '# legacy');
+
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            loadHistory();
+
+            const history = __testUtils.getHistory();
+            expect(history.has('summary-1')).toBe(true);
+            expect(history.has('state-only-1')).toBe(true);
+            expect(history.has('legacy-json-1')).toBe(true);
+            expect(history.has('legacy-report')).toBe(true);
+        });
+
+        it('covers loadHistory summary normalization and read-failure branches', () => {
+            const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-history-extra-'));
+            const productRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-history-product-'));
+            const brokenRoot = path.join(globalRoot, 'not-a-directory.txt');
+            fs.writeFileSync(brokenRoot, 'file');
+
+            const summaryDir = path.join(productRoot, '2024-01-01_stamp_summary');
+            fs.mkdirSync(summaryDir, { recursive: true });
+            const statePath = path.join(summaryDir, 'state.json');
+            const summaryPath = path.join(summaryDir, 'summary.json');
+            fs.writeFileSync(statePath, JSON.stringify(makeState({ id: 'summary-running', status: 'running' })));
+            fs.writeFileSync(summaryPath, JSON.stringify({
+                id: 'summary-running',
+                status: 'running',
+                thoughts: ['summary'],
+                actions: [],
+                logs: [],
+            }));
+
+            const backfillDir = path.join(productRoot, '2024-01-01_stamp_backfill');
+            fs.mkdirSync(backfillDir, { recursive: true });
+            fs.writeFileSync(path.join(backfillDir, 'state.json'), JSON.stringify(makeState({ id: 'backfill-1' })));
+            fs.mkdirSync(path.join(backfillDir, 'summary.json.tmp'));
+
+            fs.writeFileSync(path.join(productRoot, 'broken.json'), '{bad json');
+
+            __testUtils.setConfig({
+                repoRoot: globalRoot,
+                investigationsPath: globalRoot,
+                products: [{
+                    id: 'prod-1',
+                    name: 'Prod 1',
+                    repoRoot: globalRoot,
+                    systemPromptPath: globalRoot,
+                    knowledgeBasePath: globalRoot,
+                    workingDirectory: globalRoot,
+                    investigationsPath: productRoot,
+                }],
+                activeProductId: 'prod-1',
+            });
+
+            const originalInvestigationsPath = __testUtils.getConfig().investigationsPath;
+            __testUtils.getConfig().investigationsPath = brokenRoot;
+            loadHistory();
+            __testUtils.getConfig().investigationsPath = originalInvestigationsPath;
+
+            const summary = __testUtils.getHistory().get('summary-running');
+            const backfill = __testUtils.getHistory().get('backfill-1');
+
+            expect(summary?.status).toBe('paused');
+            expect(summary?.productId).toBe('prod-1');
+            expect(backfill?.id).toBe('backfill-1');
+        });
+
+        it('covers path selection and inclusion helpers for product and global investigations', () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-helper-root-'));
+            const productDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-helper-product-'));
+            __testUtils.setConfig({
+                repoRoot,
+                investigationsPath: '',
+                products: [{
+                    id: 'prod-1',
+                    name: 'Prod 1',
+                    repoRoot,
+                    systemPromptPath: repoRoot,
+                    knowledgeBasePath: repoRoot,
+                    workingDirectory: repoRoot,
+                    investigationsPath: productDir,
+                }],
+                activeProductId: 'prod-1',
+            });
+
+            const productPath = getInvestigationStoragePath({ id: 'prod/1', target: 'stamp/one', productId: 'prod-1' });
+            expect(productPath.startsWith(productDir)).toBe(true);
+            expect(productPath).toContain('stampone');
+            expect(shouldScanGlobalInvestigationsDir()).toBe(false);
+            expect(getGlobalInvestigationsDir()).toContain(path.join(repoRoot, 'investigations'));
+            expect(shouldIncludeInvestigationInList({ id: 'prod-1', _storagePath: productPath } as any)).toBe(true);
+            expect(shouldIncludeInvestigationInList({ id: 'other', _storagePath: path.join(repoRoot, 'investigations', 'other') } as any)).toBe(false);
+
+            __testUtils.setConfig({ repoRoot, investigationsPath: repoRoot, products: [], activeProductId: '' });
+            expect(shouldScanGlobalInvestigationsDir()).toBe(true);
+            expect(shouldIncludeInvestigationInList({ id: 'global-1', _storagePath: path.join(repoRoot, '2024-01-01_global') } as any)).toBe(true);
+        });
+
+        it('detects persisted state directly from a stored state path', () => {
+            const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'persisted-state-'));
+            const statePath = path.join(tempDir, 'state.json');
+            fs.writeFileSync(statePath, JSON.stringify({ id: 'persisted-direct', status: 'done' }));
+
+            expect(hasPersistedInvestigationState({ id: 'persisted-direct', _statePath: statePath } as any)).toBe(true);
+            expect(hasPersistedInvestigationState({ id: 'missing-direct', _statePath: path.join(tempDir, 'missing.json') } as any)).toBe(false);
+        });
+
+        it('reports validation errors for missing, relative, and nonexistent product paths', () => {
+            const nonExistentAbsPath = process.platform === 'win32' ? 'C:/nonexistent-path-xyz' : '/nonexistent-path-xyz';
+            const validation = validateProductPaths({
+                id: 'prod-1',
+                name: 'Prod 1',
+                repoRoot: '',
+                systemPromptPath: 'relative/path',
+                knowledgeBasePath: nonExistentAbsPath,
+                workingDirectory: nonExistentAbsPath,
+                investigationsPath: nonExistentAbsPath,
+            });
+
+            expect(validation.valid).toBe(false);
+            expect(validation.paths.some((p) => p.field === 'repoRoot' && p.error === 'Path is required')).toBe(true);
+            expect(validation.paths.some((p) => p.field === 'systemPromptPath' && p.error?.includes('absolute'))).toBe(true);
+            expect(validation.paths.some((p) => p.field === 'knowledgeBasePath' && p.error === 'Path does not exist on disk')).toBe(true);
+        });
+
+        it('treats invalid absolute paths as nonexistent when filesystem checks normalize them', () => {
+            const invalidAbsPath = process.platform === 'win32'
+                ? `C:\\invalid${String.fromCharCode(0)}root`
+                : `/invalid${String.fromCharCode(0)}root`;
+            const validation = validateProductPaths({
+                id: 'prod-2',
+                name: 'Prod 2',
+                repoRoot: invalidAbsPath,
+                systemPromptPath: '',
+                knowledgeBasePath: '',
+                workingDirectory: '',
+                investigationsPath: '',
+            });
+
+            expect(validation.valid).toBe(false);
+            // On some platforms, null chars in paths may cause existsSync to throw
+            const repoRootResult = validation.paths.find(p => p.field === 'repoRoot');
+            expect(repoRootResult).toBeDefined();
+            expect(repoRootResult!.error).toBeTruthy();
+            expect(repoRootResult!.exists).toBe(false);
+        });
+
+        it('starts and stops the server through exported helpers', async () => {
+            const listenSpy = vi.spyOn(__testUtils.server, 'listen').mockImplementation((_port: any, callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+            const closeSpy = vi.spyOn(__testUtils.server, 'close').mockImplementation((callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+
+            startServer();
+            await stopServer();
+
+            expect(listenSpy).toHaveBeenCalled();
+            expect(closeSpy).toHaveBeenCalled();
+        });
+
+        it('covers server lifecycle edge cases and the global error handler', async () => {
+            const listenSpy = vi.spyOn(__testUtils.server, 'listen').mockImplementation((_port: any, callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+            const closeSpy = vi.spyOn(__testUtils.server, 'close').mockImplementation((callback?: any) => {
+                callback?.(new Error('close failed'));
+                return __testUtils.server as any;
+            });
+
+            const firstServer = startServer();
+            const secondServer = startServer();
+            expect(firstServer).toBe(__testUtils.server);
+            expect(secondServer).toBe(__testUtils.server);
+            expect(listenSpy).toHaveBeenCalledTimes(1);
+
+            await expect(stopServer()).rejects.toThrow('close failed');
+            await expect(stopServer()).resolves.toBeUndefined();
+            expect(closeSpy).toHaveBeenCalledTimes(1);
+
+            const stack = ((__testUtils.app as any)._router?.stack || (__testUtils.app as any).router?.stack || []) as any[];
+            const errorLayer = stack.find((layer) =>
+                typeof layer.handle === 'function'
+                && layer.handle.length === 4
+                && String(layer.handle).includes('Unhandled error on')
+            );
+            expect(errorLayer).toBeTruthy();
+
+            const errorLogger = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const status = vi.fn().mockReturnThis();
+            const json = vi.fn();
+            errorLayer.handle(new Error('route boom'), { method: 'GET', url: '/boom' }, { headersSent: false, status, json }, vi.fn());
+            expect(status).toHaveBeenCalledWith(500);
+            expect(json).toHaveBeenCalledWith({ error: 'Internal server error', details: 'route boom' });
+
+            errorLayer.handle(new Error('already-sent'), { method: 'GET', url: '/boom' }, { headersSent: true, status: vi.fn(), json: vi.fn() }, vi.fn());
+            expect(errorLogger).toHaveBeenCalled();
+        });
+
+        it('covers direct startup helpers and schedule path selection', () => {
+            const logger = { error: vi.fn() };
+            handleServerStarted(() => {
+                throw new Error('scheduler init failed');
+            }, logger as any);
+            expect(logger.error).toHaveBeenCalledWith('[Scheduler] Failed to initialize:', expect.any(Error));
+
+            const starter = vi.fn();
+            expect(autoStartServerIfNeeded({ VITEST: 'true' } as any, starter)).toBeUndefined();
+            expect(starter).not.toHaveBeenCalled();
+            autoStartServerIfNeeded({ VITEST: 'false' } as any, starter);
+            expect(starter).toHaveBeenCalledTimes(1);
+
+            __testUtils.setConfig({ investigationsPath: '', products: [{ id: 'prod-path', investigationsPath: 'C:/tmp/prod-path' } as any] });
+            expect(getScheduleInvestigationsPath()).toBe('C:/tmp/prod-path');
+
+            __testUtils.setConfig({ investigationsPath: '', products: [{ id: 'prod-empty' } as any] });
+            expect(getScheduleInvestigationsPath()).toBe(getGlobalInvestigationsDir());
+        });
+
+        it('covers process error handlers, websocket helpers, config bootstrap, and provider fallbacks', async () => {
+            const logger = { error: vi.fn(), log: vi.fn() };
+
+            __testUtils.handleUncaughtException(new Error('uncaught boom'), logger as any);
+            __testUtils.handleUnhandledRejection('reason', Promise.resolve(), logger as any);
+            expect(logger.error).toHaveBeenCalledTimes(2);
+
+            const registrations = new Map<string, Function>();
+            __testUtils.registerProcessErrorHandlers({
+                on: vi.fn((event: string, handler: Function) => {
+                    registrations.set(event, handler);
+                    return {} as any;
+                }),
+            } as any, logger as any);
+            expect(registrations.has('uncaughtException')).toBe(true);
+            expect(registrations.has('unhandledRejection')).toBe(true);
+            registrations.get('uncaughtException')?.(new Error('registered uncaught'));
+            registrations.get('unhandledRejection')?.('registered rejection', Promise.resolve());
+            expect(logger.error).toHaveBeenCalledTimes(4);
+
+            const next = vi.fn();
+            __testUtils.jsonParseErrorHandler({ type: 'other-error' } as any, { method: 'POST', url: '/x' } as any, {} as any, next);
+            expect(next).toHaveBeenCalled();
+
+            const clientMap = new Map<string, Set<any>>();
+            const openClient = { readyState: 1, send: vi.fn() };
+            const closedClient = { readyState: 3, send: vi.fn() };
+            clientMap.set('inv-1', new Set([openClient as any, closedClient as any]));
+            __testUtils.broadcastToClients(clientMap as any, 'inv-1', 'status', { ok: true }, logger as any);
+            expect(openClient.send).toHaveBeenCalledWith(JSON.stringify({ type: 'status', data: { ok: true } }));
+            expect(closedClient.send).not.toHaveBeenCalled();
+
+            const wsHandlers = new Map<string, Function>();
+            const ws = {
+                readyState: 1,
+                send: vi.fn(),
+                on: vi.fn((event: string, handler: Function) => {
+                    wsHandlers.set(event, handler);
+                }),
+            };
+            __testUtils.registerWebSocketClient(clientMap as any, ws as any, { url: '/?id=inv-2', headers: { host: 'localhost:3000' } } as any, logger as any);
+            expect(clientMap.get('inv-2')?.has(ws as any)).toBe(true);
+            wsHandlers.get('close')?.();
+            expect(clientMap.has('inv-2')).toBe(false);
+
+            __testUtils.registerWebSocketClient(clientMap as any, ws as any, { headers: { host: 'localhost:3000' } } as any, logger as any);
+            __testUtils.wss.emit('connection', ws as any, { url: '/?id=inv-3', headers: { host: 'localhost:3000' } } as any);
+            expect(__testUtils.clients.get('inv-3')?.has(ws as any)).toBe(true);
+            wsHandlers.get('close')?.();
+            expect(__testUtils.clients.has('inv-3')).toBe(false);
+
+            expect(__testUtils.resolveConfigFilePath(['node', 'server.js'], 'C:/repo/backend/src')).toBe(path.join('C:/repo/backend/src', '..', 'config.json'));
+            expect(__testUtils.resolveConfigFilePath(['node', 'server.js', '--config', 'C:/tmp/custom.json'], 'C:/repo/backend/src')).toBe(path.resolve('C:/tmp/custom.json'));
+
+            const configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-config-load-'));
+            const configPath = path.join(configDir, 'config.json');
+            const investigationsPath = path.join(configDir, 'investigations');
+            fs.writeFileSync(configPath, JSON.stringify({ investigationsPath, repoRoot: configDir }));
+
+            const loaded = __testUtils.loadConfigFromDisk(configPath, JSON.parse(JSON.stringify(defaultConfig)), configDir);
+            expect(loaded.loaded).toBe(true);
+            expect(loaded.config.investigationsPath).toBe(investigationsPath);
+            expect(fs.existsSync(investigationsPath)).toBe(true);
+
+            const missingLoad = __testUtils.loadConfigFromDisk(path.join(configDir, 'missing.json'), JSON.parse(JSON.stringify(defaultConfig)), configDir);
+            expect(missingLoad.loaded).toBe(false);
+
+            __testUtils.setConfig({ llmProvider: undefined as any, incidentProvider: undefined as any });
+            initializeProviders();
+            let response = await api().get('/api/models');
+            expect(response.status).toBe(200);
+
+            const llmConfiguredSpy = vi.spyOn(__testUtils.llmRegistry, 'getConfigured').mockImplementation(() => {
+                throw new Error('llm init failed');
+            });
+            const llmFallbackSpy = vi.spyOn(__testUtils.llmRegistry, 'get').mockReturnValue({
+                type: 'copilot',
+                displayName: 'Copilot',
+                getAuthRequirement: () => ({ type: 'none' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true }),
+                getClient: vi.fn(),
+                listModels: vi.fn().mockResolvedValue(['fallback-model']),
+            } as any);
+            const incidentConfiguredSpy = vi.spyOn(__testUtils.incidentRegistry, 'getConfigured').mockImplementation(() => {
+                throw new Error('incident init failed');
+            });
+            const incidentFallbackSpy = vi.spyOn(__testUtils.incidentRegistry, 'get').mockReturnValue({
+                isAvailable: vi.fn().mockResolvedValue(true),
+                fetchIncident: vi.fn(),
+            } as any);
+
+            initializeProviders();
+            response = await api().get('/api/models');
+            expect(response.body).toEqual(['fallback-model']);
+            response = await api().get('/api/incidents/status');
+            expect(response.status).toBe(200);
+            expect(response.body.available).toBe(true);
+            expect(llmConfiguredSpy).toHaveBeenCalled();
+            expect(llmFallbackSpy).toHaveBeenCalledWith('copilot');
+            expect(incidentConfiguredSpy).toHaveBeenCalled();
+            expect(incidentFallbackSpy).toHaveBeenCalledWith('manual');
+
+            expect(shouldAutoStartServer({ VITEST: 'true' } as any)).toBe(false);
+            expect(shouldAutoStartServer({} as any)).toBe(true);
+        });
+
+        it('covers global directory fallback and inclusion helper defaults', () => {
+            __testUtils.setConfig({ repoRoot: 'C:/repo-root', investigationsPath: '', products: [], activeProductId: '' });
+
+            expect(getGlobalInvestigationsDir()).toBe(path.join('C:/repo-root', 'investigations'));
+            expect(shouldIncludeInvestigationInList({ id: 'no-active-product' } as any)).toBe(true);
+
+            const cachedDir = path.join('C:/repo-root', 'investigations', 'cached-state');
+            expect(hasPersistedInvestigationState({ id: 'cached-state', _storagePath: cachedDir } as any)).toBe(false);
+        });
+
+        it('covers effective config fallbacks, malformed config files, and recomputed persisted paths', () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-effective-config-'));
+            const productDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-effective-product-'));
+            __testUtils.setConfig({
+                repoRoot,
+                systemPromptPath: path.join(repoRoot, 'global-prompt.md'),
+                knowledgeBasePath: path.join(repoRoot, 'global-docs'),
+                workingDirectory: path.join(repoRoot, 'global-working'),
+                investigationsPath: path.join(repoRoot, 'global-investigations'),
+                products: [{
+                    id: 'fallback-product',
+                    name: 'Fallback Product',
+                    repoRoot: '',
+                    systemPromptPath: '',
+                    knowledgeBasePath: productDir,
+                    workingDirectory: '',
+                    investigationsPath: '',
+                }],
+                activeProductId: 'fallback-product',
+            });
+
+            const effective = getEffectiveConfig({ productId: 'fallback-product' } as any);
+            expect(effective.repoRoot).toBe(repoRoot);
+            expect(effective.systemPromptPath).toBe(path.join(repoRoot, 'global-prompt.md'));
+            expect(effective.knowledgeBasePath).toBe(productDir);
+            expect(effective.workingDirectory).toBe(path.join(repoRoot, 'global-working'));
+            expect(effective.investigationsPath).toBe(path.join(repoRoot, 'global-investigations'));
+
+            const malformedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-config-bad-'));
+            const malformedPath = path.join(malformedDir, 'config.json');
+            fs.writeFileSync(malformedPath, '{bad json');
+            expect(() => __testUtils.loadConfigFromDisk(malformedPath, JSON.parse(JSON.stringify(defaultConfig)), malformedDir)).toThrow();
+
+            const persistedState = { id: 'persisted-product', target: 'stamp-persisted', productId: 'fallback-product' } as any;
+            const storagePath = getInvestigationStoragePath(persistedState);
+            fs.mkdirSync(storagePath, { recursive: true });
+            fs.writeFileSync(path.join(storagePath, 'state.json'), JSON.stringify(makeState({ id: persistedState.id })));
+
+            expect(shouldIncludeInvestigationInList(persistedState)).toBe(true);
+            expect(hasPersistedInvestigationState(persistedState)).toBe(true);
+            expect(isPathWithinDirectory(repoRoot, repoRoot)).toBe(true);
+        });
+
+        it('covers isolated config-load failures, validation fs errors, and legacy markdown load failures', async () => {
+            vi.resetModules();
+            const actualFs = await vi.importActual<typeof import('fs')>('fs');
+            const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-isolated-server-'));
+            fs.writeFileSync(path.join(tempRoot, 'broken.md'), '# broken markdown');
+
+            const mockedFs = {
+                ...actualFs,
+                existsSync: vi.fn((filePath: any) => {
+                    const value = String(filePath);
+                    if (value.endsWith('broken-config.json')) {
+                        return true;
+                    }
+                    if (value.includes('boom-path')) {
+                        throw new Error('disk boom');
+                    }
+                    return actualFs.existsSync(filePath as any);
+                }),
+                readFileSync: vi.fn((filePath: any, options?: any) => {
+                    if (String(filePath).endsWith('broken-config.json')) {
+                        return '{bad json';
+                    }
+                    return (actualFs.readFileSync as any)(filePath, options);
+                }),
+                statSync: vi.fn((filePath: any, options?: any) => {
+                    if (String(filePath).endsWith('broken.md')) {
+                        throw new Error('stat boom');
+                    }
+                    return (actualFs.statSync as any)(filePath, options);
+                }),
+            };
+
+            const originalArgv = process.argv;
+            const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            try {
+                vi.doMock('fs', () => mockedFs);
+                process.argv = ['node', 'server.js', '--config', path.join(tempRoot, 'broken-config.json')];
+
+                const isolated = await import('../server');
+                const validation = isolated.validateProductPaths({
+                    id: 'broken-fs',
+                    name: 'Broken FS',
+                    repoRoot: path.join(tempRoot, 'boom-path'),
+                    systemPromptPath: '',
+                    knowledgeBasePath: '',
+                    workingDirectory: '',
+                    investigationsPath: '',
+                } as any);
+
+                expect(validation.paths).toEqual(
+                    expect.arrayContaining([
+                        expect.objectContaining({ field: 'repoRoot', error: 'Unable to check path on disk' }),
+                    ]),
+                );
+
+                isolated.__testUtils.setConfig({ investigationsPath: tempRoot, products: [], activeProductId: '' });
+                isolated.loadHistory();
+
+                expect(errorSpy).toHaveBeenCalledWith('Failed to load config file:', expect.any(Error));
+                expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to load legacy MD broken.md:'), expect.any(Error));
+            } finally {
+                process.argv = originalArgv;
+                vi.doUnmock('fs');
+                vi.resetModules();
+            }
+        });
+
+        it('covers direct helper fallbacks for configured investigation paths and manifest defaults', () => {
+            __testUtils.setConfig({
+                investigationsPath: 'C:/configured-investigations',
+                repoRoot: 'C:/repo-root',
+                products: [{
+                    id: 'fallback-fields',
+                    name: 'Fallback Fields',
+                    repoRoot: '',
+                    systemPromptPath: '',
+                    knowledgeBasePath: '',
+                    workingDirectory: '',
+                    investigationsPath: '',
+                }],
+                activeProductId: '',
+            });
+
+            expect(getGlobalInvestigationsDir()).toBe('C:/configured-investigations');
+            __testUtils.setConfig({ products: undefined as any, activeProductId: '' });
+            expect(shouldIncludeInvestigationInList({ id: 'no-products' } as any)).toBe(true);
+            __testUtils.setConfig({
+                investigationsPath: 'C:/configured-investigations',
+                repoRoot: 'C:/repo-root',
+                products: [{
+                    id: 'fallback-fields',
+                    name: 'Fallback Fields',
+                    repoRoot: '',
+                    systemPromptPath: '',
+                    knowledgeBasePath: '',
+                    workingDirectory: '',
+                    investigationsPath: '',
+                }],
+                activeProductId: '',
+            });
+
+            const effective = getEffectiveConfig({
+                productId: 'fallback-fields',
+            } as any);
+            expect(effective.investigationsPath).toBe('C:/configured-investigations');
+
+            const manifest = resolveManifest('C:/repo-root', {});
+            expect(manifest.name).toBe('repo-root');
+            expect(manifest.systemPromptPath).toBe('');
+        });
+
+        it('falls back to the default repo root for global investigations', () => {
+            __testUtils.setConfig({
+                investigationsPath: '',
+                repoRoot: '',
+                products: [],
+                activeProductId: '',
+            });
+
+            const investigationsDir = getGlobalInvestigationsDir();
+            expect(path.basename(investigationsDir)).toBe('investigations');
+            expect(path.isAbsolute(investigationsDir)).toBe(true);
+        });
+    });
+
+    describe('basic routes', () => {
+        it('returns health status', async () => {
+            const response = await api().get('/api/health');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual({ status: 'ok' });
+        });
+
+        it('returns no-auth status when no llm provider is active', async () => {
+            const response = await api().get('/api/auth/status');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual({ authenticated: false, providerType: 'none' });
+        });
+
+        it('returns auth provider metadata', async () => {
+            const response = await api().get('/api/auth/providers');
+            expect(response.status).toBe(200);
+            expect(Array.isArray(response.body)).toBe(true);
+            expect(response.body.some((provider: any) => provider.type === 'copilot')).toBe(true);
+        });
+
+        it('returns auth status for an active provider', async () => {
+            __testUtils.setActiveLlmProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                getAuthRequirement: () => ({ type: 'device_code' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true, username: 'user@example.com' }),
+                getClient: vi.fn(),
+                listModels: vi.fn().mockResolvedValue(['model-a']),
+            } as any);
+
+            const response = await api().get('/api/auth/status');
+
+            expect(response.status).toBe(200);
+            expect(response.body.authenticated).toBe(true);
+            expect(response.body.authRequirement.type).toBe('device_code');
+        });
+
+        it('falls back to copilot provider metadata when config has no explicit llm provider type', async () => {
+            __testUtils.setConfig({ llmProvider: undefined as any });
+            __testUtils.setActiveLlmProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                getAuthRequirement: () => ({ type: 'device_code' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true }),
+                getClient: vi.fn(),
+                listModels: vi.fn().mockResolvedValue(['model-a']),
+            } as any);
+
+            const response = await api().get('/api/auth/status');
+
+            expect(response.status).toBe(200);
+            expect(response.body.providerType).toBe('copilot');
+        });
+
+        it('rejects interactive auth login when the provider does not support it', async () => {
+            const response = await api().post('/api/auth/login').send({});
+            expect(response.status).toBe(400);
+        });
+
+        it('rejects auth polling when the provider does not support it', async () => {
+            const response = await api().post('/api/auth/poll').send({ device_code: 'abc' });
+            expect(response.status).toBe(400);
+        });
+
+        it('validates auth configure requests', async () => {
+            const response = await api().post('/api/auth/configure').send({});
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('Provider type is required');
+        });
+
+        it('returns the current username', async () => {
+            const response = await api().get('/api/me');
+            expect(response.status).toBe(200);
+            expect(typeof response.body.username).toBe('string');
+        });
+
+        it('returns a bad request for malformed JSON bodies', async () => {
+            const response = await api()
+                .post('/api/settings')
+                .set('Content-Type', 'application/json')
+                .send('{"broken":');
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('Invalid JSON in request body');
+        });
+
+        it('returns configured models from the active provider', async () => {
+            __testUtils.setActiveLlmProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                getAuthRequirement: () => ({ type: 'none' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn(),
+                getClient: vi.fn(),
+                listModels: vi.fn().mockResolvedValue(['model-a', 'model-b']),
+            } as any);
+
+            const response = await api().get('/api/models');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual(['model-a', 'model-b']);
+        });
+
+        it('falls back to default models when listing models fails', async () => {
+            __testUtils.setActiveLlmProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                getAuthRequirement: () => ({ type: 'none' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn(),
+                getClient: vi.fn(),
+                listModels: vi.fn().mockRejectedValue(new Error('boom')),
+            } as any);
+
+            const response = await api().get('/api/models');
+            expect(response.status).toBe(200);
+            expect(response.body).toContain('gpt-4o');
+        });
+
+        it('returns default models when no provider is active', async () => {
+            __testUtils.setActiveLlmProvider(null);
+
+            const response = await api().get('/api/models');
+
+            expect(response.status).toBe(200);
+            expect(response.body).toContain('gpt-4o');
+        });
+
+        it('rejects file browsing outside allowed roots', async () => {
+            const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-root-'));
+            const invDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-inv-'));
+            __testUtils.setConfig({ repoRoot: rootDir, investigationsPath: invDir });
+
+            const response = await api().get('/api/files/list').query({ path: path.join(os.tmpdir(), 'forbidden') });
+            expect(response.status).toBe(403);
+        });
+
+        it('returns not found for a missing file path', async () => {
+            const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-root-'));
+            __testUtils.setConfig({ repoRoot: rootDir, investigationsPath: rootDir });
+
+            const response = await api().get('/api/files/list').query({ path: path.join(rootDir, 'missing') });
+            expect(response.status).toBe(404);
+        });
+
+        it('lists files in an allowed directory', async () => {
+            const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-root-'));
+            fs.mkdirSync(path.join(rootDir, 'folder'));
+            fs.writeFileSync(path.join(rootDir, 'a.txt'), 'content');
+            __testUtils.setConfig({ repoRoot: rootDir, investigationsPath: rootDir });
+
+            const response = await api().get('/api/files/list').query({ path: rootDir });
+            expect(response.status).toBe(200);
+            expect(response.body.entries[0]).toEqual({ name: 'folder', isDirectory: true });
+        });
+
+        it('uses the default path and sorts directories before files by name', async () => {
+            const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-root-default-'));
+            const originalCwd = process.cwd();
+            fs.mkdirSync(path.join(rootDir, 'beta'));
+            fs.mkdirSync(path.join(rootDir, 'alpha'));
+            fs.writeFileSync(path.join(rootDir, 'zeta.txt'), 'content');
+            fs.writeFileSync(path.join(rootDir, 'eta.txt'), 'content');
+            __testUtils.setConfig({ repoRoot: rootDir, investigationsPath: '' });
+
+            try {
+                process.chdir(rootDir);
+                const response = await api().get('/api/files/list');
+
+                expect(response.status).toBe(200);
+                expect(response.body.entries.map((entry: any) => entry.name)).toEqual(['alpha', 'beta', 'eta.txt', 'zeta.txt']);
+            } finally {
+                process.chdir(originalCwd);
+            }
+        });
+
+        it('rejects file browsing when the target path is a file', async () => {
+            const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-file-list-'));
+            const filePath = path.join(rootDir, 'single.txt');
+            fs.writeFileSync(filePath, 'content');
+            __testUtils.setConfig({ repoRoot: rootDir, investigationsPath: rootDir });
+
+            const response = await api().get('/api/files/list').query({ path: filePath });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('not a directory');
+        });
+
+        it('returns incident provider status when no provider is configured', async () => {
+            const response = await api().get('/api/incidents/status');
+            expect(response.status).toBe(200);
+            expect(response.body.available).toBe(false);
+        });
+
+        it('returns available incident providers', async () => {
+            const response = await api().get('/api/incidents/providers');
+            expect(response.status).toBe(200);
+            expect(Array.isArray(response.body)).toBe(true);
+        });
+
+        it('rejects reading incidents when no incident provider is active', async () => {
+            const response = await api().post('/api/incidents/INC123/read').send({});
+            expect(response.status).toBe(400);
+        });
+
+        it('lists no schedules when the scheduler store is uninitialized', async () => {
+            const response = await api().get('/api/schedules');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual([]);
+        });
+
+        it('returns default scheduler status when scheduler is absent', async () => {
+            const response = await api().get('/api/scheduler/status');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual({ running: false });
+        });
+
+        it('returns empty query bank results when the store is uninitialized', async () => {
+            const response = await api().get('/api/query-bank');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual([]);
+        });
+
+        it('rejects query bank writes when the store is uninitialized', async () => {
+            const response = await api().post('/api/query-bank').send({ name: 'saved' });
+            expect(response.status).toBe(500);
+        });
+
+        it('returns an empty investigation list by default', async () => {
+            const response = await api().get('/api/investigations');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual([]);
+        });
+
+        it('returns not found for unknown investigation state', async () => {
+            const response = await api().get('/api/investigations/does-not-exist');
+            expect(response.status).toBe(404);
+        });
+
+        it('returns not found for missing step detail', async () => {
+            const response = await api().get('/api/investigations/missing/steps/0');
+            expect(response.status).toBe(404);
+        });
+
+        it('returns not found for unknown mcp status requests', async () => {
+            const response = await api().get('/api/investigations/missing/mcp/status');
+            expect(response.status).toBe(404);
+        });
+
+        it('returns products and active product metadata', async () => {
+            __testUtils.setConfig({
+                products: [{
+                    id: 'prod-1',
+                    name: 'Product 1',
+                    repoRoot: 'C:/repo',
+                    systemPromptPath: '',
+                    knowledgeBasePath: '',
+                    workingDirectory: 'C:/repo',
+                    investigationsPath: 'C:/repo/investigations',
+                }],
+                activeProductId: 'prod-1',
+            });
+
+            const productsResponse = await api().get('/api/products');
+            expect(productsResponse.status).toBe(200);
+            expect(productsResponse.body).toHaveLength(1);
+
+            const activeResponse = await api().get('/api/products/active');
+            expect(activeResponse.status).toBe(200);
+            expect(activeResponse.body.id).toBe('prod-1');
+        });
+
+        it('returns empty product metadata when products are missing', async () => {
+            __testUtils.setConfig({ products: undefined as any, activeProductId: 'missing' });
+
+            const productsResponse = await api().get('/api/products');
+            const activeResponse = await api().get('/api/products/active');
+
+            expect(productsResponse.body).toEqual([]);
+            expect(activeResponse.body).toBeNull();
+        });
+
+        it('validates active product requests', async () => {
+            let response = await api().put('/api/products/active').send({});
+            expect(response.status).toBe(400);
+
+            __testUtils.setConfig({ products: [] });
+            response = await api().put('/api/products/active').send({ productId: 'missing' });
+            expect(response.status).toBe(404);
+        });
+
+        it('requires repoRoot when discovering products', async () => {
+            const response = await api().get('/api/products/discover');
+            expect(response.status).toBe(400);
+        });
+
+        it('covers handler error paths for discovery, file listing, configured auth status, and unknown-user fallback', async () => {
+            const stack = ((__testUtils.app as any)._router?.stack || (__testUtils.app as any).router?.stack || []) as any[];
+            const discoverLayer = stack.find((layer) => layer.route?.path === '/api/products/discover' && layer.route.methods?.get);
+            const filesLayer = stack.find((layer) => layer.route?.path === '/api/files/list' && layer.route.methods?.get);
+            expect(discoverLayer).toBeTruthy();
+            expect(filesLayer).toBeTruthy();
+
+            let status = vi.fn().mockReturnThis();
+            let json = vi.fn();
+            await discoverLayer.route.stack[0].handle({ query: { repoRoot: {} } }, { status, json });
+            expect(status).toHaveBeenCalledWith(500);
+
+            status = vi.fn().mockReturnThis();
+            json = vi.fn();
+            await filesLayer.route.stack[0].handle({ query: { path: {} } }, { status, json });
+            expect(status).toHaveBeenCalledWith(500);
+
+            __testUtils.setConfig({ llmProvider: { type: 'azure-openai' } as any });
+            __testUtils.setActiveLlmProvider({
+                type: 'azure-openai',
+                displayName: 'Azure OpenAI',
+                getAuthRequirement: () => ({ type: 'api_key' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true }),
+                getClient: vi.fn(),
+                listModels: vi.fn().mockResolvedValue(['gpt-4.1']),
+            } as any);
+
+            let response = await api().get('/api/auth/status');
+            expect(response.status).toBe(200);
+            expect(response.body.providerType).toBe('azure-openai');
+
+            const originalUsername = process.env.USERNAME;
+            const originalUser = process.env.USER;
+            delete process.env.USERNAME;
+            delete process.env.USER;
+            response = await api().get('/api/me');
+            expect(response.status).toBe(200);
+            expect(response.body.username).toBe('Unknown User');
+            process.env.USERNAME = originalUsername;
+            process.env.USER = originalUser;
+        });
+    });
+
+    describe('settings, auth, and product mutations', () => {
+        it('returns settings and validates settings updates', async () => {
+            let response = await api().get('/api/settings');
+            expect(response.status).toBe(200);
+            expect(response.body.model).toBeDefined();
+
+            response = await api().post('/api/settings').send({ maxSteps: -1 });
+            expect(response.status).toBe(400);
+
+            response = await api().post('/api/settings').send({ repoRoot: 123 });
+            expect(response.status).toBe(400);
+        });
+
+        it('persists valid settings updates', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const response = await api().post('/api/settings').send({ model: 'gpt-4.1', defaultView: 'list' });
+
+                expect(response.status).toBe(200);
+                expect(response.body.model).toBe('gpt-4.1');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('reinitializes providers when provider settings change', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            const llmConfiguredSpy = vi.spyOn(__testUtils.llmRegistry, 'getConfigured');
+            const incidentConfiguredSpy = vi.spyOn(__testUtils.incidentRegistry, 'getConfigured');
+
+            try {
+                const response = await api().post('/api/settings').send({
+                    llmProvider: { type: 'copilot' },
+                    incidentProvider: { type: 'manual' },
+                });
+
+                expect(response.status).toBe(200);
+                expect(llmConfiguredSpy).toHaveBeenCalled();
+                expect(incidentConfiguredSpy).toHaveBeenCalled();
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('returns 500 when settings persistence fails', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            const circular: any = {};
+            circular.self = circular;
+            __testUtils.setPersistedConfig(circular);
+
+            try {
+                const response = await api().post('/api/settings').send({ model: 'gpt-4.2' });
+
+                expect(response.status).toBe(500);
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('reloads history on investigationsPath changes', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            const targetPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-settings-path-'));
+
+            try {
+                const historyClearSpy = vi.spyOn(__testUtils.getHistory(), 'clear');
+
+                const response = await api().post('/api/settings').send({ investigationsPath: targetPath });
+                expect(response.status).toBe(200);
+                expect(historyClearSpy).toHaveBeenCalled();
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('supports auth login, polling, and configure success paths', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+
+            try {
+                __testUtils.setActiveLlmProvider({
+                    type: 'fake',
+                    displayName: 'Fake',
+                    getAuthRequirement: () => ({ type: 'device_code' }),
+                    configure: vi.fn(),
+                    getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true }),
+                    getClient: vi.fn(),
+                    listModels: vi.fn().mockResolvedValue(['model-a']),
+                    startAuthFlow: vi.fn().mockResolvedValue({ device_code: 'dc-1', user_code: 'code' }),
+                    pollAuthFlow: vi.fn()
+                        .mockResolvedValueOnce({ pending: true })
+                        .mockResolvedValueOnce({ pending: false }),
+                } as any);
+
+                let response = await api().post('/api/auth/login').send({});
+                expect(response.status).toBe(200);
+                expect(response.body.device_code).toBe('dc-1');
+
+                response = await api().post('/api/auth/poll').send({ device_code: 'dc-1' });
+                expect(response.status).toBe(200);
+                expect(response.body.pending).toBe(true);
+
+                response = await api().post('/api/auth/poll').send({ device_code: 'dc-1' });
+                expect(response.status).toBe(200);
+                expect(response.body.success).toBe(true);
+
+                response = await api().post('/api/auth/configure').send({ type: 'copilot' });
+                expect(response.status).toBe(200);
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('returns configuration persistence errors from auth configure', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            const circular: any = {};
+            circular.self = circular;
+            __testUtils.setPersistedConfig(circular);
+
+            try {
+                const response = await api().post('/api/auth/configure').send({ type: 'copilot' });
+
+                expect(response.status).toBe(400);
+                expect(response.body.error).toContain('circular structure');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('returns provider errors for auth login and poll failures', async () => {
+            __testUtils.setActiveLlmProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                getAuthRequirement: () => ({ type: 'device_code' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn().mockResolvedValue({ authenticated: false }),
+                getClient: vi.fn(),
+                listModels: vi.fn().mockResolvedValue(['model-a']),
+                startAuthFlow: vi.fn().mockRejectedValue(new Error('auth boom')),
+                pollAuthFlow: vi.fn().mockRejectedValue(new Error('expired device code')),
+            } as any);
+
+            let response = await api().post('/api/auth/login').send({});
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('auth boom');
+
+            response = await api().post('/api/auth/poll').send({ device_code: 'dc-1' });
+            expect(response.status).toBe(401);
+            expect(response.body.error).toBe('expired device code');
+        });
+
+        it('covers product mutation fallbacks when product arrays are undefined', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+
+            try {
+                __testUtils.setConfig({ products: undefined as any, activeProductId: 'missing-product' });
+
+                let response = await api().put('/api/products/active').send({ productId: 'missing-product' });
+                expect(response.status).toBe(404);
+
+                response = await api().put('/api/products/missing-product').send({ name: 'Still missing' });
+                expect(response.status).toBe(404);
+
+                response = await api().get('/api/products/missing-product/validate');
+                expect(response.status).toBe(404);
+
+                response = await api().post('/api/products/missing-product/clone').send({});
+                expect(response.status).toBe(404);
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('creates, validates, clones, updates, and deletes products', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-product-api-'));
+            const investigationsPath = path.join(repoRoot, 'investigations');
+            fs.mkdirSync(investigationsPath, { recursive: true });
+
+            try {
+                let response = await api().post('/api/products').send({
+                    name: 'Alpha Product',
+                    repoRoot,
+                    systemPromptPath: repoRoot,
+                    knowledgeBasePath: repoRoot,
+                    workingDirectory: repoRoot,
+                    investigationsPath,
+                });
+                expect(response.status).toBe(200);
+                expect(response.body.id).toBe('alpha-product');
+
+                response = await api().get('/api/products/alpha-product/validate');
+                expect(response.status).toBe(200);
+                expect(response.body.valid).toBe(true);
+
+                response = await api().post('/api/products/alpha-product/clone').send({});
+                expect(response.status).toBe(200);
+                expect(response.body.id).toContain('alpha-product-copy');
+
+                response = await api().put('/api/products/alpha-product').send({ name: 'Alpha Product Updated' });
+                expect(response.status).toBe(200);
+                expect(response.body.name).toBe('Alpha Product Updated');
+
+                response = await api().put('/api/products/active').send({ productId: 'alpha-product' });
+                expect(response.status).toBe(200);
+
+                response = await api().delete('/api/products/alpha-product-copy');
+                expect(response.status).toBe(200);
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('covers product mutation edge cases and clone collision handling', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-product-edge-'));
+            const investigationsPath = path.join(repoRoot, 'investigations');
+            const anotherPath = path.join(repoRoot, 'investigations-2');
+            fs.mkdirSync(investigationsPath, { recursive: true });
+            fs.mkdirSync(anotherPath, { recursive: true });
+
+            try {
+                let response = await api().post('/api/products').send({ repoRoot });
+                expect(response.status).toBe(400);
+
+                __testUtils.setConfig({ products: undefined as any, activeProductId: '' });
+                response = await api().post('/api/products').send({
+                    name: 'Alpha Product',
+                    repoRoot,
+                    systemPromptPath: repoRoot,
+                    knowledgeBasePath: repoRoot,
+                    workingDirectory: repoRoot,
+                    investigationsPath,
+                });
+                expect(response.status).toBe(200);
+
+                response = await api().post('/api/products').send({
+                    name: 'Alpha Product!!',
+                    repoRoot,
+                    systemPromptPath: repoRoot,
+                    knowledgeBasePath: repoRoot,
+                    workingDirectory: repoRoot,
+                    investigationsPath,
+                });
+                expect(response.status).toBe(409);
+
+                __testUtils.setConfig({
+                    products: [
+                        {
+                            id: 'alpha-product',
+                            name: 'Alpha Product',
+                            repoRoot,
+                            systemPromptPath: repoRoot,
+                            knowledgeBasePath: repoRoot,
+                            workingDirectory: repoRoot,
+                            investigationsPath,
+                        },
+                        {
+                            id: 'alpha-product-copy',
+                            name: 'Alpha Product Copy',
+                            repoRoot,
+                            systemPromptPath: repoRoot,
+                            knowledgeBasePath: repoRoot,
+                            workingDirectory: repoRoot,
+                            investigationsPath,
+                        },
+                        {
+                            id: 'alpha-product-copy-2',
+                            name: 'Alpha Product Copy 2',
+                            repoRoot,
+                            systemPromptPath: repoRoot,
+                            knowledgeBasePath: repoRoot,
+                            workingDirectory: repoRoot,
+                            investigationsPath,
+                        },
+                    ],
+                    activeProductId: 'alpha-product',
+                });
+
+                response = await api().post('/api/products/missing/clone').send({});
+                expect(response.status).toBe(404);
+
+                response = await api().post('/api/products/alpha-product/clone').send({});
+                expect(response.status).toBe(200);
+                expect(response.body.id).toBe('alpha-product-copy-3');
+
+                response = await api().put('/api/products/missing').send({ name: 'Missing' });
+                expect(response.status).toBe(404);
+
+                const historyClearSpy = vi.spyOn(__testUtils.getHistory(), 'clear');
+                response = await api().put('/api/products/alpha-product').send({ investigationsPath: anotherPath });
+                expect(response.status).toBe(200);
+                expect(historyClearSpy).toHaveBeenCalled();
+
+                __testUtils.setConfig({ products: [], activeProductId: '' });
+                response = await api().delete('/api/products/anything');
+                expect(response.status).toBe(404);
+
+                __testUtils.setConfig({
+                    products: [{
+                        id: 'only-product',
+                        name: 'Only Product',
+                        repoRoot,
+                        systemPromptPath: repoRoot,
+                        knowledgeBasePath: repoRoot,
+                        workingDirectory: repoRoot,
+                        investigationsPath,
+                    }],
+                    activeProductId: 'only-product',
+                });
+                response = await api().delete('/api/products/missing');
+                expect(response.status).toBe(404);
+
+                response = await api().delete('/api/products/only-product');
+                expect(response.status).toBe(400);
+
+                __testUtils.setConfig({
+                    products: [
+                        {
+                            id: 'first',
+                            name: 'First',
+                            repoRoot,
+                            systemPromptPath: repoRoot,
+                            knowledgeBasePath: repoRoot,
+                            workingDirectory: repoRoot,
+                            investigationsPath,
+                        },
+                        {
+                            id: 'second',
+                            name: 'Second',
+                            repoRoot,
+                            systemPromptPath: repoRoot,
+                            knowledgeBasePath: repoRoot,
+                            workingDirectory: repoRoot,
+                            investigationsPath,
+                        },
+                    ],
+                    activeProductId: 'first',
+                });
+                response = await api().delete('/api/products/first');
+                expect(response.status).toBe(200);
+                expect(__testUtils.getConfig().activeProductId).toBe('second');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('returns not-found and last-product errors for product routes', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+
+            try {
+                __testUtils.setConfig({
+                    products: [{
+                        id: 'solo-product',
+                        name: 'Solo Product',
+                        repoRoot: '',
+                        systemPromptPath: '',
+                        knowledgeBasePath: '',
+                        workingDirectory: '',
+                        investigationsPath: '',
+                    }],
+                    activeProductId: 'solo-product',
+                });
+
+                let response = await api().get('/api/products/missing/validate');
+                expect(response.status).toBe(404);
+
+                response = await api().post('/api/products/missing/clone').send({});
+                expect(response.status).toBe(404);
+                expect(response.body.error).toBe('Source product not found');
+
+                response = await api().delete('/api/products/solo-product');
+                expect(response.status).toBe(400);
+                expect(response.body.error).toBe('Cannot delete the last product');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('clears the active product when deleting duplicated active-product ids leaves no remainder', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+
+            try {
+                __testUtils.setConfig({
+                    products: [
+                        {
+                            id: 'dup-product',
+                            name: 'Duplicate A',
+                            repoRoot: '',
+                            systemPromptPath: '',
+                            knowledgeBasePath: '',
+                            workingDirectory: '',
+                            investigationsPath: '',
+                        },
+                        {
+                            id: 'dup-product',
+                            name: 'Duplicate B',
+                            repoRoot: '',
+                            systemPromptPath: '',
+                            knowledgeBasePath: '',
+                            workingDirectory: '',
+                            investigationsPath: '',
+                        },
+                    ],
+                    activeProductId: 'dup-product',
+                });
+
+                const response = await api().delete('/api/products/dup-product');
+
+                expect(response.status).toBe(200);
+                expect(__testUtils.getConfig().activeProductId).toBe('');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('returns 500 for product mutation routes when persistence fails', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-product-fail-'));
+            const investigationsPath = path.join(repoRoot, 'investigations');
+            fs.mkdirSync(investigationsPath, { recursive: true });
+
+            const circular: any = {};
+            circular.self = circular;
+
+            try {
+                __testUtils.setConfig({
+                    products: [{
+                        id: 'alpha-product',
+                        name: 'Alpha Product',
+                        repoRoot,
+                        systemPromptPath: repoRoot,
+                        knowledgeBasePath: repoRoot,
+                        workingDirectory: repoRoot,
+                        investigationsPath,
+                    }, {
+                        id: 'beta-product',
+                        name: 'Beta Product',
+                        repoRoot,
+                        systemPromptPath: repoRoot,
+                        knowledgeBasePath: repoRoot,
+                        workingDirectory: repoRoot,
+                        investigationsPath,
+                    }],
+                    activeProductId: 'alpha-product',
+                });
+
+                __testUtils.setPersistedConfig(circular);
+                let response = await api().put('/api/products/active').send({ productId: 'alpha-product' });
+                expect(response.status).toBe(500);
+
+                __testUtils.setPersistedConfig(circular);
+                response = await api().post('/api/products').send({
+                    name: 'Gamma Product',
+                    repoRoot,
+                    systemPromptPath: repoRoot,
+                    knowledgeBasePath: repoRoot,
+                    workingDirectory: repoRoot,
+                    investigationsPath,
+                });
+                expect(response.status).toBe(500);
+
+                __testUtils.setPersistedConfig(circular);
+                response = await api().post('/api/products/alpha-product/clone').send({});
+                expect(response.status).toBe(500);
+
+                __testUtils.setPersistedConfig(circular);
+                response = await api().put('/api/products/alpha-product').send({ name: 'Alpha Updated' });
+                expect(response.status).toBe(500);
+
+                __testUtils.setPersistedConfig(circular);
+                response = await api().delete('/api/products/alpha-product');
+                expect(response.status).toBe(500);
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('returns 500 when product validation throws unexpectedly', async () => {
+            const unstableProduct: any = { id: 'unstable', name: 'Unstable' };
+            Object.defineProperty(unstableProduct, 'repoRoot', {
+                get() {
+                    throw new Error('repoRoot boom');
+                },
+            });
+            unstableProduct.systemPromptPath = '';
+            unstableProduct.knowledgeBasePath = '';
+            unstableProduct.workingDirectory = '';
+            unstableProduct.investigationsPath = '';
+
+            __testUtils.setConfig({ products: [unstableProduct], activeProductId: '' });
+
+            const response = await api().get('/api/products/unstable/validate');
+
+            expect(response.status).toBe(500);
+        });
+
+        it('returns the discovery none result when no recognizable structure exists', async () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-discover-none-'));
+
+            const response = await api().get('/api/products/discover').query({ repoRoot });
+
+            expect(response.status).toBe(200);
+            expect(response.body.source).toBe('none');
+        });
+
+        it('discovers products from manifest and missing repo roots', async () => {
+            let response = await api().get('/api/products/discover').query({ repoRoot: path.join(os.tmpdir(), 'missing-repo-root') });
+            expect(response.status).toBe(404);
+
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-manifest-'));
+            fs.writeFileSync(path.join(repoRoot, '.investigator.json'), JSON.stringify({
+                name: 'Manifest Product',
+                systemPrompt: 'prompts/system.md',
+                knowledgeBase: 'docs',
+                workingDirectory: '.',
+                investigationsPath: 'investigations',
+            }));
+
+            response = await api().get('/api/products/discover').query({ repoRoot });
+            expect(response.status).toBe(200);
+            expect(response.body.source).toBe('manifest');
+            expect(response.body.product.name).toBe('Manifest Product');
+        });
+
+        it('falls back from malformed manifests to auto-discovery', async () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-manifest-fallback-'));
+            fs.writeFileSync(path.join(repoRoot, '.investigator.json'), '{bad json');
+            fs.mkdirSync(path.join(repoRoot, '.github', 'agents'), { recursive: true });
+            fs.writeFileSync(path.join(repoRoot, '.github', 'agents', 'alpha.agent.md'), '# alpha');
+            fs.writeFileSync(path.join(repoRoot, '.github', 'agents', 'beta.agent.md'), '# beta');
+            fs.mkdirSync(path.join(repoRoot, 'docs', 'telemetry-investigations'), { recursive: true });
+            fs.mkdirSync(path.join(repoRoot, 'investigations'), { recursive: true });
+
+            const response = await api().get('/api/products/discover').query({ repoRoot });
+
+            expect(response.status).toBe(200);
+            expect(response.body.source).toBe('auto-discovered');
+            expect(response.body.suggestions.some((item: string) => item.includes('agent prompts'))).toBe(true);
+        });
+
+        it('continues auto-discovery when the agents path exists as a file', () => {
+            const productRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-agents-file-'));
+            fs.mkdirSync(path.join(productRoot, '.github'), { recursive: true });
+            fs.writeFileSync(path.join(productRoot, 'package.json'), JSON.stringify({ name: 'agent-product' }));
+            fs.writeFileSync(path.join(productRoot, '.github', 'agents'), 'not-a-directory');
+
+            const result = autoDiscoverProduct(productRoot);
+
+            expect(result.product.name).toBe(path.basename(productRoot));
+            expect(result.suggestions).toContain('Working directory defaulted to repo root');
+        });
+
+        it('uses validated product-specific paths and maxSteps when creating investigations', () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-create-product-'));
+            const knowledgeBasePath = path.join(repoRoot, 'docs');
+            const investigationsPath = path.join(repoRoot, 'investigations');
+            fs.mkdirSync(knowledgeBasePath, { recursive: true });
+            fs.mkdirSync(investigationsPath, { recursive: true });
+            fs.writeFileSync(path.join(repoRoot, 'prompt.md'), '# prompt');
+
+            setFakeLlmProvider();
+            __testUtils.setConfig({
+                repoRoot: path.join(os.tmpdir(), 'global-root'),
+                systemPromptPath: path.join(os.tmpdir(), 'global-prompt.md'),
+                knowledgeBasePath: path.join(os.tmpdir(), 'global-kb'),
+                workingDirectory: path.join(os.tmpdir(), 'global-workdir'),
+                investigationsPath: path.join(os.tmpdir(), 'global-investigations'),
+                model: 'global-model',
+                products: [{
+                    id: 'prod-1',
+                    name: 'Prod 1',
+                    repoRoot,
+                    systemPromptPath: path.join(repoRoot, 'prompt.md'),
+                    knowledgeBasePath,
+                    workingDirectory: repoRoot,
+                    investigationsPath,
+                }],
+                activeProductId: 'prod-1',
+            });
+
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+            const { runner } = createInvestigation({
+                query: 'Inspect product branch',
+                target: 'stamp-product',
+                timeRange: 'ago(30m)',
+                productId: 'prod-1',
+                maxSteps: 7,
+            });
+
+            expect((runner as any).config.repoRoot).toBe(repoRoot);
+            expect((runner as any).config.knowledgeBasePath).toBe(knowledgeBasePath);
+            expect((runner as any).config.investigationsPath).toBe(investigationsPath);
+            expect((runner as any).config.maxSteps).toBe(7);
+            expect((runner as any).state.productId).toBe('prod-1');
+            expect(startSpy).toHaveBeenCalled();
+        });
+
+        it('builds incident-based investigation queries with scheduler defaults', () => {
+            setFakeLlmProvider();
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+
+            createInvestigation({
+                incidentId: 'INC-77',
+                target: 'stamp-incident',
+                timeRange: 'ago(2h)',
+                correlationId: 'corr-1',
+                category: 'latency',
+                query: '',
+                source: 'scheduled',
+            } as any);
+
+            expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('Incident ID: INC-77'));
+            expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('Target: stamp-incident'));
+            expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('Time Range: ago(2h)'));
+            expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('Correlation ID: corr-1'));
+            expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('Category: latency'));
+            expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('Investigate this incident. Extract context and route to the correct investigation guide.'));
+        });
+
+        it('uses the generic default user question when createInvestigation has no explicit query', () => {
+            setFakeLlmProvider();
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+
+            createInvestigation({
+                target: 'stamp-default-query',
+                timeRange: 'ago(30m)',
+                query: '',
+            });
+
+            expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('Start general investigation based on provided context.'));
+        });
+
+        it('falls back to global product settings when selected product fields are blank', () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-product-global-fallback-'));
+            const knowledgeBasePath = path.join(repoRoot, 'docs');
+            const workingDirectory = path.join(repoRoot, 'workdir');
+            const investigationsPath = path.join(repoRoot, 'investigations');
+            const systemPromptPath = path.join(repoRoot, 'prompt.md');
+            fs.mkdirSync(knowledgeBasePath, { recursive: true });
+            fs.mkdirSync(workingDirectory, { recursive: true });
+            fs.mkdirSync(investigationsPath, { recursive: true });
+            fs.writeFileSync(systemPromptPath, '# prompt');
+
+            setFakeLlmProvider();
+            __testUtils.setConfig({
+                repoRoot,
+                systemPromptPath,
+                knowledgeBasePath,
+                workingDirectory,
+                investigationsPath,
+                products: [{
+                    id: 'prod-global-fallback',
+                    name: 'Fallback Product',
+                    repoRoot: '',
+                    systemPromptPath: '',
+                    knowledgeBasePath: '',
+                    workingDirectory: '',
+                    investigationsPath: '',
+                }],
+                activeProductId: 'prod-global-fallback',
+            });
+
+            vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+            const { runner } = createInvestigation({
+                target: 'stamp-fallback',
+                timeRange: 'ago(15m)',
+                query: 'Use fallback settings',
+                productId: 'prod-global-fallback',
+            });
+
+            expect((runner as any).config.repoRoot).toBe(repoRoot);
+            expect((runner as any).config.systemPromptPath).toBe(systemPromptPath);
+            expect((runner as any).config.knowledgeBasePath).toBe(knowledgeBasePath);
+            expect((runner as any).config.workingDirectory).toBe(workingDirectory);
+            expect((runner as any).config.investigationsPath).toBe(investigationsPath);
+        });
+
+        it('marks crashed investigation starts as failed and removes active runners', async () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-create-fail-'));
+            setFakeLlmProvider();
+            __testUtils.setConfig({
+                repoRoot,
+                workingDirectory: repoRoot,
+                investigationsPath: repoRoot,
+                products: [],
+                activeProductId: '',
+            });
+
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockRejectedValue(new Error('start failed'));
+            const { id } = createInvestigation({
+                query: 'Crash on start',
+                target: 'stamp-fail',
+                timeRange: 'ago(5m)',
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(startSpy).toHaveBeenCalled();
+            expect(__testUtils.getRunners().has(id)).toBe(false);
+            expect(__testUtils.getHistory().get(id)?.status).toBe('failed');
+        });
+
+        it('rejects investigations for products with invalid paths', () => {
+            setFakeLlmProvider();
+            __testUtils.setConfig({
+                repoRoot: '',
+                systemPromptPath: '',
+                knowledgeBasePath: '',
+                workingDirectory: '',
+                investigationsPath: '',
+                products: [{
+                    id: 'broken-product',
+                    name: 'Broken Product',
+                    repoRoot: '',
+                    systemPromptPath: '',
+                    knowledgeBasePath: '',
+                    workingDirectory: '',
+                    investigationsPath: '',
+                }],
+                activeProductId: 'broken-product',
+            });
+
+            expect(() => createInvestigation({
+                query: 'Inspect invalid product',
+                target: 'stamp-invalid',
+                timeRange: 'ago(10m)',
+                productId: 'broken-product',
+            })).toThrow(/Broken Product/);
+        });
+
+        it('removes completed runners and keeps paused ones after createInvestigation settles', async () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-create-settle-'));
+            setFakeLlmProvider();
+            __testUtils.setConfig({
+                repoRoot,
+                workingDirectory: repoRoot,
+                investigationsPath: repoRoot,
+                products: [],
+                activeProductId: '',
+            });
+
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start')
+                .mockImplementationOnce(function (this: any) {
+                    this.state.status = 'completed';
+                    return Promise.resolve();
+                })
+                .mockImplementationOnce(function (this: any) {
+                    this.state.status = 'paused';
+                    return Promise.resolve();
+                });
+            vi.spyOn(Date, 'now')
+                .mockReturnValueOnce(1700000001000)
+                .mockReturnValueOnce(1700000002000);
+
+            const completed = createInvestigation({
+                query: 'Finish normally',
+                target: 'stamp-complete',
+                timeRange: 'ago(1m)',
+            });
+            const paused = createInvestigation({
+                query: 'Pause instead',
+                target: 'stamp-paused',
+                timeRange: 'ago(1m)',
+            });
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            expect(startSpy).toHaveBeenCalledTimes(2);
+            expect(__testUtils.getRunners().has(completed.id)).toBe(false);
+            expect(__testUtils.getHistory().get(completed.id)?.status).toBe('completed');
+            expect(__testUtils.getRunners().has(paused.id)).toBe(true);
+            expect(__testUtils.getHistory().get(paused.id)?.status).toBe('paused');
+        });
+
+    });
+
+    describe('investigation listing and detail routes', () => {
+        it('caches list responses for history-only investigations and returns 304 on matching etag', async () => {
+            const investigationsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-history-cache-'));
+            __testUtils.setConfig({ products: [], activeProductId: '', investigationsPath });
+            const historyState = makeState({ id: 'history-1', thoughts: ['history thought'] });
+            const persistedStatePath = path.join(investigationsPath, 'history-1-state.json');
+            fs.writeFileSync(persistedStatePath, JSON.stringify(historyState));
+            (historyState as any)._statePath = persistedStatePath;
+            __testUtils.getHistory().set(historyState.id, historyState as any);
+
+            const first = await api().get('/api/investigations');
+            expect(first.status).toBe(200);
+            expect(first.headers.etag).toBeDefined();
+            expect(first.body).toHaveLength(1);
+
+            const second = await api().get('/api/investigations').set('If-None-Match', first.headers.etag as string);
+            expect(second.status).toBe(304);
+        });
+
+        it('serves cached list payloads when the etag does not match and includes product and retrospect metadata', async () => {
+            const investigationsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-history-cache-miss-'));
+            __testUtils.setConfig({
+                products: [{
+                    id: 'known-product',
+                    name: 'Known Product',
+                    repoRoot: '',
+                    systemPromptPath: '',
+                    knowledgeBasePath: '',
+                    workingDirectory: '',
+                    investigationsPath: '',
+                }],
+                activeProductId: '',
+                investigationsPath,
+            });
+
+            const knownState = makeState({
+                id: 'history-known',
+                productId: 'known-product',
+                thoughts: ['history thought'],
+                retrospect: { proposals: [{ id: 'p1', status: 'pending' }], analysisComplete: true } as any,
+            }) as any;
+            const unknownState = makeState({ id: 'history-unknown', productId: 'missing-product', thoughts: ['other'] }) as any;
+
+            for (const state of [knownState, unknownState]) {
+                const statePath = path.join(investigationsPath, `${state.id}.json`);
+                fs.writeFileSync(statePath, JSON.stringify(state));
+                state._statePath = statePath;
+                __testUtils.getHistory().set(state.id, state);
+            }
+
+            const first = await api().get('/api/investigations');
+            const second = await api().get('/api/investigations').set('If-None-Match', '"stale"');
+
+            expect(second.status).toBe(200);
+            expect(second.headers.etag).toBe(first.headers.etag);
+            expect(second.body.find((item: any) => item.id === 'history-known').productName).toBe('Known Product');
+            expect(second.body.find((item: any) => item.id === 'history-known').retrospect.proposals).toEqual([{ id: 'p1', status: 'pending' }]);
+            expect(second.body.find((item: any) => item.id === 'history-unknown').productName).toBe('Unknown');
+        });
+
+        it('hides non-persisted inactive history entries from the dashboard list', async () => {
+            __testUtils.setConfig({ products: [], activeProductId: '', investigationsPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-visible-')) });
+            __testUtils.getHistory().set('memory-only-1', makeState({ id: 'memory-only-1', thoughts: ['not persisted'] }) as any);
+
+            const response = await api().get('/api/investigations');
+
+            expect(response.status).toBe(200);
+            expect(response.body.some((inv: any) => inv.id === 'memory-only-1')).toBe(false);
+        });
+
+        it('skips investigations that fail summary generation while returning valid items', async () => {
+            const brokenState = makeState({ id: 'broken-list' }) as any;
+            Object.defineProperty(brokenState, 'tags', {
+                get() {
+                    throw new Error('summary failure');
+                },
+            });
+            const persistedState = makeState({ id: 'good-list', status: 'completed' }) as any;
+            const investigationsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-summary-failure-'));
+            const persistedStatePath = path.join(investigationsPath, 'good-list-state.json');
+            fs.writeFileSync(persistedStatePath, JSON.stringify(persistedState));
+            persistedState._statePath = persistedStatePath;
+
+            __testUtils.setConfig({ products: [], activeProductId: '', investigationsPath });
+            __testUtils.getHistory().set('broken-list', brokenState);
+            __testUtils.getHistory().set('good-list', persistedState);
+
+            const response = await api().get('/api/investigations');
+
+            expect(response.status).toBe(200);
+            expect(response.body.some((item: any) => item.id === 'good-list')).toBe(true);
+            expect(response.body.some((item: any) => item.id === 'broken-list')).toBe(false);
+        });
+
+        it('returns truncated investigation detail and step payloads', async () => {
+            const longThought = 'x'.repeat(600);
+            const longResult = 'y'.repeat(600);
+            const runner = makeRunner({
+                id: 'active-1',
+                status: 'running',
+                fullHistory: [longThought],
+                fullActions: [{ tool: 'read_file', args: {}, result: longResult } as any],
+            });
+            __testUtils.getRunners().set('active-1', runner as any);
+
+            let response = await api().get('/api/investigations/active-1');
+            expect(response.status).toBe(200);
+            expect(response.body.thoughts[0]._truncated).toBe(true);
+            expect(response.body.actions[0]._truncated_result).toBe(true);
+
+            response = await api().get('/api/investigations/active-1/steps/0');
+            expect(response.status).toBe(200);
+            expect(response.body.thought).toBe(longThought);
+
+            response = await api().get('/api/investigations/active-1/steps/5');
+            expect(response.status).toBe(400);
+        });
+
+        it('truncates long object thoughts and action results in investigation detail', async () => {
+            const longContent = 'x'.repeat(700);
+            const longResult = 'y'.repeat(700);
+            __testUtils.getHistory().set('detail-2', makeState({
+                id: 'detail-2',
+                thoughts: [{ role: 'assistant', content: longContent }] as any,
+                actions: [{ tool: 'read_file', result: longResult }] as any,
+            }) as any);
+
+            const response = await api().get('/api/investigations/detail-2');
+
+            expect(response.status).toBe(200);
+            expect(response.body.thoughts[0]._truncated).toBe(true);
+            expect(response.body.thoughts[0]._original_type).toBe('object');
+            expect(response.body.thoughts[0].content.endsWith('...')).toBe(true);
+            expect(response.body.actions[0]._truncated_result).toBe(true);
+            expect(response.body.actions[0].result.endsWith('...')).toBe(true);
+        });
+
+        it('returns non-truncated string and object thoughts in investigation detail', async () => {
+            __testUtils.getHistory().set('detail-3', makeState({
+                id: 'detail-3',
+                thoughts: ['short thought', { role: 'assistant', content: 'short object' }] as any,
+                actions: [{ tool: 'noop', result: '' }, { tool: 'noop', result: { ok: true } }] as any,
+            }) as any);
+
+            let response = await api().get('/api/investigations/detail-3');
+            expect(response.status).toBe(200);
+            expect(response.body.thoughts[0]).toBe('short thought');
+            expect(response.body.thoughts[1].content).toBe('short object');
+            expect(response.body.actions[0].result).toBe('');
+            expect(response.body.actions[1].result).toEqual({ ok: true });
+
+            response = await api().get('/api/investigations/missing-detail/steps/0');
+            expect(response.status).toBe(404);
+        });
+
+        it('covers lightweight detail fallbacks for object thoughts without string content and empty actions', async () => {
+            __testUtils.getHistory().set('detail-4', makeState({
+                id: 'detail-4',
+                thoughts: [{ role: 'assistant', value: { ok: true } }] as any,
+                actions: [null] as any,
+            }) as any);
+
+            const response = await api().get('/api/investigations/detail-4');
+
+            expect(response.status).toBe(200);
+            expect(response.body.thoughts[0]).toEqual({ role: 'assistant', value: { ok: true } });
+            expect(response.body.actions[0]).toBeNull();
+        });
+
+        it('rebuilds history summaries from recomputed storage paths and summary-only metadata', async () => {
+            const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-summary-only-'));
+            const productDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-summary-product-'));
+            __testUtils.setConfig({
+                repoRoot,
+                investigationsPath: '',
+                products: [{
+                    id: 'prod-summary',
+                    name: 'Summary Product',
+                    repoRoot,
+                    systemPromptPath: repoRoot,
+                    knowledgeBasePath: repoRoot,
+                    workingDirectory: repoRoot,
+                    investigationsPath: productDir,
+                }],
+                activeProductId: 'prod-summary',
+            });
+
+            const summaryState = {
+                ...makeState({
+                    id: '1700000001111',
+                    status: 'completed',
+                    productId: 'prod-summary',
+                    thoughts: ['summary thought'],
+                    tags: undefined as any,
+                }),
+                _summaryOnly: true,
+                _thoughtCount: 7,
+                retrospect: {
+                    proposals: [{ id: 'proposal-2', status: 'approved' }],
+                    analysisComplete: false,
+                    analysisFailed: true,
+                    completed: false,
+                },
+            } as any;
+
+            const storagePath = getInvestigationStoragePath(summaryState);
+            fs.mkdirSync(storagePath, { recursive: true });
+            fs.writeFileSync(path.join(storagePath, 'state.json'), JSON.stringify(summaryState));
+            __testUtils.getHistory().set(summaryState.id, summaryState);
+
+            const response = await api().get('/api/investigations');
+
+            expect(response.status).toBe(200);
+            expect(response.headers.etag).toBeDefined();
+
+            const item = response.body.find((entry: any) => entry.id === summaryState.id);
+            expect(item.storagePath).toBe(storagePath);
+            expect(item.thoughtCount).toBe(7);
+            expect(item.tags).toEqual([]);
+            expect(item.retrospect.proposals).toEqual([{ id: 'proposal-2', status: 'approved' }]);
+            expect(item.retrospect.analysisFailed).toBe(true);
+            expect(item.retrospect.completed).toBe(false);
+        });
+
+        it('covers active-list summary recomputation, item-level failures, and top-level list failures', async () => {
+            const runner = makeRunner({
+                id: 'active-summary-only',
+                status: 'paused',
+                thoughts: ['summary thought'],
+            }, {
+                state: {
+                    ...makeState({
+                        id: 'active-summary-only',
+                        status: 'paused',
+                        productId: 'prod-list',
+                        thoughts: ['summary thought'],
+                    }),
+                    _summaryOnly: true,
+                    _thoughtCount: 9,
+                    retrospect: { analysisComplete: true },
+                },
+            });
+            const brokenRunner = makeRunner({ id: 'active-broken-list', status: 'paused' }, {
+                state: {
+                    ...makeState({ id: 'active-broken-list', status: 'paused', productId: 'prod-list' }),
+                    get title() {
+                        throw new Error('title summary failed');
+                    },
+                },
+            });
+
+            __testUtils.setConfig({
+                repoRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-active-list-')),
+                investigationsPath: '',
+                products: [{ id: 'prod-list', name: 'List Product', investigationsPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-active-list-product-')) } as any],
+                activeProductId: 'prod-list',
+            });
+            __testUtils.getRunners().set('active-summary-only', runner as any);
+            __testUtils.getRunners().set('active-broken-list', brokenRunner as any);
+
+            let response = await api().get('/api/investigations');
+            expect(response.status).toBe(200);
+            const item = response.body.find((entry: any) => entry.id === 'active-summary-only');
+            expect(item.storagePath).toContain('activesummaryonly');
+            expect(item.thoughtCount).toBe(9);
+            expect(item.retrospect.proposals).toEqual([]);
+            expect(response.body.some((entry: any) => entry.id === 'active-broken-list')).toBe(false);
+            expect(response.headers.etag).toBeDefined();
+
+            const valuesSpy = vi.spyOn(__testUtils.getRunners(), 'values').mockImplementation(() => {
+                throw new Error('runner values failed');
+            });
+            response = await api().get('/api/investigations');
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('Failed to list investigations');
+            valuesSpy.mockRestore();
+        });
+
+        it('covers list fallbacks for missing products, invalid entries, summary-only thoughts, and default etag timestamps', async () => {
+            __testUtils.setConfig({
+                repoRoot: fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-list-fallbacks-')),
+                investigationsPath: '',
+                products: undefined as any,
+                activeProductId: '',
+            });
+
+            const invalidDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-invalid-list-entry-'));
+            const invalidStatePath = path.join(invalidDir, 'state.json');
+            fs.writeFileSync(invalidStatePath, JSON.stringify({ id: 'invalid-entry' }));
+            (__testUtils.getHistory() as any).records.set('invalid-entry', {
+                id: '',
+                target: 'broken',
+                status: 'paused',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                _summaryOnly: true,
+                _storagePath: invalidDir,
+                _statePath: invalidStatePath,
+            });
+            const summaryDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-summary-fallback-'));
+            const summaryStatePath = path.join(summaryDir, 'state.json');
+            fs.writeFileSync(summaryStatePath, JSON.stringify({ id: 'summary-fallback' }));
+            __testUtils.getHistory().set('summary-fallback', {
+                ...makeState({ id: 'summary-fallback', productId: 'missing-product' }),
+                thoughts: null,
+                _summaryOnly: true,
+                _thoughtCount: undefined,
+                _storagePath: summaryDir,
+                _statePath: summaryStatePath,
+            } as any);
+
+            __testUtils.setListCacheDirtyAt(0);
+            const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1700000000999);
+
+            const response = await api().get('/api/investigations');
+
+            expect(response.status).toBe(200);
+            expect(response.headers.etag).toBeDefined();
+            expect(response.headers.etag).toBe('"1700000000999"');
+            expect(response.body).toHaveLength(1);
+            expect(response.body[0].id).toBe('summary-fallback');
+            expect(response.body[0].thoughtCount).toBe(0);
+            expect(response.body[0].thoughts).toEqual([]);
+            expect(response.body[0].productName).toBe('Unknown');
+
+            nowSpy.mockRestore();
+        });
+    });
+
+    describe('investigation mutation routes', () => {
+        it('creates investigations, enforces concurrency, and reports provider configuration errors', async () => {
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+            setFakeLlmProvider();
+
+            let response = await api().post('/api/investigations').send({
+                query: 'Investigate pipeline latency',
+                target: 'stamp-01',
+                timeRange: 'ago(1h)',
+                category: 'latency',
+            });
+            expect(response.status).toBe(200);
+            expect(response.body.status).toBe('running');
+            expect(startSpy).toHaveBeenCalled();
+
+            __testUtils.setConfig({ maxConcurrentInvestigations: 1 });
+            __testUtils.getRunners().set('busy-1', makeRunner({ id: 'busy-1', status: 'running' }) as any);
+            response = await api().post('/api/investigations').send({
+                query: 'Another run',
+                target: 'stamp-02',
+                timeRange: 'ago(30m)',
+            });
+            expect(response.status).toBe(429);
+
+            __testUtils.resetRuntimeState();
+            __testUtils.setConfig(JSON.parse(JSON.stringify(defaultConfig)));
+            response = await api().post('/api/investigations').send({
+                query: 'Investigate pipeline latency',
+                target: 'stamp-03',
+                timeRange: 'ago(1h)',
+            });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('No LLM provider configured');
+        });
+
+        it('validates target and timeRange when creating investigations without an incident id', async () => {
+            setFakeLlmProvider();
+
+            let response = await api().post('/api/investigations').send({
+                query: 'Missing target',
+                timeRange: 'ago(15m)',
+            });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('target is required');
+
+            response = await api().post('/api/investigations').send({
+                query: 'Missing time range',
+                target: 'stamp-validation',
+            });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('timeRange is required');
+        });
+
+        it('rehydrates inactive investigations for resume, pause, abort, intervene, and contest flows', async () => {
+            setFakeLlmProvider();
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+            const saveArtifactsSpy = vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockResolvedValue(undefined);
+            const resumeSpy = vi.spyOn(AgentRunner.prototype as any, 'resume');
+            const contestSpy = vi.spyOn(AgentRunner.prototype as any, 'contestReport');
+            const logSpy = vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+            const pausedState = makeState({ id: 'hist-resume', status: 'paused', query: 'Resume me', scheduleId: 'sched-1' });
+            const completedState = makeState({ id: 'hist-contest', status: 'completed', query: 'Contest me' });
+            __testUtils.getHistory().set(pausedState.id, pausedState as any);
+            __testUtils.getHistory().set(completedState.id, completedState as any);
+            __testUtils.setScheduleStore({ update: vi.fn() } as any);
+
+            let response = await api().post('/api/investigations/hist-resume/action').send({ action: 'resume' });
+            expect(response.status).toBe(200);
+            expect(resumeSpy).toHaveBeenCalled();
+            expect(startSpy).toHaveBeenCalledWith('Resume me');
+
+            response = await api().post('/api/investigations/hist-resume/action').send({ action: 'pause' });
+            expect(response.status).toBe(200);
+            expect(saveArtifactsSpy).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/hist-resume/action').send({ action: 'abort' });
+            expect(response.status).toBe(200);
+
+            response = await api().post('/api/investigations/hist-resume/action').send({ action: 'intervene', message: 'Check the queue depth' });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('hist-resume')?.thoughts.some((thought: any) =>
+                typeof thought === 'object' && String(thought.content).includes('Check the queue depth')
+            )).toBe(true);
+
+            response = await api().post('/api/investigations/hist-contest/action').send({ action: 'contest', message: 'Need stronger evidence' });
+            expect(response.status).toBe(200);
+            expect(contestSpy).toHaveBeenCalledWith('Need stronger evidence');
+            expect(logSpy).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/hist-resume/action').send({ action: 'invalid' });
+            expect(response.status).toBe(400);
+        });
+
+        it('continues inactive pause, abort, and intervene actions when persistence fails', async () => {
+            setFakeLlmProvider();
+            vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockRejectedValue(new Error('persist failed'));
+            __testUtils.getHistory().set('hist-fail', makeState({ id: 'hist-fail', status: 'paused', thoughts: [], actions: [], logs: [] }) as any);
+
+            let response = await api().post('/api/investigations/hist-fail/action').send({ action: 'pause' });
+            expect(response.status).toBe(200);
+
+            response = await api().post('/api/investigations/hist-fail/action').send({ action: 'abort' });
+            expect(response.status).toBe(200);
+
+            response = await api().post('/api/investigations/hist-fail/action').send({ action: 'intervene', message: 'Add context' });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('hist-fail')?.thoughts.length).toBeGreaterThan(0);
+        });
+
+        it('bulk resumes paused investigations up to available concurrency slots', async () => {
+            setFakeLlmProvider();
+            __testUtils.setConfig({ maxConcurrentInvestigations: 2 });
+            __testUtils.getHistory().set('paused-1', makeState({ id: 'paused-1', status: 'paused', query: 'First' }) as any);
+            __testUtils.getHistory().set('paused-2', makeState({ id: 'paused-2', status: 'paused', query: 'Second' }) as any);
+            __testUtils.getHistory().set('paused-3', makeState({ id: 'paused-3', status: 'paused', query: 'Third' }) as any);
+            __testUtils.getRunners().set('running-1', makeRunner({ id: 'running-1', status: 'running' }) as any);
+
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+            const resumeSpy = vi.spyOn(AgentRunner.prototype as any, 'resume');
+
+            const response = await api().post('/api/investigations/resume-all').send({});
+
+            expect(response.status).toBe(200);
+            expect(response.body.resumed).toBe(1);
+            expect(response.body.skipped).toBe(2);
+            expect(resumeSpy).toHaveBeenCalledTimes(1);
+            expect(startSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('uses the resume-all default query when paused history has no stored query', async () => {
+            setFakeLlmProvider();
+            __testUtils.setConfig({ maxConcurrentInvestigations: 1 });
+            __testUtils.getHistory().set('paused-default-query', makeState({
+                id: 'paused-default-query',
+                status: 'paused',
+                query: '',
+            }) as any);
+
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+
+            const response = await api().post('/api/investigations/resume-all').send({});
+
+            expect(response.status).toBe(200);
+            expect(startSpy).toHaveBeenCalledWith('Resume investigation');
+        });
+
+        it('updates models and active runner actions', async () => {
+            const runner = makeRunner({ id: 'active-2', status: 'running', scheduleId: 'sched-1' });
+            const scheduleStore = { update: vi.fn() };
+            __testUtils.getRunners().set('active-2', runner as any);
+            __testUtils.setScheduleStore(scheduleStore as any);
+
+            let response = await api().post('/api/investigations/active-2/model').send({ model: 'gpt-4.1-mini' });
+            expect(response.status).toBe(200);
+            expect(runner.setModel).toHaveBeenCalledWith('gpt-4.1-mini');
+
+            response = await api().post('/api/investigations/active-2/action').send({ action: 'pause' });
+            expect(response.status).toBe(200);
+            expect(runner.pause).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/active-2/action').send({ action: 'resume' });
+            expect(response.status).toBe(200);
+            expect(runner.resume).toHaveBeenCalled();
+            expect(scheduleStore.update).toHaveBeenCalledWith('sched-1', { activeInvestigationId: 'active-2' });
+
+            response = await api().post('/api/investigations/active-2/action').send({ action: 'intervene', message: 'Check logs' });
+            expect(response.status).toBe(200);
+            expect(runner.intervene).toHaveBeenCalledWith('Check logs');
+
+            response = await api().post('/api/investigations/active-2/action').send({ action: 'contest', message: 'Try again' });
+            expect(response.status).toBe(200);
+            expect(runner.contestReport).toHaveBeenCalledWith('Try again');
+            expect(runner.start).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/active-2/action').send({ action: 'abort' });
+            expect(response.status).toBe(200);
+            expect(runner.abort).toHaveBeenCalled();
+        });
+
+        it('returns 400 when active contest handling throws', async () => {
+            const runner = makeRunner({ id: 'active-contest', status: 'running' }, {
+                contestReport: vi.fn(() => {
+                    throw new Error('contest failed');
+                }),
+            });
+            __testUtils.getRunners().set('active-contest', runner as any);
+
+            const response = await api().post('/api/investigations/active-contest/action').send({ action: 'contest', message: 'Retry conclusion' });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('contest failed');
+        });
+
+        it('rejects contest requests for inactive non-completed investigations', async () => {
+            setFakeLlmProvider();
+            __testUtils.getHistory().set('hist-not-complete', makeState({ id: 'hist-not-complete', status: 'paused' }) as any);
+
+            const response = await api().post('/api/investigations/hist-not-complete/action').send({ action: 'contest', message: 'Retry conclusion' });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('completed investigation');
+        });
+
+        it('covers inactive action race and not-active edge cases', async () => {
+            setFakeLlmProvider();
+            __testUtils.getHistory().set('hist-race', makeState({ id: 'hist-race', status: 'completed' }) as any);
+            __testUtils.getHistory().set('hist-idle', makeState({ id: 'hist-idle', status: 'paused' }) as any);
+            __testUtils.getRunners().set('hist-race', undefined as any);
+
+            let response = await api().post('/api/investigations/hist-race/action').send({ action: 'contest', message: 'Retry conclusion' });
+            expect(response.status).toBe(200);
+            expect(response.body.message).toBe('Already contesting');
+
+            response = await api().post('/api/investigations/hist-idle/action').send({ action: 'contest' });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('Runner not active. Use resume to restart.');
+
+            response = await api().post('/api/investigations/missing-runner/action').send({ action: 'pause' });
+            expect(response.status).toBe(404);
+            expect(response.body.error).toBe('Runner not found');
+        });
+
+        it('covers resume-race, inactive contest failure, active contest completion, and resume-all start failures', async () => {
+            setFakeLlmProvider();
+
+            __testUtils.getHistory().set('hist-resume-race', makeState({ id: 'hist-resume-race', status: 'paused' }) as any);
+            __testUtils.getRunners().set('hist-resume-race', undefined as any);
+            let response = await api().post('/api/investigations/hist-resume-race/action').send({ action: 'resume' });
+            expect(response.status).toBe(200);
+            expect(response.body.message).toBe('Already resuming');
+
+            __testUtils.resetRuntimeState();
+            __testUtils.setConfig(JSON.parse(JSON.stringify(defaultConfig)));
+            setFakeLlmProvider();
+            const contestStartSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockRejectedValueOnce(new Error('inactive contest failed'));
+            __testUtils.getHistory().set('hist-contest-fail-2', makeState({ id: 'hist-contest-fail-2', status: 'completed', query: '' }) as any);
+            response = await api().post('/api/investigations/hist-contest-fail-2/action').send({ action: 'contest', message: 'Retry result' });
+            expect(response.status).toBe(200);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(contestStartSpy).toHaveBeenCalledWith('Resume investigation');
+            expect(__testUtils.getRunners().has('hist-contest-fail-2')).toBe(false);
+
+            const activeRunner = makeRunner({ id: 'active-contest-complete', status: 'running', query: 'Retry active' }, {
+                start: vi.fn().mockImplementation(function (this: any) {
+                    this.state.status = 'completed';
+                    return Promise.resolve();
+                }),
+            });
+            __testUtils.getRunners().set('active-contest-complete', activeRunner as any);
+            response = await api().post('/api/investigations/active-contest-complete/action').send({ action: 'contest', message: 'Retry active result' });
+            expect(response.status).toBe(200);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(__testUtils.getRunners().has('active-contest-complete')).toBe(false);
+
+            __testUtils.resetRuntimeState();
+            __testUtils.setConfig({ ...JSON.parse(JSON.stringify(defaultConfig)), maxConcurrentInvestigations: 0 });
+            setFakeLlmProvider();
+            const resumeStartSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockRejectedValueOnce(new Error('resume-all failed'));
+            __testUtils.getHistory().set('paused-start-fail', makeState({ id: 'paused-start-fail', status: 'paused', query: 'Bulk start' }) as any);
+            response = await api().post('/api/investigations/resume-all').send({});
+            expect(response.status).toBe(200);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(resumeStartSpy).toHaveBeenCalledWith('Bulk start');
+            expect(__testUtils.getRunners().has('paused-start-fail')).toBe(false);
+        });
+
+        it('handles resume-all with no paused investigations', async () => {
+            const response = await api().post('/api/investigations/resume-all').send({});
+            expect(response.status).toBe(200);
+            expect(response.body.resumed).toBe(0);
+        });
+
+        it('returns 500 when resume-all top-level processing throws', async () => {
+            const historyEntriesSpy = vi.spyOn(__testUtils.getHistory(), 'entries').mockImplementation(() => {
+                throw new Error('entries exploded');
+            });
+
+            const response = await api().post('/api/investigations/resume-all').send({});
+
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('Failed to resume investigations');
+            historyEntriesSpy.mockRestore();
+        });
+
+        it('uses history step fallbacks, contest restart failures, and resume-all slot edge cases', async () => {
+            setFakeLlmProvider();
+            const state = makeState({
+                id: 'hist-step-fallback',
+                status: 'paused',
+                query: '',
+                thoughts: ['step thought'],
+                actions: [{ tool: 'noop', result: 'ok' }] as any,
+            });
+            __testUtils.getHistory().set(state.id, state as any);
+
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start')
+                .mockRejectedValueOnce(new Error('resume failed'))
+                .mockRejectedValueOnce(new Error('contest restart failed'));
+
+            let response = await api().get(`/api/investigations/${state.id}/steps/0`);
+            expect(response.status).toBe(200);
+            expect(response.body.thought).toBe('step thought');
+            expect(response.body.action).toEqual({ tool: 'noop', result: 'ok' });
+
+            response = await api().post(`/api/investigations/${state.id}/action`).send({ action: 'resume' });
+            expect(response.status).toBe(200);
+            expect(startSpy).toHaveBeenNthCalledWith(1, 'Resume investigation');
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+
+            const runner = makeRunner({ id: 'active-contest-fail-2', status: 'running', query: '' }, {
+                start: vi.fn().mockRejectedValue(new Error('contest restart failed')),
+            });
+            __testUtils.getRunners().set('active-contest-fail-2', runner as any);
+
+            response = await api().post('/api/investigations/active-contest-fail-2/action').send({ action: 'contest', message: 'Retry this result' });
+            expect(response.status).toBe(200);
+
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(__testUtils.getRunners().has('active-contest-fail-2')).toBe(false);
+            expect(runner.start).toHaveBeenCalledWith('Resume investigation');
+
+            __testUtils.setConfig({ maxConcurrentInvestigations: 1 });
+            __testUtils.getRunners().set('busy-slot', makeRunner({ id: 'busy-slot', status: 'running' }) as any);
+            __testUtils.getHistory().set('paused-slotless', makeState({ id: 'paused-slotless', status: 'paused' }) as any);
+
+            response = await api().post('/api/investigations/resume-all').send({});
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual({ resumed: 0, skipped: 1, ids: [] });
+
+            __testUtils.resetRuntimeState();
+            __testUtils.setConfig({ ...JSON.parse(JSON.stringify(defaultConfig)), maxConcurrentInvestigations: 0 });
+            setFakeLlmProvider();
+            __testUtils.getHistory().set('paused-resume-fail', makeState({ id: 'paused-resume-fail', status: 'paused' }) as any);
+            const resumeSpy = vi.spyOn(AgentRunner.prototype as any, 'resume').mockImplementationOnce(() => {
+                throw new Error('resume exploded');
+            });
+
+            response = await api().post('/api/investigations/resume-all').send({});
+            expect(response.status).toBe(200);
+            expect(response.body.resumed).toBe(0);
+            expect(response.body.skipped).toBe(0);
+            expect(resumeSpy).toHaveBeenCalled();
+        });
+
+        it('updates inactive investigation models and rejects unknown ones', async () => {
+            __testUtils.getHistory().set('history-2', makeState({ id: 'history-2', status: 'paused' }) as any);
+
+            let response = await api().post('/api/investigations/history-2/model').send({ model: 'gpt-4.1' });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('history-2')?.model).toBe('gpt-4.1');
+
+            response = await api().post('/api/investigations/unknown/model').send({ model: 'gpt-4.1' });
+            expect(response.status).toBe(404);
+        });
+
+        it('patches title and tags for active investigations and validates tags', async () => {
+            const runner = makeRunner({ id: 'active-3', status: 'running' });
+            __testUtils.getRunners().set('active-3', runner as any);
+
+            let response = await api().patch('/api/investigations/active-3/title').send({ title: 'Updated Title' });
+            expect(response.status).toBe(200);
+            expect(runner.state.title).toBe('Updated Title');
+
+            response = await api().patch('/api/investigations/active-3/tags').send({ tags: [' a ', 'a', 'b'] });
+            expect(response.status).toBe(200);
+            expect(runner.state.tags).toEqual(['a', 'b']);
+
+            response = await api().patch('/api/investigations/active-3/tags').send({ tags: ['ok', 1] });
+            expect(response.status).toBe(400);
+        });
+
+        it('patches title and tags for inactive investigations', async () => {
+            setFakeLlmProvider();
+            const saveArtifactsSpy = vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockResolvedValue(undefined);
+            __testUtils.getHistory().set('history-title', makeState({ id: 'history-title', status: 'paused' }) as any);
+
+            let response = await api().patch('/api/investigations/history-title/title').send({ title: 'Saved Title' });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('history-title')?.title).toBe('Saved Title');
+
+            response = await api().patch('/api/investigations/history-title/tags').send({ tags: ['one', ' two '] });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('history-title')?.tags).toEqual(['one', 'two']);
+            expect(saveArtifactsSpy).toHaveBeenCalled();
+        });
+
+        it('covers title validation, missing history, and tag persistence failures', async () => {
+            setFakeLlmProvider();
+            let response = await api().patch('/api/investigations/missing-title/title').send({ title: 'Missing' });
+            expect(response.status).toBe(404);
+
+            response = await api().patch('/api/investigations/missing-title/title').send({ title: 123 });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('Title must be a string');
+
+            vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockRejectedValue(new Error('persist tags failed'));
+            __testUtils.getHistory().set('history-tag-fail', makeState({ id: 'history-tag-fail', status: 'paused' }) as any);
+
+            response = await api().patch('/api/investigations/history-tag-fail/tags').send({ tags: [' one '] });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('history-tag-fail')?.tags).toEqual(['one']);
+        });
+
+        it('covers missing model, analyze-body fallback, and missing tags history', async () => {
+            let response = await api().post('/api/investigations/missing-model/model').send({});
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('Model is required');
+
+            setFakeLlmProvider();
+            const analyzeRunner = makeRunner({ id: 'active-analyze-body', status: 'running' });
+            __testUtils.getRunners().set('active-analyze-body', analyzeRunner as any);
+            const stack = ((__testUtils.app as any)._router?.stack || (__testUtils.app as any).router?.stack || []) as any[];
+            const analyzeLayer = stack.find((layer) => layer.route?.path === '/api/investigations/:id/retrospect/analyze' && layer.route?.methods?.post);
+            const status = vi.fn().mockReturnThis();
+            const json = vi.fn();
+            await analyzeLayer.route.stack[0].handle({ params: { id: 'active-analyze-body' }, body: undefined }, { status, json }, vi.fn());
+            expect(status).toHaveBeenCalledWith(202);
+            expect(json).toHaveBeenCalledWith({ success: true, message: 'Analysis started' });
+
+            response = await api().patch('/api/investigations/missing-tags/tags').send({ tags: ['x'] });
+            expect(response.status).toBe(404);
+        });
+
+        it('covers title persistence failures and product-aware export, import, and pdf defaults', async () => {
+            setFakeLlmProvider();
+            const saveArtifactsSpy = vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockRejectedValue(new Error('persist title failed'));
+            __testUtils.getHistory().set('history-title-fail', makeState({ id: 'history-title-fail', status: 'paused' }) as any);
+
+            let response = await api().patch('/api/investigations/history-title-fail/title').send({ title: 'Still Saved' });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('history-title-fail')?.title).toBe('Still Saved');
+            expect(saveArtifactsSpy).toHaveBeenCalled();
+
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-import-export-defaults-'));
+            const productInvRoot = path.join(invRoot, 'product-investigations');
+            fs.mkdirSync(productInvRoot, { recursive: true });
+            __testUtils.setConfig({
+                investigationsPath: invRoot,
+                products: [{ id: 'prod-defaults', name: 'Defaults Product', investigationsPath: productInvRoot } as any],
+                activeProductId: 'prod-defaults',
+            });
+
+            response = await api().post('/api/investigations/import').send({
+                id: 'old-shared-id',
+                status: 'running',
+                productId: 'prod-defaults',
+                thoughts: 'bad-thoughts',
+                actions: 'bad-actions',
+                logs: 'bad-logs',
+                finalReport: 'Imported report',
+            });
+            expect(response.status).toBe(200);
+            const importedState = __testUtils.getHistory().get(response.body.id) as any;
+            expect(importedState.status).toBe('completed');
+            expect(Array.isArray(importedState.thoughts)).toBe(true);
+            expect(Array.isArray(importedState.actions)).toBe(true);
+            expect(Array.isArray(importedState.logs)).toBe(true);
+
+            const exportedState = makeState({
+                id: 'non-numeric-export',
+                status: 'completed',
+                target: '',
+                productId: 'prod-defaults',
+                finalReport: 'PDF report',
+            });
+            __testUtils.getHistory().set(exportedState.id, exportedState as any);
+
+            response = await api().get(`/api/investigations/${exportedState.id}/export`);
+            expect(response.status).toBe(200);
+            expect(response.headers['content-disposition']).toContain('_investigation_');
+
+            const renderSpy = vi.spyOn(pdfRenderer, 'renderPdf').mockResolvedValue(Buffer.from('pdf-defaults'));
+            response = await api().get(`/api/investigations/${exportedState.id}/pdf`);
+            expect(response.status).toBe(200);
+            expect(response.headers['content-disposition']).toContain('_investigation_');
+            expect(renderSpy).toHaveBeenCalledWith('PDF report', expect.objectContaining({ productName: 'Defaults Product' }));
+        });
+
+        it('falls back to global investigation paths and missing product metadata when product ids no longer resolve', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-missing-product-routes-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: undefined as any, activeProductId: '' });
+
+            const deleteState = makeState({ id: 'delete-missing-product', status: 'completed', productId: 'ghost-product', target: 'stamp-delete' });
+            const deleteDir = path.join(invRoot, '2024-01-01_stamp-delete_deletemissingproduct');
+            fs.mkdirSync(deleteDir, { recursive: true });
+            __testUtils.getHistory().set(deleteState.id, deleteState as any);
+
+            let response = await api().delete(`/api/investigations/${deleteState.id}`);
+            expect(response.status).toBe(200);
+            expect(fs.existsSync(deleteDir)).toBe(false);
+
+            const exportState = makeState({ id: 'export-missing-product', status: 'completed', productId: 'ghost-product', target: 'stamp/export', finalReport: 'Exported report' });
+            const exportDir = path.join(invRoot, '2024-01-01_stampexport_exportmissingproduct');
+            fs.mkdirSync(exportDir, { recursive: true });
+            fs.writeFileSync(path.join(exportDir, 'state.json'), JSON.stringify(exportState));
+            __testUtils.getHistory().set(exportState.id, exportState as any);
+
+            response = await api().get(`/api/investigations/${exportState.id}/export`);
+            expect(response.status).toBe(200);
+            expect(response.text).toContain('export-missing-product');
+
+            response = await api().post('/api/investigations/import').send({
+                id: 'import-missing-product',
+                status: 'failed',
+                productId: 'ghost-product',
+                target: 'stamp-import',
+                thoughts: [],
+                actions: [],
+                logs: [],
+            });
+            expect(response.status).toBe(200);
+            const importedState = __testUtils.getHistory().get(response.body.id) as any;
+            expect(importedState.status).toBe('failed');
+            expect(importedState.productId).toBe('ghost-product');
+            const importedDir = fs.readdirSync(invRoot).find((entry) => entry.endsWith(`_${response.body.id.replace(/[^a-zA-Z0-9]/g, '')}`));
+            expect(importedDir).toBeTruthy();
+
+            const renderSpy = vi.spyOn(pdfRenderer, 'renderPdf').mockResolvedValue(Buffer.from('pdf-missing-product'));
+            const pdfState = makeState({ id: 'pdf-missing-product', status: 'completed', productId: 'ghost-product', finalReport: 'PDF without product metadata' });
+            __testUtils.getHistory().set(pdfState.id, pdfState as any);
+
+            response = await api().get(`/api/investigations/${pdfState.id}/pdf`);
+            expect(response.status).toBe(200);
+            expect(renderSpy).toHaveBeenCalledWith('PDF without product metadata', expect.objectContaining({ productName: undefined }));
+        });
+
+        it('deletes investigations from memory and disk', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-delete-'));
+            const investigation = makeState({ id: '1700000000000', target: 'stamp-02', status: 'completed' });
+            const folder = path.join(invRoot, '2023-11-14_stamp-02_1700000000000');
+            fs.mkdirSync(folder, { recursive: true });
+            fs.writeFileSync(path.join(folder, 'state.json'), JSON.stringify(investigation));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            __testUtils.getHistory().set(investigation.id, investigation as any);
+
+            const response = await api().delete(`/api/investigations/${investigation.id}`);
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().has(investigation.id)).toBe(false);
+            expect(fs.existsSync(folder)).toBe(false);
+        });
+
+        it('deletes product-scoped investigations from their product directory', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-delete-product-'));
+            const productInvRoot = path.join(invRoot, 'product-investigations');
+            fs.mkdirSync(productInvRoot, { recursive: true });
+            __testUtils.setConfig({
+                investigationsPath: invRoot,
+                products: [{ id: 'prod-delete', investigationsPath: productInvRoot } as any],
+                activeProductId: 'prod-delete',
+            });
+
+            const investigation = makeState({ id: '1700000000001', target: 'stamp-product', status: 'completed', productId: 'prod-delete' });
+            const folder = path.join(productInvRoot, '2023-11-14_stamp-product_1700000000001');
+            fs.mkdirSync(folder, { recursive: true });
+            __testUtils.getHistory().set(investigation.id, investigation as any);
+
+            const response = await api().delete(`/api/investigations/${investigation.id}`);
+
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().has(investigation.id)).toBe(false);
+            expect(fs.existsSync(folder)).toBe(false);
+        });
+
+        it('aborts active running investigations before deleting them', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-delete-running-'));
+            const runner = makeRunner({ id: 'running-delete', status: 'running', target: 'stamp-live' });
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            __testUtils.getRunners().set('running-delete', runner as any);
+            __testUtils.getHistory().set('running-delete', runner.state as any);
+
+            const response = await api().delete('/api/investigations/running-delete');
+
+            expect(response.status).toBe(200);
+            expect(runner.abort).toHaveBeenCalled();
+            expect(__testUtils.getRunners().has('running-delete')).toBe(false);
+        });
+
+        it('swallows abort failures while deleting active investigations', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-delete-abort-failure-'));
+            const runner = makeRunner({ id: 'delete-abort-fail', status: 'running' }, {
+                abort: vi.fn(() => {
+                    throw new Error('abort delete failed');
+                }),
+            });
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            __testUtils.getRunners().set('delete-abort-fail', runner as any);
+            __testUtils.getHistory().set('delete-abort-fail', runner.state as any);
+            const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            const response = await api().delete('/api/investigations/delete-abort-fail');
+
+            expect(response.status).toBe(200);
+            expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[Delete] Failed to abort running investigation delete-abort-fail:'), 'abort delete failed');
+        });
+
+        it('swallows disk cleanup failures when deleting investigations', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-delete-failure-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            __testUtils.getHistory().set('delete-json-dir', makeState({ id: 'delete-json-dir', status: 'completed' }) as any);
+            fs.mkdirSync(path.join(invRoot, 'delete-json-dir.json'), { recursive: true });
+
+            const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            const response = await api().delete('/api/investigations/delete-json-dir');
+
+            expect(response.status).toBe(200);
+            expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[Delete] Failed to delete files for delete-json-dir:'), expect.any(String));
+            expect(__testUtils.getHistory().has('delete-json-dir')).toBe(false);
+        });
+
+        it('continues deleting investigations when the investigations directory cannot be read', async () => {
+            const invRoot = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-delete-missing-dir-')), 'missing-investigations');
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            __testUtils.getHistory().set('delete-missing-dir', makeState({ id: 'delete-missing-dir', status: 'completed' }) as any);
+
+            const response = await api().delete('/api/investigations/delete-missing-dir');
+
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().has('delete-missing-dir')).toBe(false);
+        });
+
+        it('covers direct delete-route branches for missing investigations and matched directories', async () => {
+            const stack = ((__testUtils.app as any)._router?.stack || (__testUtils.app as any).router?.stack || []) as any[];
+            const deleteLayer = stack.find((layer) => layer.route?.path === '/api/investigations/:id' && layer.route.methods?.delete);
+            expect(deleteLayer).toBeTruthy();
+            const handler = deleteLayer.route.stack[0].handle;
+
+            let status = vi.fn().mockReturnThis();
+            let json = vi.fn();
+            await handler({ params: { id: 'missing-delete' } }, { status, json });
+            expect(status).toHaveBeenCalledWith(404);
+            expect(json).toHaveBeenCalledWith({ error: 'Investigation not found' });
+
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-delete-direct-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            __testUtils.getHistory().set('1700000000002', makeState({ id: '1700000000002', status: 'completed', target: 'stamp-direct' }) as any);
+            fs.mkdirSync(path.join(invRoot, '2023-11-14_stamp-direct_1700000000002'), { recursive: true });
+
+            status = vi.fn().mockReturnThis();
+            json = vi.fn();
+            await handler({ params: { id: '1700000000002' } }, { status, json });
+            expect(json).toHaveBeenCalledWith({ ok: true });
+        });
+
+        it('exports and imports investigations', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-export-'));
+            const investigation = makeState({ id: '1700000000100', target: 'stamp-03', finalReport: 'Final report' });
+            const folder = path.join(invRoot, '2023-11-14_stamp-03_1700000000100');
+            fs.mkdirSync(folder, { recursive: true });
+            fs.writeFileSync(path.join(folder, 'state.json'), JSON.stringify({ ...investigation, thoughts: ['disk-thought'] }));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            __testUtils.getHistory().set(investigation.id, investigation as any);
+
+            let response = await api().get(`/api/investigations/${investigation.id}/export`);
+            expect(response.status).toBe(200);
+            expect(response.headers['content-disposition']).toContain('.json');
+            expect(response.text).toContain('disk-thought');
+
+            response = await api().post('/api/investigations/import').send({
+                id: 'original-id',
+                status: 'paused',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                target: 'stamp-04',
+                finalReport: 'Imported report',
+            });
+            expect(response.status).toBe(200);
+            expect(response.body.ok).toBe(true);
+            expect(__testUtils.getHistory().has(response.body.id)).toBe(true);
+        });
+
+        it('validates malformed investigation import payloads', async () => {
+            const stack = ((__testUtils.app as any)._router?.stack || (__testUtils.app as any).router?.stack || []) as any[];
+            const importLayer = stack.find((layer) => layer.route?.path === '/api/investigations/import' && layer.route.methods?.post);
+            expect(importLayer).toBeTruthy();
+
+            const status = vi.fn().mockReturnThis();
+            const json = vi.fn();
+            await importLayer.route.stack[0].handle({ body: 123 }, { status, json });
+            expect(status).toHaveBeenCalledWith(400);
+            expect(json).toHaveBeenCalledWith({ error: 'Request body must be a valid investigation state object' });
+
+            const response = await api().post('/api/investigations/import').send({ id: '', status: '' });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('missing required fields');
+        });
+
+        it('falls back to in-memory state when export disk reads fail', async () => {
+            const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-export-fallback-'));
+            const invRoot = path.join(tempRoot, 'not-a-directory.json');
+            fs.writeFileSync(invRoot, 'not-a-directory');
+            const investigation = makeState({ id: '1700000000101', target: 'stamp-03', finalReport: 'Memory report', thoughts: ['memory-thought'] });
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            __testUtils.getHistory().set(investigation.id, investigation as any);
+
+            const response = await api().get(`/api/investigations/${investigation.id}/export`);
+
+            expect(response.status).toBe(200);
+            expect(response.text).toContain('memory-thought');
+        });
+
+        it('returns not found when exporting a missing investigation', async () => {
+            const response = await api().get('/api/investigations/missing-export/export');
+
+            expect(response.status).toBe(404);
+            expect(response.body.error).toBe('Investigation not found');
+        });
+
+        it('exports active investigations from product-specific disk state when available', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-export-product-active-'));
+            const productInvRoot = path.join(invRoot, 'product-investigations');
+            fs.mkdirSync(productInvRoot, { recursive: true });
+
+            __testUtils.setConfig({
+                investigationsPath: invRoot,
+                products: [{ id: 'prod-export', investigationsPath: productInvRoot } as any],
+                activeProductId: 'prod-export',
+            });
+
+            const runner = makeRunner({
+                id: '1700000000102',
+                target: 'stamp-product-export',
+                finalReport: 'Memory report',
+                thoughts: ['memory-thought'],
+                productId: 'prod-export',
+            });
+            __testUtils.getRunners().set('1700000000102', runner as any);
+
+            const folder = path.join(productInvRoot, '2023-11-14_stamp-product-export_1700000000102');
+            fs.mkdirSync(folder, { recursive: true });
+            fs.writeFileSync(path.join(folder, 'state.json'), JSON.stringify({
+                ...runner.state,
+                thoughts: ['disk-thought'],
+                finalReport: 'Disk report',
+            }));
+
+            const response = await api().get('/api/investigations/1700000000102/export');
+
+            expect(response.status).toBe(200);
+            expect(response.text).toContain('disk-thought');
+            expect(response.text).toContain('Disk report');
+        });
+
+        it('keeps imported investigations in memory when disk persistence fails', async () => {
+            const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-import-fallback-'));
+            const invRoot = path.join(tempRoot, 'not-a-directory.json');
+            fs.writeFileSync(invRoot, 'not-a-directory');
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            const response = await api().post('/api/investigations/import').send({
+                id: 'original-import-fail',
+                status: 'paused',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                target: 'stamp-import',
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.body.ok).toBe(true);
+            expect(__testUtils.getHistory().has(response.body.id)).toBe(true);
+        });
+
+        it('imports investigations into product-specific directories when configured', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-import-product-'));
+            const productInvRoot = path.join(invRoot, 'product-investigations');
+            fs.mkdirSync(productInvRoot, { recursive: true });
+            __testUtils.setConfig({
+                investigationsPath: invRoot,
+                products: [{ id: 'prod-import', investigationsPath: productInvRoot } as any],
+                activeProductId: 'prod-import',
+            });
+
+            const response = await api().post('/api/investigations/import').send({
+                id: 'original-product-import',
+                status: 'paused',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                target: 'stamp-product-import',
+                productId: 'prod-import',
+            });
+
+            expect(response.status).toBe(200);
+            const createdDir = fs.readdirSync(productInvRoot).find((entry) => entry.includes(response.body.id.replace(/[^a-zA-Z0-9]/g, '')));
+            expect(createdDir).toBeTruthy();
+            expect(fs.existsSync(path.join(productInvRoot, createdDir!, 'state.json'))).toBe(true);
+        });
+
+        it('exports investigation PDFs with product metadata', async () => {
+            const renderPdfSpy = vi.spyOn(pdfRenderer, 'renderPdf').mockResolvedValue(Buffer.from('pdf-binary'));
+            __testUtils.setConfig({
+                products: [{
+                    id: 'prod-pdf',
+                    name: 'PDF Product',
+                    repoRoot: '',
+                    systemPromptPath: '',
+                    knowledgeBasePath: '',
+                    workingDirectory: '',
+                    investigationsPath: '',
+                }],
+                activeProductId: 'prod-pdf',
+            });
+            __testUtils.getHistory().set('1700000000200', makeState({
+                id: '1700000000200',
+                status: 'completed',
+                target: 'stamp/pdf',
+                finalReport: 'Final report',
+                productId: 'prod-pdf',
+                contestCount: 2,
+            }) as any);
+
+            const response = await api().get('/api/investigations/1700000000200/pdf');
+
+            expect(response.status).toBe(200);
+            expect(response.headers['content-type']).toContain('application/pdf');
+            expect(response.headers['content-disposition']).toContain('2023-11-14_stamppdf_1700000000200.pdf');
+            expect(renderPdfSpy).toHaveBeenCalledWith('Final report', expect.objectContaining({
+                id: '1700000000200',
+                productName: 'PDF Product',
+                contestCount: 2,
+            }));
+        });
+
+        it('exports investigation PDFs from active runners', async () => {
+            const renderPdfSpy = vi.spyOn(pdfRenderer, 'renderPdf').mockResolvedValue(Buffer.from('pdf-runner'));
+            const runner = makeRunner({
+                id: 'active-pdf',
+                status: 'completed',
+                target: 'stamp-live-pdf',
+                finalReport: 'Runner report',
+            });
+            __testUtils.getRunners().set('active-pdf', runner as any);
+
+            const response = await api().get('/api/investigations/active-pdf/pdf');
+
+            expect(response.status).toBe(200);
+            expect(renderPdfSpy).toHaveBeenCalledWith('Runner report', expect.objectContaining({ id: 'active-pdf' }));
+        });
+
+        it('returns 500 when PDF rendering fails', async () => {
+            vi.spyOn(pdfRenderer, 'renderPdf').mockRejectedValue(new Error('pdf failed'));
+            __testUtils.getHistory().set('1700000000201', makeState({
+                id: '1700000000201',
+                status: 'completed',
+                target: 'stamp-pdf-fail',
+                finalReport: 'Final report',
+            }) as any);
+
+            const response = await api().get('/api/investigations/1700000000201/pdf');
+
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('PDF generation failed: pdf failed');
+        });
+
+        it('runs active retrospective, proposal, and compact actions', async () => {
+            const runner = makeRunner({ id: 'active-4', status: 'completed' });
+            __testUtils.getRunners().set('active-4', runner as any);
+
+            let response = await api().post('/api/investigations/active-4/retrospect').send({ message: 'Review findings' });
+            expect(response.status).toBe(200);
+            expect(runner.runRetrospective).toHaveBeenCalledWith('Review findings');
+
+            response = await api().post('/api/investigations/active-4/retrospect/analyze').send({ reset: true });
+            expect(response.status).toBe(202);
+            expect(runner.resetRetrospectiveAnalysis).toHaveBeenCalled();
+            expect(runner.runRetrospectiveAnalysis).toHaveBeenCalled();
+
+            response = await api().patch('/api/investigations/active-4/retrospect/proposals/proposal-1').send({ status: 'approved' });
+            expect(response.status).toBe(200);
+            expect(runner.updateProposalStatus).toHaveBeenCalledWith('proposal-1', 'approved');
+
+            response = await api().post('/api/investigations/active-4/retrospect/complete').send({ completed: false });
+            expect(response.status).toBe(200);
+            expect(runner.setRetrospectCompleted).toHaveBeenCalledWith(false);
+
+            response = await api().post('/api/investigations/active-4/retrospect/abort').send({});
+            expect(response.status).toBe(200);
+            expect(runner.abortRetrospective).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/active-4/retrospect/apply').send({});
+            expect(response.status).toBe(200);
+            expect(runner.applyApprovedProposals).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/active-4/compact').send({});
+            expect(response.status).toBe(200);
+            expect(runner.summarize).toHaveBeenCalled();
+        });
+
+        it('returns retrospective route errors for invalid proposal status, abort failure, and apply failure', async () => {
+            const activeRunner = makeRunner({ id: 'active-retro-fail', status: 'completed' }, {
+                abortRetrospective: vi.fn(() => {
+                    throw new Error('abort failed');
+                }),
+            });
+            __testUtils.getRunners().set('active-retro-fail', activeRunner as any);
+            __testUtils.getHistory().set('inactive-retro-fail', makeState({ id: 'inactive-retro-fail', status: 'completed' }) as any);
+            vi.spyOn(AgentRunner.prototype as any, 'applyApprovedProposals').mockRejectedValue(new Error('apply failed'));
+
+            let response = await api().patch('/api/investigations/active-retro-fail/retrospect/proposals/p1').send({ status: 'maybe' });
+            expect(response.status).toBe(400);
+
+            response = await api().post('/api/investigations/active-retro-fail/retrospect/abort').send({});
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('abort failed');
+
+            response = await api().post('/api/investigations/inactive-retro-fail/retrospect/apply').send({});
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('apply failed');
+            expect(__testUtils.getRunners().has('inactive-retro-fail')).toBe(false);
+        });
+
+        it('covers inactive retrospective proposal, complete, and compact failure cleanup branches', async () => {
+            __testUtils.getHistory().set('inactive-proposal-miss', makeState({ id: 'inactive-proposal-miss', status: 'completed' }) as any);
+            __testUtils.getHistory().set('inactive-complete-fail', makeState({ id: 'inactive-complete-fail', status: 'completed' }) as any);
+            __testUtils.getHistory().set('inactive-compact-fail', makeState({ id: 'inactive-compact-fail', status: 'completed' }) as any);
+            __testUtils.getRunners().set('inactive-busy', undefined as any);
+
+            vi.spyOn(AgentRunner.prototype as any, 'updateProposalStatus').mockReturnValue(undefined);
+            vi.spyOn(AgentRunner.prototype as any, 'setRetrospectCompleted').mockImplementation(() => {
+                throw new Error('complete failed');
+            });
+            vi.spyOn(AgentRunner.prototype as any, 'summarize').mockRejectedValue(new Error('compact failed'));
+
+            let response = await api().patch('/api/investigations/inactive-proposal-miss/retrospect/proposals/p1').send({ status: 'approved' });
+            expect(response.status).toBe(404);
+            expect(response.body.error).toBe('Proposal not found');
+            expect(__testUtils.getRunners().has('inactive-proposal-miss')).toBe(false);
+
+            response = await api().post('/api/investigations/inactive-complete-fail/retrospect/complete').send({ completed: true });
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('complete failed');
+            expect(__testUtils.getRunners().has('inactive-complete-fail')).toBe(false);
+
+            response = await api().post('/api/investigations/inactive-busy/compact').send({});
+            expect(response.status).toBe(409);
+
+            response = await api().post('/api/investigations/inactive-compact-fail/compact').send({});
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('compact failed');
+            expect(__testUtils.getRunners().has('inactive-compact-fail')).toBe(false);
+        });
+
+        it('rehydrates inactive investigations for retrospective operations and cleans up temporary runners', async () => {
+            setFakeLlmProvider();
+            const state = makeState({ id: 'inactive-retro', status: 'completed', query: 'Review findings' });
+            __testUtils.getHistory().set(state.id, state as any);
+
+            const runRetrospectiveSpy = vi.spyOn(AgentRunner.prototype as any, 'runRetrospective').mockResolvedValue(undefined);
+            const saveArtifactsSpy = vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockResolvedValue(undefined);
+            const analyzeSpy = vi.spyOn(AgentRunner.prototype as any, 'runRetrospectiveAnalysis').mockResolvedValue(undefined);
+            const resetSpy = vi.spyOn(AgentRunner.prototype as any, 'resetRetrospectiveAnalysis').mockImplementation(() => undefined);
+            const updateProposalStatusSpy = vi.spyOn(AgentRunner.prototype as any, 'updateProposalStatus').mockReturnValue({ id: 'proposal-1', status: 'approved' });
+            const setCompletedSpy = vi.spyOn(AgentRunner.prototype as any, 'setRetrospectCompleted').mockReturnValue({ completed: true });
+            const applySpy = vi.spyOn(AgentRunner.prototype as any, 'applyApprovedProposals').mockResolvedValue({ applied: 1 });
+            const summarizeSpy = vi.spyOn(AgentRunner.prototype as any, 'summarize').mockResolvedValue(undefined);
+
+            let response = await api().post('/api/investigations/inactive-retro/retrospect').send({ message: 'Look for missing mitigations' });
+            expect(response.status).toBe(200);
+            expect(runRetrospectiveSpy).toHaveBeenCalledWith('Look for missing mitigations');
+            expect(__testUtils.getRunners().has('inactive-retro')).toBe(false);
+
+            response = await api().post('/api/investigations/inactive-retro/retrospect/analyze').send({ reset: true });
+            expect(response.status).toBe(202);
+            expect(resetSpy).toHaveBeenCalled();
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(analyzeSpy).toHaveBeenCalled();
+            expect(__testUtils.getRunners().has('inactive-retro')).toBe(false);
+
+            response = await api().patch('/api/investigations/inactive-retro/retrospect/proposals/proposal-1').send({ status: 'approved' });
+            expect(response.status).toBe(200);
+            expect(updateProposalStatusSpy).toHaveBeenCalledWith('proposal-1', 'approved');
+
+            response = await api().post('/api/investigations/inactive-retro/retrospect/complete').send({ completed: false });
+            expect(response.status).toBe(200);
+            expect(setCompletedSpy).toHaveBeenCalledWith(false);
+
+            response = await api().post('/api/investigations/inactive-retro/retrospect/apply').send({});
+            expect(response.status).toBe(200);
+            expect(applySpy).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/inactive-retro/compact').send({});
+            expect(response.status).toBe(200);
+            expect(summarizeSpy).toHaveBeenCalled();
+            expect(saveArtifactsSpy).toHaveBeenCalled();
+        });
+
+        it('covers retrospective race and missing-investigation guards', async () => {
+            setFakeLlmProvider();
+            __testUtils.getHistory().set('retro-race', makeState({ id: 'retro-race', status: 'completed' }) as any);
+            __testUtils.getRunners().set('retro-race', undefined as any);
+
+            let response = await api().post('/api/investigations/retro-race/retrospect').send({ message: 'Review race' });
+            expect(response.status).toBe(409);
+
+            response = await api().post('/api/investigations/retro-race/retrospect/analyze').send({});
+            expect(response.status).toBe(409);
+
+            response = await api().post('/api/investigations/missing-retro/retrospect').send({ message: 'Review missing' });
+            expect(response.status).toBe(404);
+
+            response = await api().post('/api/investigations/missing-retro/retrospect/analyze').send({});
+            expect(response.status).toBe(404);
+        });
+
+        it('covers retrospective error cleanup and missing-operation guards', async () => {
+            setFakeLlmProvider();
+            const retroState = makeState({ id: 'inactive-retro-error', status: 'completed' });
+            __testUtils.getHistory().set(retroState.id, retroState as any);
+
+            const retroSpy = vi.spyOn(AgentRunner.prototype as any, 'runRetrospective').mockRejectedValue(new Error('retro failed'));
+            let response = await api().post('/api/investigations/inactive-retro-error/retrospect').send({ message: 'Retry analysis' });
+            expect(response.status).toBe(500);
+            expect(retroSpy).toHaveBeenCalled();
+            expect(__testUtils.getRunners().has(retroState.id)).toBe(false);
+
+            const analyzeSpy = vi.spyOn(AgentRunner.prototype as any, 'runRetrospectiveAnalysis').mockRejectedValue(new Error('analyze failed'));
+            response = await api().post('/api/investigations/inactive-retro-error/retrospect/analyze').send({});
+            expect(response.status).toBe(202);
+            await new Promise((resolve) => setTimeout(resolve, 0));
+            expect(analyzeSpy).toHaveBeenCalled();
+            expect(__testUtils.getRunners().has(retroState.id)).toBe(false);
+
+            __testUtils.getHistory().set('proposal-race', makeState({ id: 'proposal-race', status: 'completed' }) as any);
+            __testUtils.getRunners().set('proposal-race', undefined as any);
+            response = await api().patch('/api/investigations/proposal-race/retrospect/proposals/p1').send({ status: 'approved' });
+            expect(response.status).toBe(409);
+
+            response = await api().patch('/api/investigations/missing-proposal/retrospect/proposals/p1').send({ status: 'approved' });
+            expect(response.status).toBe(404);
+
+            __testUtils.getHistory().set('complete-race', makeState({ id: 'complete-race', status: 'completed' }) as any);
+            __testUtils.getRunners().set('complete-race', undefined as any);
+            response = await api().post('/api/investigations/complete-race/retrospect/complete').send({ completed: true });
+            expect(response.status).toBe(409);
+
+            response = await api().post('/api/investigations/missing-complete/retrospect/complete').send({ completed: true });
+            expect(response.status).toBe(404);
+
+            response = await api().post('/api/investigations/missing-abort/retrospect/abort').send({});
+            expect(response.status).toBe(404);
+
+            __testUtils.getHistory().set('apply-race', makeState({ id: 'apply-race', status: 'completed' }) as any);
+            __testUtils.getRunners().set('apply-race', undefined as any);
+            response = await api().post('/api/investigations/apply-race/retrospect/apply').send({});
+            expect(response.status).toBe(409);
+
+            response = await api().post('/api/investigations/missing-apply/retrospect/apply').send({});
+            expect(response.status).toBe(404);
+
+            response = await api().post('/api/investigations/missing-compact/compact').send({});
+            expect(response.status).toBe(404);
+        });
+
+        it('covers investigation pdf guards for missing state and missing report', async () => {
+            let response = await api().get('/api/investigations/missing/pdf');
+            expect(response.status).toBe(404);
+
+            __testUtils.getHistory().set('pdf-1', makeState({ id: 'pdf-1', status: 'completed', finalReport: undefined }) as any);
+            response = await api().get('/api/investigations/pdf-1/pdf');
+            expect(response.status).toBe(400);
+        });
+
+        it('reports and restarts active MCP connections', async () => {
+            const runner = makeRunner({ id: 'active-5', status: 'running' });
+            __testUtils.getRunners().set('active-5', runner as any);
+            __testUtils.getHistory().set('finished-5', makeState({ id: 'finished-5' }) as any);
+
+            let response = await api().get('/api/investigations/active-5/mcp/status');
+            expect(response.status).toBe(200);
+            expect(response.body.connected).toBe(true);
+
+            response = await api().get('/api/investigations/finished-5/mcp/status');
+            expect(response.status).toBe(200);
+            expect(response.body.connected).toBe(false);
+
+            response = await api().post('/api/investigations/active-5/mcp/restart').send({});
+            expect(response.status).toBe(200);
+            expect(runner.toolManager.restart).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/finished-5/mcp/restart').send({});
+            expect(response.status).toBe(400);
+        });
+
+        it('returns 500 when MCP restart fails', async () => {
+            const runner = makeRunner({ id: 'active-5-fail', status: 'running' });
+            runner.toolManager.restart = vi.fn().mockRejectedValue(new Error('restart failed'));
+            __testUtils.getRunners().set('active-5-fail', runner as any);
+
+            const response = await api().post('/api/investigations/active-5-fail/mcp/restart').send({});
+
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('restart failed');
+        });
+
+        it('pauses runners during server restart without exiting the test process', async () => {
+            vi.useFakeTimers();
+            try {
+                const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as any);
+                const runner = makeRunner({ id: 'active-6', status: 'running' });
+                __testUtils.getRunners().set('active-6', runner as any);
+
+                const response = await api().post('/api/server/restart').send({});
+                expect(response.status).toBe(200);
+                expect(runner.pause).toHaveBeenCalled();
+
+                await vi.advanceTimersByTimeAsync(600);
+                expect(exitSpy).toHaveBeenCalledWith(0);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('continues restart when a runner pause throws', async () => {
+            vi.useFakeTimers();
+            try {
+                const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as any);
+                const runner = makeRunner({ id: 'active-7', status: 'running' }, {
+                    pause: vi.fn(() => {
+                        throw new Error('pause failed');
+                    }),
+                });
+                __testUtils.getRunners().set('active-7', runner as any);
+
+                const response = await api().post('/api/server/restart').send({});
+
+                expect(response.status).toBe(200);
+                await vi.advanceTimersByTimeAsync(600);
+                expect(exitSpy).toHaveBeenCalledWith(0);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+    });
+
+    describe('incident, schedule, and query-bank routes', () => {
+        it('streams incident reads for available providers and handles provider errors', async () => {
+            __testUtils.setActiveIncidentProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                isAvailable: vi.fn().mockResolvedValue(true),
+                fetchIncident: vi.fn(async (_id: string, onProgress: (event: any) => void) => {
+                    onProgress({ type: 'progress', message: 'reading' });
+                    return {
+                        id: 'INC-1',
+                        title: 'Incident Title',
+                        severity: '2',
+                        status: 'active',
+                        target: 'stamp-01',
+                        timeRange: 'ago(1h)',
+                        content: 'Incident details',
+                    };
+                }),
+            } as any);
+
+            let response = await api().post('/api/incidents/INC-1/read').send({});
+            expect(response.status).toBe(200);
+            expect(response.text).toContain('Incident Title');
+            expect(response.text).toContain('reading');
+
+            __testUtils.setActiveIncidentProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                isAvailable: vi.fn().mockResolvedValue(false),
+                fetchIncident: vi.fn(),
+            } as any);
+            response = await api().post('/api/incidents/INC-2/read').send({});
+            expect(response.status).toBe(400);
+
+            __testUtils.setActiveIncidentProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                isAvailable: vi.fn().mockResolvedValue(true),
+                fetchIncident: vi.fn().mockRejectedValue(new Error('incident fetch failed')),
+            } as any);
+            response = await api().post('/api/incidents/INC-3/read').send({});
+            expect(response.status).toBe(200);
+            expect(response.text).toContain('incident fetch failed');
+        });
+
+        it('maps omitted incident fields to defaults in the streamed output', async () => {
+            __testUtils.setActiveIncidentProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                isAvailable: vi.fn().mockResolvedValue(true),
+                fetchIncident: vi.fn().mockResolvedValue({
+                    id: 'INC-42',
+                    title: 'Minimal incident',
+                }),
+            } as any);
+
+            const response = await api().post('/api/incidents/INC-42/read').send({});
+
+            expect(response.status).toBe(200);
+            expect(response.text).toContain('Minimal incident');
+            expect(response.text).toContain('"severity":"Unknown"');
+            expect(response.text).toContain('"status":""');
+        });
+
+        it('returns incident provider availability when an active provider exists', async () => {
+            __testUtils.setConfig({ incidentProvider: { type: 'fake' } as any });
+            __testUtils.setActiveIncidentProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                isAvailable: vi.fn().mockResolvedValue(true),
+                configure: vi.fn(),
+                fetchIncident: vi.fn(),
+            } as any);
+
+            const response = await api().get('/api/incidents/status');
+
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual({ available: true, providerType: 'fake' });
+        });
+
+        it('streams incident read fallback errors without an explicit message', async () => {
+            __testUtils.setActiveIncidentProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                isAvailable: vi.fn().mockResolvedValue(true),
+                fetchIncident: vi.fn().mockRejectedValue(''),
+            } as any);
+
+            const response = await api().post('/api/incidents/INC-EMPTY/read').send({});
+
+            expect(response.status).toBe(200);
+            expect(response.text).toContain('Failed to read incident');
+        });
+
+        it('serves full schedule and query-bank CRUD endpoints', async () => {
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-1', enabled: true }]),
+                create: vi.fn().mockImplementation((payload: any) => ({ id: 'sched-2', ...payload })),
+                update: vi.fn().mockImplementation((id: string, payload: any) => ({ id, ...payload })),
+                delete: vi.fn().mockReturnValue(true),
+                get: vi.fn().mockReturnValue({ id: 'sched-1' }),
+                getHistory: vi.fn().mockReturnValue([{ investigationId: 'hist-1', verdict: 'error' }]),
+            };
+            const scheduler = new EventEmitter() as EventEmitter & Record<string, any>;
+            scheduler.isRunning = vi.fn().mockReturnValue(false);
+            scheduler.start = vi.fn();
+            scheduler.stop = vi.fn();
+            scheduler.runNow = vi.fn().mockResolvedValue(undefined);
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler(scheduler as any);
+
+            __testUtils.getHistory().set('hist-1', makeState({ id: 'hist-1', status: 'paused' }) as any);
+
+            let response = await api().get('/api/schedules');
+            expect(response.status).toBe(200);
+            expect(scheduleStore.getAll).toHaveBeenCalled();
+
+            response = await api().post('/api/schedules').send({ name: 'Nightly', target: 'stamp', query: 'Check health' });
+            expect(response.status).toBe(200);
+            expect(scheduleStore.create).toHaveBeenCalled();
+            expect(scheduler.start).toHaveBeenCalled();
+
+            response = await api().put('/api/schedules/sched-1').send({ enabled: false });
+            expect(response.status).toBe(200);
+
+            response = await api().post('/api/schedules/sched-1/run-now').send({});
+            expect(response.status).toBe(200);
+            expect(scheduler.runNow).toHaveBeenCalledWith('sched-1');
+
+            response = await api().post('/api/schedules/sched-1/enable').send({});
+            expect(response.status).toBe(200);
+
+            response = await api().post('/api/schedules/sched-1/disable').send({});
+            expect(response.status).toBe(200);
+
+            response = await api().get('/api/schedules/sched-1/history');
+            expect(response.status).toBe(200);
+            expect(response.body[0].verdict).toBe('paused');
+
+            response = await api().post('/api/scheduler/start').send({});
+            expect(response.status).toBe(200);
+
+            response = await api().post('/api/scheduler/stop').send({});
+            expect(response.status).toBe(200);
+
+            response = await api().delete('/api/schedules/sched-1');
+            expect(response.status).toBe(200);
+            expect(scheduleStore.delete).toHaveBeenCalledWith('sched-1');
+
+            const queryBankStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'query-1', name: 'Saved Query' }]),
+                create: vi.fn().mockImplementation((payload: any) => ({ id: 'query-2', ...payload })),
+                update: vi.fn().mockImplementation((id: string, payload: any) => ({ id, ...payload })),
+                delete: vi.fn().mockReturnValue(true),
+            };
+            __testUtils.setQueryBankStore(queryBankStore as any);
+            expect(__testUtils.getQueryBankStore()).toEqual(queryBankStore);
+
+            response = await api().get('/api/query-bank');
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveLength(1);
+
+            response = await api().post('/api/query-bank').send({ name: 'Saved Query', query: 'StormEvents | take 1' });
+            expect(response.status).toBe(200);
+            expect(queryBankStore.create).toHaveBeenCalled();
+
+            response = await api().put('/api/query-bank/query-1').send({ name: 'Updated Query' });
+            expect(response.status).toBe(200);
+
+            response = await api().delete('/api/query-bank/query-1');
+            expect(response.status).toBe(200);
+            expect(queryBankStore.delete).toHaveBeenCalledWith('query-1');
+        });
+
+        it('returns the inactive-runner MCP restart guidance and lazy-init schedule failure', async () => {
+            const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-init-fail-'));
+            const invPath = path.join(tempRoot, 'not-a-dir');
+            fs.writeFileSync(invPath, 'file-blocker');
+            __testUtils.setConfig({ investigationsPath: invPath, products: [], activeProductId: '' });
+
+            __testUtils.getHistory().set('inactive-mcp', makeState({ id: 'inactive-mcp', status: 'completed' }) as any);
+
+            let response = await api().post('/api/investigations/inactive-mcp/mcp/restart').send({});
+            expect(response.status).toBe(400);
+            expect(response.body.error).toContain('finished/inactive');
+
+            __testUtils.setScheduleStore(null);
+            __testUtils.setScheduler(null);
+            response = await api().post('/api/schedules').send({
+                name: 'Broken init',
+                target: 'stamp-broken',
+                query: 'Check health',
+            });
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('Scheduler not initialized');
+
+            response = await api().post('/api/investigations/missing-mcp/mcp/restart').send({});
+            expect(response.status).toBe(404);
+            expect(response.body.error).toBe('Runner not found');
+        });
+
+        it('lazily initializes the scheduler and validates schedule and query-bank errors', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-lazy-scheduler-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            let response = await api().post('/api/schedules').send({ name: 'Missing target' });
+            expect(response.status).toBe(400);
+
+            response = await api().post('/api/schedules').send({
+                name: 'Lazy Init',
+                target: 'stamp-lazy',
+                query: 'Check health',
+                enabled: false,
+            });
+            expect(response.status).toBe(200);
+
+            response = await api().post('/api/schedules/missing/run-now').send({});
+            expect(response.status).toBe(400);
+
+            response = await api().post('/api/query-bank').send({});
+            expect(response.status).toBe(400);
+
+            response = await api().put('/api/query-bank/missing').send({ name: 'Still missing' });
+            expect(response.status).toBe(404);
+
+            response = await api().delete('/api/query-bank/missing');
+            expect(response.status).toBe(404);
+
+            await api().post('/api/scheduler/stop').send({});
+        });
+
+        it('returns explicit initialization errors for scheduler and query-bank mutation endpoints', async () => {
+            __testUtils.setScheduleStore(null);
+            __testUtils.setScheduler(null);
+            __testUtils.setQueryBankStore(null);
+
+            let response = await api().post('/api/schedules/missing/run-now').send({});
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('Scheduler not initialized');
+
+            response = await api().post('/api/schedules/missing/enable').send({});
+            expect(response.status).toBe(500);
+
+            response = await api().post('/api/schedules/missing/disable').send({});
+            expect(response.status).toBe(500);
+
+            response = await api().post('/api/scheduler/start').send({});
+            expect(response.status).toBe(500);
+
+            response = await api().post('/api/scheduler/stop').send({});
+            expect(response.status).toBe(500);
+
+            response = await api().post('/api/query-bank').send({ name: 'Missing store' });
+            expect(response.status).toBe(500);
+            expect(response.body.error).toBe('Query bank not initialized');
+
+            response = await api().put('/api/query-bank/missing').send({ name: 'Missing store' });
+            expect(response.status).toBe(500);
+
+            response = await api().delete('/api/query-bank/missing');
+            expect(response.status).toBe(500);
+        });
+
+        it('covers schedule update, enable-disable, history, status, and me fallbacks', async () => {
+            let response = await api().put('/api/schedules/missing').send({ enabled: true });
+            expect(response.status).toBe(500);
+
+            response = await api().delete('/api/schedules/missing');
+            expect(response.status).toBe(500);
+
+            const scheduleStore = {
+                update: vi.fn().mockReturnValue(undefined),
+                getHistory: vi.fn().mockReturnValue([]),
+                get: vi.fn().mockReturnValue(undefined),
+                delete: vi.fn().mockReturnValue(false),
+                getAll: vi.fn().mockReturnValue([]),
+            };
+            const scheduler = {
+                isRunning: vi.fn().mockReturnValue(true),
+                start: vi.fn(),
+                stop: vi.fn(),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler(scheduler as any);
+
+            response = await api().put('/api/schedules/missing').send({ enabled: true });
+            expect(response.status).toBe(404);
+
+            response = await api().post('/api/schedules/missing/enable').send({});
+            expect(response.status).toBe(404);
+
+            response = await api().post('/api/schedules/missing/disable').send({});
+            expect(response.status).toBe(404);
+
+            response = await api().get('/api/schedules/missing/history');
+            expect(response.status).toBe(200);
+            expect(scheduleStore.getHistory).toHaveBeenCalledWith('missing', undefined);
+
+            response = await api().get('/api/scheduler/status');
+            expect(response.status).toBe(200);
+            expect(response.body.running).toBe(true);
+
+            response = await api().get('/api/schedules/missing/history').query({ maxEntries: '2' });
+            expect(response.status).toBe(200);
+            expect(scheduleStore.getHistory).toHaveBeenCalledWith('missing', 2);
+        });
+
+        it('covers schedule settlement and deletion branches for product-specific investigations', async () => {
+            const productInvRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-product-delete-'));
+            __testUtils.setConfig({
+                investigationsPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-global-')),
+                products: [{ id: 'prod-schedule', investigationsPath: productInvRoot } as any],
+                activeProductId: 'prod-schedule',
+            });
+
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([
+                    { id: 'sched-paused', activeInvestigationId: undefined, lastVerdict: 'error', lastInvestigationId: 'paused-history' },
+                    { id: 'sched-complete', activeInvestigationId: 'completed-history', lastVerdict: undefined },
+                ]),
+                update: vi.fn(),
+                get: vi.fn().mockReturnValue({ id: 'sched-prod-delete', activeInvestigationId: 'runner-prod-delete' }),
+                delete: vi.fn().mockReturnValue(true),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            __testUtils.getHistory().set('paused-history', makeState({ id: 'paused-history', status: 'paused', verdict: 'warning' as any }) as any);
+            __testUtils.getHistory().set('completed-history', makeState({ id: 'completed-history', status: 'completed', verdict: '' as any }) as any);
+            __testUtils.getHistory().set('runner-prod-delete', makeState({ id: 'runner-prod-delete', status: 'completed', scheduleId: 'sched-prod-delete', productId: 'prod-schedule' }) as any);
+
+            let response = await api().get('/api/schedules');
+            expect(response.status).toBe(200);
+            expect(scheduleStore.update).toHaveBeenCalledWith('sched-paused', { lastVerdict: 'warning' });
+            expect(scheduleStore.update).toHaveBeenCalledWith('sched-complete', { activeInvestigationId: undefined, lastVerdict: 'error' });
+
+            const productFolder = path.join(productInvRoot, '2024-01-01_stamp_runnerproddelete');
+            fs.mkdirSync(productFolder, { recursive: true });
+            response = await api().delete('/api/schedules/sched-prod-delete');
+            expect(response.status).toBe(200);
+        });
+
+        it('falls back to a paused verdict when settling legacy paused schedules without a verdict', async () => {
+            const update = vi.fn();
+            __testUtils.getHistory().set('paused-no-verdict', makeState({ id: 'paused-no-verdict', status: 'paused', verdict: undefined }) as any);
+            __testUtils.setScheduleStore({
+                getAll: vi.fn().mockReturnValue([
+                    { id: 'legacy-paused', enabled: true, lastVerdict: 'error', lastInvestigationId: 'paused-no-verdict' },
+                ]),
+                update,
+            } as any);
+
+            const response = await api().get('/api/schedules');
+
+            expect(response.status).toBe(200);
+            expect(update).toHaveBeenCalledWith('legacy-paused', { lastVerdict: 'paused' });
+        });
+
+        it('covers scheduler history initialization errors and global error string fallbacks', async () => {
+            __testUtils.setScheduleStore(null);
+
+            let response = await api().get('/api/schedules/missing/history');
+            expect(response.status).toBe(500);
+
+            const stack = ((__testUtils.app as any)._router?.stack || (__testUtils.app as any).router?.stack || []) as any[];
+            const errorLayer = stack.find((layer) =>
+                typeof layer.handle === 'function'
+                && layer.handle.length === 4
+                && String(layer.handle).includes('Unhandled error on')
+            );
+            const status = vi.fn().mockReturnThis();
+            const json = vi.fn();
+            errorLayer.handle('plain failure', { method: 'GET', url: '/plain-failure' }, { headersSent: false, status, json }, vi.fn());
+            expect(status).toHaveBeenCalledWith(500);
+            expect(json).toHaveBeenCalledWith({ error: 'Internal server error', details: 'plain failure' });
+        });
+
+        it('deletes schedules even when their tracked investigation state is missing entirely', async () => {
+            __testUtils.setConfig({ investigationsPath: fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-missing-state-')), products: [], activeProductId: '' });
+            __testUtils.setScheduleStore({
+                get: vi.fn().mockReturnValue({ id: 'sched-missing-state', activeInvestigationId: 'missing-investigation' }),
+                delete: vi.fn().mockReturnValue(true),
+            } as any);
+
+            const response = await api().delete('/api/schedules/sched-missing-state');
+
+            expect(response.status).toBe(200);
+            expect(response.body.deletedInvestigations).toBe(1);
+        });
+
+        it('deletes schedules together with linked history and active investigations', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-delete-'));
+            const historyDir = path.join(invRoot, '2024-01-01_stamp-history_history1');
+            const runnerDir = path.join(invRoot, '2024-01-01_stamp-runner_runner1');
+            fs.mkdirSync(historyDir, { recursive: true });
+            fs.mkdirSync(runnerDir, { recursive: true });
+            fs.writeFileSync(path.join(historyDir, 'state.json'), JSON.stringify(makeState({ id: 'history1', scheduleId: 'sched-delete' })));
+            fs.writeFileSync(path.join(runnerDir, 'state.json'), JSON.stringify(makeState({ id: 'runner1', scheduleId: 'sched-delete' })));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            const scheduleStore = {
+                get: vi.fn().mockReturnValue({ id: 'sched-delete', activeInvestigationId: 'runner1' }),
+                delete: vi.fn().mockReturnValue(true),
+                getAll: vi.fn().mockReturnValue([]),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+
+            __testUtils.getHistory().set('history1', makeState({ id: 'history1', scheduleId: 'sched-delete' }) as any);
+            const activeRunner = makeRunner({ id: 'runner1', status: 'running', scheduleId: 'sched-delete' });
+            __testUtils.getRunners().set('runner1', activeRunner as any);
+
+            const response = await api().delete('/api/schedules/sched-delete');
+
+            expect(response.status).toBe(200);
+            expect(response.body.deletedInvestigations).toBe(2);
+            expect(activeRunner.abort).toHaveBeenCalled();
+            expect(scheduleStore.delete).toHaveBeenCalledWith('sched-delete');
+            expect(__testUtils.getHistory().has('history1')).toBe(false);
+            expect(__testUtils.getHistory().has('runner1')).toBe(false);
+        });
+
+        it('covers schedule deletion fallback branches and missing schedules', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-delete-edge-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const throwingRunner = makeRunner({ id: 'runner-edge', status: 'running', scheduleId: 'sched-edge' }, {
+                abort: vi.fn(() => {
+                    throw new Error('abort exploded');
+                }),
+            });
+            __testUtils.getRunners().set('runner-edge', throwingRunner as any);
+            __testUtils.getHistory().set('history-edge', makeState({ id: 'history-edge', scheduleId: 'sched-edge' }) as any);
+            __testUtils.getHistory().set('runner-edge', makeState({ id: 'runner-edge', scheduleId: 'sched-edge' }) as any);
+
+            __testUtils.setScheduleStore({
+                get: vi.fn().mockReturnValue({ id: 'sched-edge', activeInvestigationId: 'runner-edge' }),
+                delete: vi.fn().mockReturnValue(true),
+            } as any);
+
+            let response = await api().delete('/api/schedules/sched-edge');
+            expect(response.status).toBe(200);
+            expect(warnSpy).toHaveBeenCalled();
+            expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[Delete Schedule] Failed to abort investigation runner-edge:'), 'abort exploded');
+
+            __testUtils.setScheduleStore({
+                get: vi.fn().mockReturnValue(undefined),
+                delete: vi.fn().mockReturnValue(false),
+            } as any);
+
+            response = await api().delete('/api/schedules/missing-schedule');
+            expect(response.status).toBe(404);
+        });
+
+        it('uses product-specific investigation paths and tolerates unlink failures during schedule deletion', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-delete-product-'));
+            const productInvRoot = path.join(invRoot, 'product-investigations');
+            fs.mkdirSync(productInvRoot, { recursive: true });
+            fs.mkdirSync(path.join(productInvRoot, 'product-edge.json'), { recursive: true });
+
+            __testUtils.setConfig({
+                investigationsPath: invRoot,
+                products: [{ id: 'prod-edge', investigationsPath: productInvRoot } as any],
+                activeProductId: 'prod-edge',
+            });
+            __testUtils.getHistory().set('product-edge', makeState({ id: 'product-edge', scheduleId: 'sched-product-edge', productId: 'prod-edge' }) as any);
+            __testUtils.setScheduleStore({
+                get: vi.fn().mockReturnValue({ id: 'sched-product-edge' }),
+                delete: vi.fn().mockReturnValue(true),
+            } as any);
+
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            const response = await api().delete('/api/schedules/sched-product-edge');
+
+            expect(response.status).toBe(200);
+            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[Delete Schedule] No directory found ending with _productedge'));
+        });
+
+        it('logs product-path directory deletion failures during schedule cleanup', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-delete-product-fail-'));
+            const brokenProductPath = path.join(invRoot, 'broken-product-path.txt');
+            fs.writeFileSync(brokenProductPath, 'not-a-directory');
+
+            __testUtils.setConfig({
+                investigationsPath: invRoot,
+                products: [{ id: 'prod-broken', investigationsPath: brokenProductPath } as any],
+                activeProductId: 'prod-broken',
+            });
+            __testUtils.getHistory().set('product-broken', makeState({ id: 'product-broken', scheduleId: 'sched-product-broken', productId: 'prod-broken' }) as any);
+            __testUtils.setScheduleStore({
+                get: vi.fn().mockReturnValue({ id: 'sched-product-broken' }),
+                delete: vi.fn().mockReturnValue(true),
+            } as any);
+
+            const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            const response = await api().delete('/api/schedules/sched-product-broken');
+
+            expect(response.status).toBe(200);
+            expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('[Delete Schedule] Failed to delete investigation directory for product-broken:'), expect.any(String));
+        });
+
+        it('deletes scheduled history from the global path when product ids no longer resolve', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-history-fallback-'));
+            const historyDir = path.join(invRoot, '2024-01-01_stamp-history_ghostschedule');
+            fs.mkdirSync(historyDir, { recursive: true });
+            __testUtils.setConfig({ investigationsPath: invRoot, products: undefined as any, activeProductId: '' });
+            __testUtils.getHistory().set('ghost-schedule', makeState({
+                id: 'ghost-schedule',
+                scheduleId: 'sched-history-fallback',
+                productId: 'ghost-product',
+                status: 'completed',
+            }) as any);
+            __testUtils.setScheduleStore({
+                get: vi.fn().mockReturnValue({ id: 'sched-history-fallback' }),
+                delete: vi.fn().mockReturnValue(true),
+            } as any);
+
+            const response = await api().delete('/api/schedules/sched-history-fallback');
+
+            expect(response.status).toBe(200);
+            expect(fs.existsSync(historyDir)).toBe(false);
+        });
+
+        it('deletes scheduled investigations by falling back to runner state and the global path when the product is missing', async () => {
+            const globalInvRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-runner-fallback-'));
+            const fallbackDir = path.join(globalInvRoot, '2024-01-01_stamp_runnerstateonly');
+            fs.mkdirSync(fallbackDir, { recursive: true });
+
+            __testUtils.setConfig({
+                investigationsPath: globalInvRoot,
+                products: [],
+                activeProductId: '',
+            });
+
+            const runnerOnly = makeRunner({ id: 'runner-state-only', status: 'running', scheduleId: 'sched-runner-fallback', productId: 'missing-product' }, {
+                state: makeState({ id: 'runner-state-only', status: 'running', scheduleId: 'sched-runner-fallback', productId: 'missing-product' }),
+            });
+            __testUtils.getRunners().set('runner-state-only', runnerOnly as any);
+            __testUtils.setScheduleStore({
+                get: vi.fn().mockReturnValue({ id: 'sched-runner-fallback', activeInvestigationId: 'runner-state-only' }),
+                delete: vi.fn().mockReturnValue(true),
+            } as any);
+
+            const response = await api().delete('/api/schedules/sched-runner-fallback');
+
+            expect(response.status).toBe(200);
+            expect(fs.existsSync(fallbackDir)).toBe(false);
+            expect(__testUtils.getHistory().has('runner-state-only')).toBe(false);
+        });
+
+        it('auto-settles stale and terminal schedules when listing schedules', async () => {
+            const update = vi.fn();
+            __testUtils.getHistory().set('paused-history', makeState({ id: 'paused-history', status: 'paused', verdict: 'paused' }) as any);
+            __testUtils.getHistory().set('completed-history', makeState({ id: 'completed-history', status: 'completed', verdict: 'healthy' }) as any);
+
+            __testUtils.setScheduleStore({
+                getAll: vi.fn().mockReturnValue([
+                    { id: 'legacy', enabled: true, lastVerdict: 'error', lastInvestigationId: 'paused-history' },
+                    { id: 'stale', enabled: true, activeInvestigationId: 'missing-history', lastVerdict: undefined },
+                    { id: 'terminal', enabled: true, activeInvestigationId: 'completed-history', lastVerdict: undefined },
+                ]),
+                update,
+            } as any);
+
+            const response = await api().get('/api/schedules');
+
+            expect(response.status).toBe(200);
+            expect(update).toHaveBeenCalledWith('legacy', { lastVerdict: 'paused' });
+            expect(update).toHaveBeenCalledWith('stale', { activeInvestigationId: undefined, lastVerdict: 'error' });
+            expect(update).toHaveBeenCalledWith('terminal', { activeInvestigationId: undefined, lastVerdict: 'healthy' });
+        });
+
+        it('settles paused schedules from active runners with a paused verdict', async () => {
+            const update = vi.fn();
+            __testUtils.setScheduleStore({
+                getAll: vi.fn().mockReturnValue([
+                    { id: 'runner-paused', enabled: true, activeInvestigationId: 'runner-paused-id', lastVerdict: undefined },
+                ]),
+                update,
+            } as any);
+            __testUtils.getRunners().set('runner-paused-id', makeRunner({ id: 'runner-paused-id', status: 'paused', verdict: undefined }) as any);
+
+            const response = await api().get('/api/schedules');
+
+            expect(response.status).toBe(200);
+            expect(update).toHaveBeenCalledWith('runner-paused', { activeInvestigationId: undefined, lastVerdict: 'paused' });
+        });
+
+        it('uses the real scheduler settlement callback and broadcasts schedule updates', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            initScheduler();
+
+            const realStore = __testUtils.getScheduleStore();
+            const realScheduler = __testUtils.getScheduler();
+            expect(realStore).toBeTruthy();
+            expect(realScheduler).toBeTruthy();
+
+            const wsClient = { readyState: 1, send: vi.fn() };
+            __testUtils.clients.set('schedules', new Set([wsClient as any]));
+
+            const schedule = realStore!.create({
+                name: 'Real Scheduler',
+                enabled: true,
+                target: 'stamp-real',
+                query: 'Check status',
+                intervalMinutes: 15,
+                autoEscalate: false,
+                activeInvestigationId: 'real-history',
+                lastInvestigationId: 'real-history',
+                nextRunAt: new Date(Date.now() + 60_000).toISOString(),
+            });
+            __testUtils.getHistory().set('real-history', makeState({ id: 'real-history', status: 'completed', verdict: 'healthy', finalReport: 'All good' }) as any);
+
+            await (realScheduler as any).tick();
+
+            const updated = realStore!.get(schedule.id);
+            expect(updated?.activeInvestigationId).toBeUndefined();
+            expect(updated?.lastVerdict).toBe('healthy');
+            expect(wsClient.send).toHaveBeenCalledWith(expect.stringContaining('schedule-update'));
+        });
+
+        it('leaves scheduled investigations active when the scheduler callback cannot find their state', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-missing-state-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            initScheduler();
+
+            const realStore = __testUtils.getScheduleStore();
+            const realScheduler = __testUtils.getScheduler();
+            expect(realStore).toBeTruthy();
+            expect(realScheduler).toBeTruthy();
+
+            const schedule = realStore!.create({
+                name: 'Missing State Scheduler',
+                enabled: true,
+                target: 'stamp-missing-state',
+                query: 'Still running',
+                intervalMinutes: 15,
+                activeInvestigationId: 'missing-state-id',
+            });
+
+            await (realScheduler as any).tick();
+
+            expect(realStore!.get(schedule.id)?.activeInvestigationId).toBe('missing-state-id');
+        });
+
+        it('covers real scheduler execution adapters and auto-starts when enabled schedules exist on disk', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-run-'));
+            const schedulesDir = path.join(invRoot, 'schedules');
+            fs.mkdirSync(schedulesDir, { recursive: true });
+            fs.writeFileSync(path.join(schedulesDir, 'schedules.json'), JSON.stringify([
+                {
+                    id: 'enabled-from-disk',
+                    name: 'Enabled From Disk',
+                    enabled: true,
+                    target: 'stamp-enabled',
+                    query: 'Check from disk',
+                    intervalMinutes: 15,
+                    createdAt: new Date().toISOString(),
+                },
+            ]));
+
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            setFakeLlmProvider();
+            vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+
+            initScheduler();
+
+            const realStore = __testUtils.getScheduleStore();
+            const realScheduler = __testUtils.getScheduler() as any;
+            expect(realScheduler.isRunning()).toBe(true);
+
+            const created = realStore!.create({
+                name: 'Run Now',
+                enabled: true,
+                target: 'stamp-run-now',
+                query: 'Check health',
+                intervalMinutes: 15,
+                autoEscalate: false,
+            });
+
+            await realScheduler.runNow(created.id);
+
+            const startedSchedule = realStore!.get(created.id)!;
+            expect(startedSchedule.activeInvestigationId).toBeTruthy();
+
+            __testUtils.getRunners().delete(startedSchedule.activeInvestigationId!);
+            __testUtils.getHistory().set(startedSchedule.activeInvestigationId!, makeState({
+                id: startedSchedule.activeInvestigationId!,
+                status: 'completed',
+                verdict: 'healthy',
+                finalReport: 'Settled from history',
+            }) as any);
+
+            await realScheduler.tick();
+
+            const settledSchedule = realStore!.get(created.id)!;
+            expect(settledSchedule.activeInvestigationId).toBeUndefined();
+            expect(settledSchedule.lastVerdict).toBe('healthy');
+
+            realScheduler.stop();
+        });
+
+        it('settles a scheduled investigation found in the runners map', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-runners-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            setFakeLlmProvider();
+            vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+
+            initScheduler();
+
+            const realStore = __testUtils.getScheduleStore();
+            const realScheduler = __testUtils.getScheduler() as any;
+
+            const created = realStore!.create({
+                name: 'Runner Settle',
+                enabled: true,
+                target: 'stamp-runner',
+                query: 'Check health',
+                intervalMinutes: 15,
+            });
+
+            await realScheduler.runNow(created.id);
+
+            const activeId = realStore!.get(created.id)!.activeInvestigationId!;
+            // Keep the runner in the map but give it a completed state
+            const runner = __testUtils.getRunners().get(activeId) as any;
+            runner.state = makeState({ id: activeId, status: 'completed', verdict: 'unhealthy', finalReport: 'Found in runners' });
+
+            await realScheduler.tick();
+
+            const settled = realStore!.get(created.id)!;
+            expect(settled.activeInvestigationId).toBeUndefined();
+            expect(settled.lastVerdict).toBe('unhealthy');
+
+            realScheduler.stop();
+        });
+    });
+});

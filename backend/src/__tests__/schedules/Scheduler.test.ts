@@ -175,16 +175,15 @@ describe('Scheduler', () => {
             expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({ lastVerdict: 'error' }));
         });
 
-        it('sets verdict to unknown when investigation is paused with no report', async () => {
+        it('sets verdict to paused when investigation is paused with no report', async () => {
             store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
             getResult.mockReturnValue({ status: 'paused', verdict: undefined });
 
             scheduler.start();
             await vi.advanceTimersByTimeAsync(0);
 
-            // inferVerdictFromReport(undefined) returns 'unknown', which is truthy,
-            // so `verdict || 'paused'` keeps 'unknown'
-            expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({ lastVerdict: 'unknown' }));
+            // No meaningful verdict → use 'paused' as the fallback for paused investigations
+            expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({ lastVerdict: 'paused' }));
         });
 
         it('sets verdict to completed for non-health-check completion', async () => {
@@ -248,6 +247,59 @@ describe('Scheduler', () => {
             expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({
                 activeEscalationId: undefined,
             }));
+        });
+
+        it('skips settlement when investigation result is still running (non-terminal)', async () => {
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
+            getResult.mockReturnValue({ status: 'running' }); // non-terminal
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(store.appendHistory).not.toHaveBeenCalled();
+            expect(store.update).not.toHaveBeenCalledWith('1', expect.objectContaining({ activeInvestigationId: undefined }));
+        });
+
+        it('keeps pre-existing health verdict when investigation is paused', async () => {
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
+            getResult.mockReturnValue({ status: 'paused', verdict: 'warning' }); // has explicit verdict
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({ lastVerdict: 'warning' }));
+        });
+
+        it('skips escalation settlement when escalation result is not found', async () => {
+            store.getAll.mockReturnValue([makeSchedule({ activeEscalationId: 'esc-1' })]);
+            getResult.mockReturnValue(undefined); // escalation not found yet
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(store.update).not.toHaveBeenCalledWith('1', expect.objectContaining({ activeEscalationId: undefined }));
+        });
+
+        it('skips escalation settlement when escalation is still running (non-terminal)', async () => {
+            store.getAll.mockReturnValue([makeSchedule({ activeEscalationId: 'esc-1' })]);
+            getResult.mockReturnValue({ status: 'running' }); // still in progress
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(store.update).not.toHaveBeenCalledWith('1', expect.objectContaining({ activeEscalationId: undefined }));
+        });
+
+        it('settleInvestigation returns early when schedule has no activeInvestigationId', async () => {
+            // Direct invocation of private method — ensures the guard branch is covered
+            await (scheduler as any).settleInvestigation(makeSchedule()); // no activeInvestigationId
+            expect(getResult).not.toHaveBeenCalled();
+        });
+
+        it('settleEscalation returns early when schedule has no activeEscalationId', async () => {
+            // Direct invocation of private method — ensures the guard branch is covered
+            await (scheduler as any).settleEscalation(makeSchedule()); // no activeEscalationId
+            expect(getResult).not.toHaveBeenCalled();
         });
     });
 

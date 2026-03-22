@@ -156,6 +156,18 @@ describe('CopilotClient', () => {
             expect(fs.unlinkSync).toHaveBeenCalled();
             consoleSpy.mockRestore();
         });
+
+        it('swallows errors when unlinkSync throws during 401 cleanup', async () => {
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            (axios.post as any).mockResolvedValueOnce({ data: { access_token: 'tok' } });
+            await client.checkToken('dc');
+
+            (axios.get as any).mockRejectedValueOnce({ response: { status: 401 } });
+            (fs.unlinkSync as any).mockImplementationOnce(() => { throw new Error('permission denied'); });
+            // Should still throw the outer "Failed to get Copilot token" error, not the unlinkSync error
+            await expect(client.getCopilotToken()).rejects.toThrow('Failed to get Copilot token');
+            consoleSpy.mockRestore();
+        });
     });
 
     describe('listModels', () => {

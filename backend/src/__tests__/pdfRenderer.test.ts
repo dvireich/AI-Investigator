@@ -150,6 +150,21 @@ describe('pdfRenderer', () => {
             const html = mockPage.setContent.mock.calls[0][0] as string;
             expect(html).toContain('language-text');
         });
+
+        it('handles empty blocks from multiple consecutive blank lines', async () => {
+            // Triple blank lines produce an empty block (trimmed = ''), which should return ''
+            const md = 'First paragraph\n\n\n\nSecond paragraph';
+            await renderPdf(md, { id: '1', status: 'completed' });
+            const html = mockPage.setContent.mock.calls[0][0] as string;
+            expect(html).toContain('First paragraph');
+            expect(html).toContain('Second paragraph');
+        });
+
+        it('uses Unknown for non-numeric investigation id', async () => {
+            await renderPdf('Report content', { id: 'not-a-number', status: 'completed' });
+            const html = mockPage.setContent.mock.calls[0][0] as string;
+            expect(html).toContain('Unknown');
+        });
     });
 
     describe('closeBrowser', () => {

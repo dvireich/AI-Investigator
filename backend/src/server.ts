@@ -18,14 +18,193 @@ import { QueryBankStore, SavedQuery } from './querybank/QueryBankStore';
 const app = express();
 const port = 3000;
 
-// Global error handlers to prevent crashes and log failures
-process.on('uncaughtException', (err) => {
-    console.error('CRITICAL: Uncaught Exception:', err);
-});
+type StoredInvestigationState = InvestigationState & {
+    _lastModified?: number;
+    _storagePath?: string;
+    _statePath?: string;
+    _summaryOnly?: boolean;
+    _thoughtCount?: number;
+};
 
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
-});
+export function getThoughtSource(state: InvestigationState): any[] {
+    if (Array.isArray(state.fullHistory) && state.fullHistory.length > 0) {
+        return state.fullHistory;
+    }
+    return Array.isArray(state.thoughts) ? state.thoughts : [];
+}
+
+export function getThoughtPreview(lastThought: any): string | undefined {
+    if (!lastThought) return undefined;
+    if (typeof lastThought === 'string') return lastThought;
+    return (lastThought as any).content || '';
+}
+
+export function summarizeRetrospect(retrospect?: InvestigationState['retrospect']): InvestigationState['retrospect'] | undefined {
+    if (!retrospect) return undefined;
+    return {
+        messages: [],
+        proposals: (retrospect.proposals || []).map((proposal: any) => ({ id: proposal.id, status: proposal.status })) as any,
+        analysisComplete: retrospect.analysisComplete,
+        analysisFailed: retrospect.analysisFailed,
+        completed: retrospect.completed,
+    };
+}
+
+export function normalizeHistoricalState(state: InvestigationState, productId?: string): StoredInvestigationState {
+    const normalized = { ...state } as StoredInvestigationState;
+    normalized.thoughts = Array.isArray(normalized.thoughts) ? [...normalized.thoughts] : [];
+    normalized.actions = Array.isArray(normalized.actions) ? normalized.actions : [];
+    normalized.logs = Array.isArray(normalized.logs) ? normalized.logs : [];
+
+    if (normalized.status === 'running') {
+        normalized.status = 'paused';
+        normalized.thoughts.push('System: Investigation automatically paused due to server restart.');
+    }
+
+    if (productId && !normalized.productId) {
+        normalized.productId = productId;
+    }
+
+    return normalized;
+}
+
+export function createSummaryState(
+    state: InvestigationState,
+    storagePath: string,
+    statePath: string,
+    lastModified: number,
+): StoredInvestigationState {
+    const thoughtSource = getThoughtSource(state);
+    const thoughtPreview = getThoughtPreview(thoughtSource[thoughtSource.length - 1]);
+
+    return {
+        id: state.id,
+        status: state.status,
+        thoughts: thoughtPreview ? [thoughtPreview] : [],
+        actions: [],
+        logs: [],
+        title: state.title,
+        query: state.query,
+        target: state.target,
+        timeRange: state.timeRange,
+        correlationId: state.correlationId,
+        category: state.category,
+        incidentId: state.incidentId,
+        model: state.model,
+        productId: state.productId,
+        pausedAt: state.pausedAt,
+        totalPausedTime: state.totalPausedTime,
+        finalReport: state.finalReport,
+        retrospect: summarizeRetrospect(state.retrospect),
+        contestCount: state.contestCount,
+        tags: state.tags || [],
+        createdBy: state.createdBy,
+        source: state.source,
+        scheduleId: state.scheduleId,
+        verdict: state.verdict,
+        _summaryOnly: true,
+        _thoughtCount: thoughtSource.length,
+        _lastModified: lastModified,
+        _storagePath: storagePath,
+        _statePath: statePath,
+    };
+}
+
+export function hydrateStoredState(stored: StoredInvestigationState): StoredInvestigationState | undefined {
+    if (!stored._summaryOnly) return stored;
+    if (!stored._statePath || !fs.existsSync(stored._statePath)) return stored;
+
+    try {
+        const content = fs.readFileSync(stored._statePath, 'utf-8');
+        const parsed = JSON.parse(content) as InvestigationState;
+        const normalized = normalizeHistoricalState(parsed, stored.productId);
+        const stateStat = fs.statSync(stored._statePath);
+        normalized._summaryOnly = false;
+        normalized._lastModified = stateStat.mtimeMs;
+        normalized._storagePath = stored._storagePath || getInvestigationStoragePath(normalized);
+        normalized._statePath = stored._statePath;
+        normalized._thoughtCount = undefined;
+        return normalized;
+    } catch (error) {
+        console.error(`Failed to hydrate investigation ${stored.id} from ${stored._statePath}:`, error);
+        return stored;
+    }
+}
+
+class InvestigationHistoryStore {
+    private readonly records = new Map<string, StoredInvestigationState>();
+
+    get size(): number {
+        return this.records.size;
+    }
+
+    has(id: string): boolean {
+        return this.records.has(id);
+    }
+
+    get(id: string): StoredInvestigationState | undefined {
+        const stored = this.records.get(id);
+        if (!stored) return undefined;
+        if (!stored._summaryOnly) return stored;
+
+        const hydrated = hydrateStoredState(stored);
+        if (hydrated && hydrated !== stored) {
+            this.records.set(id, hydrated);
+            if (hydrated._storagePath) {
+                storagePathCache.set(id, hydrated._storagePath);
+            }
+        }
+        return hydrated;
+    }
+
+    set(id: string, state: InvestigationState): this {
+        const stored = state as StoredInvestigationState;
+        const storagePath = stored._storagePath || getInvestigationStoragePath(stored);
+        stored._storagePath = storagePath;
+        stored._statePath = stored._statePath || path.join(storagePath, 'state.json');
+        this.records.set(id, stored);
+        storagePathCache.set(id, storagePath);
+        return this;
+    }
+
+    values(): IterableIterator<StoredInvestigationState> {
+        return this.records.values();
+    }
+
+    entries(): IterableIterator<[string, StoredInvestigationState]> {
+        return this.records.entries();
+    }
+
+    delete(id: string): boolean {
+        storagePathCache.delete(id);
+        return this.records.delete(id);
+    }
+
+    clear(): void {
+        storagePathCache.clear();
+        this.records.clear();
+    }
+}
+
+export function handleUncaughtException(err: unknown, logger: Pick<Console, 'error'> = console): void {
+    logger.error('CRITICAL: Uncaught Exception:', err);
+}
+
+export function handleUnhandledRejection(reason: unknown, promise: unknown, logger: Pick<Console, 'error'> = console): void {
+    logger.error('CRITICAL: Unhandled Rejection at:', promise, 'reason:', reason);
+}
+
+export function registerProcessErrorHandlers(processLike: Pick<NodeJS.Process, 'on'>, logger: Pick<Console, 'error'> = console): void {
+    processLike.on('uncaughtException', (err) => {
+        handleUncaughtException(err, logger);
+    });
+
+    processLike.on('unhandledRejection', (reason, promise) => {
+        handleUnhandledRejection(reason, promise, logger);
+    });
+}
+
+registerProcessErrorHandlers(process);
 const llmRegistry = new LlmProviderRegistry();
 const incidentRegistry = new IncidentProviderRegistry();
 let activeLlmProvider: LlmProvider | null = null;
@@ -34,14 +213,16 @@ let activeIncidentProvider: IncidentProvider | null = null;
 app.use(cors());
 app.use(express.json());
 
-// Handle JSON parse errors from body-parser gracefully
-app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+export function jsonParseErrorHandler(err: any, req: express.Request, res: express.Response, next: express.NextFunction) {
     if (err.type === 'entity.parse.failed') {
         console.error(`JSON parse error on ${req.method} ${req.url}:`, err.message);
         return res.status(400).json({ error: 'Invalid JSON in request body' });
     }
     next(err);
-});
+}
+
+// Handle JSON parse errors from body-parser gracefully
+app.use(jsonParseErrorHandler);
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -49,10 +230,10 @@ const wss = new WebSocketServer({ server });
 // Store active runners
 const runners = new Map<string, AgentRunner>();
 // Store past investigations
-const history = new Map<string, InvestigationState>();
+const history = new InvestigationHistoryStore();
 // Cache storage paths per investigation ID to avoid recompute on every poll
 const storagePathCache = new Map<string, string>();
-// Cached list response — invalidated when investigations change
+// Cached list response. Keep invalidation explicit because the dashboard polls this route heavily.
 let cachedListJson: string | null = null;
 let cachedListEtag: string | null = null;
 let listCacheDirtyAt = 0;  // timestamp of last mutation
@@ -77,12 +258,67 @@ function ensureDirectoryExists(dir: string) {
  * Previously this fell back to process.cwd()/investigations which is the backend/
  * directory — NOT where the Runner saves files.
  */
-function getGlobalInvestigationsDir(): string {
+export function getGlobalInvestigationsDir(): string {
     return config.investigationsPath || path.join(config.repoRoot || defaultRepoRoot, 'investigations');
 }
 
+export function shouldScanGlobalInvestigationsDir(): boolean {
+    if (config.investigationsPath) {
+        return true;
+    }
+
+    return !config.products || config.products.length === 0;
+}
+
+export function isPathWithinDirectory(candidatePath: string | undefined, directoryPath: string): boolean {
+    if (!candidatePath) {
+        return false;
+    }
+
+    const relative = path.relative(directoryPath, candidatePath);
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+}
+
+export function shouldIncludeInvestigationInList(state: Partial<InvestigationState> & { id: string }): boolean {
+    const products = config.products || [];
+    const activeProductId = config.activeProductId;
+
+    if (products.length === 0 || !activeProductId) {
+        return true;
+    }
+
+    const storagePath = storagePathCache.get(state.id)
+        || (state as StoredInvestigationState)._storagePath
+        || getInvestigationStoragePath(state as { id: string; target?: string; productId?: string });
+
+    const activeProduct = products.find(p => p.id === activeProductId);
+    if (activeProduct?.investigationsPath && isPathWithinDirectory(storagePath, activeProduct.investigationsPath)) {
+        return true;
+    }
+
+    if (!shouldScanGlobalInvestigationsDir()) {
+        return false;
+    }
+
+    return isPathWithinDirectory(storagePath, getGlobalInvestigationsDir());
+}
+
+export function hasPersistedInvestigationState(state: Partial<InvestigationState> & { id: string }): boolean {
+    const stored = state as StoredInvestigationState;
+
+    if (stored._statePath) {
+        return fs.existsSync(stored._statePath);
+    }
+
+    const storagePath = storagePathCache.get(state.id)
+        || stored._storagePath
+        || getInvestigationStoragePath(state as { id: string; target?: string; productId?: string });
+
+    return fs.existsSync(path.join(storagePath, 'state.json'));
+}
+
 /** Compute the on-disk storage path for a given investigation state. */
-function getInvestigationStoragePath(state: { id: string; target?: string; productId?: string }): string {
+export function getInvestigationStoragePath(state: { id: string; target?: string; productId?: string }): string {
     let baseDir: string;
     if (state.productId && config.products?.length) {
         const product = config.products.find(p => p.id === state.productId);
@@ -97,13 +333,21 @@ function getInvestigationStoragePath(state: { id: string; target?: string; produ
     return path.join(baseDir, `${timestamp}_${safeTarget}_${safeId}`);
 }
 
-function loadHistory() {
+export function loadHistory() {
+    history.clear();
+    storagePathCache.clear();
+    invalidateListCache();
+
     // Collect all investigation directories to scan
     const dirsToScan: { dir: string; productId?: string }[] = [];
     
     // Add global/default investigations path
     const globalDir = getGlobalInvestigationsDir();
-    dirsToScan.push({ dir: globalDir });
+    if (shouldScanGlobalInvestigationsDir()) {
+        dirsToScan.push({ dir: globalDir });
+    } else {
+        console.log(`Skipping implicit global investigations directory for product-configured mode: ${globalDir}`);
+    }
     
     // Add each product's investigations path
     if (config.products && config.products.length > 0) {
@@ -133,43 +377,54 @@ function loadHistory() {
                         // Check for state.json inside
                         const statePath = path.join(fullPath, 'state.json');
                         if (fs.existsSync(statePath)) {
-                            const content = fs.readFileSync(statePath, 'utf-8');
-                            const state = JSON.parse(content) as InvestigationState;
-                            // Track file modification time for sort-by-modified
-                            const stateFileStat = fs.statSync(statePath);
-                            (state as any)._lastModified = stateFileStat.mtimeMs;
+                            const summaryPath = path.join(fullPath, 'summary.json');
 
-                            // Force running investigations to pause on server restart
-                            if (state.status === 'running') {
-                                state.status = 'paused';
-                                state.thoughts.push("System: Investigation automatically paused due to server restart.");
+                            if (fs.existsSync(summaryPath)) {
+                                const content = fs.readFileSync(summaryPath, 'utf-8');
+                                const summary = JSON.parse(content) as StoredInvestigationState;
+                                if (summary.id) {
+                                    const summaryStat = fs.statSync(summaryPath);
+                                    if (summary.status === 'running') {
+                                        summary.status = 'paused';
+                                    }
+                                    if (productId && !summary.productId) {
+                                        summary.productId = productId;
+                                    }
+                                    summary._summaryOnly = true;
+                                    summary._lastModified = summaryStat.mtimeMs;
+                                    summary._storagePath = fullPath;
+                                    summary._statePath = statePath;
+                                    history.set(summary.id, summary);
+                                }
+                            } else {
+                                const content = fs.readFileSync(statePath, 'utf-8');
+                                const parsed = JSON.parse(content) as InvestigationState;
+                                const normalized = normalizeHistoricalState(parsed, productId);
+                                const stateFileStat = fs.statSync(statePath);
+
+                                if (normalized.id) {
+                                    const summary = createSummaryState(normalized, fullPath, statePath, stateFileStat.mtimeMs);
+                                    history.set(normalized.id, summary);
+
+                                    try {
+                                        const tmpSummaryPath = summaryPath + '.tmp';
+                                        fs.writeFileSync(tmpSummaryPath, JSON.stringify(summary, null, 2));
+                                        fs.renameSync(tmpSummaryPath, summaryPath);
+                                    } catch (summaryError) {
+                                        console.error(`Failed to backfill summary for ${statePath}:`, summaryError);
+                                    }
+                                }
                             }
-
-                            // Tag with productId if loaded from a product directory and not already tagged
-                            if (productId && !state.productId) {
-                                state.productId = productId;
-                            }
-
-                            if (state.id) history.set(state.id, state);
                         }
                     } else if (file.endsWith('.json')) {
                         // Legacy flat file support
                         const content = fs.readFileSync(fullPath, 'utf-8');
-                        const state = JSON.parse(content) as InvestigationState;
-                        // Track file modification time for sort-by-modified
-                        (state as any)._lastModified = stat.mtimeMs;
-
-                        if (state.status === 'running') {
-                            state.status = 'paused';
-                            state.thoughts.push("System: Investigation automatically paused due to server restart.");
+                        const parsed = JSON.parse(content) as InvestigationState;
+                        const normalized = normalizeHistoricalState(parsed, productId);
+                        if (normalized.id) {
+                            const summary = createSummaryState(normalized, path.dirname(fullPath), fullPath, stat.mtimeMs);
+                            history.set(normalized.id, summary);
                         }
-
-                        // Tag with productId if loaded from a product directory and not already tagged
-                        if (productId && !state.productId) {
-                            state.productId = productId;
-                        }
-
-                        if (state.id) history.set(state.id, state);
                     }
                 } catch (e) {
                     console.error(`Failed to load ${file}:`, e);
@@ -211,19 +466,29 @@ function loadHistory() {
 // WebSocket Client Management
 const clients = new Map<string, Set<WebSocket>>();
 
-const broadcast = (id: string, type: string, data: any) => {
-    const clientSet = clients.get(id);
+export function broadcastToClients(
+    clientMap: Map<string, Set<WebSocket>>,
+    id: string,
+    type: string,
+    data: any,
+    logger: Pick<Console, 'log'> = console,
+) {
+    const clientSet = clientMap.get(id);
     console.log(`[WS Broadcast] id=${id} type=${type} clients=${clientSet ? clientSet.size : 0}`);
     if (clientSet) {
         clientSet.forEach(ws => {
             if (ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type, data }));
-                console.log(`[WS Broadcast] Sent ${type} to client`);
+                logger.log(`[WS Broadcast] Sent ${type} to client`);
             } else {
-                console.log(`[WS Broadcast] Client not OPEN, readyState=${ws.readyState}`);
+                logger.log(`[WS Broadcast] Client not OPEN, readyState=${ws.readyState}`);
             }
         });
     }
+}
+
+const broadcast = (id: string, type: string, data: any) => {
+    broadcastToClients(clients, id, type, data);
 };
 
 const attachRunnerListeners = (runner: AgentRunner, id: string) => {
@@ -238,29 +503,38 @@ const attachRunnerListeners = (runner: AgentRunner, id: string) => {
     runner.on('retrospect-tool-activity', (data) => broadcast(id, 'retrospect-tool-activity', data));
 };
 
-// WebSocket for real-time updates
-wss.on('connection', (ws, req) => {
+export function registerWebSocketClient(
+    clientMap: Map<string, Set<WebSocket>>,
+    ws: WebSocket,
+    req: http.IncomingMessage,
+    logger: Pick<Console, 'log'> = console,
+) {
     const url = new URL(req.url || '', `http://${req.headers.host}`);
     const investigationId = url.searchParams.get('id');
-    console.log(`[WS] Client connected for investigation: ${investigationId}`);
+    logger.log(`[WS] Client connected for investigation: ${investigationId}`);
 
     if (investigationId) {
-        if (!clients.has(investigationId)) {
-            clients.set(investigationId, new Set());
+        if (!clientMap.has(investigationId)) {
+            clientMap.set(investigationId, new Set());
         }
-        clients.get(investigationId)!.add(ws);
-        console.log(`[WS] Total clients for ${investigationId}: ${clients.get(investigationId)!.size}`);
+        clientMap.get(investigationId)!.add(ws);
+        logger.log(`[WS] Total clients for ${investigationId}: ${clientMap.get(investigationId)!.size}`);
 
         ws.on('close', () => {
-            console.log(`[WS] Client disconnected for investigation: ${investigationId}`);
-            if (clients.has(investigationId)) {
-                clients.get(investigationId)!.delete(ws);
-                if (clients.get(investigationId)!.size === 0) {
-                    clients.delete(investigationId);
+            logger.log(`[WS] Client disconnected for investigation: ${investigationId}`);
+            if (clientMap.has(investigationId)) {
+                clientMap.get(investigationId)!.delete(ws);
+                if (clientMap.get(investigationId)!.size === 0) {
+                    clientMap.delete(investigationId);
                 }
             }
         });
     }
+}
+
+// WebSocket for real-time updates
+wss.on('connection', (ws, req) => {
+    registerWebSocketClient(clients, ws, req);
 });
 
 /**
@@ -272,7 +546,7 @@ wss.on('connection', (ws, req) => {
  * Without this, the global config (which may have an empty investigationsPath)
  * would be used, causing artifacts to save to the wrong directory.
  */
-function getEffectiveConfig(state?: Partial<InvestigationState>): typeof config {
+export function getEffectiveConfig(state?: Partial<InvestigationState>): typeof config {
     const productId = state?.productId;
     if (productId) {
         const product = config.products.find(p => p.id === productId);
@@ -293,10 +567,14 @@ function getEffectiveConfig(state?: Partial<InvestigationState>): typeof config 
 // Config Persistence
 // Support --config <path> CLI argument to load config from an external file.
 // This allows teams to keep their config.json in their own repo.
-const configArgIndex = process.argv.indexOf('--config');
-const configFile = (configArgIndex !== -1 && process.argv[configArgIndex + 1])
-    ? path.resolve(process.argv[configArgIndex + 1])
-    : path.join(__dirname, '..', 'config.json');
+export function resolveConfigFilePath(argv: string[], currentDir: string): string {
+    const configArgIndex = argv.indexOf('--config');
+    return (configArgIndex !== -1 && argv[configArgIndex + 1])
+        ? path.resolve(argv[configArgIndex + 1])
+        : path.join(currentDir, '..', 'config.json');
+}
+
+const configFile = resolveConfigFilePath(process.argv, __dirname);
 
 // The directory containing the config file — used to resolve relative paths in config values.
 // When --config points to a product repo's investigator-config.json, relative paths
@@ -399,7 +677,7 @@ function saveConfigToDisk() {
  * installation directory, allowing configs to reference built-in resources
  * (like scripts/icm) portably.
  */
-function resolveConfigPath(p: string, baseDir: string): string {
+export function resolveConfigPath(p: string, baseDir: string): string {
     if (!p) return p;
     if (p.startsWith('$INVESTIGATOR_ROOT/') || p.startsWith('$INVESTIGATOR_ROOT\\')) {
         return path.resolve(investigatorRoot, p.substring('$INVESTIGATOR_ROOT/'.length));
@@ -413,7 +691,7 @@ function resolveConfigPath(p: string, baseDir: string): string {
  * Product paths resolve relative to their own repoRoot.
  * Top-level paths resolve relative to the config file's directory.
  */
-function resolveConfigPaths(cfg: any, baseDir: string): void {
+export function resolveConfigPaths(cfg: any, baseDir: string): void {
     // Top-level paths
     const topLevelPathKeys = ['repoRoot', 'systemPromptPath', 'knowledgeBasePath', 'workingDirectory', 'investigationsPath'];
     for (const key of topLevelPathKeys) {
@@ -454,31 +732,46 @@ function resolveConfigPaths(cfg: any, baseDir: string): void {
     }
 }
 
+export function loadConfigFromDisk(targetConfigFile: string, baseConfig: typeof config, baseDir: string): {
+    config: typeof config;
+    persistedConfig: Record<string, any>;
+    loaded: boolean;
+} {
+    const nextConfig = { ...baseConfig };
+    let nextPersistedConfig: Record<string, any> = {};
+
+    if (!fs.existsSync(targetConfigFile)) {
+        return { config: nextConfig, persistedConfig: nextPersistedConfig, loaded: false };
+    }
+
+    const savedConfig = JSON.parse(fs.readFileSync(targetConfigFile, 'utf-8'));
+    nextPersistedConfig = { ...savedConfig };
+    const resolvedRetrospectPromptPath = nextConfig.retrospectPromptPath;
+    const mergedConfig = { ...nextConfig, ...savedConfig };
+    mergedConfig.retrospectPromptPath = resolvedRetrospectPromptPath;
+    resolveConfigPaths(mergedConfig, baseDir);
+
+    if (mergedConfig.investigationsPath) {
+        ensureDirectoryExists(mergedConfig.investigationsPath);
+    }
+
+    return { config: mergedConfig, persistedConfig: nextPersistedConfig, loaded: true };
+}
+
 // Load config from disk if exists
 try {
-    if (fs.existsSync(configFile)) {
-        const savedConfig = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
-        persistedConfig = { ...savedConfig };
-        // Internal paths are auto-resolved, not user-configurable — never let saved config override them
-        const resolvedRetrospectPromptPath = config.retrospectPromptPath;
-        config = { ...config, ...savedConfig };
-        config.retrospectPromptPath = resolvedRetrospectPromptPath;
-
-        // Resolve relative paths against the config file's directory
-        resolveConfigPaths(config, configFileDir);
-
+    const loadedConfig = loadConfigFromDisk(configFile, config, configFileDir);
+    config = loadedConfig.config;
+    persistedConfig = loadedConfig.persistedConfig;
+    if (loadedConfig.loaded) {
         console.log("Loaded configuration from disk.");
-        // Ensure path exists after loading config (skip empty strings)
-        if (config.investigationsPath) {
-            ensureDirectoryExists(config.investigationsPath);
-        }
     }
 } catch (e) {
     console.error("Failed to load config file:", e);
 }
 
 // Initialize LLM and incident providers from config
-function initializeProviders() {
+export function initializeProviders() {
     try {
         const llmConfig = config.llmProvider || { type: 'copilot' };
         activeLlmProvider = llmRegistry.getConfigured(llmConfig);
@@ -603,6 +896,7 @@ app.put('/api/products/active', (req, res) => {
         }
         config.activeProductId = productId;
         persistedConfig.activeProductId = productId;
+        invalidateListCache();
         saveConfigToDisk();
         res.json({ success: true });
     } catch (e: any) {
@@ -714,7 +1008,7 @@ interface ProductValidation {
     paths: PathValidationResult[];
 }
 
-function validateProductPaths(product: Product): ProductValidation {
+export function validateProductPaths(product: Product): ProductValidation {
     const pathFields: { field: keyof Product; label: string; required: boolean }[] = [
         { field: 'repoRoot', label: 'Repository Root', required: true },
         { field: 'systemPromptPath', label: 'System Prompt', required: false },
@@ -796,10 +1090,12 @@ interface DiscoverResult {
     suggestions: string[];
 }
 
+const WORKING_DIRECTORY_DEFAULT_SUGGESTION = 'Working directory defaulted to repo root';
+
 /**
  * Resolve a manifest's relative paths to absolute paths based on repoRoot.
  */
-function resolveManifest(repoRoot: string, manifest: InvestigatorManifest): Partial<Product> {
+export function resolveManifest(repoRoot: string, manifest: InvestigatorManifest): Partial<Product> {
     const abs = (rel?: string) => rel ? path.resolve(repoRoot, rel) : '';
     return {
         name: manifest.name || path.basename(repoRoot),
@@ -814,7 +1110,7 @@ function resolveManifest(repoRoot: string, manifest: InvestigatorManifest): Part
 /**
  * Auto-discover product configuration by scanning repo structure for known patterns.
  */
-function autoDiscoverProduct(repoRoot: string): { product: Partial<Product>; suggestions: string[] } {
+export function autoDiscoverProduct(repoRoot: string): { product: Partial<Product>; suggestions: string[] } {
     const product: Partial<Product> = { name: path.basename(repoRoot), repoRoot };
     const suggestions: string[] = [];
 
@@ -860,7 +1156,7 @@ function autoDiscoverProduct(repoRoot: string): { product: Partial<Product>; sug
 
     // Working directory — default to repo root
     product.workingDirectory = repoRoot;
-    suggestions.push('Working directory defaulted to repo root');
+    suggestions.push(WORKING_DIRECTORY_DEFAULT_SUGGESTION);
 
     return { product, suggestions };
 }
@@ -897,7 +1193,10 @@ app.get('/api/products/discover', (req, res) => {
 
         // Step 2: Auto-discover by pattern scanning
         const { product, suggestions } = autoDiscoverProduct(resolvedRoot);
-        if (suggestions.length > 0) {
+        const hasDetectedStructure = suggestions.some(
+            suggestion => suggestion !== WORKING_DIRECTORY_DEFAULT_SUGGESTION,
+        );
+        if (hasDetectedStructure) {
             const result: DiscoverResult = {
                 source: 'auto-discovered',
                 product,
@@ -1086,7 +1385,7 @@ interface CreateInvestigationParams {
     createdBy?: string;
 }
 
-function createInvestigation(params: CreateInvestigationParams): { id: string; runner: AgentRunner } {
+export function createInvestigation(params: CreateInvestigationParams): { id: string; runner: AgentRunner } {
     const { query, target, timeRange, correlationId, category, incidentId, model, productId, maxSteps, source, scheduleId, title, createdBy } = params;
 
     // Determine which config to use (product-specific or global)
@@ -1094,7 +1393,15 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
     if (productId && config.products && config.products.length > 0) {
         const product = config.products.find(p => p.id === productId);
         if (product) {
-            const validation = validateProductPaths(product);
+            const resolvedProductConfig = {
+                ...product,
+                repoRoot: product.repoRoot || config.repoRoot,
+                systemPromptPath: product.systemPromptPath || config.systemPromptPath,
+                knowledgeBasePath: product.knowledgeBasePath || config.knowledgeBasePath,
+                workingDirectory: product.workingDirectory || config.workingDirectory,
+                investigationsPath: product.investigationsPath || config.investigationsPath,
+            };
+            const validation = validateProductPaths(resolvedProductConfig);
             if (!validation.valid) {
                 const issues = validation.paths
                     .filter(p => p.error)
@@ -1104,11 +1411,11 @@ function createInvestigation(params: CreateInvestigationParams): { id: string; r
             }
             effectiveConfig = {
                 ...config,
-                repoRoot: product.repoRoot || config.repoRoot,
-                systemPromptPath: product.systemPromptPath || config.systemPromptPath,
-                knowledgeBasePath: product.knowledgeBasePath || config.knowledgeBasePath,
-                workingDirectory: product.workingDirectory || config.workingDirectory,
-                investigationsPath: product.investigationsPath || config.investigationsPath
+                repoRoot: resolvedProductConfig.repoRoot,
+                systemPromptPath: resolvedProductConfig.systemPromptPath,
+                knowledgeBasePath: resolvedProductConfig.knowledgeBasePath,
+                workingDirectory: resolvedProductConfig.workingDirectory,
+                investigationsPath: resolvedProductConfig.investigationsPath
             };
         }
     }
@@ -1235,8 +1542,12 @@ app.get('/api/investigations', (req, res) => {
     // Filter out runners with undefined/null state
     const active = Array.from(runners.values())
         .map(r => (r as any).state)
-        .filter((s): s is InvestigationState => s != null);
-    const past = Array.from(history.values()).filter(p => !runners.has(p.id));
+        .filter((s): s is InvestigationState => s != null)
+        .filter(s => shouldIncludeInvestigationInList(s));
+    const past = Array.from(history.values())
+        .filter(p => !runners.has(p.id))
+        .filter(p => hasPersistedInvestigationState(p))
+        .filter(p => shouldIncludeInvestigationInList(p));
     const all = [...active, ...past];
 
     // Create a product name lookup map
@@ -1252,21 +1563,22 @@ app.get('/api/investigations', (req, res) => {
         const isActive = runners.has(s.id);
         const lastModified = isActive ? Date.now() : ((s as any)._lastModified || Number(s.id) || Date.now());
         // Use cached storage path or compute and cache it
-        let storagePath = storagePathCache.get(s.id);
+        let storagePath = storagePathCache.get(s.id) || (s as StoredInvestigationState)._storagePath;
         if (!storagePath) {
             storagePath = getInvestigationStoragePath(s);
             storagePathCache.set(s.id, storagePath);
         }
         // Extract last thought as a plain string preview (avoid serializing large objects)
         // Use fullHistory when available for accurate count and latest thought
-        const allThoughts = (Array.isArray(s.fullHistory) && s.fullHistory.length > 0)
-            ? s.fullHistory
-            : (Array.isArray(s.thoughts) ? s.thoughts : []);
-        const thoughts = Array.isArray(s.thoughts) ? s.thoughts : [];
+        const stored = s as StoredInvestigationState;
+        const allThoughts = stored._summaryOnly
+            ? (Array.isArray(s.thoughts) ? s.thoughts : [])
+            : getThoughtSource(s);
         const lastThought = allThoughts.length > 0 ? allThoughts[allThoughts.length - 1] : undefined;
-        const thoughtPreview = lastThought
-            ? (typeof lastThought === 'string' ? lastThought : (lastThought as any).content || '')
-            : undefined;
+        const thoughtPreview = getThoughtPreview(lastThought);
+        const thoughtCount = stored._summaryOnly
+            ? (stored._thoughtCount ?? allThoughts.length)
+            : allThoughts.length;
         summaries.push({
         id: s.id,
         status: s.status,
@@ -1291,7 +1603,7 @@ app.get('/api/investigations', (req, res) => {
         totalPausedTime: s.totalPausedTime,
         lastModified,
         thoughts: thoughtPreview ? [thoughtPreview] : [],
-        thoughtCount: allThoughts.length, // Actual count for stale detection & step bar (includes pre-compaction entries)
+        thoughtCount, // Actual count for stale detection & step bar (includes pre-compaction entries)
         actions: [],
         logs: [],
         retrospect: s.retrospect ? {
@@ -2380,7 +2692,7 @@ app.post('/api/investigations/:id/mcp/restart', async (req, res) => {
 // ── Scheduled Investigations ─────────────────────────────────────────────
 
 // Determine the base investigations path (global or first product with one)
-function getScheduleInvestigationsPath(): string {
+export function getScheduleInvestigationsPath(): string {
     if (config.investigationsPath) return config.investigationsPath;
     if (config.products?.length > 0) {
         const first = config.products.find(p => p.investigationsPath);
@@ -2393,7 +2705,7 @@ let scheduleStore: ScheduleStore | null = null;
 let scheduler: Scheduler | null = null;
 let queryBankStore: QueryBankStore | null = null;
 
-function initScheduler(): void {
+export function initScheduler(): void {
     const invPath = getScheduleInvestigationsPath();
     ensureDirectoryExists(invPath);
 
@@ -2726,12 +3038,122 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     }
 });
 
-server.listen(port, () => {
-    console.log(`Server running at http://localhost:${port}`);
-    // Initialize the scheduler after the server is up
-    try {
-        initScheduler();
-    } catch (err) {
-        console.error('[Scheduler] Failed to initialize:', err);
+let serverStarted = false;
+
+export function startServer() {
+    if (serverStarted) {
+        return server;
     }
-});
+
+    serverStarted = true;
+    server.listen(port, () => {
+        console.log(`Server running at http://localhost:${port}`);
+        handleServerStarted();
+    });
+
+    return server;
+}
+
+export function handleServerStarted(
+    schedulerInitializer: () => void = initScheduler,
+    logger: Pick<typeof console, 'error'> = console,
+) {
+    try {
+        schedulerInitializer();
+    } catch (err) {
+        logger.error('[Scheduler] Failed to initialize:', err);
+    }
+}
+
+export async function stopServer() {
+    if (!serverStarted) {
+        return;
+    }
+
+    serverStarted = false;
+    await new Promise<void>((resolve, reject) => {
+        server.close((error) => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve();
+        });
+    });
+}
+
+export const __testUtils = {
+    app,
+    server,
+    wss,
+    clients,
+    broadcastToClients,
+    registerWebSocketClient,
+    handleUncaughtException,
+    handleUnhandledRejection,
+    registerProcessErrorHandlers,
+    jsonParseErrorHandler,
+    resolveConfigFilePath,
+    loadConfigFromDisk,
+    llmRegistry,
+    incidentRegistry,
+    getConfig: () => config,
+    setConfig: (nextConfig: Partial<typeof config>) => {
+        config = { ...config, ...nextConfig };
+    },
+    getPersistedConfig: () => persistedConfig,
+    setPersistedConfig: (nextPersisted: Record<string, any>) => {
+        persistedConfig = nextPersisted;
+    },
+    setActiveLlmProvider: (provider: LlmProvider | null) => {
+        activeLlmProvider = provider;
+    },
+    setActiveIncidentProvider: (provider: IncidentProvider | null) => {
+        activeIncidentProvider = provider;
+    },
+    setScheduleStore: (store: ScheduleStore | null) => {
+        scheduleStore = store;
+    },
+    setScheduler: (value: Scheduler | null) => {
+        scheduler = value;
+    },
+    setQueryBankStore: (store: QueryBankStore | null) => {
+        queryBankStore = store;
+    },
+    getScheduleStore: () => scheduleStore,
+    getScheduler: () => scheduler,
+    getQueryBankStore: () => queryBankStore,
+    getHistory: () => history,
+    getRunners: () => runners,
+    setListCacheDirtyAt: (value: number) => {
+        listCacheDirtyAt = value;
+    },
+    resetRuntimeState: () => {
+        runners.clear();
+        history.clear();
+        clients.clear();
+        scheduleStore = null;
+        scheduler = null;
+        queryBankStore = null;
+        activeLlmProvider = null;
+        activeIncidentProvider = null;
+        invalidateListCache();
+    },
+};
+
+export function shouldAutoStartServer(env: NodeJS.ProcessEnv): boolean {
+    return env.VITEST !== 'true';
+}
+
+export function autoStartServerIfNeeded(
+    env: NodeJS.ProcessEnv,
+    starter: () => unknown = startServer,
+) {
+    if (shouldAutoStartServer(env)) {
+        return starter();
+    }
+
+    return undefined;
+}
+
+autoStartServerIfNeeded(process.env);

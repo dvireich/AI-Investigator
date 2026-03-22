@@ -5,21 +5,17 @@ export default defineConfig({
         globals: true,
         environment: 'node',
         include: ['src/**/__tests__/**/*.test.ts'],
+        setupFiles: ['src/__tests__/setup.ts'],
         coverage: {
             provider: 'v8',
+            reporter: ['text', 'lcov'],
             include: ['src/**/*.ts'],
-            exclude: [
-                'src/**/__tests__/**',
-                'src/server.ts',           // Module-level side effects, integration-tested
-                'src/**/index.ts',         // Barrel re-exports only
-                'src/agent/llm/LlmProvider.ts',        // Interface/type definitions
-                'src/agent/incidents/IncidentProvider.ts', // Interface/type definitions
-            ],
+            exclude: ['src/**/__tests__/**'],
             thresholds: {
-                lines: 99,
-                branches: 93,
+                lines: 100,
+                branches: 100,
                 functions: 100,
-                statements: 99,
+                statements: 100,
             },
         },
     },

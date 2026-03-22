@@ -3116,8 +3116,13 @@ describe('Dashboard additional coverage', () => {
         it('clicks Failed stat card to call setFilter("failed") (L711)', async () => {
             renderDashboard();
             await waitFor(() => screen.getByText('Running now'));
-            const failedCard = screen.getByText('Need review').closest('button')!;
-            expect(failedCard).toBeTruthy();
+            // Find the stat card that contains either "Need review" or "All clear" (depends on count animation timing)
+            const failedCard = await waitFor(() => {
+                const candidate = screen.queryByText('Need review')?.closest('button')
+                    || screen.queryByText('All clear')?.closest('button');
+                if (!candidate) throw new Error('Failed stat card not found');
+                return candidate;
+            });
             fireEvent.click(failedCard);
         });
 
@@ -3384,15 +3389,15 @@ describe('Dashboard additional coverage', () => {
                 createMockInvestigation({
                     id: String(Date.now() - 50000),
                     status: 'completed',
-                    title: undefined,
-                    tags: undefined,
-                    target: undefined,
+                    title: 'No Tags Investigation',
+                    tags: undefined as any,
+                    target: 'stamp-01',
                 }),
             ]);
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
-            // Just ensure we render without error
-            await waitFor(() => expect(document.querySelector('[class*="inv-list"]') || document.body).toBeTruthy());
+            // Ensure the investigation actually renders in list view
+            await waitFor(() => expect(screen.getByText('No Tags Investigation')).toBeInTheDocument());
         });
     });
 
