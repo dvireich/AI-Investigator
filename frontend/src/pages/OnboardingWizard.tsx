@@ -44,6 +44,7 @@ export const OnboardingWizard = () => {
     };
 
     const handleDiscover = async () => {
+        /* v8 ignore next -- defensive guard; Discover button is disabled when path is empty */
         if (!repoPath.trim()) return;
         setDiscovering(true);
         setDiscoveryResult(null);
@@ -75,6 +76,7 @@ export const OnboardingWizard = () => {
                         <div className="h-full bg-gradient-to-r from-brand-500 to-purple-500 rounded-full transition-all duration-500" style={{ width: `${progress}%` }} />
                     </div>
                     <div className="flex justify-between mt-2 text-[10px] text-slate-600 font-semibold uppercase tracking-wider">
+                        {/* v8 ignore next -- stepIndex is always >= 0 */}
                         <span className={stepIndex >= 0 ? 'text-brand-400' : ''}>Welcome</span>
                         <span className={stepIndex >= 1 ? 'text-brand-400' : ''}>LLM Provider</span>
                         <span className={stepIndex >= 2 ? 'text-brand-400' : ''}>Product</span>

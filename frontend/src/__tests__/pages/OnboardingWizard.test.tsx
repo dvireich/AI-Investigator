@@ -143,6 +143,31 @@ describe('OnboardingWizard', () => {
             });
         });
 
+        it('shows fallback error when save fails with no error message', async () => {
+            mockFetch.mockRejectedValue({ message: '' });
+            const user = await goToLlmStep();
+            await waitFor(() => {
+                expect(screen.getByText('GitHub Copilot')).toBeInTheDocument();
+            });
+            await user.click(screen.getByText(/Continue/));
+            await waitFor(() => {
+                expect(screen.getByText('Failed to save')).toBeInTheDocument();
+            });
+        });
+
+        it('shows provider type when displayName is absent', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getAuthProviders).mockResolvedValue([
+                { type: 'custom-llm', authRequirement: { type: 'api-key' } },
+            ] as any);
+            const user = userEvent.setup();
+            renderWizard();
+            await user.click(screen.getByText('Get started'));
+            await waitFor(() => {
+                expect(screen.getByText('custom-llm')).toBeInTheDocument();
+            });
+        });
+
         it('can go back to welcome', async () => {
             const user = await goToLlmStep();
             await user.click(screen.getByText('Back'));
@@ -210,6 +235,28 @@ describe('OnboardingWizard', () => {
             await user.click(screen.getByText('Discover'));
             await waitFor(() => {
                 expect(screen.getByText('Failed')).toBeInTheDocument();
+            });
+        });
+
+        it('shows fallback error when discovery error has no message', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.discoverProduct).mockRejectedValue({ message: '' });
+            const user = await goToProductStep();
+            await user.type(screen.getByPlaceholderText(/Repos/), 'C:\\Bad');
+            await user.click(screen.getByText('Discover'));
+            await waitFor(() => {
+                expect(screen.getByText('Discovery failed')).toBeInTheDocument();
+            });
+        });
+
+        it('shows auto-discovered message for non-manifest source', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'auto' } as any);
+            const user = await goToProductStep();
+            await user.type(screen.getByPlaceholderText(/Repos/), 'C:\\AutoRepo');
+            await user.click(screen.getByText('Discover'));
+            await waitFor(() => {
+                expect(screen.getByText(/auto-discovered/)).toBeInTheDocument();
             });
         });
 

@@ -6750,6 +6750,47 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             expect(screen.getByText(/Generate Implementation \(1\)/i)).toBeInTheDocument();
         });
 
+        it('shows error toast when getRecommendations fails', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getRecommendations).mockRejectedValueOnce(new Error('Recommendations unavailable'));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+
+            await waitFor(() => {
+                expect(screen.getByText(/Failed to parse recommendations: Recommendations unavailable/)).toBeInTheDocument();
+            });
+        });
+
+        it('shows error toast when implementRecommendations fails', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.implementRecommendations).mockRejectedValueOnce(new Error('LLM provider offline'));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Implement Recommendations/i));
+            await user.click(screen.getByText(/Implement Recommendations/i));
+            await waitFor(() => screen.getByText('Fix the bug'));
+
+            await user.click(screen.getByText(/Generate Implementation/i));
+
+            await waitFor(() => {
+                expect(screen.getByText(/Failed to start implementation: LLM provider offline/)).toBeInTheDocument();
+            });
+        });
+
         it('shows implementation running state, success toast, and clears it after completion refresh', async () => {
             const { api } = await import('../../api');
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });

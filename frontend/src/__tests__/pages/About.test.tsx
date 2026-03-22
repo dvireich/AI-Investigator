@@ -131,6 +131,34 @@ describe('About', () => {
         });
     });
 
+    it('handles check for updates with non-ok HTTP response', async () => {
+        const user = userEvent.setup();
+        // Initial load succeeds
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve({
+                current: '1.0.0',
+                commit: 'abc',
+                buildDate: '2026-01-15T10:00:00Z',
+                latest: null,
+                updateAvailable: false,
+                downloadUrl: null,
+                releaseNotesUrl: null,
+            }),
+        });
+        render(<About />);
+        await waitFor(() => {
+            expect(screen.getByText('Check for updates')).toBeInTheDocument();
+        });
+        // Check call returns ok=false (server error, not network error)
+        mockFetch.mockResolvedValueOnce({ ok: false });
+        await user.click(screen.getByText('Check for updates'));
+        // When ok=false, version is set to null (version section disappears)
+        await waitFor(() => {
+            expect(screen.queryByText('Check for updates')).not.toBeInTheDocument();
+        });
+    });
+
     it('does not render version section when fetch fails', async () => {
         mockFetch.mockRejectedValue(new Error('fail'));
         render(<About />);
