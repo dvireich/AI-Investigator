@@ -142,14 +142,23 @@ if (fs.existsSync(versionFile)) {
     fs.copyFileSync(versionFile, path.join(RELEASE, 'version.json'));
 }
 
+// Copy launcher script
+const launcherSrc = path.join(ROOT, 'scripts', 'start.cmd');
+if (fs.existsSync(launcherSrc)) {
+    fs.copyFileSync(launcherSrc, path.join(RELEASE, 'start.cmd'));
+    console.log('  Copied start.cmd (launcher)');
+}
+
 // Create a simple README
 const readmeContent = `AI Investigator
 ===============
 
 Quick Start:
   1. Copy config.sample.json to config.json and edit with your settings
-  2. Double-click ai-investigator.exe (or run from command line)
+  2. Double-click start.cmd to launch (or run ai-investigator.exe directly)
   3. The dashboard opens automatically in your browser
+
+  start.cmd automatically closes any previous instance before launching.
 
 Windows SmartScreen:
   On first run, Windows may show "Windows protected your PC".
@@ -161,7 +170,6 @@ Command-line options:
   --no-open          Don't auto-open the browser
 
 Notes:
-  - If a previous instance is running, it will be closed automatically.
   - The server runs on http://localhost:3000 by default.
 
 For full documentation, see: https://github.com/dvireich/AI-Investigator

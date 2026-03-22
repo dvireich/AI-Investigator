@@ -3198,75 +3198,12 @@ if (fs.existsSync(publicDir)) {
 
 let serverStarted = false;
 
-/* v8 ignore start -- port conflict handling tested manually in exe mode */
-function killProcessOnPort(targetPort: number): Promise<boolean> {
-    return new Promise((resolve) => {
-        if (process.platform !== 'win32') {
-            resolve(false);
-            return;
-        }
-        const { exec } = require('child_process');
-        exec(`netstat -ano | findstr :${targetPort} | findstr LISTENING`, (err: Error | null, stdout: string) => {
-            if (err || !stdout.trim()) {
-                resolve(false);
-                return;
-            }
-            const lines = stdout.trim().split('\n');
-            const pids = new Set<string>();
-            for (const line of lines) {
-                const parts = line.trim().split(/\s+/);
-                const pid = parts[parts.length - 1];
-                if (pid && pid !== '0') pids.add(pid);
-            }
-            if (pids.size === 0) {
-                resolve(false);
-                return;
-            }
-            console.log('');
-            console.log('='.repeat(50));
-            console.log('  Previous AI Investigator instance detected');
-            console.log('  Shutting it down to start a fresh session...');
-            console.log('='.repeat(50));
-            console.log('');
-            let killed = 0;
-            for (const pid of pids) {
-                exec(`taskkill /PID ${pid} /F`, () => {
-                    killed++;
-                    if (killed === pids.size) resolve(true);
-                });
-            }
-        });
-    });
-}
-/* v8 ignore stop */
-
 export function startServer() {
     if (serverStarted) {
         return server;
     }
 
     serverStarted = true;
-
-    /* v8 ignore start -- port conflict handling tested manually in exe mode */
-    server.on('error', async (err: NodeJS.ErrnoException) => {
-        if (err.code === 'EADDRINUSE') {
-            const killed = await killProcessOnPort(port);
-            if (killed) {
-                console.log('Restarting...\n');
-                setTimeout(() => {
-                    server.listen(port);
-                }, 1000);
-            } else {
-                console.error(`\nPort ${port} is already in use by another application.`);
-                console.error('Please close it and try again.\n');
-                process.exit(1);
-            }
-        } else {
-            console.error('Server error:', err);
-            process.exit(1);
-        }
-    });
-    /* v8 ignore stop */
 
     server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
