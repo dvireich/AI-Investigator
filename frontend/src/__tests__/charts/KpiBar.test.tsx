@@ -128,6 +128,22 @@ describe('KpiBar', () => {
         expect(screen.getByText('1')).toBeInTheDocument();
     });
 
+    it('handles weekday start of week correctly (covers dayOfWeek !== 0 branch)', () => {
+        vi.useFakeTimers();
+        // March 18, 2026 is a Wednesday (dayOfWeek === 3)
+        const wednesdayDate = new Date('2026-03-18T10:00:00.000Z');
+        vi.setSystemTime(wednesdayDate);
+
+        const investigations = [
+            inv('completed', { id: String(wednesdayDate.getTime() - 1000) }),
+        ];
+
+        render(<KpiBar investigations={investigations} />);
+        vi.useRealTimers();
+
+        expect(screen.getByText('1')).toBeInTheDocument();
+    });
+
     it('handles undefined contestCount in contest rate (covers ?? 0 nullish branch)', () => {
         // Direct object without contestCount => i.contestCount is undefined => (undefined ?? 0) fires
         const investigations = [
