@@ -6987,6 +6987,134 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 expect(screen.queryByText('Fix the bug')).not.toBeInTheDocument();
             });
         });
+
+        it('renders rejected status badge and handles undefined content in proposals', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [],
+                    proposals: [
+                        {
+                            id: 'impl-rejected',
+                            source: 'implementation',
+                            type: 'edit',
+                            filePath: 'src/rejected.ts',
+                            description: 'Rejected change',
+                            content: '',
+                            status: 'rejected',
+                        },
+                    ],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => {
+                expect(screen.getAllByText('src/rejected.ts').length).toBeGreaterThan(0);
+                expect(screen.getAllByText('rejected').length).toBeGreaterThan(0);
+            });
+
+            // Expand the rejected proposal to trigger content || '' fallback
+            await user.click(screen.getAllByText('src/rejected.ts')[0]);
+            await waitFor(() => {
+                expect(screen.getAllByText('Rejected change').length).toBeGreaterThan(0);
+            });
+        });
+
+        it('collapses expanded proposal when clicking the same proposal again', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [],
+                    proposals: [
+                        {
+                            id: 'impl-toggle',
+                            source: 'implementation',
+                            type: 'create',
+                            filePath: 'src/toggle-collapse-test.ts',
+                            description: 'Unique collapse toggle description xyz',
+                            content: 'export const toggle = true;',
+                            status: 'pending',
+                        },
+                    ],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => screen.getAllByText('src/toggle-collapse-test.ts'));
+
+            // Expand the proposal — description appears in impl mini-panel AND retro panel, so use getAllByText
+            await user.click(screen.getAllByText('src/toggle-collapse-test.ts')[0]);
+            const descBefore = screen.getAllByText('Unique collapse toggle description xyz');
+            expect(descBefore.length).toBeGreaterThanOrEqual(1);
+
+            // Click the same proposal again to collapse it (exercises the null branch of the ternary)
+            await user.click(screen.getAllByText('src/toggle-collapse-test.ts')[0]);
+            // After collapsing, the impl mini-panel no longer shows the description
+            // but the retro panel might still show it — check the mini-panel content container
+            await waitFor(() => {
+                const implPanel = document.querySelector('.space-y-2.max-h-64');
+                expect(implPanel?.textContent).not.toContain('Unique collapse toggle description xyz');
+            });
+        });
+
+        it('shows truncation marker for long proposal content', async () => {
+            const { api } = await import('../../api');
+            const longContent = 'x'.repeat(2500);
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: {
+                    messages: [],
+                    proposals: [
+                        {
+                            id: 'impl-long',
+                            source: 'implementation',
+                            type: 'create',
+                            filePath: 'src/big-file.ts',
+                            description: 'A file with long content',
+                            content: longContent,
+                            status: 'pending',
+                        },
+                    ],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => screen.getAllByText('src/big-file.ts'));
+            await user.click(screen.getAllByText('src/big-file.ts')[0]);
+
+            await waitFor(() => {
+                expect(screen.getByText(/\.\.\. \[truncated\]/)).toBeInTheDocument();
+            });
+        });
     });
 
 });
