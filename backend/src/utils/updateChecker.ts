@@ -59,6 +59,9 @@ const CHECK_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 // The URL to check for updates. Set via UPDATES_URL env var or config.
 let updateManifestUrl: string | null = null;
 
+// Default GitHub repo for update checks (public API, no auth needed)
+const GITHUB_RELEASES_API = 'https://api.github.com/repos/dvireich/AI-Investigator/releases/latest';
+
 export function setUpdateManifestUrl(url: string): void {
     updateManifestUrl = url;
 }
@@ -106,7 +109,32 @@ export async function getVersionStatus(forceCheck = false): Promise<VersionStatu
     }
 
     if (!updateManifestUrl) {
-        return base;
+        // Default: check GitHub Releases API
+        try {
+            const axios = (await import('axios')).default;
+            const response = await axios.get(GITHUB_RELEASES_API, {
+                timeout: 10000,
+                headers: { 'Accept': 'application/vnd.github+json' },
+            });
+            const release = response.data;
+            const tagVersion = (release.tag_name || '').replace(/^v/, '');
+            const asset = release.assets?.[0];
+
+            const status: VersionStatus = {
+                ...base,
+                latest: tagVersion,
+                updateAvailable: isNewerVersion(local.version, tagVersion),
+                downloadUrl: asset?.browser_download_url || release.html_url,
+                releaseNotesUrl: release.html_url,
+                lastChecked: new Date().toISOString(),
+            };
+
+            cachedStatus = status;
+            lastCheckTime = Date.now();
+            return status;
+        } catch {
+            return cachedStatus || base;
+        }
     }
 
     try {

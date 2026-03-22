@@ -3211,6 +3211,22 @@ export function startServer() {
         console.log(`Server running at http://localhost:${port}`);
         handleServerStarted();
 
+        // Check for updates on startup (exe mode only)
+        /* v8 ignore start -- startup behavior tested manually */
+        if (isPackaged || process.env.NODE_ENV === 'production') {
+            getVersionStatus(true).then((status) => {
+                if (status.updateAvailable && status.latest) {
+                    console.log('');
+                    console.log('='.repeat(50));
+                    console.log(`  Update available: v${status.current} -> v${status.latest}`);
+                    console.log(`  Download: ${status.downloadUrl}`);
+                    console.log('='.repeat(50));
+                    console.log('');
+                }
+            }).catch(() => { /* ignore update check failures */ });
+        }
+        /* v8 ignore stop */
+
         // Auto-open browser in production/exe mode (unless --no-open flag)
         /* v8 ignore start -- startup behavior tested manually */
         if (!process.argv.includes('--no-open') && (isPackaged || process.env.NODE_ENV === 'production')) {
