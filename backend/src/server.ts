@@ -212,7 +212,7 @@ let activeIncidentProvider: IncidentProvider | null = null;
 
 app.use(cors());
 app.use((req, res, next) => {
-    const limit = req.path === '/api/investigations/import' ? '50mb' : '100kb';
+    const limit = req.path === '/api/investigations/import' ? Infinity : '100kb';
     express.json({ limit })(req, res, next);
 });
 
