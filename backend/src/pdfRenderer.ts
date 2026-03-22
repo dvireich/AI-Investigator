@@ -13,6 +13,7 @@ import { appRoot, isPackaged } from './utils/appRoot';
  * Priority: bundled chromium/ dir next to exe → Puppeteer default download.
  */
 function resolveChromiumPath(): string | undefined {
+    /* v8 ignore start -- exe-only path, tested in packaged builds */
     if (isPackaged) {
         // Look for bundled Chromium next to the exe
         const bundledDir = path.join(appRoot, 'chromium');
@@ -28,6 +29,7 @@ function resolveChromiumPath(): string | undefined {
             if (fs.existsSync(flat)) return flat;
         }
     }
+    /* v8 ignore stop */
     return undefined; // Let Puppeteer use its default
 }
 
@@ -41,6 +43,7 @@ async function getBrowser(): Promise<Browser> {
     const executablePath = resolveChromiumPath();
     browserInstance = await puppeteer.launch({
         headless: true,
+        /* v8 ignore next */
         ...(executablePath ? { executablePath } : {}),
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });

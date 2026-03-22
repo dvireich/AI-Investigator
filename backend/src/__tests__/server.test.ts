@@ -4492,4 +4492,30 @@ describe('server utilities and routes', () => {
             consoleSpy.mockRestore();
         });
     });
+
+    describe('GET /api/version', () => {
+        it('returns version status', async () => {
+            const response = await api().get('/api/version');
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty('current');
+            expect(response.body).toHaveProperty('updateAvailable');
+        });
+
+        it('accepts check=true query parameter', async () => {
+            const response = await api().get('/api/version?check=true');
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty('current');
+        });
+    });
+
+    describe('GET /api/onboarding/status', () => {
+        it('returns onboarding status', async () => {
+            const response = await api().get('/api/onboarding/status');
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveProperty('complete');
+            expect(response.body).toHaveProperty('hasLlmProvider');
+            expect(response.body).toHaveProperty('hasProduct');
+            expect(response.body).toHaveProperty('hasConfig');
+        });
+    });
 });

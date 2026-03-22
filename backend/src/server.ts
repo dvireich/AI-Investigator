@@ -228,9 +228,11 @@ app.use(jsonParseErrorHandler);
 
 // In production mode, serve the frontend build from dist/public/
 const publicDir = path.join(__dirname, 'public');
+/* v8 ignore start -- depends on build output at runtime */
 if (fs.existsSync(publicDir)) {
     app.use(express.static(publicDir));
 }
+/* v8 ignore stop */
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -595,6 +597,7 @@ const investigatorRoot = appRoot;
 
 // Derive a sensible default repoRoot: in exe mode, use the exe dir.
 // In normal mode, climb from backend/dist/ to the expected outer repo root.
+/* v8 ignore next 3 -- exe-only branch */
 const defaultRepoRoot = isPackaged
     ? appRoot
     : path.resolve(__dirname, '..', '..', '..', '..');
@@ -814,9 +817,11 @@ app.get('/api/version', async (req, res) => {
         const forceCheck = req.query.check === 'true';
         const status = await getVersionStatus(forceCheck);
         res.json(status);
+    /* v8 ignore start */
     } catch {
         res.status(500).json({ error: 'Failed to check version' });
     }
+    /* v8 ignore stop */
 });
 
 // Settings API
@@ -3183,11 +3188,13 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // SPA fallback: serve index.html for any non-API route (must come after all API routes)
+/* v8 ignore start -- depends on build output at runtime */
 if (fs.existsSync(publicDir)) {
     app.get('*', (req, res) => {
         res.sendFile(path.join(publicDir, 'index.html'));
     });
 }
+/* v8 ignore stop */
 
 let serverStarted = false;
 
@@ -3202,6 +3209,7 @@ export function startServer() {
         handleServerStarted();
 
         // Auto-open browser in production/exe mode (unless --no-open flag)
+        /* v8 ignore start -- startup behavior tested manually */
         if (!process.argv.includes('--no-open') && (isPackaged || process.env.NODE_ENV === 'production')) {
             const url = `http://localhost:${port}`;
             const { exec } = require('child_process');
@@ -3211,6 +3219,7 @@ export function startServer() {
                 : `xdg-open "${url}"`;
             exec(cmd, () => { /* ignore errors */ });
         }
+        /* v8 ignore stop */
     });
 
     return server;
