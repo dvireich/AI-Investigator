@@ -15,9 +15,9 @@ vi.mock('../../api', () => ({
             user: null,
         }),
         startLogin: vi.fn().mockResolvedValue({
-            device_code: 'CODE123',
-            user_code: 'ABCD-1234',
-            verification_uri: 'https://example.com/login',
+            deviceCode: 'CODE123',
+            userCode: 'ABCD-1234',
+            verificationUri: 'https://example.com/login',
             interval: 5,
         }),
         pollLogin: vi.fn().mockResolvedValue({ pending: true }),
@@ -734,9 +734,9 @@ describe('Layout additional coverage', () => {
             authRequirement: { type: 'oauth-device-flow' },
         } as any);
         vi.mocked(api.startLogin).mockResolvedValue({
-            device_code: 'CODE',
-            user_code: 'WXYZ-9999',
-            verification_uri: 'https://example.com/login',
+            deviceCode: 'CODE',
+            userCode: 'WXYZ-9999',
+            verificationUri: 'https://example.com/login',
             interval: 1,
         } as any);
         // Poll throws an error object with no message (covers || '' fallback)
@@ -777,9 +777,9 @@ describe('Layout additional coverage', () => {
             user: null,
         } as any);
         vi.mocked(api.startLogin).mockResolvedValue({
-            device_code: 'CODE2',
-            user_code: 'ABCD-5678',
-            verification_uri: 'https://example.com/login',
+            deviceCode: 'CODE2',
+            userCode: 'ABCD-5678',
+            verificationUri: 'https://example.com/login',
             interval: 5,
         } as any);
         const user = userEvent.setup();
