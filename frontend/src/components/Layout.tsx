@@ -23,6 +23,7 @@ export const Layout = () => {
     const [loginData, setLoginData] = useState<any>(null);
     const loginPollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [appVersion, setAppVersion] = useState<string | null>(null);
 
     // Close mobile menu on route change
     useEffect(() => {
@@ -31,6 +32,10 @@ export const Layout = () => {
 
     useEffect(() => {
         checkAuth();
+        fetch('/api/version')
+            .then(r => { if (r.ok) return r.json(); })
+            .then(d => { if (d?.current) setAppVersion(d.current); })
+            .catch(() => {});
         // Cleanup poller on unmount
         return () => {
             if (loginPollerRef.current) clearInterval(loginPollerRef.current);
@@ -190,6 +195,7 @@ export const Layout = () => {
                             <h1 className="text-lg font-black tracking-tight text-white/90">
                                 <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">AI</span>
                                 <span className="text-brand-400 font-medium ml-1 text-sm tracking-wide hidden sm:inline">Investigator</span>
+                                {appVersion && <span className="ml-2 text-[10px] font-normal text-slate-500 align-middle">v{appVersion}</span>}
                             </h1>
                         </div>
                     </div>

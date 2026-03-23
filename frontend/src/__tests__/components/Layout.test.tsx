@@ -830,4 +830,34 @@ describe('Layout additional coverage', () => {
             });
         }
     });
+
+    it('shows version badge in header when /api/version returns current version', async () => {
+        const origFetch = globalThis.fetch;
+        globalThis.fetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ current: '1.2.3' }),
+        });
+        renderLayout();
+        await waitFor(() => {
+            expect(screen.getByText('v1.2.3')).toBeInTheDocument();
+        });
+        globalThis.fetch = origFetch;
+    });
+
+    it('handles version fetch with ok:false and missing current gracefully', async () => {
+        const origFetch = globalThis.fetch;
+        // First call: ok false
+        globalThis.fetch = vi.fn()
+            .mockResolvedValueOnce({ ok: false, json: () => Promise.resolve(null) })
+            .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
+        const { unmount } = renderLayout();
+        await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+        expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument();
+        unmount();
+        // Second render: ok true but no current field
+        renderLayout();
+        await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
+        expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument();
+        globalThis.fetch = origFetch;
+    });
 });
