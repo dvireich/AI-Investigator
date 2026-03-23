@@ -16,6 +16,7 @@ export const OnboardingWizard = () => {
     const [repoPath, setRepoPath] = useState('');
     const [discovering, setDiscovering] = useState(false);
     const [discoveryResult, setDiscoveryResult] = useState<string | null>(null);
+    const [discoverySuccess, setDiscoverySuccess] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
@@ -46,13 +47,36 @@ export const OnboardingWizard = () => {
     const handleDiscover = async () => {
         setDiscovering(true);
         setDiscoveryResult(null);
+        setDiscoverySuccess(false);
         setError(null);
         try {
             const result = await api.discoverProduct(repoPath.trim());
             if (result.source === 'none') {
                 setDiscoveryResult('No investigation configuration found at that path. You can add one later from Settings.');
             } else {
-                setDiscoveryResult(`Found ${result.source === 'manifest' ? 'manifest' : 'auto-discovered'} configuration. Product added!`);
+                const p = result.product;
+                const trimmedPath = repoPath.trim();
+                try {
+                    const added = await api.addProduct({
+                        name: p.name || trimmedPath.split(/[\\/]/).pop() || 'Product',
+                        repoRoot: p.repoRoot || trimmedPath,
+                        systemPromptPath: p.systemPromptPath || '',
+                        knowledgeBasePath: p.knowledgeBasePath || '',
+                        workingDirectory: p.workingDirectory || p.repoRoot || trimmedPath,
+                        investigationsPath: p.investigationsPath || '',
+                    });
+                    await api.setActiveProduct(added.id);
+                    const sourceLabel = result.source === 'manifest' ? 'manifest' : 'auto-discovered';
+                    setDiscoveryResult(`Found ${sourceLabel} configuration. Product "${added.name}" added and set as active!`);
+                    setDiscoverySuccess(true);
+                } catch (addErr: any) {
+                    if (addErr.message?.includes('already exists')) {
+                        setDiscoveryResult(`Found configuration. Product "${p.name}" is already configured.`);
+                        setDiscoverySuccess(true);
+                    } else {
+                        throw addErr;
+                    }
+                }
             }
         } catch (e: any) {
             setError(e.message || 'Discovery failed');
@@ -186,7 +210,8 @@ export const OnboardingWizard = () => {
                             </div>
 
                             {discoveryResult && (
-                                <div className="text-sm text-slate-300 bg-slate-800/60 rounded-xl p-3 border border-slate-700">
+                                <div className={`text-sm rounded-xl p-3 border ${discoverySuccess ? 'text-emerald-300 bg-emerald-500/10 border-emerald-500/30' : 'text-slate-300 bg-slate-800/60 border-slate-700'}`}>
+                                    {discoverySuccess && <Check size={14} className="inline mr-1.5 -mt-0.5" />}
                                     {discoveryResult}
                                 </div>
                             )}

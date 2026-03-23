@@ -3293,6 +3293,12 @@ export function startServer() {
 
     server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
+        if (isPackaged) {
+            console.log('');
+            console.log('  Keep this window open — closing it will stop the server.');
+            console.log('  Press Ctrl+C to shut down.');
+            console.log('');
+        }
         handleServerStarted();
 
         // Check for updates on startup (exe mode only)

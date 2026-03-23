@@ -21,7 +21,9 @@ vi.mock('../../api', () => ({
             { type: 'copilot', displayName: 'GitHub Copilot', authRequirement: { type: 'none' } },
             { type: 'openai', displayName: 'OpenAI', authRequirement: { type: 'api-key' } },
         ]),
-        discoverProduct: vi.fn().mockResolvedValue({ source: 'manifest' }),
+        discoverProduct: vi.fn().mockResolvedValue({ source: 'manifest', product: { name: 'MyProduct', repoRoot: 'C:\\MyRepo' } }),
+        addProduct: vi.fn().mockResolvedValue({ id: 'myproduct', name: 'MyProduct' }),
+        setActiveProduct: vi.fn().mockResolvedValue(undefined),
     },
 }));
 
@@ -46,7 +48,9 @@ describe('OnboardingWizard', () => {
             { type: 'copilot', displayName: 'GitHub Copilot', authRequirement: { type: 'none' } },
             { type: 'openai', displayName: 'OpenAI', authRequirement: { type: 'api-key' } },
         ] as any);
-        vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'manifest' } as any);
+        vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'manifest', product: { name: 'MyProduct', repoRoot: 'C:\\MyRepo' } } as any);
+        vi.mocked(api.addProduct).mockResolvedValue({ id: 'myproduct', name: 'MyProduct' } as any);
+        vi.mocked(api.setActiveProduct).mockResolvedValue(undefined);
         mockFetch = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
         vi.stubGlobal('fetch', mockFetch);
     });
@@ -205,15 +209,19 @@ describe('OnboardingWizard', () => {
             expect(screen.getByText('Continue')).toBeInTheDocument();
         });
 
-        it('discovers product at path', async () => {
+        it('discovers product at path and persists it', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'manifest' } as any);
+            vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'manifest', product: { name: 'TestProduct', repoRoot: 'C:\\MyRepo' } } as any);
+            vi.mocked(api.addProduct).mockResolvedValue({ id: 'testproduct', name: 'TestProduct' } as any);
+            vi.mocked(api.setActiveProduct).mockResolvedValue(undefined);
             const user = await goToProductStep();
             await user.type(screen.getByPlaceholderText(/Repos/), 'C:\\MyRepo');
             await user.click(screen.getByText('Discover'));
             await waitFor(() => {
-                expect(screen.getByText(/Found.*configuration/)).toBeInTheDocument();
+                expect(screen.getByText(/Found.*configuration.*TestProduct.*added/)).toBeInTheDocument();
             });
+            expect(api.addProduct).toHaveBeenCalled();
+            expect(api.setActiveProduct).toHaveBeenCalledWith('testproduct');
         });
 
         it('shows message when no config found', async () => {
@@ -251,12 +259,26 @@ describe('OnboardingWizard', () => {
 
         it('shows auto-discovered message for non-manifest source', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'auto' } as any);
+            vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'auto-discovered', product: { name: 'AutoRepo', repoRoot: 'C:\\AutoRepo' } } as any);
+            vi.mocked(api.addProduct).mockResolvedValue({ id: 'autorepo', name: 'AutoRepo' } as any);
+            vi.mocked(api.setActiveProduct).mockResolvedValue(undefined);
             const user = await goToProductStep();
             await user.type(screen.getByPlaceholderText(/Repos/), 'C:\\AutoRepo');
             await user.click(screen.getByText('Discover'));
             await waitFor(() => {
                 expect(screen.getByText(/auto-discovered/)).toBeInTheDocument();
+            });
+        });
+
+        it('handles already-exists product gracefully', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'manifest', product: { name: 'Existing', repoRoot: 'C:\\Existing' } } as any);
+            vi.mocked(api.addProduct).mockRejectedValue(new Error('Product with this name already exists'));
+            const user = await goToProductStep();
+            await user.type(screen.getByPlaceholderText(/Repos/), 'C:\\Existing');
+            await user.click(screen.getByText('Discover'));
+            await waitFor(() => {
+                expect(screen.getByText(/already configured/)).toBeInTheDocument();
             });
         });
 
