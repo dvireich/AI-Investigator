@@ -3263,6 +3263,13 @@ const internal = {
             : `xdg-open "${url}"`;
         exec(cmd, () => { /* ignore errors */ });
     },
+    printKeepOpenMessage(packaged: boolean = isPackaged) {
+        if (!packaged) return;
+        console.log('');
+        console.log('  Keep this window open — closing it will stop the server.');
+        console.log('  Press Ctrl+C to shut down.');
+        console.log('');
+    },
 };
 
 export function startServer() {
@@ -3293,6 +3300,7 @@ export function startServer() {
 
     server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
+        internal.printKeepOpenMessage();
         handleServerStarted();
 
         // Check for updates on startup (exe mode only)
