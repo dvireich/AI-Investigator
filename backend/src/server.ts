@@ -1130,7 +1130,9 @@ interface InvestigatorManifest {
     name?: string;
     description?: string;
     systemPrompt?: string;
+    systemPromptPath?: string;
     knowledgeBase?: string;
+    knowledgeBasePath?: string;
     workingDirectory?: string;
     investigationsPath?: string;
 }
@@ -1151,8 +1153,8 @@ export function resolveManifest(repoRoot: string, manifest: InvestigatorManifest
     return {
         name: manifest.name || path.basename(repoRoot),
         repoRoot,
-        systemPromptPath: abs(manifest.systemPrompt),
-        knowledgeBasePath: abs(manifest.knowledgeBase),
+        systemPromptPath: abs(manifest.systemPrompt || manifest.systemPromptPath),
+        knowledgeBasePath: abs(manifest.knowledgeBase || manifest.knowledgeBasePath),
         workingDirectory: abs(manifest.workingDirectory),
         investigationsPath: abs(manifest.investigationsPath),
     };
@@ -3266,7 +3268,6 @@ const internal = {
     printKeepOpenMessage(packaged: boolean = isPackaged) {
         if (!packaged) return;
         console.log('');
-        console.log('  Keep this window open — closing it will stop the server.');
         console.log('  Press Ctrl+C to shut down.');
         console.log('');
     },
