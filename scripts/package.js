@@ -162,11 +162,12 @@ const stagePkg = {
 };
 fs.writeFileSync(path.join(STAGE, 'package.json'), JSON.stringify(stagePkg, null, 2));
 
-// Use custom icon if available — apply with rcedit after pkg build
+// Use custom icon if available — pass to pkg directly (rcedit corrupts pkg's embedded filesystem)
 const ICON = path.join(ROOT, 'scripts', 'icon.ico');
+const iconFlag = fs.existsSync(ICON) ? ` --icon "${ICON}"` : '';
 
 // Run pkg from BACKEND (where it's installed) but target the staging dir
-run(`npx @yao-pkg/pkg "${STAGE}" --target node20-win-x64 --output "${path.join(RELEASE, EXE_NAME)}"`, BACKEND);
+run(`npx @yao-pkg/pkg "${STAGE}" --target node20-win-x64 --output "${path.join(RELEASE, EXE_NAME)}"${iconFlag}`, BACKEND);
 
 // Clean up staging dir
 fs.rmSync(STAGE, { recursive: true, force: true });
@@ -191,18 +192,6 @@ if (currentSubsystem === 3) { // IMAGE_SUBSYSTEM_WINDOWS_CUI
     console.log('  Patched PE subsystem: Console → GUI (no console window)');
 } else {
     console.log(`  PE subsystem already ${currentSubsystem} (not patched)`);
-}
-
-// Apply custom icon with rcedit (more reliable than pkg --icon)
-if (fs.existsSync(ICON)) {
-    console.log('  Applying custom icon with rcedit...');
-    try {
-        const rceditBin = path.join(ROOT, 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe');
-        execSync(`"${rceditBin}" "${exePath}" --set-icon "${ICON}"`, { stdio: 'inherit' });
-        console.log('  Icon applied successfully');
-    } catch (e) {
-        console.warn(`  WARNING: Failed to apply icon: ${e.message}`);
-    }
 }
 
 // Step 4: Bundle Chromium (for PDF export)
