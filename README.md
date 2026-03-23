@@ -63,9 +63,9 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Dashboard Analytics** | Interactive charts — configurable 3-widget layout from 8 chart types, KPI bar, creator badges, and filter-by-creator |
 | **Multi-Product Support** | Configure multiple investigation targets with independent paths, prompts, and knowledge bases |
 | **Multi-User Tracking** | Every investigation records who created it (GitHub login, OS username, or scheduler) with dashboard filtering |
-| **Standalone Executable** | Download a single `.exe` — no Node.js installation required. Bundled Chromium for PDF export |
+| **Standalone Executable** | Download a single `.exe` — runs as a desktop app with no console window, opens in a frameless Edge window. No Node.js required |
 | **First-Launch Onboarding** | Multi-step setup wizard guides new users through LLM provider selection and product discovery |
-| **Auto-Update Checking** | Checks for new releases on startup, shows a dismissible banner with download and release notes links |
+| **Auto-Update Checking** | Checks for new releases on startup, shows a floating notification card with download and release notes links. Session-only dismiss |
 | **Implementation Agent** | Select recommendations from the final report and let an AI coding agent propose exact code changes |
 
 ---
@@ -493,9 +493,11 @@ Every investigation records who created it for team-level visibility:
 AI Investigator is distributed as a single Windows executable — no Node.js installation required:
 
 - **Single `.exe`** — Download `ai-investigator.exe` from [GitHub Releases](../../releases/latest), extract, and double-click
+- **Desktop App Experience** — Runs as a GUI application with no console window (PE subsystem patched to Windows GUI). Opens in a frameless Edge window (`--app=` mode) with no address bar, tabs, or browser chrome
 - **Bundled Chromium** — PDF report export works out of the box with a bundled Chromium runtime (in `chromium/` alongside the exe)
 - **Automatic Path Resolution** — The exe detects whether it's running in packaged or dev mode and resolves all paths (prompts, knowledge base, config) accordingly
 - **Version Metadata** — Each release includes `version.json` with semantic version, commit SHA, and build timestamp
+- **Team Integration** — Product repos can include a launcher script that auto-downloads the latest release from GitHub and runs the exe with `--config` pointing to the team's config file — no git clone or Node.js setup required
 
 ### 🧭 First-Launch Onboarding
 
@@ -513,8 +515,8 @@ A guided multi-step wizard appears on first launch to get new users productive i
 The application checks for newer versions on startup and shows a non-intrusive update banner:
 
 - **Version Endpoint** — `GET /api/version` returns current version, commit SHA, build date, latest available version, and update availability
-- **Update Banner** — A fixed top banner appears when a newer version is available, showing current vs. latest version with "Release Notes" and "Download" links
-- **Per-Version Dismiss** — Dismissing the banner persists in localStorage for that specific version; a new release re-shows the banner
+- **Update Notification** — A floating card appears in the top-right corner when a newer version is available, showing current vs. latest version with "Release Notes" and "Download" links
+- **Session-Only Dismiss** — Dismissing the notification lasts for the current session only; a fresh launch always re-checks for updates
 - **About Page** — The About page displays version info with a "Check for Updates" button for on-demand checking
 - **Secure Verification** — Releases include SHA256 hashes for integrity verification
 - **1-Hour Cache** — Version checks are cached to avoid excessive network requests
@@ -728,7 +730,7 @@ cd AI-Investigator
 .\Run-Dashboard.ps1
 ```
 
-The dashboard opens automatically in an Edge standalone window at **http://localhost:5173**. The onboarding wizard appears on first launch to configure your LLM provider.
+The dashboard opens automatically in a frameless Edge window (desktop app mode) at **http://localhost:5173**. The onboarding wizard appears on first launch to configure your LLM provider.
 
 ### Setting Up Your Product
 
@@ -843,18 +845,41 @@ Then create a launcher script in your product repo root to make it one-click:
 
 ```powershell
 # Run-AI-Investigator.ps1 (in your product repo)
-param([switch]$Classic, [string]$ConfigFile)
+# Default: downloads the latest exe from GitHub Releases and runs it
+# -Classic: uses git clone + Node.js mode (for development)
+param([switch]$Classic, [switch]$Setup, [string]$ConfigFile)
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-if (-not $ConfigFile) {
-    $ConfigFile = Join-Path $ScriptDir "investigator-config.json"
+if (-not $ConfigFile) { $ConfigFile = Join-Path $ScriptDir "investigator-config.json" }
+
+if ($Classic) {
+    # Development mode — clone repo and run via Node.js
+    $Root = if ($env:AI_INVESTIGATOR_ROOT) { $env:AI_INVESTIGATOR_ROOT } else { "C:\Repositories\AI-Investigator" }
+    if (-not (Test-Path "$Root\Run-Dashboard.ps1")) {
+        git clone https://github.com/<your-org>/AI-Investigator.git $Root
+    }
+    & "$Root\Run-Dashboard.ps1" -ConfigFile $ConfigFile
+} else {
+    # Exe mode — download latest release and run standalone
+    $ExeDir = Join-Path $ScriptDir ".ai-investigator"
+    $ExePath = Join-Path $ExeDir "ai-investigator.exe"
+    $Repo = "<your-org>/AI-Investigator"
+
+    if ($Setup -or -not (Test-Path $ExePath)) {
+        gh release download --repo $Repo --pattern "*.zip" --dir $env:TEMP --clobber
+        $zip = Get-ChildItem $env:TEMP -Filter "ai-investigator-*-win-x64.zip" | Sort-Object LastWriteTime -Desc | Select-Object -First 1
+        $tmp = Join-Path $env:TEMP "ai-investigator-extract"
+        Expand-Archive $zip.FullName $tmp -Force
+        if (Test-Path $ExeDir) { Remove-Item $ExeDir -Recurse -Force }
+        $exeRoot = (Get-ChildItem $tmp -Recurse -Filter "ai-investigator.exe" | Select-Object -First 1).DirectoryName
+        Copy-Item $exeRoot $ExeDir -Recurse
+        Remove-Item $zip.FullName, $tmp -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    & $ExePath --config $ConfigFile
 }
-
-$InvestigatorRoot = $env:AI_INVESTIGATOR_ROOT
-if (-not $InvestigatorRoot) { $InvestigatorRoot = "C:\Repositories\AI-Investigator" }
-
-& "$InvestigatorRoot\Run-Dashboard.ps1" -ConfigFile $ConfigFile @PSBoundParameters
 ```
+
+> **Tip:** Add `.ai-investigator/` to your `.gitignore` so the cached exe isn't committed.
 
 > **Note:** If `-ConfigFile` is not specified, AI Investigator falls back to its built-in `backend/config.json`. Settings changed via the UI are saved back to whichever config file was loaded.
 

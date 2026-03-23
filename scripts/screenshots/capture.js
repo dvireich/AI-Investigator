@@ -131,6 +131,13 @@ async function captureDashboardOverview(page) {
         await page.waitForTimeout(600);
     }
     await screenshot(page, 'dashboard-overview');
+
+    // Dismiss the update banner so it doesn't clutter subsequent screenshots
+    const dismissBtn = page.locator('[class*="w-72"] button:has(svg.lucide-x)').first();
+    if (await dismissBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        await dismissBtn.click();
+        await page.waitForTimeout(300);
+    }
 }
 
 async function captureDashboardMixed(page) {

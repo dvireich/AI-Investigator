@@ -195,7 +195,7 @@ export const About = () => {
                         color="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-emerald-500/20"
                         title="Standalone executable"
-                        desc="Download a single .exe — no Node.js required. Bundled Chromium for PDF export, auto-resolved paths, and version metadata baked in at build time." />
+                        desc="Download a single .exe — no Node.js required. Runs as a desktop app with no console window, opens in a frameless Edge window, and includes bundled Chromium for PDF export." />
                     <FeatureCard icon={<Rocket className="w-4 h-4" />}
                         color="bg-lime-500/10 border border-lime-500/20 text-lime-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-lime-500/20"
@@ -205,7 +205,7 @@ export const About = () => {
                         color="bg-brand-500/10 border border-brand-500/20 text-brand-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-brand-500/20"
                         title="Auto-update checking"
-                        desc="Checks for new releases on startup and shows a dismissible banner with download and release notes links. Per-version dismiss persists in localStorage." />
+                        desc="Checks for new releases on startup and shows a floating notification card with download and release notes links. Dismiss lasts for the current session only — a fresh launch always re-checks." />
                     <FeatureCard icon={<Cpu className="w-4 h-4" />}
                         color="bg-rose-500/10 border border-rose-500/20 text-rose-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-rose-500/20"
@@ -272,9 +272,9 @@ export const About = () => {
                         [Smartphone,        'text-violet-400',  'Remote access — Dev Tunnel with mobile-responsive UI, manage from any device'],
                         [Pin,               'text-yellow-400',  'Pin & tag — pin investigations to top and organize with custom tags'],
                         [Settings2,         'text-stone-400',   'External config — pass --config to load team settings from your own repo'],
-                        [Package,           'text-emerald-400', 'Standalone exe — single Windows executable, no Node.js required, bundled Chromium'],
+                        [Package,           'text-emerald-400', 'Standalone exe — desktop app with no console window, frameless Edge window, bundled Chromium'],
                         [Rocket,            'text-lime-400',    'Onboarding wizard — guided first-launch setup for LLM provider and product discovery'],
-                        [Bell,              'text-brand-400',   'Auto-update — checks for new releases on startup with dismissible download banner'],
+                        [Bell,              'text-brand-400',   'Auto-update — checks for new releases on startup with a floating notification card'],
                         [Cpu,               'text-rose-400',    'Implementation agent — select report recommendations and generate code change proposals'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
