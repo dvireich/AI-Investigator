@@ -16,8 +16,5 @@
     },
     "bin": {
         "ai-investigator": "backend/dist/server.js"
-    },
-    "devDependencies": {
-        "rcedit": "^5.0.2"
     }
 }

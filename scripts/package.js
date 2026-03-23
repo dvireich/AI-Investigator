@@ -79,61 +79,10 @@ run(
 const bundledSize = (fs.statSync(BUNDLED).size / (1024 * 1024)).toFixed(1);
 console.log(`  Bundled to ${bundledSize} MB (from ${fs.readdirSync(path.join(BACKEND, 'node_modules')).length}+ node_modules packages)`);
 
-// Create a launcher wrapper with splash screen
+// Create a launcher wrapper that starts the server
 const LAUNCHER = path.join(DIST, 'launcher.js');
 fs.writeFileSync(LAUNCHER, `#!/usr/bin/env node
-var spawn = require('child_process').spawn;
-var fs = require('fs');
-var path = require('path');
-var os = require('os');
-var http = require('http');
-
-// --- Splash screen (HTA — native Windows, instant, zero dependencies) ---
-var splashHtml = '<html><head><title>AI Investigator</title>'
-  + '<HTA:APPLICATION ID="splash" BORDER="none" INNERBORDER="no" SCROLL="no" '
-  + 'SHOWINTASKBAR="yes" CONTEXTMENU="no" SELECTION="no" />'
-  + '<style>*{margin:0;padding:0}'
-  + 'body{background:#0f172a;color:#e2e8f0;font-family:Segoe UI,sans-serif;overflow:hidden}'
-  + 'td{text-align:center;vertical-align:middle}'
-  + '</style></head><body>'
-  + '<table width="100%" height="100%"><tr><td>'
-  + '<div style="font-size:24px;font-weight:600;letter-spacing:1px;margin-bottom:14px">'
-  + 'AI Investigator</div>'
-  + '<div style="font-size:13px;color:#94a3b8">Starting<span id="d"></span></div>'
-  + '</td></tr></table>'
-  + '<script>window.resizeTo(360,170);window.moveTo((screen.width-360)/2,(screen.height-170)/2);'
-  + 'var e=document.getElementById("d"),n=0;'
-  + 'setInterval(function(){n=(n+1)%4;e.innerText=Array(n+1).join(".")},400);'
-  + '</scr' + 'ipt></body></html>';
-
-var splashFile = path.join(os.tmpdir(), 'ai-inv-splash-' + process.pid + '.hta');
-var splashProc;
-try {
-  fs.writeFileSync(splashFile, splashHtml);
-  splashProc = spawn('mshta.exe', [splashFile], { detached: true, stdio: 'ignore' });
-  splashProc.unref();
-} catch (e) { /* mshta blocked or unavailable — proceed without splash */ }
-
-// --- Start server ---
 require('./server.bundled.js');
-
-// --- Close splash when server responds ---
-var closed = false;
-function closeSplash() {
-  if (closed) return;
-  closed = true;
-  try { if (splashProc) process.kill(splashProc.pid); } catch (e) {}
-  setTimeout(function() { try { fs.unlinkSync(splashFile); } catch (e) {} }, 500);
-}
-function poll() {
-  var req = http.get('http://localhost:3000', function() { closeSplash(); });
-  req.on('error', function() { setTimeout(poll, 300); });
-  req.setTimeout(2000, function() { req.destroy(); setTimeout(poll, 300); });
-}
-if (splashProc) {
-  setTimeout(poll, 500);
-  setTimeout(closeSplash, 30000); // failsafe: close after 30s regardless
-}
 `);
 console.log('  Created launcher.js');
 
@@ -162,11 +111,12 @@ const stagePkg = {
 };
 fs.writeFileSync(path.join(STAGE, 'package.json'), JSON.stringify(stagePkg, null, 2));
 
-// Use custom icon if available — apply with rcedit after pkg build
+// Use custom icon if available — pass to pkg directly (rcedit corrupts pkg's embedded filesystem)
 const ICON = path.join(ROOT, 'scripts', 'icon.ico');
+const iconFlag = fs.existsSync(ICON) ? ` --icon "${ICON}"` : '';
 
 // Run pkg from BACKEND (where it's installed) but target the staging dir
-run(`npx @yao-pkg/pkg "${STAGE}" --target node20-win-x64 --output "${path.join(RELEASE, EXE_NAME)}"`, BACKEND);
+run(`npx @yao-pkg/pkg "${STAGE}" --target node20-win-x64 --output "${path.join(RELEASE, EXE_NAME)}"${iconFlag}`, BACKEND);
 
 // Clean up staging dir
 fs.rmSync(STAGE, { recursive: true, force: true });
@@ -191,18 +141,6 @@ if (currentSubsystem === 3) { // IMAGE_SUBSYSTEM_WINDOWS_CUI
     console.log('  Patched PE subsystem: Console → GUI (no console window)');
 } else {
     console.log(`  PE subsystem already ${currentSubsystem} (not patched)`);
-}
-
-// Apply custom icon with rcedit (more reliable than pkg --icon)
-if (fs.existsSync(ICON)) {
-    console.log('  Applying custom icon with rcedit...');
-    try {
-        const rceditBin = path.join(ROOT, 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe');
-        execSync(`"${rceditBin}" "${exePath}" --set-icon "${ICON}"`, { stdio: 'inherit' });
-        console.log('  Icon applied successfully');
-    } catch (e) {
-        console.warn(`  WARNING: Failed to apply icon: ${e.message}`);
-    }
 }
 
 // Step 4: Bundle Chromium (for PDF export)

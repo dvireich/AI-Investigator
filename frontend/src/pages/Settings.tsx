@@ -488,6 +488,7 @@ export const Settings = () => {
                                 <p className="text-xs text-slate-500">New investigations will use the paths from the selected product.</p>
                                 <select
                                     value={activeProductId}
+                                    disabled={products.length === 0}
                                     onChange={async (e) => {
                                         try {
                                             await api.setActiveProduct(e.target.value);
@@ -496,10 +497,13 @@ export const Settings = () => {
                                             console.error('Failed to set active product:', err);
                                         }
                                     }}
-                                    className="w-full px-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none"
+                                    className={`w-full px-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none ${products.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                                 >
+                                    {products.length === 0 && (
+                                        <option value="" disabled>No products configured</option>
+                                    )}
                                     {products.map(p => (
-                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                        <option key={p.id} value={p.id} className="bg-slate-800 text-slate-200">{p.name}</option>
                                     ))}
                                 </select>
                             </div>

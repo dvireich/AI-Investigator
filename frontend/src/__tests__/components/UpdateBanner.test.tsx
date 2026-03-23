@@ -9,7 +9,6 @@ describe('UpdateBanner', () => {
     beforeEach(() => {
         mockFetch = vi.fn();
         vi.stubGlobal('fetch', mockFetch);
-        localStorage.clear();
     });
 
     afterEach(() => {
@@ -53,9 +52,9 @@ describe('UpdateBanner', () => {
         });
         render(<UpdateBanner />);
         await waitFor(() => {
-            expect(screen.getByText('2.0.0')).toBeInTheDocument();
+            expect(screen.getByText('v2.0.0 available')).toBeInTheDocument();
         });
-        expect(screen.getByText(/you have 1\.0\.0/)).toBeInTheDocument();
+        expect(screen.getByText(/You have v1\.0\.0/)).toBeInTheDocument();
     });
 
     it('shows release notes link', async () => {
@@ -71,7 +70,7 @@ describe('UpdateBanner', () => {
         });
         render(<UpdateBanner />);
         await waitFor(() => {
-            expect(screen.getByText('Release notes')).toBeInTheDocument();
+            expect(screen.getByText('Notes')).toBeInTheDocument();
         });
     });
 
@@ -92,7 +91,7 @@ describe('UpdateBanner', () => {
         });
     });
 
-    it('dismisses banner and saves to localStorage', async () => {
+    it('dismisses banner for session only', async () => {
         const user = userEvent.setup();
         mockFetch.mockResolvedValue({
             ok: true,
@@ -109,27 +108,6 @@ describe('UpdateBanner', () => {
             expect(screen.getByLabelText('Dismiss')).toBeInTheDocument();
         });
         await user.click(screen.getByLabelText('Dismiss'));
-        expect(localStorage.getItem('update-banner-dismissed-version')).toBe('2.0.0');
-        expect(screen.queryByText('2.0.0')).not.toBeInTheDocument();
-    });
-
-    it('auto-dismisses when version was previously dismissed', async () => {
-        localStorage.setItem('update-banner-dismissed-version', '2.0.0');
-        mockFetch.mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({
-                current: '1.0.0',
-                latest: '2.0.0',
-                updateAvailable: true,
-                downloadUrl: null,
-                releaseNotesUrl: null,
-            }),
-        });
-        const { container } = render(<UpdateBanner />);
-        await waitFor(() => expect(mockFetch).toHaveBeenCalled());
-        // Should be dismissed immediately
-        await waitFor(() => {
-            expect(container.querySelector('[aria-label="Dismiss"]')).not.toBeInTheDocument();
-        });
+        expect(screen.queryByText('v2.0.0 available')).not.toBeInTheDocument();
     });
 });

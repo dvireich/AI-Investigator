@@ -929,10 +929,10 @@ describe('server utilities and routes', () => {
             const execSpy = vi.spyOn(cp, 'exec').mockImplementation((_cmd: string, _cb: any) => {});
 
             __testUtils.internal.openBrowser(4000, 'win32');
-            expect(execSpy).toHaveBeenLastCalledWith(expect.stringContaining('start'), expect.any(Function));
+            expect(execSpy).toHaveBeenLastCalledWith(expect.stringContaining('msedge --app='), expect.any(Function));
 
             __testUtils.internal.openBrowser(4000, 'darwin');
-            expect(execSpy).toHaveBeenLastCalledWith(expect.stringContaining('open'), expect.any(Function));
+            expect(execSpy).toHaveBeenLastCalledWith(expect.stringContaining('--app='), expect.any(Function));
 
             __testUtils.internal.openBrowser(4000, 'linux');
             expect(execSpy).toHaveBeenLastCalledWith(expect.stringContaining('xdg-open'), expect.any(Function));
