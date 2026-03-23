@@ -132,6 +132,30 @@ describe('updateChecker', () => {
             process.env.NODE_ENV = origEnv;
         });
 
+        it('handles GitHub release with no tag_name or empty assets', async () => {
+            vi.resetModules();
+            const origEnv = process.env.NODE_ENV;
+            process.env.NODE_ENV = 'production';
+            vi.doMock('fs', () => ({ existsSync: vi.fn().mockReturnValue(false), readFileSync: vi.fn() }));
+            vi.doMock('../../utils/appRoot', () => ({ isPackaged: false, distDir: '/mock/dist', appRoot: '/mock/root' }));
+            vi.doMock('axios', () => ({
+                default: {
+                    get: vi.fn().mockResolvedValue({
+                        data: {
+                            tag_name: null,
+                            html_url: 'https://github.com/dvireich/AI-Investigator/releases/latest',
+                            assets: [],
+                        },
+                    }),
+                },
+            }));
+            const freshMod = await import('../../utils/updateChecker');
+            const status = await freshMod.getVersionStatus(true);
+            expect(status.latest).toBe('');
+            expect(status.downloadUrl).toBe('https://github.com/dvireich/AI-Investigator/releases/latest');
+            process.env.NODE_ENV = origEnv;
+        });
+
         it('checks for updates when in production mode with manifest URL', async () => {
             vi.resetModules();
             const origEnv = process.env.NODE_ENV;
