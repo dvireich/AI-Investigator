@@ -58,7 +58,7 @@ export const OnboardingWizard = () => {
                 const trimmedPath = repoPath.trim();
                 try {
                     const added = await api.addProduct({
-                        name: p.name || trimmedPath.split(/[\\/]/).pop() || 'Product',
+                        name: p.name || trimmedPath.split(/[\\/]/).pop()!,
                         repoRoot: p.repoRoot || trimmedPath,
                         systemPromptPath: p.systemPromptPath || '',
                         knowledgeBasePath: p.knowledgeBasePath || '',

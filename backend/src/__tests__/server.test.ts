@@ -929,6 +929,14 @@ describe('server utilities and routes', () => {
             execSpy.mockRestore();
         });
 
+        it('printKeepOpenMessage logs keep-open hint', () => {
+            const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+            __testUtils.internal.printKeepOpenMessage(true);
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Keep this window open'));
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Ctrl+C'));
+            logSpy.mockRestore();
+        });
+
         it('covers direct startup helpers and schedule path selection', () => {
             const logger = { error: vi.fn() };
             handleServerStarted(() => {

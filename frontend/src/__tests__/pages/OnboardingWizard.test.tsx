@@ -270,6 +270,24 @@ describe('OnboardingWizard', () => {
             });
         });
 
+        it('uses fallback values when discovered product has missing fields', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'manifest', product: {} } as any);
+            vi.mocked(api.addProduct).mockResolvedValue({ id: 'myrepo', name: 'MyRepo' } as any);
+            vi.mocked(api.setActiveProduct).mockResolvedValue(undefined);
+            const user = await goToProductStep();
+            await user.type(screen.getByPlaceholderText(/Repos/), 'C:\\MyRepo');
+            await user.click(screen.getByText('Discover'));
+            await waitFor(() => {
+                expect(screen.getByText(/Product "MyRepo" added/)).toBeInTheDocument();
+            });
+            expect(api.addProduct).toHaveBeenCalledWith(expect.objectContaining({
+                name: 'MyRepo',
+                repoRoot: 'C:\\MyRepo',
+                workingDirectory: 'C:\\MyRepo',
+            }));
+        });
+
         it('handles already-exists product gracefully', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'manifest', product: { name: 'Existing', repoRoot: 'C:\\Existing' } } as any);
@@ -279,6 +297,18 @@ describe('OnboardingWizard', () => {
             await user.click(screen.getByText('Discover'));
             await waitFor(() => {
                 expect(screen.getByText(/already configured/)).toBeInTheDocument();
+            });
+        });
+
+        it('shows error when addProduct fails with non-duplicate error', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.discoverProduct).mockResolvedValue({ source: 'manifest', product: { name: 'BadProduct', repoRoot: 'C:\\Bad' } } as any);
+            vi.mocked(api.addProduct).mockRejectedValue(new Error('Server error'));
+            const user = await goToProductStep();
+            await user.type(screen.getByPlaceholderText(/Repos/), 'C:\\Bad');
+            await user.click(screen.getByText('Discover'));
+            await waitFor(() => {
+                expect(screen.getByText('Server error')).toBeInTheDocument();
             });
         });
 
