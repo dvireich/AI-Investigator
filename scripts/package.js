@@ -65,9 +65,61 @@ console.log('=== AI Investigator Packaging ===\n');
 console.log('[1/4] Preparing release directory...');
 cleanDir(RELEASE);
 
-// Step 2: Build exe with pkg
-console.log('\n[2/4] Building executable...');
-run(`npx @yao-pkg/pkg . --target node20-win-x64 --output "${path.join(RELEASE, EXE_NAME)}"`, BACKEND);
+// Step 2: Bundle with esbuild for minimal exe size
+console.log('\n[2/5] Bundling backend with esbuild...');
+const BUNDLED = path.join(DIST, 'server.bundled.js');
+run(
+    `npx esbuild dist/server.js --bundle --platform=node --target=node20 --outfile=dist/server.bundled.js --external:puppeteer --metafile=dist/meta.json`,
+    BACKEND,
+);
+const bundledSize = (fs.statSync(BUNDLED).size / (1024 * 1024)).toFixed(1);
+console.log(`  Bundled to ${bundledSize} MB (from ${fs.readdirSync(path.join(BACKEND, 'node_modules')).length}+ node_modules packages)`);
+
+// Create a launcher wrapper that shows instant startup feedback
+const LAUNCHER = path.join(DIST, 'launcher.js');
+fs.writeFileSync(LAUNCHER, `#!/usr/bin/env node
+// Launcher — shows instant feedback while the server boots
+process.stdout.write('\\n');
+process.stdout.write('  ╔══════════════════════════════════════╗\\n');
+process.stdout.write('  ║       AI Investigator v' + (require('./version.json').version || '?').padEnd(12) + '║\\n');
+process.stdout.write('  ╠══════════════════════════════════════╣\\n');
+process.stdout.write('  ║  Starting server...                  ║\\n');
+process.stdout.write('  ╚══════════════════════════════════════╝\\n');
+process.stdout.write('\\n');
+require('./server.bundled.js');
+`);
+console.log('  Created launcher.js');
+
+// Step 3: Build exe with pkg (from an isolated staging dir to avoid bundling node_modules)
+console.log('\n[3/5] Building executable...');
+
+// Create a minimal staging directory with only what pkg needs
+const STAGE = path.join(ROOT, '.pkg-stage');
+cleanDir(STAGE);
+
+// Copy the bundled server + launcher + assets
+fs.copyFileSync(BUNDLED, path.join(STAGE, 'server.bundled.js'));
+fs.copyFileSync(LAUNCHER, path.join(STAGE, 'launcher.js'));
+copyDir(path.join(DIST, 'public'), path.join(STAGE, 'public'));
+if (fs.existsSync(path.join(DIST, 'version.json'))) {
+    fs.copyFileSync(path.join(DIST, 'version.json'), path.join(STAGE, 'version.json'));
+}
+
+// Write a minimal package.json for pkg
+const stagePkg = {
+    name: 'ai-investigator',
+    bin: 'launcher.js',
+    pkg: {
+        assets: ['public/**/*', 'version.json', 'server.bundled.js'],
+    },
+};
+fs.writeFileSync(path.join(STAGE, 'package.json'), JSON.stringify(stagePkg, null, 2));
+
+// Run pkg from BACKEND (where it's installed) but target the staging dir
+run(`npx @yao-pkg/pkg "${STAGE}" --target node20-win-x64 --output "${path.join(RELEASE, EXE_NAME)}"`, BACKEND);
+
+// Clean up staging dir
+fs.rmSync(STAGE, { recursive: true, force: true });
 
 if (!fs.existsSync(path.join(RELEASE, EXE_NAME))) {
     console.error('ERROR: pkg failed to create executable.');
@@ -77,9 +129,9 @@ if (!fs.existsSync(path.join(RELEASE, EXE_NAME))) {
 const exeSize = (fs.statSync(path.join(RELEASE, EXE_NAME)).size / (1024 * 1024)).toFixed(1);
 console.log(`  Created ${EXE_NAME} (${exeSize} MB)`);
 
-// Step 3: Bundle Chromium (for PDF export)
+// Step 4: Bundle Chromium (for PDF export)
 if (!skipChromium) {
-    console.log('\n[3/4] Bundling Chromium for PDF export...');
+    console.log('\n[4/5] Bundling Chromium for PDF export...');
 
     // Find Puppeteer's downloaded Chromium
     let chromiumSrc = null;
@@ -109,11 +161,11 @@ if (!skipChromium) {
         console.warn('  Run `npx puppeteer browsers install chrome` to install Chromium.');
     }
 } else {
-    console.log('\n[3/4] Skipping Chromium bundle (--no-chromium)');
+    console.log('\n[4/5] Skipping Chromium bundle (--no-chromium)');
 }
 
-// Step 4: Copy runtime assets + sample config
-console.log('\n[4/4] Copying runtime assets...');
+// Step 5: Copy runtime assets + sample config
+console.log('\n[5/5] Copying runtime assets...');
 
 // Copy prompts
 const promptsSrc = path.join(ROOT, 'prompts');
