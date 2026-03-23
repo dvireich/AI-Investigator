@@ -237,6 +237,12 @@ if (fs.existsSync(publicDir)) {
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
+// Prevent ws from throwing server errors as uncaught exceptions.
+// ws re-emits http server 'error' events on the WebSocketServer; without a
+// listener, EventEmitter's default behaviour throws, which bypasses our
+// server.on('error') handler (used for EADDRINUSE auto-recovery).
+wss.on('error', () => { /* handled on server */ });
+
 // Store active runners
 const runners = new Map<string, AgentRunner>();
 // Store past investigations

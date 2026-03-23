@@ -19,10 +19,8 @@
         "outputPath": "../release",
         "assets": [
             "dist/public/**/*",
-            "dist/version.json"
-        ],
-        "scripts": [
-            "dist/**/*.js"
+            "dist/version.json",
+            "dist/server.bundled.js"
         ]
     },
     "dependencies": {

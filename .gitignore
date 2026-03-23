@@ -5,6 +5,7 @@ node_modules/
 dist/
 dist-ssr/
 release/
+.pkg-stage/
 
 # Environment & config
 .env

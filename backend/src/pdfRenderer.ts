@@ -3,10 +3,12 @@
  * Uses Puppeteer for high-fidelity HTML→PDF conversion with a professional PRD-style template.
  */
 
-import puppeteer, { Browser } from 'puppeteer';
 import * as path from 'path';
 import * as fs from 'fs';
 import { appRoot, isPackaged } from './utils/appRoot';
+
+// Lazily-loaded Puppeteer types
+type Browser = import('puppeteer').Browser;
 
 /**
  * Resolve the Chromium executable path.
@@ -40,8 +42,10 @@ async function getBrowser(): Promise<Browser> {
     if (browserInstance && browserInstance.connected) {
         return browserInstance;
     }
+    // Lazy-load puppeteer so the exe doesn't crash at startup when puppeteer isn't bundled
+    const puppeteer = await import('puppeteer');
     const executablePath = resolveChromiumPath();
-    browserInstance = await puppeteer.launch({
+    browserInstance = await puppeteer.default.launch({
         headless: true,
         /* v8 ignore next */
         ...(executablePath ? { executablePath } : {}),
