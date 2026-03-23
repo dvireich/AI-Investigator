@@ -3260,8 +3260,9 @@ const internal = {
     openBrowser(targetPort: number, platform: string = process.platform) {
         const url = `http://localhost:${targetPort}`;
         const { exec } = require('child_process');
-        const cmd = platform === 'win32' ? `start "" "${url}"`
-            : platform === 'darwin' ? `open "${url}"`
+        // Use --app= mode for a frameless desktop-app window (no address bar, no tabs)
+        const cmd = platform === 'win32' ? `start msedge --app=${url}`
+            : platform === 'darwin' ? `open -a "Google Chrome" --args --app=${url}`
             : `xdg-open "${url}"`;
         exec(cmd, () => { /* ignore errors */ });
     },
