@@ -197,10 +197,11 @@ if (currentSubsystem === 3) { // IMAGE_SUBSYSTEM_WINDOWS_CUI
 if (fs.existsSync(ICON)) {
     console.log('  Applying custom icon with rcedit...');
     try {
-        run(`npx @electron/rcedit "${exePath}" --set-icon "${ICON}"`, ROOT);
+        const rceditBin = path.join(ROOT, 'node_modules', 'rcedit', 'bin', 'rcedit-x64.exe');
+        execSync(`"${rceditBin}" "${exePath}" --set-icon "${ICON}"`, { stdio: 'inherit' });
         console.log('  Icon applied successfully');
     } catch (e) {
-        console.warn('  WARNING: Failed to apply icon. Install @electron/rcedit: npm i -D @electron/rcedit');
+        console.warn(`  WARNING: Failed to apply icon: ${e.message}`);
     }
 }
 
