@@ -44,9 +44,13 @@ function copyDir(src, dest) {
 
 function cleanDir(dir) {
     if (fs.existsSync(dir)) {
-        fs.rmSync(dir, { recursive: true, force: true });
+        // Remove contents, not the dir itself (avoids EPERM when cwd is inside it)
+        for (const entry of fs.readdirSync(dir)) {
+            fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
+        }
+    } else {
+        fs.mkdirSync(dir, { recursive: true });
     }
-    fs.mkdirSync(dir, { recursive: true });
 }
 
 // Validate prerequisites
@@ -115,8 +119,12 @@ const stagePkg = {
 };
 fs.writeFileSync(path.join(STAGE, 'package.json'), JSON.stringify(stagePkg, null, 2));
 
+// Use custom icon if available
+const ICON = path.join(ROOT, 'scripts', 'icon.ico');
+const iconFlag = fs.existsSync(ICON) ? ` --icon "${ICON}"` : '';
+
 // Run pkg from BACKEND (where it's installed) but target the staging dir
-run(`npx @yao-pkg/pkg "${STAGE}" --target node20-win-x64 --output "${path.join(RELEASE, EXE_NAME)}"`, BACKEND);
+run(`npx @yao-pkg/pkg "${STAGE}" --target node20-win-x64 --output "${path.join(RELEASE, EXE_NAME)}"${iconFlag}`, BACKEND);
 
 // Clean up staging dir
 fs.rmSync(STAGE, { recursive: true, force: true });
@@ -200,7 +208,7 @@ const readmeContent = `AI Investigator
 
 Quick Start:
   1. Copy config.sample.json to config.json and edit with your settings
-  2. Double-click ai-investigator.exe to launch
+  2. Double-click "Start AI Investigator.cmd" to launch
   3. The dashboard opens automatically in your browser
 
   If a previous instance is running, it will be closed automatically.
@@ -220,6 +228,21 @@ Notes:
 For full documentation, see: https://github.com/dvireich/AI-Investigator
 `;
 fs.writeFileSync(path.join(RELEASE, 'README.txt'), readmeContent);
+
+// Create a fast-launch wrapper (.cmd) — shows instant feedback while the exe loads
+const launcherCmd = `@echo off
+title AI Investigator
+echo.
+echo   ======================================
+echo        AI Investigator
+echo   ======================================
+echo.
+echo   Starting server, please wait...
+echo.
+"%~dp0ai-investigator.exe" %*
+`;
+fs.writeFileSync(path.join(RELEASE, 'Start AI Investigator.cmd'), launcherCmd);
+console.log('  Created Start AI Investigator.cmd');
 
 // Summary
 console.log('\n=== Packaging complete ===');
