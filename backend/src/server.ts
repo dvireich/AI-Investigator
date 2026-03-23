@@ -3200,15 +3200,21 @@ if (fs.existsSync(publicDir)) {
 
 let serverStarted = false;
 
-/* v8 ignore start -- port conflict handling only runs in exe mode */
-function killProcessOnPort(targetPort: number): Promise<boolean> {
+type ExecCallback = (err: Error | null, stdout: string, stderr: string) => void;
+type ExecFn = (cmd: string, cb: ExecCallback) => void;
+
+function killProcessOnPort(
+    targetPort: number,
+    execFn: ExecFn = require('child_process').exec,
+    platform: string = process.platform,
+    currentPid: number = process.pid,
+): Promise<boolean> {
     return new Promise((resolve) => {
-        if (process.platform !== 'win32') {
+        if (platform !== 'win32') {
             resolve(false);
             return;
         }
-        const { exec } = require('child_process');
-        exec(`netstat -ano | findstr :${targetPort} | findstr LISTENING`, (err: Error | null, stdout: string) => {
+        execFn(`netstat -ano | findstr :${targetPort} | findstr LISTENING`, (err: Error | null, stdout: string) => {
             if (err || !stdout.trim()) {
                 resolve(false);
                 return;
@@ -3218,7 +3224,7 @@ function killProcessOnPort(targetPort: number): Promise<boolean> {
             for (const line of lines) {
                 const parts = line.trim().split(/\s+/);
                 const pid = parts[parts.length - 1];
-                if (pid && pid !== '0' && pid !== String(process.pid)) pids.add(pid);
+                if (pid && pid !== '0' && pid !== String(currentPid)) pids.add(pid);
             }
             if (pids.size === 0) {
                 resolve(false);
@@ -3232,7 +3238,7 @@ function killProcessOnPort(targetPort: number): Promise<boolean> {
             console.log('');
             let killed = 0;
             for (const pid of pids) {
-                exec(`taskkill /PID ${pid} /F`, () => {
+                execFn(`taskkill /PID ${pid} /F`, () => {
                     killed++;
                     if (killed === pids.size) resolve(true);
                 });
@@ -3240,7 +3246,18 @@ function killProcessOnPort(targetPort: number): Promise<boolean> {
         });
     });
 }
-/* v8 ignore stop */
+
+const internal = {
+    killProcessOnPort,
+    openBrowser(targetPort: number, platform: string = process.platform) {
+        const url = `http://localhost:${targetPort}`;
+        const { exec } = require('child_process');
+        const cmd = platform === 'win32' ? `start "" "${url}"`
+            : platform === 'darwin' ? `open "${url}"`
+            : `xdg-open "${url}"`;
+        exec(cmd, () => { /* ignore errors */ });
+    },
+};
 
 export function startServer() {
     if (serverStarted) {
@@ -3249,10 +3266,9 @@ export function startServer() {
 
     serverStarted = true;
 
-    /* v8 ignore start -- port conflict handling only runs in exe mode */
     server.on('error', async (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
-            const killed = await killProcessOnPort(port);
+            const killed = await internal.killProcessOnPort(port);
             if (killed) {
                 console.log('Restarting...\n');
                 setTimeout(() => {
@@ -3268,14 +3284,12 @@ export function startServer() {
             process.exit(1);
         }
     });
-    /* v8 ignore stop */
 
     server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
         handleServerStarted();
 
         // Check for updates on startup (exe mode only)
-        /* v8 ignore start -- startup behavior tested manually */
         if (isPackaged || process.env.NODE_ENV === 'production') {
             getVersionStatus(true).then((status) => {
                 if (status.updateAvailable && status.latest) {
@@ -3288,20 +3302,11 @@ export function startServer() {
                 }
             }).catch(() => { /* ignore update check failures */ });
         }
-        /* v8 ignore stop */
 
         // Auto-open browser in production/exe mode (unless --no-open flag)
-        /* v8 ignore start -- startup behavior tested manually */
         if (!process.argv.includes('--no-open') && (isPackaged || process.env.NODE_ENV === 'production')) {
-            const url = `http://localhost:${port}`;
-            const { exec } = require('child_process');
-            // Windows: start; macOS: open; Linux: xdg-open
-            const cmd = process.platform === 'win32' ? `start "" "${url}"`
-                : process.platform === 'darwin' ? `open "${url}"`
-                : `xdg-open "${url}"`;
-            exec(cmd, () => { /* ignore errors */ });
+            internal.openBrowser(port);
         }
-        /* v8 ignore stop */
     });
 
     return server;
@@ -3348,6 +3353,8 @@ export const __testUtils = {
     jsonParseErrorHandler,
     resolveConfigFilePath,
     loadConfigFromDisk,
+    killProcessOnPort,
+    internal,
     llmRegistry,
     incidentRegistry,
     getConfig: () => config,

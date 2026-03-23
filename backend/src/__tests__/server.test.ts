@@ -646,6 +646,289 @@ describe('server utilities and routes', () => {
             expect(errorLogger).toHaveBeenCalled();
         });
 
+        it('kills a process on port when netstat reports a listening PID', async () => {
+            const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+            const fakeExec: any = vi.fn((cmd: string, cb: any) => {
+                if (cmd.includes('netstat')) {
+                    cb(null, '  TCP    0.0.0.0:3000    0.0.0.0:0    LISTENING    12345\n', '');
+                } else if (cmd.includes('taskkill')) {
+                    cb(null, '', '');
+                }
+            });
+
+            const result = await __testUtils.killProcessOnPort(3000, fakeExec, 'win32', 99999);
+            expect(result).toBe(true);
+            expect(fakeExec).toHaveBeenCalledWith(expect.stringContaining('taskkill /PID 12345 /F'), expect.any(Function));
+            expect(logSpy).toHaveBeenCalledWith('  Previous AI Investigator instance detected');
+            logSpy.mockRestore();
+        });
+
+        it('returns false from killProcessOnPort on non-win32 platforms', async () => {
+            const result = await __testUtils.killProcessOnPort(3000, vi.fn() as any, 'linux', 1);
+            expect(result).toBe(false);
+        });
+
+        it('returns false from killProcessOnPort when netstat finds nothing', async () => {
+            const fakeExec: any = vi.fn((cmd: string, cb: any) => {
+                cb(new Error('not found'), '', '');
+            });
+            const result = await __testUtils.killProcessOnPort(3000, fakeExec, 'win32', 1);
+            expect(result).toBe(false);
+        });
+
+        it('returns false from killProcessOnPort when all PIDs are filtered out', async () => {
+            const fakeExec: any = vi.fn((cmd: string, cb: any) => {
+                // PID matches current process — should be filtered
+                cb(null, '  TCP    0.0.0.0:3000    0.0.0.0:0    LISTENING    999\n', '');
+            });
+            const result = await __testUtils.killProcessOnPort(3000, fakeExec, 'win32', 999);
+            expect(result).toBe(false);
+        });
+
+        it('filters out PID 0 from killProcessOnPort', async () => {
+            const fakeExec: any = vi.fn((cmd: string, cb: any) => {
+                cb(null, '  TCP    0.0.0.0:3000    0.0.0.0:0    LISTENING    0\n', '');
+            });
+            const result = await __testUtils.killProcessOnPort(3000, fakeExec, 'win32', 1);
+            expect(result).toBe(false);
+        });
+
+        it('handles EADDRINUSE by killing the blocking process and retrying', async () => {
+            vi.useFakeTimers();
+            const errorHandlers: Function[] = [];
+            const listenSpy = vi.spyOn(__testUtils.server, 'listen').mockImplementation((_port: any, callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+            const onSpy = vi.spyOn(__testUtils.server, 'on').mockImplementation((event: string, handler: any) => {
+                if (event === 'error') errorHandlers.push(handler);
+                return __testUtils.server as any;
+            });
+            const closeSpy = vi.spyOn(__testUtils.server, 'close').mockImplementation((callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+
+            startServer();
+            expect(errorHandlers.length).toBeGreaterThanOrEqual(1);
+
+            const eaddrinuseErr: NodeJS.ErrnoException = Object.assign(new Error('listen EADDRINUSE'), { code: 'EADDRINUSE' });
+            const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
+            const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+            // Test killed=false path (port still in use, can't kill)
+            const killMock = vi.spyOn(__testUtils.internal, 'killProcessOnPort').mockResolvedValue(false);
+            await errorHandlers[0](eaddrinuseErr);
+            expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('already in use'));
+            expect(exitSpy).toHaveBeenCalledWith(1);
+
+            // Test killed=true path (successfully killed blocking process)
+            exitSpy.mockClear();
+            const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+            killMock.mockResolvedValue(true);
+            await errorHandlers[0](eaddrinuseErr);
+            expect(logSpy).toHaveBeenCalledWith('Restarting...\n');
+            vi.advanceTimersByTime(1100);
+            expect(listenSpy).toHaveBeenCalled();
+            expect(exitSpy).not.toHaveBeenCalled();
+
+            // Test non-EADDRINUSE error path
+            exitSpy.mockClear();
+            const otherErr: NodeJS.ErrnoException = Object.assign(new Error('EACCES'), { code: 'EACCES' });
+            await errorHandlers[0](otherErr);
+            expect(consoleErrorSpy).toHaveBeenCalledWith('Server error:', otherErr);
+
+            await stopServer();
+            vi.useRealTimers();
+            exitSpy.mockRestore();
+            consoleErrorSpy.mockRestore();
+            logSpy.mockRestore();
+            killMock.mockRestore();
+            onSpy.mockRestore();
+        });
+
+        it('logs update availability on startup when NODE_ENV is production', async () => {
+            const originalNodeEnv = process.env.NODE_ENV;
+            process.env.NODE_ENV = 'production';
+            vi.spyOn(__testUtils.internal, 'openBrowser').mockImplementation(() => {});
+
+            const { getVersionStatus } = await import('../utils/updateChecker');
+            const getVersionSpy = vi.spyOn({ getVersionStatus }, 'getVersionStatus');
+
+            // We need to mock the module-level import. Since server.ts imports getVersionStatus
+            // at the module level, we mock the module directly.
+            const updateCheckerModule = await import('../utils/updateChecker');
+            const versionSpy = vi.spyOn(updateCheckerModule, 'getVersionStatus').mockResolvedValue({
+                current: '1.0.0',
+                latest: '1.1.0',
+                updateAvailable: true,
+                downloadUrl: 'https://example.com/download',
+                releaseNotesUrl: 'https://example.com/release',
+                lastChecked: Date.now(),
+            } as any);
+
+            const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+            const listenSpy = vi.spyOn(__testUtils.server, 'listen').mockImplementation((_port: any, callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+            vi.spyOn(__testUtils.server, 'on').mockReturnValue(__testUtils.server as any);
+            const closeSpy = vi.spyOn(__testUtils.server, 'close').mockImplementation((callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+
+            startServer();
+
+            // Wait for the async update check to complete
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(versionSpy).toHaveBeenCalledWith(true);
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Update available'));
+
+            await stopServer();
+            process.env.NODE_ENV = originalNodeEnv;
+            versionSpy.mockRestore();
+            logSpy.mockRestore();
+        });
+
+        it('silently handles update check failures on startup', async () => {
+            const originalNodeEnv = process.env.NODE_ENV;
+            process.env.NODE_ENV = 'production';
+            vi.spyOn(__testUtils.internal, 'openBrowser').mockImplementation(() => {});
+
+            const updateCheckerModule = await import('../utils/updateChecker');
+            const versionSpy = vi.spyOn(updateCheckerModule, 'getVersionStatus').mockRejectedValue(new Error('network error'));
+
+            const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+            vi.spyOn(__testUtils.server, 'listen').mockImplementation((_port: any, callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+            vi.spyOn(__testUtils.server, 'on').mockReturnValue(__testUtils.server as any);
+            vi.spyOn(__testUtils.server, 'close').mockImplementation((callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+
+            startServer();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Should not throw, should not log update available
+            expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Update available'));
+
+            await stopServer();
+            process.env.NODE_ENV = originalNodeEnv;
+            versionSpy.mockRestore();
+            logSpy.mockRestore();
+        });
+
+        it('skips update check when not in production mode', async () => {
+            const updateCheckerModule = await import('../utils/updateChecker');
+            const versionSpy = vi.spyOn(updateCheckerModule, 'getVersionStatus');
+
+            vi.spyOn(__testUtils.server, 'listen').mockImplementation((_port: any, callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+            vi.spyOn(__testUtils.server, 'on').mockReturnValue(__testUtils.server as any);
+            vi.spyOn(__testUtils.server, 'close').mockImplementation((callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+
+            startServer();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // Not in production mode, should not call getVersionStatus
+            expect(versionSpy).not.toHaveBeenCalled();
+
+            await stopServer();
+            versionSpy.mockRestore();
+        });
+
+        it('does not log update banner when no update is available', async () => {
+            const originalNodeEnv = process.env.NODE_ENV;
+            process.env.NODE_ENV = 'production';
+            vi.spyOn(__testUtils.internal, 'openBrowser').mockImplementation(() => {});
+
+            const updateCheckerModule = await import('../utils/updateChecker');
+            const versionSpy = vi.spyOn(updateCheckerModule, 'getVersionStatus').mockResolvedValue({
+                current: '1.0.0',
+                latest: '1.0.0',
+                updateAvailable: false,
+                lastChecked: Date.now(),
+            } as any);
+
+            const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+            vi.spyOn(__testUtils.server, 'listen').mockImplementation((_port: any, callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+            vi.spyOn(__testUtils.server, 'on').mockReturnValue(__testUtils.server as any);
+            vi.spyOn(__testUtils.server, 'close').mockImplementation((callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+
+            startServer();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Update available'));
+
+            await stopServer();
+            process.env.NODE_ENV = originalNodeEnv;
+            versionSpy.mockRestore();
+            logSpy.mockRestore();
+        });
+
+        it('auto-opens browser in production mode on startup', async () => {
+            const originalNodeEnv = process.env.NODE_ENV;
+            process.env.NODE_ENV = 'production';
+
+            const updateCheckerModule = await import('../utils/updateChecker');
+            vi.spyOn(updateCheckerModule, 'getVersionStatus').mockResolvedValue({
+                current: '1.0.0', updateAvailable: false, lastChecked: Date.now(),
+            } as any);
+
+            const openSpy = vi.spyOn(__testUtils.internal, 'openBrowser').mockImplementation(() => {});
+
+            vi.spyOn(__testUtils.server, 'listen').mockImplementation((_port: any, callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+            vi.spyOn(__testUtils.server, 'on').mockReturnValue(__testUtils.server as any);
+            vi.spyOn(__testUtils.server, 'close').mockImplementation((callback?: any) => {
+                callback?.();
+                return __testUtils.server as any;
+            });
+
+            startServer();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(openSpy).toHaveBeenCalled();
+
+            await stopServer();
+            process.env.NODE_ENV = originalNodeEnv;
+            openSpy.mockRestore();
+        });
+
+        it('openBrowser calls exec with a platform-appropriate command', () => {
+            const cp = require('child_process');
+            const execSpy = vi.spyOn(cp, 'exec').mockImplementation((_cmd: string, _cb: any) => {});
+
+            __testUtils.internal.openBrowser(4000, 'win32');
+            expect(execSpy).toHaveBeenLastCalledWith(expect.stringContaining('start'), expect.any(Function));
+
+            __testUtils.internal.openBrowser(4000, 'darwin');
+            expect(execSpy).toHaveBeenLastCalledWith(expect.stringContaining('open'), expect.any(Function));
+
+            __testUtils.internal.openBrowser(4000, 'linux');
+            expect(execSpy).toHaveBeenLastCalledWith(expect.stringContaining('xdg-open'), expect.any(Function));
+
+            execSpy.mockRestore();
+        });
+
         it('covers direct startup helpers and schedule path selection', () => {
             const logger = { error: vi.fn() };
             handleServerStarted(() => {
