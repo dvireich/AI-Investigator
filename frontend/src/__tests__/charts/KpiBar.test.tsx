@@ -85,14 +85,18 @@ describe('KpiBar', () => {
     });
 
     it('shows negative week delta when no investigations this week (covers weekDelta < 0 branch)', () => {
+        vi.useFakeTimers();
+        // Wednesday March 25, 2026 — weekStart = Monday March 23, lastWeekStart = Monday March 16
+        vi.setSystemTime(new Date('2026-03-25T12:00:00.000Z'));
         const dayMs = 86400000;
         const investigations = [
-            // 8 days ago = last week
+            // 8 days ago = March 17 (Tuesday) => falls in last week
             inv('completed', { id: String(Date.now() - 8 * dayMs) }),
         ];
         render(<KpiBar investigations={investigations} />);
         // weekDelta = 0 this week - 1 last week = -1
         expect(screen.getByText(/-1 vs last week/)).toBeInTheDocument();
+        vi.useRealTimers();
     });
 
     it('excludes zero and >24h outlier durations from average (covers both filter branches)', () => {
