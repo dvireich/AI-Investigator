@@ -577,14 +577,16 @@ export function getEffectiveConfig(state?: Partial<InvestigationState>): typeof 
 // Config Persistence
 // Support --config <path> CLI argument to load config from an external file.
 // This allows teams to keep their config.json in their own repo.
-export function resolveConfigFilePath(argv: string[], currentDir: string): string {
+// In exe mode, look next to the executable. In normal mode, look in repo root.
+export function resolveConfigFilePath(argv: string[], currentDir: string, root: string): string {
     const configArgIndex = argv.indexOf('--config');
-    return (configArgIndex !== -1 && argv[configArgIndex + 1])
-        ? path.resolve(argv[configArgIndex + 1])
-        : path.join(currentDir, '..', 'config.json');
+    if (configArgIndex !== -1 && argv[configArgIndex + 1]) {
+        return path.resolve(argv[configArgIndex + 1]);
+    }
+    return path.join(root, 'config.json');
 }
 
-const configFile = resolveConfigFilePath(process.argv, __dirname);
+const configFile = resolveConfigFilePath(process.argv, __dirname, appRoot);
 
 // The directory containing the config file — used to resolve relative paths in config values.
 // When --config points to a product repo's investigator-config.json, relative paths
@@ -3198,28 +3200,113 @@ if (fs.existsSync(publicDir)) {
 
 let serverStarted = false;
 
+type ExecCallback = (err: Error | null, stdout: string, stderr: string) => void;
+type ExecFn = (cmd: string, cb: ExecCallback) => void;
+
+function killProcessOnPort(
+    targetPort: number,
+    execFn: ExecFn = require('child_process').exec,
+    platform: string = process.platform,
+    currentPid: number = process.pid,
+): Promise<boolean> {
+    return new Promise((resolve) => {
+        if (platform !== 'win32') {
+            resolve(false);
+            return;
+        }
+        execFn(`netstat -ano | findstr :${targetPort} | findstr LISTENING`, (err: Error | null, stdout: string) => {
+            if (err || !stdout.trim()) {
+                resolve(false);
+                return;
+            }
+            const lines = stdout.trim().split('\n');
+            const pids = new Set<string>();
+            for (const line of lines) {
+                const parts = line.trim().split(/\s+/);
+                const pid = parts[parts.length - 1];
+                if (pid && pid !== '0' && pid !== String(currentPid)) pids.add(pid);
+            }
+            if (pids.size === 0) {
+                resolve(false);
+                return;
+            }
+            console.log('');
+            console.log('='.repeat(50));
+            console.log('  Previous AI Investigator instance detected');
+            console.log('  Shutting it down to start a fresh session...');
+            console.log('='.repeat(50));
+            console.log('');
+            let killed = 0;
+            for (const pid of pids) {
+                execFn(`taskkill /PID ${pid} /F`, () => {
+                    killed++;
+                    if (killed === pids.size) resolve(true);
+                });
+            }
+        });
+    });
+}
+
+const internal = {
+    killProcessOnPort,
+    openBrowser(targetPort: number, platform: string = process.platform) {
+        const url = `http://localhost:${targetPort}`;
+        const { exec } = require('child_process');
+        const cmd = platform === 'win32' ? `start "" "${url}"`
+            : platform === 'darwin' ? `open "${url}"`
+            : `xdg-open "${url}"`;
+        exec(cmd, () => { /* ignore errors */ });
+    },
+};
+
 export function startServer() {
     if (serverStarted) {
         return server;
     }
 
     serverStarted = true;
+
+    server.on('error', async (err: NodeJS.ErrnoException) => {
+        if (err.code === 'EADDRINUSE') {
+            const killed = await internal.killProcessOnPort(port);
+            if (killed) {
+                console.log('Restarting...\n');
+                setTimeout(() => {
+                    server.listen(port);
+                }, 1000);
+            } else {
+                console.error(`\nPort ${port} is already in use by another application.`);
+                console.error('Please close it and try again.\n');
+                process.exit(1);
+            }
+        } else {
+            console.error('Server error:', err);
+            process.exit(1);
+        }
+    });
+
     server.listen(port, () => {
         console.log(`Server running at http://localhost:${port}`);
         handleServerStarted();
 
-        // Auto-open browser in production/exe mode (unless --no-open flag)
-        /* v8 ignore start -- startup behavior tested manually */
-        if (!process.argv.includes('--no-open') && (isPackaged || process.env.NODE_ENV === 'production')) {
-            const url = `http://localhost:${port}`;
-            const { exec } = require('child_process');
-            // Windows: start; macOS: open; Linux: xdg-open
-            const cmd = process.platform === 'win32' ? `start "" "${url}"`
-                : process.platform === 'darwin' ? `open "${url}"`
-                : `xdg-open "${url}"`;
-            exec(cmd, () => { /* ignore errors */ });
+        // Check for updates on startup (exe mode only)
+        if (isPackaged || process.env.NODE_ENV === 'production') {
+            getVersionStatus(true).then((status) => {
+                if (status.updateAvailable && status.latest) {
+                    console.log('');
+                    console.log('='.repeat(50));
+                    console.log(`  Update available: v${status.current} -> v${status.latest}`);
+                    console.log(`  Download: ${status.downloadUrl}`);
+                    console.log('='.repeat(50));
+                    console.log('');
+                }
+            }).catch(() => { /* ignore update check failures */ });
         }
-        /* v8 ignore stop */
+
+        // Auto-open browser in production/exe mode (unless --no-open flag)
+        if (!process.argv.includes('--no-open') && (isPackaged || process.env.NODE_ENV === 'production')) {
+            internal.openBrowser(port);
+        }
     });
 
     return server;
@@ -3266,6 +3353,8 @@ export const __testUtils = {
     jsonParseErrorHandler,
     resolveConfigFilePath,
     loadConfigFromDisk,
+    killProcessOnPort,
+    internal,
     llmRegistry,
     incidentRegistry,
     getConfig: () => config,

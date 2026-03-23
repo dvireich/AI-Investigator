@@ -91,15 +91,68 @@ describe('updateChecker', () => {
             expect(status.latest).toBeNull();
         });
 
-        it('returns base status when NODE_ENV is production but no manifest URL', async () => {
+        it('returns base status when NODE_ENV is production but GitHub API fails', async () => {
             vi.resetModules();
             const origEnv = process.env.NODE_ENV;
             process.env.NODE_ENV = 'production';
             vi.doMock('fs', () => ({ existsSync: vi.fn().mockReturnValue(false), readFileSync: vi.fn() }));
             vi.doMock('../../utils/appRoot', () => ({ isPackaged: false, distDir: '/mock/dist', appRoot: '/mock/root' }));
+            vi.doMock('axios', () => ({
+                default: { get: vi.fn().mockRejectedValue(new Error('Network error')) },
+            }));
             const freshMod = await import('../../utils/updateChecker');
             const status = await freshMod.getVersionStatus();
             expect(status.updateAvailable).toBe(false);
+            process.env.NODE_ENV = origEnv;
+        });
+
+        it('checks GitHub Releases API when no manifest URL is set', async () => {
+            vi.resetModules();
+            const origEnv = process.env.NODE_ENV;
+            process.env.NODE_ENV = 'production';
+            vi.doMock('fs', () => ({ existsSync: vi.fn().mockReturnValue(false), readFileSync: vi.fn() }));
+            vi.doMock('../../utils/appRoot', () => ({ isPackaged: false, distDir: '/mock/dist', appRoot: '/mock/root' }));
+            vi.doMock('axios', () => ({
+                default: {
+                    get: vi.fn().mockResolvedValue({
+                        data: {
+                            tag_name: 'v2.0.0',
+                            html_url: 'https://github.com/dvireich/AI-Investigator/releases/tag/v2.0.0',
+                            assets: [{ browser_download_url: 'https://github.com/download/v2.0.0.zip' }],
+                        },
+                    }),
+                },
+            }));
+            const freshMod = await import('../../utils/updateChecker');
+            const status = await freshMod.getVersionStatus(true);
+            expect(status.updateAvailable).toBe(true);
+            expect(status.latest).toBe('2.0.0');
+            expect(status.downloadUrl).toBe('https://github.com/download/v2.0.0.zip');
+            expect(status.releaseNotesUrl).toBe('https://github.com/dvireich/AI-Investigator/releases/tag/v2.0.0');
+            process.env.NODE_ENV = origEnv;
+        });
+
+        it('handles GitHub release with no tag_name or empty assets', async () => {
+            vi.resetModules();
+            const origEnv = process.env.NODE_ENV;
+            process.env.NODE_ENV = 'production';
+            vi.doMock('fs', () => ({ existsSync: vi.fn().mockReturnValue(false), readFileSync: vi.fn() }));
+            vi.doMock('../../utils/appRoot', () => ({ isPackaged: false, distDir: '/mock/dist', appRoot: '/mock/root' }));
+            vi.doMock('axios', () => ({
+                default: {
+                    get: vi.fn().mockResolvedValue({
+                        data: {
+                            tag_name: null,
+                            html_url: 'https://github.com/dvireich/AI-Investigator/releases/latest',
+                            assets: [],
+                        },
+                    }),
+                },
+            }));
+            const freshMod = await import('../../utils/updateChecker');
+            const status = await freshMod.getVersionStatus(true);
+            expect(status.latest).toBe('');
+            expect(status.downloadUrl).toBe('https://github.com/dvireich/AI-Investigator/releases/latest');
             process.env.NODE_ENV = origEnv;
         });
 

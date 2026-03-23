@@ -148,14 +148,24 @@ const readmeContent = `AI Investigator
 
 Quick Start:
   1. Copy config.sample.json to config.json and edit with your settings
-  2. Double-click ai-investigator.exe (or run from command line)
-  3. Open http://localhost:3000 in your browser
+  2. Double-click ai-investigator.exe to launch
+  3. The dashboard opens automatically in your browser
+
+  If a previous instance is running, it will be closed automatically.
+
+Windows SmartScreen:
+  On first run, Windows may show "Windows protected your PC".
+  Click "More info" then "Run anyway" — this is expected for
+  unsigned applications distributed outside the Microsoft Store.
 
 Command-line options:
   --config <path>    Use a specific config file
   --no-open          Don't auto-open the browser
 
-For full documentation, see: https://github.com/<org>/AI-Investigator
+Notes:
+  - The server runs on http://localhost:3000 by default.
+
+For full documentation, see: https://github.com/dvireich/AI-Investigator
 `;
 fs.writeFileSync(path.join(RELEASE, 'README.txt'), readmeContent);
 
