@@ -3543,6 +3543,22 @@ describe('Settings extra coverage', () => {
             });
         });
 
+        describe('Active Product dropdown disabled when no products', () => {
+            it('disables dropdown and shows placeholder when products list is empty', async () => {
+                const { api } = await import('../../api');
+                vi.mocked(api.listProducts).mockResolvedValue([]);
+                vi.mocked(api.getActiveProduct).mockResolvedValue(null as any);
+
+                renderSettings();
+                await waitFor(() => screen.getByText('Active Product'));
+
+                const select = screen.getAllByRole('combobox')[0];
+                expect(select).toBeDisabled();
+                expect(select).toHaveClass('opacity-50');
+                expect(screen.getByText('No products configured')).toBeInTheDocument();
+            });
+        });
+
         describe('browserMode === "file" title branch (L1635)', () => {
             it('opens file browser with "Select File" title for systemPromptPath', async () => {
                 const user = userEvent.setup();
