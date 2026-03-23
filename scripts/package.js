@@ -142,23 +142,16 @@ if (fs.existsSync(versionFile)) {
     fs.copyFileSync(versionFile, path.join(RELEASE, 'version.json'));
 }
 
-// Copy launcher script (named for easy discovery)
-const launcherSrc = path.join(ROOT, 'scripts', 'start.cmd');
-if (fs.existsSync(launcherSrc)) {
-    fs.copyFileSync(launcherSrc, path.join(RELEASE, 'AI Investigator.cmd'));
-    console.log('  Copied AI Investigator.cmd (launcher)');
-}
-
 // Create a simple README
 const readmeContent = `AI Investigator
 ===============
 
 Quick Start:
   1. Copy config.sample.json to config.json and edit with your settings
-  2. Double-click "AI Investigator.cmd" to launch
+  2. Double-click ai-investigator.exe to launch
   3. The dashboard opens automatically in your browser
 
-  The launcher automatically closes any previous instance before starting.
+  If a previous instance is running, it will be closed automatically.
 
 Windows SmartScreen:
   On first run, Windows may show "Windows protected your PC".
