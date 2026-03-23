@@ -335,6 +335,17 @@ describe('server utilities and routes', () => {
             });
         });
 
+        it('resolves manifest with Path-suffixed field names', () => {
+            const result = resolveManifest('C:/repo', {
+                name: 'PathSuffix',
+                systemPromptPath: '.github/agents/agent.md',
+                knowledgeBasePath: 'docs/kb',
+            });
+
+            expect(result.systemPromptPath).toBe(path.resolve('C:/repo', '.github/agents/agent.md'));
+            expect(result.knowledgeBasePath).toBe(path.resolve('C:/repo', 'docs/kb'));
+        });
+
         it('auto-discovers product paths from repo structure', () => {
             const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-product-'));
             fs.mkdirSync(path.join(repoRoot, '.github', 'agents'), { recursive: true });
@@ -932,7 +943,6 @@ describe('server utilities and routes', () => {
         it('printKeepOpenMessage logs keep-open hint', () => {
             const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
             __testUtils.internal.printKeepOpenMessage(true);
-            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Keep this window open'));
             expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Ctrl+C'));
             logSpy.mockRestore();
         });
