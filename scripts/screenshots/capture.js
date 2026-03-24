@@ -13,7 +13,7 @@
 import { chromium } from 'playwright';
 import { startServer, stopServer } from './mock-server.js';
 import { spawn } from 'child_process';
-import { readFileSync } from 'fs';
+import { readFileSync, writeFileSync } from 'fs';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -68,9 +68,24 @@ async function setOnboarding(complete) {
 }
 
 async function screenshot(page, name, opts = {}) {
-    const path = join(SCREENSHOTS_DIR, `${name}.png`);
-    await page.screenshot({ path, fullPage: false, ...opts });
-    console.log(`  ✓ ${name}.png`);
+    const filePath = join(SCREENSHOTS_DIR, `${name}.png`);
+    // Capture to buffer first, then write with retry to handle transient
+    // file-lock errors (antivirus, VS Code file watcher, etc.)
+    const buffer = await page.screenshot({ fullPage: false, ...opts });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+            writeFileSync(filePath, buffer);
+            console.log(`  ✓ ${name}.png`);
+            return;
+        } catch (err) {
+            if (attempt < 3 && (err.code === 'UNKNOWN' || err.code === 'EBUSY' || err.code === 'EPERM')) {
+                console.log(`  ⚠ ${name}.png write failed (attempt ${attempt}/3), retrying...`);
+                await new Promise(r => setTimeout(r, 500 * attempt));
+            } else {
+                throw err;
+            }
+        }
+    }
 }
 
 /** Wait for the React app to finish rendering */
@@ -124,13 +139,20 @@ async function captureDashboardOverview(page) {
     await navigateTo(page, '/');
     // Wait for investigation cards to render
     await page.waitForTimeout(1200);
-    // Ensure grid view is active (more impressive than list view)
-    const gridBtn = page.locator('button[title*="Grid"], button[aria-label*="grid"], button:has(svg.lucide-layout-grid)').first();
-    if (await gridBtn.isVisible()) {
-        await gridBtn.click();
+    // Ensure list view is active so investigations are visible as rows
+    const listBtn = page.locator('button[title*="List"], button[aria-label*="list"], button:has(svg.lucide-list)').first();
+    if (await listBtn.isVisible()) {
+        await listBtn.click();
         await page.waitForTimeout(600);
     }
-    await screenshot(page, 'dashboard-overview');
+    await screenshot(page, 'dashboard-overview', { fullPage: true });
+
+    // Dismiss the update banner so it doesn't clutter subsequent screenshots
+    const dismissBtn = page.locator('[class*="w-72"] button:has(svg.lucide-x)').first();
+    if (await dismissBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        await dismissBtn.click();
+        await page.waitForTimeout(300);
+    }
 }
 
 async function captureDashboardMixed(page) {
@@ -353,20 +375,29 @@ async function captureRetrospectiveAnalysis(page) {
             messages: inv.retrospect.messages.slice(0, 4), // only show early messages
             proposals: [],
             analysisComplete: false,
+            analysisFailed: false,
             completed: false,
         },
     };
     await setDetailOverride(inv.id, analyzingInv);
+
+    // Tell the mock server to hang on the analyze endpoint so the fetch stays
+    // pending and isAnalyzing remains true in React state.
+    await controlPost('/__control/set-analyze-hang', { hang: true });
+
     await navigateTo(page, `/investigation/${inv.id}`);
     await page.waitForTimeout(600);
 
-    // Switch to Retrospect tab
+    // Switch to Retrospect tab (triggers the auto-analysis useEffect)
     const retroTab = page.locator('button:has-text("Retrospect")').first();
     if (await retroTab.isVisible()) {
         await retroTab.click();
-        await page.waitForTimeout(800);
+        await page.waitForTimeout(1200);
     }
     await screenshot(page, 'retrospective-analysis');
+
+    // Reset hang mode
+    await controlPost('/__control/set-analyze-hang', { hang: false });
 }
 
 async function captureRetrospectiveAnalyzeInvestigation(page) {
@@ -446,13 +477,11 @@ async function captureSettings(page) {
     }
 
     // Expand the first product to show path details
-    const productCard = page.locator('[class*="glass-card"]').first();
-    if (await productCard.isVisible()) {
-        const expandBtn = productCard.locator('button').first();
-        if (await expandBtn.isVisible()) {
-            await expandBtn.click();
-            await page.waitForTimeout(400);
-        }
+    // The product card header is a div with cursor-pointer that toggles expansion
+    const productExpandRow = page.locator('div.cursor-pointer:has(svg.lucide-chevron-down)').first();
+    if (await productExpandRow.isVisible()) {
+        await productExpandRow.click();
+        await page.waitForTimeout(600);
     }
 
     await screenshot(page, 'settings');
@@ -476,11 +505,32 @@ async function captureSettingsAnalytics(page) {
 
 async function captureAuthFlow(page) {
     console.log('\n📸 Auth Flow...');
-    // Set auth to unauthenticated
-    await setAuth({ authenticated: false, username: null });
+    // Set auth to unauthenticated with device-flow so the Connect button appears
+    await setAuth({
+        authenticated: false,
+        username: null,
+        providerType: 'copilot',
+        authRequirement: { type: 'oauth-device-flow' },
+    });
     await navigateTo(page, '/');
     await page.waitForTimeout(800);
+
+    // Click the Connect / Configure button to open the device-code login modal
+    const connectBtn = page.locator('button:has-text("Connect"), button:has-text("Configure LLM")').first();
+    if (await connectBtn.isVisible()) {
+        await connectBtn.click();
+        await page.waitForTimeout(800);
+    }
+
     await screenshot(page, 'auth-flow');
+
+    // Close modal if open
+    const closeBtn = page.locator('button:has-text("Close"), button:has-text("Cancel")').first();
+    if (await closeBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+        await closeBtn.click();
+        await page.waitForTimeout(300);
+    }
+
     // Restore auth
     await setAuth({ authenticated: true, username: 'user@microsoft.com' });
 }
@@ -615,9 +665,10 @@ async function captureSchedules(page) {
     await page.waitForTimeout(1500);
 
     // Expand the first schedule to show history
-    const firstSchedule = page.locator('[class*="cursor-pointer"]').first();
-    if (await firstSchedule.isVisible()) {
-        await firstSchedule.click();
+    // Schedule rows have a clickable div with cursor-pointer containing a chevron
+    const firstScheduleRow = page.locator('div.cursor-pointer:has(svg.lucide-chevron-right)').first();
+    if (await firstScheduleRow.isVisible()) {
+        await firstScheduleRow.click();
         await page.waitForTimeout(800);
     }
 

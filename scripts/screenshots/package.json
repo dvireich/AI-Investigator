@@ -8,6 +8,8 @@
     "capture": "node capture.js",
     "capture:headed": "node capture.js --headed",
     "capture:no-vite": "node capture.js --no-vite",
+    "capture:live": "node capture-live.js",
+    "capture:live:headed": "node capture-live.js --headed",
     "validate": "node validate.js",
     "mock-server": "node mock-server.js",
     "install-browsers": "npx playwright install chromium"
