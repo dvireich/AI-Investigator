@@ -1,7 +1,7 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, type Investigation } from '../api';
+import { api, type Investigation, type InvestigationFilterMeta, type InvestigationStats } from '../api';
 import { useToast } from '../components/Toast';
 import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, ChevronLeft, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag, User } from 'lucide-react';
 import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
@@ -140,7 +140,12 @@ const _thoughtActivity: Record<string, { count: number; seenAt: number }> = {};
 
 export const Dashboard = () => {
     const { toast, confirm } = useToast();
-    const [investigations, setInvestigations] = useState<Investigation[]>([]);
+    const [pageItems, setPageItems] = useState<Investigation[]>([]);
+    const [serverTotalCount, setServerTotalCount] = useState(0);
+    const [serverTotalPages, setServerTotalPages] = useState(1);
+    const [filterMeta, setFilterMeta] = useState<InvestigationFilterMeta>({ products: [], tags: [], creators: [] });
+    const [stats, setStats] = useState<InvestigationStats>({ total: 0, running: 0, paused: 0, completed: 0, failed: 0, aborted: 0, successRate: 0, resolvedCount: 0, avgDurationMs: 0, durationSamples: 0, thisWeekCount: 0, lastWeekCount: 0, contestRate: 0, contestableCount: 0 });
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<'all' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted'>('all');
     const [productFilter, setProductFilter] = useState<string>('all');
@@ -202,8 +207,11 @@ export const Dashboard = () => {
     const [pageSize, setPageSize] = useState<number>(
         () => Number(localStorage.getItem('inv-page-size')) || DEFAULT_PAGE_SIZE
     );
-    const deferredInvestigations = useDeferredValue(investigations);
-    const deferredSearch = useDeferredValue(search);
+    // Debounce search for server-side filtering
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedSearch(search), 300);
+        return () => clearTimeout(timer);
+    }, [search]);
 
     const toggleAnalytics = () => {
         setShowAnalytics(prev => {
@@ -219,7 +227,7 @@ export const Dashboard = () => {
             // Optimistically update resumed investigations to 'running'
             if (result.ids.length > 0) {
                 const resumedSet = new Set(result.ids);
-                setInvestigations(prev => prev.map(inv =>
+                setPageItems(prev => prev.map(inv =>
                     resumedSet.has(inv.id) ? { ...inv, status: 'running' as Investigation['status'] } : inv
                 ));
             }
@@ -250,12 +258,9 @@ export const Dashboard = () => {
         // Poll until server comes back
         const pollInterval = setInterval(async () => {
             try {
-                await api.listInvestigations();
+                await api.listInvestigations({ page: 1, pageSize });
                 clearInterval(pollInterval);
                 setRestarting(false);
-                // Refresh investigation list after restart
-                const data = await api.listInvestigations();
-                setInvestigations(data);
             } catch {
                 // Server still down, keep polling
             }
@@ -276,10 +281,21 @@ export const Dashboard = () => {
     };
 
     useEffect(() => {
-        const fetchData = () => api.listInvestigations().then(data => {
+        const fetchData = () => api.listInvestigations({
+            page: currentPage,
+            pageSize,
+            sortOrder,
+            filter,
+            productFilter,
+            sourceFilter,
+            tagFilter,
+            createdByFilter,
+            search: debouncedSearch,
+            pinnedIds: [...pinnedIds],
+        }).then(data => {
             const prev = prevStatusRef.current;
             const lta  = lastThoughtActivityRef.current;
-            data.forEach(inv => {
+            data.items.forEach(inv => {
                 // Toast on status change
                 const was = prev[inv.id];
                 if (was && was !== inv.status) {
@@ -295,14 +311,19 @@ export const Dashboard = () => {
                     lta[inv.id] = { count, seenAt: Date.now() };
                 }
             });
-            setInvestigations(data);
+            setPageItems(data.items);
+            setServerTotalCount(data.totalCount);
+            setServerTotalPages(data.totalPages);
+            setCurrentPage(data.page);
+            setFilterMeta(data.filterMeta);
+            setStats(data.stats);
             setLoading(false);
         }).catch(console.error);
         fetchData();
         const interval = setInterval(fetchData, 3000);
         return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+    }, [currentPage, pageSize, sortOrder, filter, productFilter, sourceFilter, tagFilter, createdByFilter, debouncedSearch, pinnedIds]);
 
     const handleAction = async (e: React.MouseEvent, invId: string, action: string) => {
         e.preventDefault();
@@ -310,7 +331,7 @@ export const Dashboard = () => {
         try {
             await api.sendAction(invId, action);
             // Optimistically update status for immediate UI feedback
-            setInvestigations(prev => prev.map(inv => {
+            setPageItems(prev => prev.map(inv => {
                 if (inv.id !== invId) return inv;
                 const next: Investigation['status'] = action === 'pause' ? 'paused' : 'running';
                 return { ...inv, status: next, ...(action === 'pause' ? { pausedAt: Date.now() } : {}) };
@@ -337,7 +358,7 @@ export const Dashboard = () => {
     const saveTitle = async (invId: string, newTitle: string) => {
         try {
             await api.updateTitle(invId, newTitle);
-            setInvestigations(prev => prev.map(inv =>
+            setPageItems(prev => prev.map(inv =>
                 inv.id === invId ? { ...inv, title: newTitle } : inv
             ));
         } catch (e) {
@@ -355,7 +376,7 @@ export const Dashboard = () => {
     const executeDelete = async () => {
         try {
             await api.deleteInvestigation(deletingId!);
-            setInvestigations(prev => prev.filter(inv => inv.id !== deletingId));
+            setPageItems(prev => prev.filter(inv => inv.id !== deletingId));
         } catch (e: any) {
             console.error('Failed to delete investigation:', e);
             toast('error', e.message || 'Failed to delete investigation');
@@ -370,8 +391,6 @@ export const Dashboard = () => {
             const state = JSON.parse(text);
             const result = await api.importInvestigation(state);
             if (result.ok && result.id) {
-                const data = await api.listInvestigations();
-                setInvestigations(data);
                 navigate(`/investigation/${result.id}`);
             }
         } catch (err: any) {
@@ -452,82 +471,18 @@ export const Dashboard = () => {
         });
     };
 
-    // Get unique products from investigations
-    const uniqueProducts = useMemo(() => Array.from(
-        new Map(
-            deferredInvestigations
-                .filter(inv => inv.productId && inv.productName)
-                .map(inv => [inv.productId!, { id: inv.productId!, name: inv.productName! }])
-        ).values()
-    ).sort((a, b) => a.name.localeCompare(b.name)), [deferredInvestigations]);
-
-    // Get unique tags from all investigations
-    const uniqueTags = useMemo(() => Array.from(
-        new Set(
-            deferredInvestigations.flatMap(inv => inv.tags || [])
-        )
-    ).sort(), [deferredInvestigations]);
-
-    // Get unique creators from investigations
-    const uniqueCreators = useMemo(() => Array.from(
-        new Set(
-            deferredInvestigations.map(inv => inv.createdBy).filter((c): c is string => !!c)
-        )
-    ).sort(), [deferredInvestigations]);
-
-    const filtered = useMemo(() => deferredInvestigations
-        .filter(inv => filter === 'all' || inv.status === filter)
-        .filter(inv => productFilter === 'all' || inv.productId === productFilter)
-        .filter(inv => sourceFilter === 'all' || (inv.source || 'manual') === sourceFilter)
-        .filter(inv => tagFilter === 'all' || (inv.tags || []).includes(tagFilter))
-        .filter(inv => createdByFilter === 'all' || inv.createdBy === createdByFilter)
-        .filter(inv => {
-            if (!deferredSearch) return true;
-            const s = deferredSearch.toLowerCase();
-            return (
-                (inv.title || '').toLowerCase().includes(s) ||
-                (inv.query || '').toLowerCase().includes(s) ||
-                (inv.target || '').toLowerCase().includes(s) ||
-                (inv.category || '').toLowerCase().includes(s) ||
-                (inv.incidentId || '').toLowerCase().includes(s) ||
-                (inv.productName || '').toLowerCase().includes(s) ||
-                (inv.tags || []).some(t => t.toLowerCase().includes(s)) ||
-                (inv.createdBy || '').toLowerCase().includes(s) ||
-                inv.id.toLowerCase().includes(s) ||
-                inv.thoughts.some(t => typeof t === 'string' && t.toLowerCase().includes(s))
-            );
-        }), [deferredInvestigations, filter, productFilter, sourceFilter, tagFilter, createdByFilter, deferredSearch]);
-
-    // Sort: Pinned first, then Running/Paused, then by selected order
-    const sorted = useMemo(() => [...filtered].sort((a, b) => {
-        const aPinned = pinnedIds.has(a.id);
-        const bPinned = pinnedIds.has(b.id);
-        if (aPinned && !bPinned) return -1;
-        if (!aPinned && bPinned) return 1;
-        const aActive = a.status === 'running' || a.status === 'paused';
-        const bActive = b.status === 'running' || b.status === 'paused';
-        if (aActive && !bActive) return -1;
-        if (!aActive && bActive) return 1;
-        if (sortOrder === 'oldest') return a.id.localeCompare(b.id);
-        if (sortOrder === 'steps') return (b.thoughts?.length ?? 0) - (a.thoughts?.length ?? 0);
-        if (sortOrder === 'modified') return (b.lastModified ?? Number(b.id)) - (a.lastModified ?? Number(a.id));
-        return b.id.localeCompare(a.id); // newest
-    }), [filtered, pinnedIds, sortOrder]);
+    // Filter metadata from server (no client-side computation needed)
+    const uniqueProducts = filterMeta.products;
+    const uniqueTags = filterMeta.tags;
+    const uniqueCreators = filterMeta.creators;
 
     // Reset to page 1 when filters, search, or sort change
-    useEffect(() => { setCurrentPage(1); }, [filter, productFilter, sourceFilter, tagFilter, createdByFilter, deferredSearch, sortOrder]);
-
-    // Clamp currentPage if sorted list shrinks (e.g. items deleted)
-    const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-    useEffect(() => { if (currentPage > totalPages) setCurrentPage(totalPages); }, [currentPage, totalPages]);
-
-    // Current page slice
-    const paginatedSorted = useMemo(() => sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize), [sorted, currentPage, pageSize]);
+    useEffect(() => { setCurrentPage(1); }, [filter, productFilter, sourceFilter, tagFilter, createdByFilter, debouncedSearch, sortOrder]);
 
     // Refs so the keyboard handler always sees the latest values without re-registering
-    const sortedRef = useRef(paginatedSorted);
+    const sortedRef = useRef(pageItems);
     const focusedIdxRef = useRef(focusedIdx);
-    sortedRef.current = paginatedSorted;
+    sortedRef.current = pageItems;
     focusedIdxRef.current = focusedIdx;
 
     // Keyboard shortcuts: '/' = search, j/k = navigate cards, Enter = open focused
@@ -552,12 +507,12 @@ export const Dashboard = () => {
         return () => window.removeEventListener('keydown', handler);
     }, [navigate]);
 
-    // Stats
-    const activeCount = investigations.filter(i => i.status === 'running' || i.status === 'paused').length;
-    const completedCount = investigations.filter(i => i.status === 'completed').length;
-    const failedCount = investigations.filter(i => i.status === 'failed').length;
-    const abortedCount = investigations.filter(i => i.status === 'aborted').length;
-    const totalCount = investigations.length;
+    // Stats from server (accurate across all investigations, not just current page)
+    const activeCount = stats.running + stats.paused;
+    const completedCount = stats.completed;
+    const failedCount = stats.failed;
+    const abortedCount = stats.aborted;
+    const totalCount = stats.total;
 
     // Animated count-up values for stat tiles (animate on first load)
     const activeDisplay    = useCountUp(activeCount);
@@ -609,10 +564,10 @@ export const Dashboard = () => {
         return JSON.stringify(last);
     };
 
-    const pausedCount = investigations.filter(i => i.status === 'paused').length;
+    const pausedCount = stats.paused;
     const statusFilters: { key: typeof filter; label: string; shortLabel: string; count: number; color: string }[] = [
-        { key: 'all',       label: 'All',       shortLabel: 'All',    count: investigations.length,                                           color: 'text-slate-400' },
-        { key: 'running',   label: 'Running',   shortLabel: 'Run',    count: investigations.filter(i => i.status === 'running').length,       color: 'text-blue-400' },
+        { key: 'all',       label: 'All',       shortLabel: 'All',    count: stats.total,                                           color: 'text-slate-400' },
+        { key: 'running',   label: 'Running',   shortLabel: 'Run',    count: stats.running,       color: 'text-blue-400' },
         { key: 'paused',    label: 'Paused',    shortLabel: 'Pause',  count: pausedCount,                                                     color: 'text-amber-400' },
         { key: 'completed', label: 'Completed', shortLabel: 'Done',   count: completedCount,                                                  color: 'text-emerald-400' },
         { key: 'failed',    label: 'Failed',    shortLabel: 'Fail',   count: failedCount,                                                     color: 'text-red-400' },
@@ -721,9 +676,9 @@ export const Dashboard = () => {
                         <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Done</span>
                     </div>
                     <div className="text-2xl sm:text-3xl font-black text-slate-100 tabular-nums">{completedDisplay}</div>
-                    {investigations.length > 0 && (
+                    {totalCount > 0 && (
                         <div className="mt-2 h-1 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.round(completedCount / investigations.length * 100)}%` }} />
+                            <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${Math.round(completedCount / totalCount * 100)}%` }} />
                         </div>
                     )}
                 </button >
@@ -751,7 +706,7 @@ export const Dashboard = () => {
             </div>
 
             {/* Analytics Toggle */}
-            {investigations.length > 0 && (
+            {totalCount > 0 && (
                 <button
                     onClick={toggleAnalytics}
                     className="flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-300 transition-colors group"
@@ -763,14 +718,14 @@ export const Dashboard = () => {
             )}
 
             {/* KPI Bar — always visible when analytics expanded */}
-            {investigations.length > 0 && (
+            {totalCount > 0 && (
                 <div className={`transition-all duration-300 ease-in-out origin-top ${showAnalytics ? 'max-h-[400px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-95 overflow-hidden pointer-events-none'}`}>
-                    <KpiBar investigations={deferredInvestigations} />
+                    <KpiBar stats={stats} />
                 </div>
             )}
 
             {/* Analytics Charts — 3 configurable widgets */}
-            {investigations.length > 0 && (
+            {totalCount > 0 && (
                 <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 transition-all duration-300 ease-in-out origin-top ${showAnalytics ? 'max-h-[1200px] md:max-h-[500px] opacity-100 scale-y-100' : 'max-h-0 opacity-0 scale-y-95 overflow-hidden pointer-events-none'}`}>
                     {getSelectedWidgetIds().map(widgetId => {
                         const widget = getWidgetById(widgetId);
@@ -780,7 +735,7 @@ export const Dashboard = () => {
                             <div key={widgetId} className="glass-card p-4 chart-enter">
                                 <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">{widget.name}</div>
                                 <div className="h-36">
-                                    <WidgetComponent investigations={deferredInvestigations} />
+                                    <WidgetComponent investigations={pageItems} />
                                 </div>
                             </div>
                         );
@@ -974,9 +929,9 @@ export const Dashboard = () => {
             </div>
 
             {/* Results count */}
-            {(search || filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all') && sorted.length > 0 && (
+            {(search || filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all') && serverTotalCount > 0 && (
                 <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
-                    <span>{sorted.length} {sorted.length === 1 ? 'investigation' : 'investigations'}</span>
+                    <span>{serverTotalCount} {serverTotalCount === 1 ? 'investigation' : 'investigations'}</span>
                     {search && <><span>matching</span> <span className="font-bold text-slate-300">"{search}"</span></>}
                     {productFilter !== 'all' && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded-full font-bold">
@@ -1030,7 +985,7 @@ export const Dashboard = () => {
             )}
 
             {/* Skeleton - first load only */}
-            {loading && investigations.length === 0 && (
+            {loading && pageItems.length === 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {Array.from({ length: 6 }).map((_, i) => (
                         <div key={i} className="glass-card p-5 space-y-3 animate-pulse">
@@ -1056,9 +1011,9 @@ export const Dashboard = () => {
             )}
 
             {/* Grid view */}
-            {viewMode === 'grid' && sorted.length > 0 && (
+            {viewMode === 'grid' && serverTotalCount > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 animate-fade-in">
-                    {paginatedSorted.map((inv, sortedGridIdx) => {
+                    {pageItems.map((inv, sortedGridIdx) => {
                         const isPaused = inv.status === 'paused';
                         const isCompleted = inv.status === 'completed';
                         const isFailed = inv.status === 'failed';
@@ -1251,14 +1206,14 @@ export const Dashboard = () => {
             )}
 
             {/* List view */}
-            {viewMode === 'list' && sorted.length > 0 && (() => {
-                type Group = { label: string; items: typeof paginatedSorted };
+            {viewMode === 'list' && serverTotalCount > 0 && (() => {
+                type Group = { label: string; items: typeof pageItems };
                 const groups: Group[] = [];
 
                 if (groupByTarget) {
                     // Group by target value, ungrouped items under 'No target'
-                    const map: Record<string, typeof paginatedSorted> = {};
-                    paginatedSorted.forEach(inv => {
+                    const map: Record<string, typeof pageItems> = {};
+                    pageItems.forEach(inv => {
                         const key = inv.target || 'No target';
                         (map[key] ??= []).push(inv);
                     });
@@ -1270,14 +1225,14 @@ export const Dashboard = () => {
                     const useGroups = sortOrder !== 'steps' && !search;
                     if (useGroups) {
                         const order = ['Today', 'Yesterday', 'This week', 'Older'];
-                        const map: Record<string, typeof paginatedSorted> = {};
-                        paginatedSorted.forEach(inv => {
+                        const map: Record<string, typeof pageItems> = {};
+                        pageItems.forEach(inv => {
                             const g = (inv.status === 'running' || inv.status === 'paused') ? 'Today' : getDateGroup(inv);
                             (map[g] ??= []).push(inv);
                         });
                         order.forEach(g => { if (map[g]?.length) groups.push({ label: g, items: map[g] }); });
                     } else {
-                        groups.push({ label: '', items: paginatedSorted });
+                        groups.push({ label: '', items: pageItems });
                     }
                 }
 
@@ -1458,9 +1413,9 @@ export const Dashboard = () => {
             })()}
 
             {/* Pagination */}
-            {sorted.length > 0 && (
+            {serverTotalCount > 0 && (
                 <Pagination
-                    totalItems={sorted.length}
+                    totalItems={serverTotalCount}
                     currentPage={currentPage}
                     pageSize={pageSize}
                     onPageChange={setCurrentPage}
@@ -1472,11 +1427,11 @@ export const Dashboard = () => {
                 />
             )}
 
-            {sorted.length === 0 && (() => {
+            {serverTotalCount === 0 && (() => {
                 const es = search
                     ? { icon: <Search className="w-7 h-7 text-slate-400" />, title: 'No matching investigations', body: `No results for "${search}". Try different keywords.` }
                     : emptyStateConfig[filter];
-                const isEmpty = investigations.length === 0;
+                const isEmpty = totalCount === 0;
                 return (
                     <div className="text-center py-24">
                         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-slate-800/60 border border-slate-700/40 mb-5">{es.icon}</div>

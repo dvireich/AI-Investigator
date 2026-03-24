@@ -252,11 +252,13 @@ const storagePathCache = new Map<string, string>();
 // Cached list response. Keep invalidation explicit because the dashboard polls this route heavily.
 let cachedListJson: string | null = null;
 let cachedListEtag: string | null = null;
+let cachedListCacheKey: string | null = null;  // tracks query params for cache invalidation
 let listCacheDirtyAt = 0;  // timestamp of last mutation
 
 function invalidateListCache() {
     cachedListJson = null;
     cachedListEtag = null;
+    cachedListCacheKey = null;
     listCacheDirtyAt = Date.now();
 }
 
@@ -1578,11 +1580,29 @@ app.post('/api/investigations', async (req, res) => {
 
 app.get('/api/investigations', (req, res) => {
     try {
+    // ── Parse pagination & filter query params ──────────────────────
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 12));
+    const sortOrder = (['newest', 'oldest', 'steps', 'modified'] as const).includes(req.query.sortOrder as any)
+        ? (req.query.sortOrder as 'newest' | 'oldest' | 'steps' | 'modified')
+        : 'newest';
+    const filterStatus = req.query.filter as string || 'all';
+    const filterProduct = req.query.productFilter as string || 'all';
+    const filterSource = req.query.sourceFilter as string || 'all';
+    const filterTag = req.query.tagFilter as string || 'all';
+    const filterCreatedBy = req.query.createdByFilter as string || 'all';
+    const searchQuery = (req.query.search as string || '').toLowerCase();
+    const pinnedIdsParam = req.query.pinnedIds as string || '';
+    const pinnedIds = new Set(pinnedIdsParam ? pinnedIdsParam.split(',') : []);
+
+    // ── Build cache key from all params ─────────────────────────────
+    const cacheKey = `${page}:${pageSize}:${sortOrder}:${filterStatus}:${filterProduct}:${filterSource}:${filterTag}:${filterCreatedBy}:${searchQuery}:${pinnedIdsParam}`;
+
     // Check if any runners are active — if so, always rebuild (state changes constantly)
     const hasActiveRunners = Array.from(runners.values()).some(r => (r as any).state?.status === 'running');
 
-    // If no active runners and cache is valid, use cached response
-    if (!hasActiveRunners && cachedListJson && cachedListEtag) {
+    // If no active runners and cache is valid for this exact query, use cached response
+    if (!hasActiveRunners && cachedListJson && cachedListEtag && cachedListCacheKey === cacheKey) {
         const clientEtag = req.headers['if-none-match'];
         if (clientEtag === cachedListEtag) {
             return res.status(304).end();
@@ -1607,7 +1627,7 @@ app.get('/api/investigations', (req, res) => {
     const productMap = new Map<string, string>();
     (config.products || []).forEach((p: Product) => productMap.set(p.id, p.name));
 
-    // Return lightweight summaries for list view, not full thoughts/actions
+    // Build lightweight summaries for list view, not full thoughts/actions
     const summaries: any[] = [];
     for (const s of all) {
         try {
@@ -1671,12 +1691,136 @@ app.get('/api/investigations', (req, res) => {
             console.error(`Failed to build summary for investigation ${s?.id}:`, itemErr);
         }
     }
-    const json = JSON.stringify(summaries);
+
+    // ── Collect filter metadata from ALL summaries (before filtering) ──
+    const productsSet = new Map<string, string>();
+    const tagsSet = new Set<string>();
+    const creatorsSet = new Set<string>();
+    // Status counts across all summaries (unfiltered) for filter tabs
+    const statusCounts: Record<string, number> = { running: 0, paused: 0, completed: 0, failed: 0, aborted: 0 };
+    // KPI aggregation
+    let resolvedCount = 0, completedKpi = 0, contestedCount = 0, contestableCount = 0;
+    const durations: number[] = [];
+    const now = Date.now();
+    const dayMs = 86400000;
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const dayOfWeek = todayStart.getDay();
+    const weekStart = todayStart.getTime() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) * dayMs;
+    const lastWeekStart = weekStart - 7 * dayMs;
+    let thisWeekCount = 0, lastWeekCount = 0;
+
+    for (const s of summaries) {
+        if (s.productId && s.productName) productsSet.set(s.productId, s.productName);
+        if (s.tags) for (const t of s.tags) tagsSet.add(t);
+        if (s.createdBy) creatorsSet.add(s.createdBy);
+        if (s.status in statusCounts) statusCounts[s.status]++;
+
+        // KPI: success rate & avg duration
+        if (s.status === 'completed' || s.status === 'failed' || s.status === 'aborted') {
+            resolvedCount++;
+            if (s.status === 'completed') completedKpi++;
+        }
+        if ((s.status === 'completed' || s.status === 'failed') && s.lastModified && !isNaN(Number(s.id))) {
+            const d = s.lastModified - Number(s.id);
+            if (d > 0 && d < dayMs) durations.push(d);
+        }
+        // KPI: contest rate
+        if (s.status === 'completed' || s.status === 'failed') {
+            contestableCount++;
+            if ((s.contestCount ?? 0) > 0) contestedCount++;
+        }
+        // KPI: this week / last week
+        const ts = Number(s.id);
+        if (!isNaN(ts)) {
+            if (ts >= weekStart) thisWeekCount++;
+            else if (ts >= lastWeekStart) lastWeekCount++;
+        }
+    }
+
+    const filterMeta = {
+        products: Array.from(productsSet.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+        tags: Array.from(tagsSet).sort(),
+        creators: Array.from(creatorsSet).sort(),
+    };
+
+    const stats = {
+        total: summaries.length,
+        ...statusCounts,
+        successRate: resolvedCount > 0 ? Math.round((completedKpi / resolvedCount) * 100) : 0,
+        resolvedCount,
+        avgDurationMs: durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0,
+        durationSamples: durations.length,
+        thisWeekCount,
+        lastWeekCount,
+        contestRate: contestableCount > 0 ? Math.round((contestedCount / contestableCount) * 100) : 0,
+        contestableCount,
+    };
+
+    // ── Apply server-side filters ───────────────────────────────────
+    let filtered = summaries;
+    if (filterStatus !== 'all') filtered = filtered.filter(s => s.status === filterStatus);
+    if (filterProduct !== 'all') filtered = filtered.filter(s => s.productId === filterProduct);
+    if (filterSource !== 'all') filtered = filtered.filter(s => (s.source || 'manual') === filterSource);
+    if (filterTag !== 'all') filtered = filtered.filter(s => (s.tags || []).includes(filterTag));
+    if (filterCreatedBy !== 'all') filtered = filtered.filter(s => s.createdBy === filterCreatedBy);
+    if (searchQuery) {
+        filtered = filtered.filter(s => {
+            return (
+                (s.title || '').toLowerCase().includes(searchQuery) ||
+                (s.query || '').toLowerCase().includes(searchQuery) ||
+                (s.target || '').toLowerCase().includes(searchQuery) ||
+                (s.category || '').toLowerCase().includes(searchQuery) ||
+                (s.incidentId || '').toLowerCase().includes(searchQuery) ||
+                (s.productName || '').toLowerCase().includes(searchQuery) ||
+                (s.tags || []).some((t: string) => t.toLowerCase().includes(searchQuery)) ||
+                (s.createdBy || '').toLowerCase().includes(searchQuery) ||
+                s.id.toLowerCase().includes(searchQuery) ||
+                s.thoughts.some((t: string) => typeof t === 'string' && t.toLowerCase().includes(searchQuery))
+            );
+        });
+    }
+
+    // ── Apply server-side sort ──────────────────────────────────────
+    // Pinned first, then running/paused, then by sort order
+    filtered.sort((a: any, b: any) => {
+        const aPinned = pinnedIds.has(a.id);
+        const bPinned = pinnedIds.has(b.id);
+        if (aPinned && !bPinned) return -1;
+        if (!aPinned && bPinned) return 1;
+        const aActive = a.status === 'running' || a.status === 'paused';
+        const bActive = b.status === 'running' || b.status === 'paused';
+        if (aActive && !bActive) return -1;
+        if (!aActive && bActive) return 1;
+        if (sortOrder === 'oldest') return a.id.localeCompare(b.id);
+        if (sortOrder === 'steps') return (b.thoughtCount ?? 0) - (a.thoughtCount ?? 0);
+        if (sortOrder === 'modified') return (b.lastModified ?? Number(b.id)) - (a.lastModified ?? Number(a.id));
+        return b.id.localeCompare(a.id); // newest
+    });
+
+    // ── Paginate ────────────────────────────────────────────────────
+    const totalCount = filtered.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const clampedPage = Math.min(page, totalPages);
+    const startIdx = (clampedPage - 1) * pageSize;
+    const items = filtered.slice(startIdx, startIdx + pageSize);
+
+    const envelope = {
+        items,
+        totalCount,
+        page: clampedPage,
+        pageSize,
+        totalPages,
+        filterMeta,
+        stats,
+    };
+
+    const json = JSON.stringify(envelope);
 
     // Cache the response when no runners are active
     if (!hasActiveRunners) {
         cachedListJson = json;
         cachedListEtag = `"${listCacheDirtyAt || Date.now()}"`;
+        cachedListCacheKey = cacheKey;
         res.setHeader('ETag', cachedListEtag);
     }
     res.setHeader('Content-Type', 'application/json');
@@ -2926,8 +3070,11 @@ export function initScheduler(): void {
 }
 
 // Schedule CRUD endpoints
-app.get('/api/schedules', (_req, res) => {
-    if (!scheduleStore) return res.json([]);
+app.get('/api/schedules', (req, res) => {
+    if (!scheduleStore) return res.json({ items: [], totalCount: 0, page: 1, pageSize: 12, totalPages: 1 });
+
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize as string) || 12));
 
     // Auto-settle any schedules with stale activeInvestigationId
     const schedules = scheduleStore.getAll();
@@ -2971,7 +3118,14 @@ app.get('/api/schedules', (_req, res) => {
         }
     }
 
-    res.json(scheduleStore.getAll());
+    const allSchedules = scheduleStore.getAll();
+    const totalCount = allSchedules.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const clampedPage = Math.min(page, totalPages);
+    const startIdx = (clampedPage - 1) * pageSize;
+    const items = allSchedules.slice(startIdx, startIdx + pageSize);
+
+    res.json({ items, totalCount, page: clampedPage, pageSize, totalPages });
 });
 
 app.post('/api/schedules', async (req, res) => {

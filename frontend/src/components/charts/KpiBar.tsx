@@ -1,27 +1,14 @@
 import { useMemo } from 'react';
 import { TrendingUp, Clock, CalendarDays, RotateCcw } from 'lucide-react';
-import type { Investigation } from '../../api';
+import type { InvestigationStats } from '../../api';
 
 interface Props {
-    investigations: Investigation[];
+    stats: InvestigationStats;
 }
 
-export const KpiBar = ({ investigations }: Props) => {
+export const KpiBar = ({ stats }: Props) => {
     const kpis = useMemo(() => {
-    // Success Rate
-    const resolved = investigations.filter(i => i.status === 'completed' || i.status === 'failed' || i.status === 'aborted');
-    const completed = investigations.filter(i => i.status === 'completed').length;
-    const successRate = resolved.length > 0 ? Math.round((completed / resolved.length) * 100) : 0;
-
-    // Avg Duration (using lastModified - id timestamp)
-    const withDuration = investigations
-        .filter(i => (i.status === 'completed' || i.status === 'failed') && i.lastModified && !isNaN(Number(i.id)))
-        .map(i => i.lastModified! - Number(i.id))
-        .filter(d => d > 0 && d < 86400000); // exclude > 24h as outliers
-
-    const avgDurationMs = withDuration.length > 0
-        ? withDuration.reduce((s, d) => s + d, 0) / withDuration.length
-        : 0;
+    const { successRate, resolvedCount, avgDurationMs, durationSamples, thisWeekCount, lastWeekCount, contestRate, contestableCount } = stats;
 
     const formatDuration = (ms: number): string => {
         if (ms === 0) return '--';
@@ -37,41 +24,18 @@ export const KpiBar = ({ investigations }: Props) => {
         return `${secs}s`;
     };
 
-    // This Week count + delta vs last week
-    const now = Date.now();
-    const dayMs = 86400000;
-    const today = new Date(now);
-    today.setHours(0, 0, 0, 0);
-    const dayOfWeek = today.getDay(); // 0=Sun
-    const weekStart = today.getTime() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) * dayMs; // Monday
-    const lastWeekStart = weekStart - 7 * dayMs;
-
-    const thisWeek = investigations.filter(i => {
-        const ts = Number(i.id);
-        return !isNaN(ts) && ts >= weekStart;
-    }).length;
-
-    const lastWeek = investigations.filter(i => {
-        const ts = Number(i.id);
-        return !isNaN(ts) && ts >= lastWeekStart && ts < weekStart;
-    }).length;
-
-    const weekDelta = thisWeek - lastWeek;
+    const weekDelta = thisWeekCount - lastWeekCount;
     const weekDeltaStr = weekDelta > 0 ? `+${weekDelta}` : weekDelta === 0 ? '±0' : `${weekDelta}`;
-
-    // Contest Rate
-    const contestable = investigations.filter(i => i.status === 'completed' || i.status === 'failed');
-    const contested = contestable.filter(i => (i.contestCount ?? 0) > 0).length;
-    const contestRate = contestable.length > 0 ? Math.round((contested / contestable.length) * 100) : 0;
+    const contested = contestableCount > 0 ? Math.round(contestRate * contestableCount / 100) : 0;
 
     const kpiItems = [
         {
             label: 'Success Rate',
-            value: resolved.length > 0 ? `${successRate}%` : '--',
+            value: resolvedCount > 0 ? `${successRate}%` : '--',
             icon: TrendingUp,
             color: successRate >= 80 ? 'text-emerald-400' : successRate >= 50 ? 'text-yellow-400' : 'text-red-400',
             iconColor: successRate >= 80 ? 'text-emerald-400' : successRate >= 50 ? 'text-yellow-400' : 'text-red-400',
-            sub: `${resolved.length} resolved`,
+            sub: `${resolvedCount} resolved`,
         },
         {
             label: 'Avg Duration',
@@ -79,11 +43,11 @@ export const KpiBar = ({ investigations }: Props) => {
             icon: Clock,
             color: 'text-sky-400',
             iconColor: 'text-sky-400',
-            sub: `${withDuration.length} samples`,
+            sub: `${durationSamples} samples`,
         },
         {
             label: 'This Week',
-            value: String(thisWeek),
+            value: String(thisWeekCount),
             icon: CalendarDays,
             color: 'text-slate-100',
             iconColor: 'text-violet-400',
@@ -95,7 +59,7 @@ export const KpiBar = ({ investigations }: Props) => {
         },
         {
             label: 'Contest Rate',
-            value: contestable.length > 0 ? `${contestRate}%` : '--',
+            value: contestableCount > 0 ? `${contestRate}%` : '--',
             icon: RotateCcw,
             color: contestRate > 20 ? 'text-orange-400' : 'text-slate-100',
             iconColor: contestRate > 20 ? 'text-orange-400' : 'text-slate-500',
@@ -104,7 +68,7 @@ export const KpiBar = ({ investigations }: Props) => {
     ];
 
     return kpiItems;
-    }, [investigations]);
+    }, [stats]);
 
     return (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

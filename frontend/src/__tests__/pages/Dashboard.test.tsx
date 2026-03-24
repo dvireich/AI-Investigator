@@ -5,8 +5,71 @@ import { MemoryRouter } from 'react-router-dom';
 import React from 'react';
 import { Dashboard } from '../../pages/Dashboard';
 import { ToastProvider } from '../../components/Toast';
-import type { Investigation } from '../../api';
+import type { Investigation, PaginatedInvestigations } from '../../api';
 import { getSelectedWidgetIds, getWidgetById } from '../../components/charts/widgetRegistry';
+
+// Helper to wrap investigation arrays in paginated response envelope
+function paginatedResponse(items: Investigation[], overrides: Partial<PaginatedInvestigations> = {}): PaginatedInvestigations {
+    return {
+        items,
+        totalCount: items.length,
+        page: 1,
+        pageSize: 12,
+        totalPages: Math.max(1, Math.ceil(items.length / 12)),
+        filterMeta: {
+            products: Array.from(new Map(items.filter(i => i.productId && i.productName).map(i => [i.productId!, { id: i.productId!, name: i.productName! }])).values()),
+            tags: Array.from(new Set(items.flatMap(i => i.tags || []))).sort(),
+            creators: Array.from(new Set(items.map(i => i.createdBy).filter((c): c is string => !!c))).sort(),
+        },
+        stats: {
+            total: items.length,
+            running: items.filter(i => i.status === 'running').length,
+            paused: items.filter(i => i.status === 'paused').length,
+            completed: items.filter(i => i.status === 'completed').length,
+            failed: items.filter(i => i.status === 'failed').length,
+            aborted: items.filter(i => i.status === 'aborted').length,
+            successRate: 0, resolvedCount: 0, avgDurationMs: 0, durationSamples: 0,
+            thisWeekCount: 0, lastWeekCount: 0, contestRate: 0, contestableCount: 0,
+        },
+        ...overrides,
+    };
+}
+
+// Helper: returns a mockImplementation that simulates server-side filtering/search
+function smartListMock(baseItems: Investigation[]) {
+    return (params?: any) => {
+        let filtered = [...baseItems];
+        if (params?.filter && params.filter !== 'all') {
+            filtered = filtered.filter(i => i.status === params.filter);
+        }
+        if (params?.search) {
+            const q = params.search.toLowerCase();
+            filtered = filtered.filter(i =>
+                (i.title || '').toLowerCase().includes(q) ||
+                (i.target || '').toLowerCase().includes(q) ||
+                (i.tags || []).some(t => t.toLowerCase().includes(q)) ||
+                (i.query || '').toLowerCase().includes(q)
+            );
+        }
+        if (params?.productFilter && params.productFilter !== 'all') {
+            filtered = filtered.filter(i => i.productId === params.productFilter);
+        }
+        if (params?.sourceFilter && params.sourceFilter !== 'all') {
+            filtered = filtered.filter(i => i.source === params.sourceFilter);
+        }
+        if (params?.tagFilter && params.tagFilter !== 'all') {
+            filtered = filtered.filter(i => (i.tags || []).includes(params.tagFilter));
+        }
+        if (params?.createdByFilter && params.createdByFilter !== 'all') {
+            filtered = filtered.filter(i => i.createdBy === params.createdByFilter);
+        }
+        const allStats = paginatedResponse(baseItems);
+        return Promise.resolve(paginatedResponse(filtered, {
+            stats: allStats.stats,
+            filterMeta: allStats.filterMeta,
+        }));
+    };
+}
 
 // === Mock Data ===
 const createMockInvestigation = (overrides: Partial<Investigation> = {}): Investigation => ({
@@ -95,7 +158,7 @@ vi.mock('react-router-dom', async () => {
 
 vi.mock('../../api', () => ({
     api: {
-        listInvestigations: vi.fn().mockResolvedValue([]),
+        listInvestigations: vi.fn().mockResolvedValue(paginatedResponse([])),
         getSettings: vi.fn().mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest' }),
         sendAction: vi.fn().mockResolvedValue({ success: true }),
         deleteInvestigation: vi.fn().mockResolvedValue({}),
@@ -174,7 +237,7 @@ describe('Dashboard', () => {
     describe('Loading State', () => {
         it('shows loading skeleton initially', async () => {
             const api = await getApi();
-            let resolveList: (value: Investigation[]) => void;
+            let resolveList: (value: PaginatedInvestigations) => void;
             vi.mocked(api.listInvestigations).mockImplementation(
                 () => new Promise((resolve) => { resolveList = resolve; })
             );
@@ -185,7 +248,7 @@ describe('Dashboard', () => {
             expect(document.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0);
 
             // Resolve and verify skeleton disappears
-            resolveList!(mockInvestigations);
+            resolveList!(paginatedResponse(mockInvestigations));
             await waitFor(() => {
                 expect(screen.getByText('Completed Investigation')).toBeInTheDocument();
             });
@@ -196,7 +259,7 @@ describe('Dashboard', () => {
     describe('Investigation List Rendering', () => {
         it('renders all investigations after loading', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -211,7 +274,7 @@ describe('Dashboard', () => {
 
         it('displays investigation metadata (tags, category, target)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -232,7 +295,7 @@ describe('Dashboard', () => {
 
         it('displays stat tiles with correct counts', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -256,7 +319,7 @@ describe('Dashboard', () => {
     describe('Empty State', () => {
         it('shows empty state when no investigations exist', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([]);
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([]));
 
             renderDashboard();
 
@@ -271,9 +334,9 @@ describe('Dashboard', () => {
 
         it('shows filtered empty state when filter returns no results', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock([
                 createMockInvestigation({ status: 'completed', title: 'Only Completed' }),
-            ]);
+            ]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -291,7 +354,7 @@ describe('Dashboard', () => {
 
         it('shows search empty state when search has no matches', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -316,7 +379,7 @@ describe('Dashboard', () => {
     describe('Status Filters', () => {
         it('filters by Running status', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -336,7 +399,7 @@ describe('Dashboard', () => {
 
         it('filters by Paused status', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -354,7 +417,7 @@ describe('Dashboard', () => {
 
         it('filters by Completed status', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -372,7 +435,7 @@ describe('Dashboard', () => {
 
         it('filters by Failed status', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -390,7 +453,7 @@ describe('Dashboard', () => {
 
         it('filters by Aborted status', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -408,7 +471,7 @@ describe('Dashboard', () => {
 
         it('shows All investigations when All filter is clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -434,7 +497,7 @@ describe('Dashboard', () => {
     describe('Search Functionality', () => {
         it('filters investigations by search text in title', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -458,7 +521,7 @@ describe('Dashboard', () => {
 
         it('filters by target name', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -466,16 +529,17 @@ describe('Dashboard', () => {
 
             const searchInput = screen.getByPlaceholderText(/search/i);
             fireEvent.change(searchInput, { target: { value: 'stamp-03' } });
+            await vi.advanceTimersByTimeAsync(350); // debounce
 
             await waitFor(() => {
                 expect(screen.getByText('Failed Investigation')).toBeInTheDocument();
+                expect(screen.queryByText('Completed Investigation')).not.toBeInTheDocument();
             });
-            expect(screen.queryByText('Completed Investigation')).not.toBeInTheDocument();
         });
 
         it('filters by tag', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -483,16 +547,17 @@ describe('Dashboard', () => {
 
             const searchInput = screen.getByPlaceholderText(/search/i);
             fireEvent.change(searchInput, { target: { value: 'dev' } });
+            await vi.advanceTimersByTimeAsync(350); // debounce
 
             await waitFor(() => {
                 expect(screen.getByText('Running Investigation')).toBeInTheDocument();
+                expect(screen.queryByText('Completed Investigation')).not.toBeInTheDocument();
             });
-            expect(screen.queryByText('Completed Investigation')).not.toBeInTheDocument();
         });
 
         it('clears search when x button is clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -517,7 +582,7 @@ describe('Dashboard', () => {
 
         it('highlights search matches in investigation titles', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -538,7 +603,7 @@ describe('Dashboard', () => {
     describe('View Mode Toggle', () => {
         it('defaults to grid view', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -551,7 +616,7 @@ describe('Dashboard', () => {
 
         it('switches to list view when clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -572,7 +637,7 @@ describe('Dashboard', () => {
             localStorage.setItem('inv-view', 'list');
 
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -587,7 +652,7 @@ describe('Dashboard', () => {
     describe('Sort Options', () => {
         it('sorts by newest by default', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -599,7 +664,7 @@ describe('Dashboard', () => {
 
         it('changes sort order to oldest', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -614,7 +679,7 @@ describe('Dashboard', () => {
 
         it('can sort by most steps', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -629,7 +694,7 @@ describe('Dashboard', () => {
 
         it('can sort by last modified', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -647,7 +712,7 @@ describe('Dashboard', () => {
     describe('Advanced Filters', () => {
         it('filters by product', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -666,7 +731,7 @@ describe('Dashboard', () => {
 
         it('filters by source (manual vs scheduled)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -684,7 +749,7 @@ describe('Dashboard', () => {
 
         it('filters by tag via dropdown', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -702,7 +767,7 @@ describe('Dashboard', () => {
 
         it('filters by creator', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -723,7 +788,7 @@ describe('Dashboard', () => {
     describe('Action Buttons', () => {
         it('pauses a running investigation', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -742,7 +807,7 @@ describe('Dashboard', () => {
 
         it('resumes a paused investigation', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -759,7 +824,7 @@ describe('Dashboard', () => {
 
         it('shows delete confirmation modal', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -779,7 +844,7 @@ describe('Dashboard', () => {
 
         it('deletes investigation when confirmed', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -805,7 +870,7 @@ describe('Dashboard', () => {
 
         it('cancels deletion when Cancel is clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -831,7 +896,7 @@ describe('Dashboard', () => {
     describe('Title Editing', () => {
         it('enters edit mode when edit button is clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -852,7 +917,7 @@ describe('Dashboard', () => {
 
         it('saves title on blur', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -878,7 +943,7 @@ describe('Dashboard', () => {
 
         it('saves title on Enter key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -903,7 +968,7 @@ describe('Dashboard', () => {
 
         it('cancels editing on Escape key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -932,7 +997,7 @@ describe('Dashboard', () => {
     describe('Pin Toggle', () => {
         it('pins an investigation', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -953,7 +1018,7 @@ describe('Dashboard', () => {
             localStorage.setItem('inv-pinned', JSON.stringify([mockInvestigations[0].id]));
 
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -974,7 +1039,7 @@ describe('Dashboard', () => {
     describe('Resume All', () => {
         it('shows Resume All button when there are paused investigations', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -985,7 +1050,7 @@ describe('Dashboard', () => {
 
         it('calls resumeAll API when clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1005,7 +1070,7 @@ describe('Dashboard', () => {
     describe('Restart Server', () => {
         it('shows Restart Server button', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -1016,7 +1081,7 @@ describe('Dashboard', () => {
 
         it('shows confirmation dialog when clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1037,7 +1102,7 @@ describe('Dashboard', () => {
     describe('Import Investigation', () => {
         it('shows Import Investigation button', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -1048,7 +1113,7 @@ describe('Dashboard', () => {
 
         it('triggers file input when import button is clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1071,7 +1136,7 @@ describe('Dashboard', () => {
 
         it('imports investigation when file is selected', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.importInvestigation).mockResolvedValue({ ok: true, id: 'imported-id' });
 
             renderDashboard();
@@ -1107,7 +1172,7 @@ describe('Dashboard', () => {
     describe('Keyboard Shortcuts', () => {
         it('focuses search with / key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1122,7 +1187,7 @@ describe('Dashboard', () => {
 
         it('switches to grid view with g key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             localStorage.setItem('inv-view', 'list');
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1137,7 +1202,7 @@ describe('Dashboard', () => {
 
         it('switches to list view with l key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1151,7 +1216,7 @@ describe('Dashboard', () => {
 
         it('toggles shortcuts panel with ? key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1174,7 +1239,7 @@ describe('Dashboard', () => {
 
         it('navigates to new investigation with n key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1188,7 +1253,7 @@ describe('Dashboard', () => {
 
         it('navigates cards with j/k keys', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1206,7 +1271,7 @@ describe('Dashboard', () => {
 
         it('opens focused investigation with Enter key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1224,7 +1289,7 @@ describe('Dashboard', () => {
 
         it('closes shortcuts panel with Escape key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1245,9 +1310,9 @@ describe('Dashboard', () => {
 
         it('triggers delete modal with d key on focused completed investigation', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ status: 'completed', title: 'Deletable' }),
-            ]);
+            ]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1282,7 +1347,7 @@ describe('Dashboard', () => {
 
         it('handles delete error', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.deleteInvestigation).mockRejectedValue(new Error('Delete failed'));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1307,7 +1372,7 @@ describe('Dashboard', () => {
 
         it('handles import error', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.importInvestigation).mockRejectedValue(new Error('Server error'));
 
             renderDashboard();
@@ -1333,7 +1398,7 @@ describe('Dashboard', () => {
 
         it('handles title update error', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.updateTitle).mockRejectedValue(new Error('Update failed'));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1363,7 +1428,7 @@ describe('Dashboard', () => {
     describe('Analytics Toggle', () => {
         it('toggles analytics section visibility', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1395,8 +1460,8 @@ describe('Dashboard', () => {
             });
 
             vi.mocked(api.listInvestigations)
-                .mockResolvedValueOnce([runningInv])
-                .mockResolvedValueOnce([{ ...runningInv, status: 'completed' }]);
+                .mockResolvedValueOnce(paginatedResponse([runningInv]))
+                .mockResolvedValueOnce(paginatedResponse([{ ...runningInv, status: 'completed' }]));
 
             renderDashboard();
 
@@ -1416,7 +1481,7 @@ describe('Dashboard', () => {
     describe('Group By Target', () => {
         it('shows group by target button in list view', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1435,7 +1500,7 @@ describe('Dashboard', () => {
 
         it('groups investigations by target when enabled', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1461,13 +1526,13 @@ describe('Dashboard', () => {
     describe('Correlation ID', () => {
         it('copies correlation ID when button is clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'With CorrelationId',
                     correlationId: '12345678-1234-1234-1234-123456789012',
                 }),
-            ]);
+            ]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1491,7 +1556,7 @@ describe('Dashboard', () => {
                 defaultView: 'list',
                 defaultSortOrder: 'oldest',
             });
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -1512,7 +1577,7 @@ describe('Dashboard', () => {
                 defaultSortOrder: 'oldest',
                 defaultPageSize: 48,
             });
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -1529,7 +1594,7 @@ describe('Dashboard', () => {
     describe('Filter Chips', () => {
         it('shows filter chips when filters are active', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1549,7 +1614,7 @@ describe('Dashboard', () => {
 
         it('clears filter when chip X is clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1586,7 +1651,7 @@ describe('Dashboard', () => {
     describe('Results Count', () => {
         it('shows results count when filter or search is active', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1608,7 +1673,7 @@ describe('Dashboard', () => {
     describe('Polling', () => {
         it('polls for investigation updates every 3 seconds', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
 
@@ -1629,7 +1694,7 @@ describe('Dashboard', () => {
     describe('Drag-and-Drop Import', () => {
         it('shows drag overlay when dragging files over document', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -1650,7 +1715,7 @@ describe('Dashboard', () => {
 
         it('hides drag overlay when dragging leaves document', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -1679,7 +1744,7 @@ describe('Dashboard', () => {
 
         it('handles dragover event to allow drop', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -1695,7 +1760,7 @@ describe('Dashboard', () => {
 
         it('imports .json file on drop', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.importInvestigation).mockResolvedValue({ ok: true, id: 'dropped-id' });
 
             renderDashboard();
@@ -1727,7 +1792,7 @@ describe('Dashboard', () => {
 
         it('shows warning toast when dropping non-.json file', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -1754,7 +1819,7 @@ describe('Dashboard', () => {
 
         it('closes drag overlay on drop even with no file', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -1790,7 +1855,7 @@ describe('Dashboard', () => {
     describe('processImportFile Edge Cases', () => {
         it('shows error toast when import file contains invalid JSON', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -1815,7 +1880,7 @@ describe('Dashboard', () => {
 
         it('resets file input value after import', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.importInvestigation).mockResolvedValue({ ok: true, id: 'new-id' });
 
             renderDashboard();
@@ -1846,7 +1911,7 @@ describe('Dashboard', () => {
     describe('Additional Keyboard Navigation', () => {
         it('navigates with ArrowDown key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1861,7 +1926,7 @@ describe('Dashboard', () => {
 
         it('navigates with ArrowUp key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1878,9 +1943,9 @@ describe('Dashboard', () => {
 
         it('does not trigger delete on running investigation with d key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ status: 'running', title: 'Running One' }),
-            ]);
+            ]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1899,9 +1964,9 @@ describe('Dashboard', () => {
 
         it('does not trigger delete on paused investigation with d key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ status: 'paused', title: 'Paused One' }),
-            ]);
+            ]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1920,7 +1985,7 @@ describe('Dashboard', () => {
 
         it('clears focus with Escape key', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1943,7 +2008,7 @@ describe('Dashboard', () => {
 
         it('ignores keyboard shortcuts when typing in input', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -1966,7 +2031,7 @@ describe('Dashboard', () => {
     describe('Portal Content', () => {
         it('renders New Investigation link in floating dock', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -1978,7 +2043,7 @@ describe('Dashboard', () => {
 
         it('renders Import Investigation button in floating dock', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -1989,7 +2054,7 @@ describe('Dashboard', () => {
 
         it('renders Restart Server button in floating dock', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -2003,7 +2068,7 @@ describe('Dashboard', () => {
     describe('Delete Modal Interactions', () => {
         it('closes delete modal when clicking overlay backdrop', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -2033,7 +2098,7 @@ describe('Dashboard', () => {
 
         it('prevents modal close when clicking modal content', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -2063,7 +2128,7 @@ describe('Dashboard', () => {
     describe('Keyboard Shortcuts Panel', () => {
         it('closes shortcuts panel when Esc button in panel is clicked', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -2086,7 +2151,7 @@ describe('Dashboard', () => {
 
         it('displays all keyboard shortcut keys', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -2113,7 +2178,7 @@ describe('Dashboard', () => {
     describe('Drag Counter Behavior', () => {
         it('handles multiple dragenter events correctly', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -2167,8 +2232,8 @@ describe('Dashboard', () => {
             });
 
             vi.mocked(api.listInvestigations)
-                .mockResolvedValueOnce([runningInv])
-                .mockResolvedValueOnce([{ ...runningInv, status: 'completed' }]);
+                .mockResolvedValueOnce(paginatedResponse([runningInv]))
+                .mockResolvedValueOnce(paginatedResponse([{ ...runningInv, status: 'completed' }]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -2200,8 +2265,8 @@ describe('Dashboard', () => {
             });
 
             vi.mocked(api.listInvestigations)
-                .mockResolvedValueOnce([runningInv])
-                .mockResolvedValueOnce([{ ...runningInv, status: 'failed' }]);
+                .mockResolvedValueOnce(paginatedResponse([runningInv]))
+                .mockResolvedValueOnce(paginatedResponse([{ ...runningInv, status: 'failed' }]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -2232,7 +2297,7 @@ describe('Dashboard', () => {
     describe('Retrospect and Stale Indicators', () => {
         it('displays retrospect badge for completed investigation with retrospect', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'With Retrospect',
@@ -2241,7 +2306,7 @@ describe('Dashboard', () => {
                         proposals: [{ id: '1', body: 'proposal1' }, { id: '2', body: 'proposal2' }],
                     } as any,
                 }),
-            ]);
+            ]));
 
             renderDashboard();
 
@@ -2257,13 +2322,13 @@ describe('Dashboard', () => {
 
         it('displays incident badge when investigation has incidentId', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'Incident Investigation',
                     incidentId: 'INC12345',
                 }),
-            ]);
+            ]));
 
             renderDashboard();
 
@@ -2285,7 +2350,7 @@ describe('Dashboard', () => {
                 title: 'Recent Running',
                 thoughtCount: 5,
             });
-            vi.mocked(api.listInvestigations).mockResolvedValue([recentInv]);
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([recentInv]));
 
             renderDashboard();
 
@@ -2302,7 +2367,7 @@ describe('Dashboard', () => {
     describe('List View', () => {
         it('renders list view correctly after toggle', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -2324,13 +2389,13 @@ describe('Dashboard', () => {
             // Covers lines 1361-1366: inv.timeRange conditional block in list view
             // Also covers formatTimeRange function (ago branch)
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'With TimeRange Ago',
                     timeRange: 'ago(5m)',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
@@ -2344,13 +2409,13 @@ describe('Dashboard', () => {
         it('displays between timeRange in list view (covers formatTimeRange between branch)', async () => {
             // Covers formatTimeRange's between() branch and fmt inner function
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'With BetweenRange',
                     timeRange: 'between(datetime(2024-01-01T00:00:00Z) .. datetime(2024-01-31T23:59:59Z))',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
@@ -2366,13 +2431,13 @@ describe('Dashboard', () => {
             // Covers formatTimeRange's default branch (no ago or between pattern)
             const api = await getApi();
             const longTimeRange = 'custom-time-range-that-is-really-quite-long-indeed';
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'With LongTimeRange',
                     timeRange: longTimeRange,
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
@@ -2389,13 +2454,13 @@ describe('Dashboard', () => {
         it('displays correlationId button in list view (covers line 1372)', async () => {
             // Covers line 1372: the correlationId button in list view
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'With CorrelationId List',
                     correlationId: 'abcdef12-3456-7890-abcd-ef1234567890',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
@@ -2414,13 +2479,13 @@ describe('Dashboard', () => {
             // navigator.clipboard is not available in jsdom so the catch block runs silently
             const api = await getApi();
             const correlationId = 'test-corr-9876-5432-10ab-cdef01234567';
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'CorrelationId Copy Test',
                     correlationId,
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'list');
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -2454,13 +2519,13 @@ describe('Dashboard', () => {
 
             const api = await getApi();
             const correlationId = 'aa112233-4455-6677-8899-aabbccddeeff';
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'Clipboard Test',
                     correlationId,
                 }),
-            ]);
+            ]));
 
             renderDashboard();
 
@@ -2499,7 +2564,7 @@ describe('Dashboard', () => {
                 title: 'Stale Running Investigation',
                 thoughtCount: 3,
             });
-            vi.mocked(api.listInvestigations).mockResolvedValue([staleInv]);
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([staleInv]));
 
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
@@ -2522,7 +2587,7 @@ describe('Dashboard', () => {
         it('calls restartServer API and polls when restart is confirmed', async () => {
             // Covers: handleRestartServer post-confirm path, pollInterval callback, setTimeout 30s callback
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.restartServer).mockResolvedValue({ status: 'ok' });
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -2564,7 +2629,7 @@ describe('Dashboard', () => {
         it('handles restartServer error (server shuts down) gracefully', async () => {
             // Covers the catch block in handleRestartServer around api.restartServer()
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.restartServer).mockRejectedValue(new Error('connection reset'));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -2600,7 +2665,7 @@ describe('Dashboard', () => {
         it('logs skip message when some investigations are skipped due to concurrency limit', async () => {
             // Covers result.skipped > 0 branch in handleResumeAll
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.resumeAll).mockResolvedValue({ resumed: 1, skipped: 2, ids: ['1'] });
 
             const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -2629,7 +2694,7 @@ describe('Dashboard', () => {
         it('handles resumeAll API error gracefully', async () => {
             // Covers catch block in handleResumeAll
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.resumeAll).mockRejectedValue(new Error('Network error'));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -2652,7 +2717,7 @@ describe('Dashboard', () => {
         it('sets tag filter when tag span is clicked in list view', async () => {
             // Covers the tag onClick handler in list view
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            const tagItems = [
                 createMockInvestigation({
                     status: 'completed',
                     title: 'Tagged Investigation List',
@@ -2664,7 +2729,8 @@ describe('Dashboard', () => {
                     title: 'Other Investigation',
                     tags: [],
                 }),
-            ]);
+            ];
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(tagItems));
 
             localStorage.setItem('inv-view', 'list');
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -2685,7 +2751,7 @@ describe('Dashboard', () => {
         it('sets createdBy filter when creator span is clicked in list view', async () => {
             // Covers the createdBy onClick handler in list view
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            const creatorItems = [
                 createMockInvestigation({
                     status: 'completed',
                     title: 'Investigation By Alice',
@@ -2697,7 +2763,8 @@ describe('Dashboard', () => {
                     title: 'Investigation By Bob',
                     createdBy: 'bob@example.com',
                 }),
-            ]);
+            ];
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(creatorItems));
 
             localStorage.setItem('inv-view', 'list');
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -2721,13 +2788,13 @@ describe('Dashboard', () => {
     describe('Grid View Additional Coverage', () => {
         it('renders incidentId badge in grid view', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'With Incident',
                     incidentId: 'INC-12345',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'grid');
             renderDashboard();
@@ -2738,7 +2805,7 @@ describe('Dashboard', () => {
         it('renders retroProposalCount badge in grid view when retro not completed', async () => {
             const api = await getApi();
             const proposedChange = { id: 'p1', location: 'file.ts', type: 'addition', description: 'update', content: 'x', accepted: false, applied: false };
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'With Retro Proposals',
@@ -2749,7 +2816,7 @@ describe('Dashboard', () => {
                         completed: false,
                     },
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'grid');
             renderDashboard();
@@ -2761,13 +2828,13 @@ describe('Dashboard', () => {
 
         it('renders timeRange span in grid view', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'Grid With TimeRange',
                     timeRange: 'ago(1h)',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'grid');
             renderDashboard();
@@ -2777,12 +2844,12 @@ describe('Dashboard', () => {
 
         it('renders FileText icon for non-standard investigation status', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'pending' as Investigation['status'],
                     title: 'Unknown Status Investigation',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'grid');
             renderDashboard();
@@ -2797,14 +2864,14 @@ describe('Dashboard', () => {
                 title: 'Stale Running Grid',
                 thoughtCount: 5,
             });
-            vi.mocked(api.listInvestigations).mockResolvedValue([staleInv]);
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([staleInv]));
 
             localStorage.setItem('inv-view', 'grid');
             renderDashboard();
             await waitFor(() => screen.getByText('Stale Running Grid'));
 
             vi.advanceTimersByTime(301000);
-            vi.mocked(api.listInvestigations).mockResolvedValue([staleInv]);
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([staleInv]));
             vi.advanceTimersByTime(3000);
 
             await waitFor(() => {
@@ -2819,13 +2886,13 @@ describe('Dashboard', () => {
         it('shows hours-ago relative time for investigation created 2h ago', async () => {
             const api = await getApi();
             const twoHoursAgo = Date.now() - 2 * 3600 * 1000;
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(twoHoursAgo),
                     status: 'completed',
                     title: 'Two Hours Old',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'grid');
             renderDashboard();
@@ -2836,13 +2903,13 @@ describe('Dashboard', () => {
         it('shows days-ago relative time for investigation created 3 days ago', async () => {
             const api = await getApi();
             const threeDaysAgo = Date.now() - 3 * 86400 * 1000;
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(threeDaysAgo),
                     status: 'completed',
                     title: 'Three Days Old',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'grid');
             renderDashboard();
@@ -2853,13 +2920,13 @@ describe('Dashboard', () => {
         it('shows locale date and Older group for investigation older than 30 days', async () => {
             const api = await getApi();
             const thirtyFiveDaysAgo = Date.now() - 35 * 86400 * 1000;
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(thirtyFiveDaysAgo),
                     status: 'completed',
                     title: 'Very Old Investigation',
                 }),
-            ]);
+            ]));
 
             // Use list view - getDateGroup and date group headers are only rendered in list view
             localStorage.setItem('inv-view', 'list');
@@ -2871,13 +2938,13 @@ describe('Dashboard', () => {
         it('shows Yesterday date group for investigation created yesterday', async () => {
             const api = await getApi();
             const yesterdayMs = Date.now() - 25 * 3600 * 1000;
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(yesterdayMs),
                     status: 'completed',
                     title: 'Yesterday Investigation',
                 }),
-            ]);
+            ]));
 
             // Use list view - date group headers are only rendered in list view
             localStorage.setItem('inv-view', 'list');
@@ -2889,13 +2956,13 @@ describe('Dashboard', () => {
         it('shows This week date group for investigation created 4 days ago', async () => {
             const api = await getApi();
             const fourDaysAgo = Date.now() - 4 * 86400 * 1000;
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(fourDaysAgo),
                     status: 'completed',
                     title: 'This Week Investigation',
                 }),
-            ]);
+            ]));
 
             // Use list view - date group headers are only rendered in list view
             localStorage.setItem('inv-view', 'list');
@@ -2907,13 +2974,13 @@ describe('Dashboard', () => {
         it('renders JSON.stringify output when thought is an object (getLastThought edge case)', async () => {
             const api = await getApi();
             const objectThought = { step: 'analysis', content: 'Processing data' };
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     status: 'completed',
                     title: 'Object Thought Investigation',
                     thoughts: [objectThought as unknown as string],
                 }),
-            ]);
+            ]));
 
             // Explicitly use grid view to ensure getLastThought is rendered in the <p> element
             localStorage.setItem('inv-view', 'grid');
@@ -2931,13 +2998,13 @@ describe('Dashboard', () => {
         it('shows hours in duration for long-running investigation (covers hours > 0 branch)', async () => {
             const api = await getApi();
             const startTime = Date.now() - 3700 * 1000;
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(startTime),
                     status: 'running',
                     title: 'Long Running Investigation',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'grid');
             renderDashboard();
@@ -2958,7 +3025,7 @@ describe('Dashboard', () => {
                 status: 'completed',
                 title: 'List View Edit Title',
             });
-            vi.mocked(api.listInvestigations).mockResolvedValue([inv]);
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([inv]));
 
             localStorage.setItem('inv-view', 'list');
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -2991,7 +3058,7 @@ describe('Dashboard', () => {
     describe('Widget Registry Coverage', () => {
         it('runs map callback returning null when widget not found (covers line 758-760)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([mockInvestigations[0]]);
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([mockInvestigations[0]]));
             // Return a non-empty array so the .map() callback actually runs
             vi.mocked(getSelectedWidgetIds).mockReturnValue(['unknown-widget-id']);
             vi.mocked(getWidgetById).mockReturnValue(null);
@@ -3005,7 +3072,7 @@ describe('Dashboard', () => {
 
         it('renders widget component when found in registry (covers lines 761-766)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([mockInvestigations[0]]);
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([mockInvestigations[0]]));
             vi.mocked(getSelectedWidgetIds).mockReturnValue(['test-widget']);
             // Create a simple mock widget component
             const MockWidgetComponent = ({ investigations }: { investigations: Investigation[] }) =>
@@ -3028,9 +3095,9 @@ describe('Dashboard', () => {
         it('calls onCancel when saving with empty title (covers else onCancel() branch)', async () => {
             // Covers line 122: else onCancel() in InlineCardTitle.save()
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ title: 'Edit Me Title' }),
-            ]);
+            ]));
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
             await waitFor(() => screen.getByText('Edit Me Title'));
@@ -3063,13 +3130,13 @@ describe('Dashboard', () => {
         it('returns Older for non-numeric investigation ID (covers isNaN branch)', async () => {
             // Covers line 557: if (isNaN(ts)) return 'Older'
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: 'legacy-report-id',  // non-numeric ID → NaN → 'Older' group
                     status: 'completed',
                     title: 'Legacy Non-Numeric ID',
                 }),
-            ]);
+            ]));
 
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
@@ -3087,7 +3154,7 @@ describe('Dashboard additional coverage', () => {
         localStorage.clear();
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const api = await getApi();
-        vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+        vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
         vi.mocked(api.getSettings).mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest' });
         vi.mocked(api.sendAction).mockResolvedValue({ success: true });
     });
@@ -3198,14 +3265,14 @@ describe('Dashboard additional coverage', () => {
 
         it('clicks correlation ID copy button (L1181)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(Date.now() - 60000),
                     status: 'completed',
                     title: 'Investigation With Correlation',
                     correlationId: 'corr-abc-123-xyz-456-def',
                 }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Investigation With Correlation'));
             const copyBtn = screen.getByTitle('Copy Correlation ID: corr-abc-123-xyz-456-def');
@@ -3274,7 +3341,7 @@ describe('Dashboard additional coverage', () => {
     describe('Restart server cancel covers !ok branch (L233)', () => {
         it('clicks Cancel in restart confirm dialog so !ok return is covered', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
@@ -3293,14 +3360,14 @@ describe('Dashboard additional coverage', () => {
     describe('isRetroCompleted shows Retro Done (L619)', () => {
         it('renders Retro Done badge for completed investigation with retrospect.completed=true', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: 'retro-done-1',
                     status: 'completed',
                     title: 'Retro Completed Investigation',
                     retrospect: { completed: true, proposals: [], analyzedAt: new Date().toISOString() },
                 }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => expect(screen.getByText('Retro Done')).toBeInTheDocument());
         });
@@ -3309,9 +3376,9 @@ describe('Dashboard additional coverage', () => {
     describe('Source filter chip shows Scheduled or Manual (L977)', () => {
         it('shows Scheduled chip when source filter is set to scheduled', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'sched-inv-1', status: 'completed', title: 'Scheduled Inv', source: 'scheduled' }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Scheduled Inv'));
             const sourceSelect = screen.getByDisplayValue('All Sources');
@@ -3326,9 +3393,9 @@ describe('Dashboard additional coverage', () => {
 
         it('shows Manual chip when source filter is set to manual', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'manual-inv-1', status: 'completed', title: 'Manual Inv', source: 'manual' }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Manual Inv'));
             const sourceSelect = screen.getByDisplayValue('All Sources');
@@ -3343,14 +3410,14 @@ describe('Dashboard additional coverage', () => {
     describe('Copy correlation ID checkmark state (L1183)', () => {
         it('shows CheckCheck icon after copying correlation ID', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(Date.now() - 10000),
                     status: 'completed',
                     title: 'Corr Investigation',
                     correlationId: 'track-id-abc-123',
                 }),
-            ]);
+            ]));
             const mockClipboard = { writeText: vi.fn().mockResolvedValue(undefined) };
             Object.defineProperty(navigator, 'clipboard', { value: mockClipboard, writable: true, configurable: true });
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -3369,7 +3436,7 @@ describe('Dashboard additional coverage', () => {
     describe('List view with failed investigation + thoughts covers isFailed StepBar (L1396)', () => {
         it('shows red StepBar for failed investigation with thoughtCount > 0 in list view', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(Date.now() - 100000),
                     status: 'failed',
@@ -3377,7 +3444,7 @@ describe('Dashboard additional coverage', () => {
                     thoughtCount: 3,
                     thoughts: ['step1', 'step2', 'step3'],
                 }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => expect(screen.getByText('Failed With Steps')).toBeInTheDocument());
@@ -3388,7 +3455,7 @@ describe('Dashboard additional coverage', () => {
         it('renders list view investigation without tags field (covers tags||[] fallback)', async () => {
             const api = await getApi();
             // An investigation with tags=undefined exercises `inv.tags || []` in list view
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(Date.now() - 50000),
                     status: 'completed',
@@ -3396,7 +3463,7 @@ describe('Dashboard additional coverage', () => {
                     tags: undefined as any,
                     target: 'stamp-01',
                 }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             // Ensure the investigation actually renders in list view
@@ -3407,14 +3474,14 @@ describe('Dashboard additional coverage', () => {
     describe('sendAction catch covers action error (L308)', () => {
         it('handles sendAction throwing an error gracefully (covers catch block)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(Date.now() - 120000),
                     status: 'running',
                     title: 'Running For Action Error',
                     thoughtCount: 1,
                 }),
-            ]);
+            ]));
             vi.mocked(api.sendAction).mockRejectedValueOnce(new Error('Action failed'));
             const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -3430,14 +3497,14 @@ describe('Dashboard additional coverage', () => {
     describe('Clipboard catch covers clipboard error (L318)', () => {
         it('handles clipboard.writeText throwing an error gracefully', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(Date.now() - 10000),
                     status: 'completed',
                     title: 'Clipboard Error Inv',
                     correlationId: 'clip-error-id',
                 }),
-            ]);
+            ]));
             const mockClipboard = { writeText: vi.fn().mockRejectedValue(new Error('Clipboard denied')) };
             Object.defineProperty(navigator, 'clipboard', { value: mockClipboard, writable: true, configurable: true });
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -3452,7 +3519,7 @@ describe('Dashboard additional coverage', () => {
     describe('Delete error without message covers e.message||fallback (L352)', () => {
         it('toasts fallback message when deleteInvestigation throws without .message', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             vi.mocked(api.deleteInvestigation).mockRejectedValueOnce({});
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -3471,9 +3538,9 @@ describe('Dashboard additional coverage', () => {
         it('optimistically updates investigation to running when resumeAll returns its ID', async () => {
             const api = await getApi();
             const knownId = 'known-paused-id';
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: knownId, status: 'paused', title: 'Known Paused', pausedAt: Date.now() - 1000 }),
-            ]);
+            ]));
             // Return the known ID so resumedSet.has(inv.id) is TRUE
             vi.mocked(api.resumeAll).mockResolvedValueOnce({ resumed: 1, skipped: 0, ids: [knownId] });
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -3488,36 +3555,36 @@ describe('Dashboard additional coverage', () => {
     describe('formatTimeRange branches (L79, L81, L84, L87)', () => {
         it('renders investigation with empty timeRange (covers !tr return empty string)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'tr-empty', status: 'completed', title: 'Empty Time Range', timeRange: '' }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Empty Time Range'));
         });
 
         it('renders investigation with long timeRange (covers > 24 truncation)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'tr-long', status: 'completed', title: 'Long Time Range', timeRange: 'x'.repeat(30) }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Long Time Range'));
         });
 
         it('renders investigation with between() and invalid date format (covers isNaN branch)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'tr-between', status: 'completed', title: 'Between Invalid', timeRange: 'between(datetime(not-a-date) .. datetime(also-not))' }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Between Invalid'));
         });
 
         it('renders investigation with ago() using unknown unit (covers units[key]??key fallback)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'tr-ago', status: 'completed', title: 'Ago Unknown Unit', timeRange: 'ago(2w)' }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Ago Unknown Unit'));
         });
@@ -3526,9 +3593,9 @@ describe('Dashboard additional coverage', () => {
     describe('Investigation with no title covers title||query||id fallbacks', () => {
         it('renders investigation without title or query uses id as display (covers || fallbacks)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'no-title-inv', status: 'completed', title: undefined, query: undefined }),
-            ]);
+            ]));
             renderDashboard();
             // Investigation with no title: id 'no-title-inv' displayed as 'no title inv' (hyphens→spaces)
             await waitFor(() => expect(document.body.textContent).toContain('no title inv'));
@@ -3536,9 +3603,9 @@ describe('Dashboard additional coverage', () => {
 
         it('covers Highlight !term||!text empty text path with investigation id as empty string', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'empty-id-inv', status: 'completed', title: undefined, query: undefined }),
-            ]);
+            ]));
             renderDashboard();
             // Just need the component to render without error - id 'empty-id-inv' becomes 'empty id inv'
             await waitFor(() => expect(document.body.textContent).toContain('empty id inv'));
@@ -3554,7 +3621,7 @@ describe('Dashboard additional coverage', () => {
     describe('Investigation with undefined thoughtCount covers ?? branches (L282)', () => {
         it('renders investigation with thoughtCount undefined (covers thoughtCount ?? thoughts ??0)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(Date.now() - 70000),
                     status: 'completed',
@@ -3562,7 +3629,7 @@ describe('Dashboard additional coverage', () => {
                     thoughtCount: undefined,
                     thoughts: undefined as any,
                 }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('No ThoughtCount'));
         });
@@ -3571,10 +3638,10 @@ describe('Dashboard additional coverage', () => {
     describe('Sort modified with undefined lastModified covers ?? Number(id)', () => {
         it('sorts by modified with investigation having no lastModified field', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: '111', status: 'completed', title: 'No LastModified', lastModified: undefined }),
                 createMockInvestigation({ id: '222', status: 'completed', title: 'Has LastModified', lastModified: Date.now() }),
-            ]);
+            ]));
             localStorage.setItem('inv-sort', 'modified');
             renderDashboard();
             await waitFor(() => screen.getByText('No LastModified'));
@@ -3584,11 +3651,11 @@ describe('Dashboard additional coverage', () => {
     describe('Target groupby with no target covers target||No target (list view)', () => {
         it('renders list view with investigation having no target (covers target||"No target" grouping)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'no-target-a', status: 'completed', title: 'Inv No Target A', target: undefined }),
                 createMockInvestigation({ id: 'no-target-b', status: 'completed', title: 'Inv No Target B', target: undefined }),
                 createMockInvestigation({ id: 'has-target', status: 'completed', title: 'Inv Has Target', target: 'my-stamp' }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => screen.getByText('Inv No Target A'));
@@ -3599,10 +3666,10 @@ describe('Dashboard additional coverage', () => {
         it('shows inv.id in Highlight when both title and query are empty in list view with search', async () => {
             const api = await getApi();
             const noTitleId = 'abc123def456';
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 // Investigation with no title and no query — falls back to inv.id in Highlight
                 createMockInvestigation({ id: noTitleId, status: 'completed', title: '', query: undefined, thoughts: ['step1'] }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => screen.getByText(noTitleId));
@@ -3619,7 +3686,7 @@ describe('Dashboard additional coverage', () => {
 
         it('renders StepBar with bg-slate-400 color for paused investigation in list view (L1396 color branch)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 // Paused investigation with thoughts > 0 → StepBar's 'bg-slate-400' fallback
                 createMockInvestigation({
                     id: 'paused-1',
@@ -3628,7 +3695,7 @@ describe('Dashboard additional coverage', () => {
                     thoughtCount: 2,
                     thoughts: ['step1', 'step2'],
                 }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => screen.getByText('Paused With Steps'));
@@ -3639,7 +3706,7 @@ describe('Dashboard additional coverage', () => {
 
         it('renders StepBar using thoughts.length when thoughtCount is null in list view (L1396 ?? branch)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 // thoughtCount is undefined but thoughts has items → uses thoughts.length
                 createMockInvestigation({
                     id: 'no-count-inv',
@@ -3656,7 +3723,7 @@ describe('Dashboard additional coverage', () => {
                     thoughtCount: undefined,
                     thoughts: undefined as any,
                 }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => screen.getByText('No ThoughtCount'));
@@ -3666,7 +3733,7 @@ describe('Dashboard additional coverage', () => {
     describe('Dashboard branch coverage completion', () => {
         it('covers isFailed ? bg-red-400 with failed investigation having thoughts in list view', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: 'failed-with-thoughts',
                     status: 'failed',
@@ -3674,7 +3741,7 @@ describe('Dashboard additional coverage', () => {
                     thoughtCount: 2,
                     thoughts: ['step1', 'step2'],
                 }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => screen.getByText('Failed With Thoughts'));
@@ -3685,10 +3752,10 @@ describe('Dashboard additional coverage', () => {
 
         it('covers target || "No target" and sort in groupByTarget list view', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'with-target', title: 'Has Target', target: 'stamp-01' }),
                 createMockInvestigation({ id: 'no-target', title: 'No Target', target: undefined }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => screen.getByText('Has Target'));
@@ -3701,10 +3768,10 @@ describe('Dashboard additional coverage', () => {
 
         it('covers sort by steps with thoughts undefined (thoughts?.length ?? 0)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'inv-no-thoughts', title: 'No Thoughts', thoughtCount: undefined, thoughts: undefined as any }),
                 createMockInvestigation({ id: 'inv-has-thoughts', title: 'Has Thoughts', thoughtCount: undefined, thoughts: ['t1', 't2'] }),
-            ]);
+            ]));
             localStorage.setItem('inv-sort', 'steps');
             renderDashboard();
             await waitFor(() => screen.getByText('No Thoughts'));
@@ -3712,10 +3779,10 @@ describe('Dashboard additional coverage', () => {
 
         it('covers sort by modified with lastModified fallback', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'inv-a', title: 'Inv A', lastModified: undefined }),
                 createMockInvestigation({ id: 'inv-b', title: 'Inv B', lastModified: Date.now() }),
-            ]);
+            ]));
             localStorage.setItem('inv-sort', 'modified');
             renderDashboard();
             await waitFor(() => screen.getByText('Inv A'));
@@ -3723,9 +3790,9 @@ describe('Dashboard additional coverage', () => {
 
         it('covers keyboard ArrowUp when focusedIdx is null (null ? 0 : Math.max)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'kb-inv', title: 'Keyboard Test' }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Keyboard Test'));
             // focusedIdx starts as null — pressing ArrowUp triggers null ? 0 branch
@@ -3736,10 +3803,10 @@ describe('Dashboard additional coverage', () => {
 
         it('covers (inv.tags || []).includes(tagFilter) with null tags investigation and tagFilter active', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'notag-inv', title: 'No Tags Inv', tags: null as any }),
                 createMockInvestigation({ id: 'tag-inv', title: 'Has Prod Tag', tags: ['prod'] }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('No Tags Inv'));
             // Set tagFilter to 'prod' — triggers (inv.tags || []).includes(tagFilter)
@@ -3750,7 +3817,7 @@ describe('Dashboard additional coverage', () => {
 
         it('covers target || "" and tags || [] in search filter with null fields', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: 'nullfieldsinv',
                     title: undefined as any,
@@ -3761,7 +3828,7 @@ describe('Dashboard additional coverage', () => {
                     productName: undefined as any,
                     createdBy: undefined as any,
                 }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('nullfieldsinv'));
             // Search triggers all filter fallbacks for investigations with null/undefined fields
@@ -3772,9 +3839,9 @@ describe('Dashboard additional coverage', () => {
 
         it('covers action === abort ternary with abort action', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'running-inv', title: 'Running Investigation', status: 'running' }),
-            ]);
+            ]));
             vi.mocked(api.sendAction).mockResolvedValue({ id: 'running-inv', status: 'aborted' } as any);
             renderDashboard();
             await waitFor(() => screen.getByText('Running Investigation'));
@@ -3786,9 +3853,9 @@ describe('Dashboard additional coverage', () => {
         it('covers inv.title || inv.query || `` in list view InlineCardTitle with edit on no-title investigation', async () => {
             const api = await getApi();
             vi.mocked(api.updateTitle).mockResolvedValue({} as any);
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'notitle-inv', title: '', query: '', status: 'completed' }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => screen.getByText('notitle-inv'));
@@ -3799,9 +3866,9 @@ describe('Dashboard additional coverage', () => {
 
         it('covers (inv.tags || []).map(tag) in list view with investigation having tags', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'tagged-inv', title: 'Tagged', tags: ['xuniquetag', 'xlatency'] }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => screen.getByText('Tagged'));
@@ -3811,9 +3878,9 @@ describe('Dashboard additional coverage', () => {
 
         it('covers inv.title || inv.query toast fallback with no-title no-query running investigation pause action', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'toastinv', title: '', query: '', status: 'running' }),
-            ]);
+            ]));
             vi.mocked(api.sendAction).mockResolvedValue({ id: 'toastinv', status: 'paused' } as any);
             renderDashboard();
             // Grid view: title '' || query '' || inv.id.replace(/-/g,' ') = 'toastinv'
@@ -3825,10 +3892,10 @@ describe('Dashboard additional coverage', () => {
 
         it('covers lastModified ?? Number(inv.id) in getDateGroup (L563) with list view + sort=modified', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 // lastModified undefined + sort=modified → getDateGroup uses Number(inv.id) fallback
                 createMockInvestigation({ id: '1234567890', title: 'Dategrouped', lastModified: undefined, status: 'completed' }),
-            ]);
+            ]));
             localStorage.setItem('inv-sort', 'modified');
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
@@ -3837,9 +3904,9 @@ describe('Dashboard additional coverage', () => {
 
         it('covers grid view edit mode with empty title/query (L1115 || "" fallback)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'gridemptyinv', title: '', query: '', status: 'completed' }),
-            ]);
+            ]));
             // Grid view (default, no inv-view localStorage key)
             renderDashboard();
             // Title falls back to ID text in grid view: '' || '' || 'gridemptyinv' = 'gridemptyinv'
@@ -3852,7 +3919,7 @@ describe('Dashboard additional coverage', () => {
 
         it('covers grid view StepBar bg-slate-400 (L1207) for aborted investigation with thoughts', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(Date.now()),
                     status: 'aborted',
@@ -3860,7 +3927,7 @@ describe('Dashboard additional coverage', () => {
                     thoughtCount: 3,
                     thoughts: ['s1', 's2', 's3'],
                 }),
-            ]);
+            ]));
             // Grid view default — renders StepBar with 'bg-slate-400' for aborted status
             renderDashboard();
             await waitFor(() => screen.getByText('Aborted With Steps'));
@@ -3871,11 +3938,11 @@ describe('Dashboard additional coverage', () => {
 
         it('covers groupByTarget sort a.localeCompare(b) (L1253) with three different target groups', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'g1', title: 'Group Alpha', target: 'alpha-stamp' }),
                 createMockInvestigation({ id: 'g2', title: 'Group Beta', target: 'beta-stamp' }),
                 createMockInvestigation({ id: 'g3', title: 'No Target Group', target: undefined }),
-            ]);
+            ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();
             await waitFor(() => screen.getByText('Group Alpha'));
@@ -3888,10 +3955,10 @@ describe('Dashboard additional coverage', () => {
 
         it('covers (inv.tags || []).includes(tagFilter) (L479) with tagFilter active and null-tags investigation', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'nulltag-inv', title: 'Null Tags', tags: null as any }),
                 createMockInvestigation({ id: 'tagged-inv2', title: 'Tagged With Prod', tags: ['prod2'] }),
-            ]);
+            ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Null Tags'));
             // Click the 'prod2' tag on the card to activate tagFilter='prod2'
@@ -3904,11 +3971,11 @@ describe('Dashboard additional coverage', () => {
 
         it('covers sort by steps ?? 0 for both a and b when both have no thoughts (L509)', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: 'nothoughts1', title: 'No Thoughts 1', thoughts: undefined as any, thoughtCount: undefined }),
                 createMockInvestigation({ id: 'nothoughts2', title: 'No Thoughts 2', thoughts: undefined as any, thoughtCount: undefined }),
                 createMockInvestigation({ id: 'hasthoughts1', title: 'Has Thoughts', thoughts: ['t1'], thoughtCount: 1 }),
-            ]);
+            ]));
             localStorage.setItem('inv-sort', 'steps');
             renderDashboard();
             await waitFor(() => screen.getByText('No Thoughts 1'));
@@ -3918,7 +3985,7 @@ describe('Dashboard additional coverage', () => {
 
         it('covers isFailed ? bg-red-400 (L1207) in grid view with failed investigation having thoughts > 0', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
                     id: String(Date.now()),
                     status: 'failed',
@@ -3926,7 +3993,7 @@ describe('Dashboard additional coverage', () => {
                     thoughtCount: 2,
                     thoughts: ['step1', 'step2'],
                 }),
-            ]);
+            ]));
             // Grid view (default — no inv-view localStorage key)
             renderDashboard();
             await waitFor(() => screen.getByText('Failed With Thoughts Grid'));
@@ -3940,13 +4007,13 @@ describe('Dashboard additional coverage', () => {
             // First return: running investigation with no title/query
             const noTitleId = String(Date.now() - 5000);
             vi.mocked(api.listInvestigations)
-                .mockResolvedValueOnce([
+                .mockResolvedValueOnce(paginatedResponse([
                     createMockInvestigation({ id: noTitleId, title: '', query: '', status: 'running' }),
-                ])
-                .mockResolvedValueOnce([
+                ]))
+                .mockResolvedValueOnce(paginatedResponse([
                     // Second poll: investigation becomes completed → triggers addToast
                     createMockInvestigation({ id: noTitleId, title: '', query: '', status: 'completed' }),
-                ]);
+                ]));
             renderDashboard();
             // Wait for initial load
             await waitFor(() => screen.getByText(noTitleId));
@@ -3964,9 +4031,9 @@ describe('Dashboard additional coverage', () => {
         it('covers clipboard writeText catch block (L316) when writeText rejects', async () => {
             const api = await getApi();
             const corrId = 'catch-test-corr-id';
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ status: 'completed', title: 'Clipboard Catch Test', correlationId: corrId }),
-            ]);
+            ]));
             // Replace window.navigator.clipboard with one that rejects — same pattern as success test
             const origDesc = Object.getOwnPropertyDescriptor(window, 'navigator');
             Object.defineProperty(window, 'navigator', {
@@ -3990,7 +4057,7 @@ describe('Dashboard additional coverage', () => {
 
         it('covers import error fallback (L367) when err has no message', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             // Throw an error object without .message to trigger the || 'Invalid file format' fallback
             vi.mocked(api.importInvestigation).mockRejectedValueOnce({ code: 500 });
             renderDashboard();
@@ -4005,7 +4072,7 @@ describe('Dashboard additional coverage', () => {
 
         it('covers handleImport early return (L375) when no file is in the input', async () => {
             const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(mockInvestigations);
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
             renderDashboard();
             await waitFor(() => screen.getByText('Completed Investigation'));
             const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -4020,11 +4087,11 @@ describe('Dashboard additional coverage', () => {
         it('covers sort ?? Number(id) both sides (L501) with 3 mixed-lastModified investigations', async () => {
             const api = await getApi();
             const now = Date.now();
-            vi.mocked(api.listInvestigations).mockResolvedValue([
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({ id: String(now - 2000), title: 'Sort A', lastModified: now - 100, status: 'completed' }),
                 createMockInvestigation({ id: String(now - 3000), title: 'Sort B', lastModified: undefined, status: 'completed' }),
                 createMockInvestigation({ id: String(now - 4000), title: 'Sort C', lastModified: now - 200, status: 'completed' }),
-            ]);
+            ]));
             localStorage.setItem('inv-sort', 'modified');
             renderDashboard();
             // With 3 items, the sort comparator is called multiple times; one has lastModified=undefined
@@ -4038,7 +4105,7 @@ describe('Dashboard additional coverage', () => {
     describe('Pagination', () => {
         it('shows pagination controls when there are items', async () => {
             const api = await getApi();
-            (api.listInvestigations as any).mockResolvedValue(mockInvestigations);
+            (api.listInvestigations as any).mockImplementation(smartListMock(mockInvestigations));
             renderDashboard();
 
             await waitFor(() => {
@@ -4048,14 +4115,17 @@ describe('Dashboard additional coverage', () => {
 
         it('paginates grid view with many items', async () => {
             const api = await getApi();
-            const manyInvestigations = Array.from({ length: 20 }, (_, i) =>
+            const page1Items = Array.from({ length: 6 }, (_, i) =>
                 createMockInvestigation({
                     id: String(1000 + i),
                     title: `Investigation ${i + 1}`,
                     status: 'completed',
                 })
             );
-            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            (api.listInvestigations as any).mockResolvedValue({
+                ...paginatedResponse(page1Items),
+                totalCount: 20, totalPages: 4,
+            });
             localStorage.setItem('inv-page-size', '6');
             renderDashboard();
 
@@ -4071,14 +4141,27 @@ describe('Dashboard additional coverage', () => {
         it('navigates to next page', async () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             const api = await getApi();
-            const manyInvestigations = Array.from({ length: 15 }, (_, i) =>
+            const page1Items = Array.from({ length: 6 }, (_, i) =>
                 createMockInvestigation({
                     id: String(2000 + i),
                     title: `Inv ${i + 1}`,
                     status: 'completed',
                 })
             );
-            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            const page2Items = Array.from({ length: 6 }, (_, i) =>
+                createMockInvestigation({
+                    id: String(2006 + i),
+                    title: `Inv ${i + 7}`,
+                    status: 'completed',
+                })
+            );
+            (api.listInvestigations as any).mockImplementation((params?: any) => {
+                const page = params?.page || 1;
+                return Promise.resolve({
+                    ...paginatedResponse(page === 2 ? page2Items : page1Items),
+                    totalCount: 15, page, pageSize: 6, totalPages: 3,
+                });
+            });
             localStorage.setItem('inv-page-size', '6');
             renderDashboard();
 
@@ -4094,14 +4177,17 @@ describe('Dashboard additional coverage', () => {
         it('persists page size to localStorage', async () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             const api = await getApi();
-            const manyInvestigations = Array.from({ length: 30 }, (_, i) =>
+            const items = Array.from({ length: 6 }, (_, i) =>
                 createMockInvestigation({
                     id: String(3000 + i),
                     title: `Inv ${i + 1}`,
                     status: 'completed',
                 })
             );
-            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            (api.listInvestigations as any).mockResolvedValue({
+                ...paginatedResponse(items),
+                totalCount: 30, totalPages: 5,
+            });
             renderDashboard();
 
             await waitFor(() => screen.getByText(/of 30 investigations/));
@@ -4116,14 +4202,17 @@ describe('Dashboard additional coverage', () => {
             const api = await getApi();
             localStorage.removeItem('inv-page-size');
             (api.getSettings as any).mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest', defaultPageSize: 6 });
-            const manyInvestigations = Array.from({ length: 20 }, (_, i) =>
+            const items = Array.from({ length: 6 }, (_, i) =>
                 createMockInvestigation({
                     id: String(4000 + i),
                     title: `Inv ${i + 1}`,
                     status: 'completed',
                 })
             );
-            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            (api.listInvestigations as any).mockResolvedValue({
+                ...paginatedResponse(items),
+                totalCount: 20, totalPages: 4, pageSize: 6,
+            });
             renderDashboard();
 
             await waitFor(() => {
@@ -4133,10 +4222,23 @@ describe('Dashboard additional coverage', () => {
 
         it('clamps currentPage when items are removed', async () => {
             const api = await getApi();
-            const items = Array.from({ length: 14 }, (_, i) =>
+            const page1Items = Array.from({ length: 6 }, (_, i) =>
                 createMockInvestigation({ id: String(6000 + i), title: `Clamp ${i + 1}`, status: 'completed' })
             );
-            (api.listInvestigations as any).mockResolvedValue(items);
+            let returnSmallSet = false;
+            (api.listInvestigations as any).mockImplementation((params?: any) => {
+                const page = params?.page || 1;
+                if (returnSmallSet) {
+                    return Promise.resolve({
+                        ...paginatedResponse(page1Items),
+                        totalCount: 6, page: 1, pageSize: 6, totalPages: 1,
+                    });
+                }
+                return Promise.resolve({
+                    ...paginatedResponse(page1Items),
+                    totalCount: 14, page, pageSize: 6, totalPages: 3,
+                });
+            });
             localStorage.setItem('inv-page-size', '6');
             renderDashboard();
 
@@ -4145,10 +4247,10 @@ describe('Dashboard additional coverage', () => {
             // Navigate to page 3 (items 13-14)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             await user.click(screen.getByText('3'));
-            await waitFor(() => screen.getByText('13–14 of 14 investigations'));
+            await waitFor(() => screen.getByText(/of 14 investigations/));
 
             // Simulate items being removed — shrink to 6 items, page 3 no longer exists
-            (api.listInvestigations as any).mockResolvedValue(items.slice(0, 6));
+            returnSmallSet = true;
             vi.advanceTimersByTime(3000);
 
             await waitFor(() => screen.getByText('1–6 of 6 investigations'));
@@ -4157,14 +4259,20 @@ describe('Dashboard additional coverage', () => {
         it('resets to page 1 when search changes', async () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             const api = await getApi();
-            const manyInvestigations = Array.from({ length: 20 }, (_, i) =>
+            const items = Array.from({ length: 6 }, (_, i) =>
                 createMockInvestigation({
                     id: String(5000 + i),
                     title: `Item ${i + 1}`,
                     status: 'completed',
                 })
             );
-            (api.listInvestigations as any).mockResolvedValue(manyInvestigations);
+            (api.listInvestigations as any).mockImplementation((params?: any) => {
+                const page = params?.page || 1;
+                return Promise.resolve({
+                    ...paginatedResponse(items),
+                    totalCount: 20, page, pageSize: 6, totalPages: 4,
+                });
+            });
             localStorage.setItem('inv-page-size', '6');
             renderDashboard();
 
@@ -4184,5 +4292,3 @@ describe('Dashboard additional coverage', () => {
         });
     });
 });
-
-

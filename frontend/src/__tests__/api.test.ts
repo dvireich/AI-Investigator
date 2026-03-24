@@ -59,7 +59,7 @@ describe('api', () => {
 
     describe('listInvestigations', () => {
         it('fetches and caches investigations', async () => {
-            const data = [{ id: '1', status: 'completed' }];
+            const data = { items: [{ id: '1', status: 'completed' }], totalCount: 1, page: 1, pageSize: 12, totalPages: 1, filterMeta: { products: [], tags: [], creators: [] }, stats: { total: 1, running: 0, paused: 0, completed: 1, failed: 0, aborted: 0, successRate: 100, resolvedCount: 1, avgDurationMs: 0, durationSamples: 0, thisWeekCount: 0, lastWeekCount: 0, contestRate: 0, contestableCount: 0 } };
             mockFetch.mockResolvedValue(mockResponse(data, { headers: { etag: '"v1"' } }));
 
             const result = await api.listInvestigations();
@@ -70,7 +70,8 @@ describe('api', () => {
 
         it('returns cached on 304 Not Modified', async () => {
             api._listEtag = '"v1"';
-            api._listCache = [{ id: '1', status: 'completed' }] as any;
+            api._listCacheKey = '';
+            api._listCache = { items: [{ id: '1', status: 'completed' }], totalCount: 1, page: 1, pageSize: 12, totalPages: 1, filterMeta: { products: [], tags: [], creators: [] }, stats: {} } as any;
 
             mockFetch.mockResolvedValue({ ok: true, status: 304, headers: new Headers(), json: vi.fn() });
             const result = await api.listInvestigations();
@@ -79,7 +80,8 @@ describe('api', () => {
 
         it('sends If-None-Match header when ETag cached', async () => {
             api._listEtag = '"v1"';
-            mockFetch.mockResolvedValue(mockResponse([]));
+            api._listCacheKey = '';
+            mockFetch.mockResolvedValue(mockResponse({ items: [], totalCount: 0, page: 1, pageSize: 12, totalPages: 1, filterMeta: { products: [], tags: [], creators: [] }, stats: {} }));
 
             await api.listInvestigations();
             expect(mockFetch).toHaveBeenCalledWith(
@@ -225,10 +227,10 @@ describe('api', () => {
     });
 
     describe('schedules', () => {
-        it('getSchedules returns array', async () => {
-            mockFetch.mockResolvedValue(mockResponse([{ id: 's1', name: 'Sched' }]));
+        it('getSchedules returns paginated response', async () => {
+            mockFetch.mockResolvedValue(mockResponse({ items: [{ id: 's1', name: 'Sched' }], totalCount: 1, page: 1, pageSize: 12, totalPages: 1 }));
             const result = await api.getSchedules();
-            expect(result).toHaveLength(1);
+            expect(result.items).toHaveLength(1);
         });
 
         it('createSchedule sends POST', async () => {
