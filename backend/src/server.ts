@@ -442,7 +442,6 @@ export function loadHistory() {
                                             updated.target = inferred;
                                             fs.writeFileSync(tmpPath, JSON.stringify(updated, null, 2));
                                             fs.renameSync(tmpPath, summaryPath);
-                                        /* v8 ignore next -- best-effort disk write */
                                         } catch { /* best-effort */ }
                                     }
                                     summary._summaryOnly = true;
@@ -1692,23 +1691,23 @@ app.get('/api/investigations', (req, res) => {
         summaries.push({
         id: s.id,
         status: s.status,
-        title: s.title,
-        query: s.query,
-        target: s.target,
+        title: s.title || '',
+        query: s.query || '',
+        target: s.target || '',
         timeRange: s.timeRange,
         correlationId: s.correlationId,
-        category: s.category,
-        incidentId: s.incidentId,
+        category: s.category || '',
+        incidentId: s.incidentId || '',
         model: s.model,
         productId: s.productId,
-        productName: s.productId ? productMap.get(s.productId) || 'Unknown' : undefined,
+        productName: s.productId ? productMap.get(s.productId) || 'Unknown' : '',
         storagePath,
         tags: s.tags || [],
-        source: s.source,
+        source: s.source || 'manual',
         scheduleId: s.scheduleId,
         verdict: s.verdict,
-        contestCount: s.contestCount,
-        createdBy: s.createdBy,
+        contestCount: s.contestCount ?? 0,
+        createdBy: s.createdBy || '',
         pausedAt: s.pausedAt,
         totalPausedTime: s.totalPausedTime,
         lastModified,
@@ -1742,15 +1741,13 @@ app.get('/api/investigations', (req, res) => {
     const dayMs = 86400000;
     const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
     const dayOfWeek = todayStart.getDay();
-    /* v8 ignore next -- Sunday branch depends on current day */
     const weekStart = todayStart.getTime() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) * dayMs;
     const lastWeekStart = weekStart - 7 * dayMs;
     let thisWeekCount = 0, lastWeekCount = 0;
 
     for (const s of summaries) {
         if (s.productId && s.productName) productsSet.set(s.productId, s.productName);
-        /* v8 ignore next -- tags always [] from summary normalization */
-        if (s.tags) for (const t of s.tags) tagsSet.add(t);
+        for (const t of s.tags) tagsSet.add(t);
         if (s.createdBy) creatorsSet.add(s.createdBy);
         if (s.status in statusCounts) statusCounts[s.status]++;
 
@@ -1760,20 +1757,16 @@ app.get('/api/investigations', (req, res) => {
             if (s.status === 'completed') completedKpi++;
         }
         if ((s.status === 'completed' || s.status === 'failed') && s.lastModified && !isNaN(Number(s.id))) {
-            /* v8 ignore start -- NaN id and out-of-range duration are edge cases */
             const d = s.lastModified - Number(s.id);
             if (d > 0 && d < dayMs) durations.push(d);
-            /* v8 ignore stop */
         }
         // KPI: contest rate
         if (s.status === 'completed' || s.status === 'failed') {
             contestableCount++;
-            /* v8 ignore next -- ?? nullish path never triggers when contestCount is always set */
-            if ((s.contestCount ?? 0) > 0) contestedCount++;
+            if (s.contestCount > 0) contestedCount++;
         }
         // KPI: this week / last week
         const ts = Number(s.id);
-        /* v8 ignore next 4 -- week boundaries depend on current date; test IDs are epoch ms from setup */
         if (!isNaN(ts)) {
             if (ts >= weekStart) thisWeekCount++;
             else if (ts >= lastWeekStart) lastWeekCount++;
@@ -1803,48 +1796,40 @@ app.get('/api/investigations', (req, res) => {
     let filtered = summaries;
     if (filterStatus !== 'all') filtered = filtered.filter(s => s.status === filterStatus);
     if (filterProduct !== 'all') filtered = filtered.filter(s => s.productId === filterProduct);
-    /* v8 ignore next -- source || fallback for items without source */
-    if (filterSource !== 'all') filtered = filtered.filter(s => (s.source || 'manual') === filterSource);
-    /* v8 ignore next -- tags always [] from summary normalization */
-    if (filterTag !== 'all') filtered = filtered.filter(s => (s.tags || []).includes(filterTag));
+    if (filterSource !== 'all') filtered = filtered.filter(s => s.source === filterSource);
+    if (filterTag !== 'all') filtered = filtered.filter(s => s.tags.includes(filterTag));
     if (filterCreatedBy !== 'all') filtered = filtered.filter(s => s.createdBy === filterCreatedBy);
     if (searchQuery) {
-        /* v8 ignore start -- defensive || fallbacks for optional summary fields */
         filtered = filtered.filter(s => {
             return (
-                (s.title || '').toLowerCase().includes(searchQuery) ||
-                (s.query || '').toLowerCase().includes(searchQuery) ||
-                (s.target || '').toLowerCase().includes(searchQuery) ||
-                (s.category || '').toLowerCase().includes(searchQuery) ||
-                (s.incidentId || '').toLowerCase().includes(searchQuery) ||
-                (s.productName || '').toLowerCase().includes(searchQuery) ||
-                (s.tags || []).some((t: string) => t.toLowerCase().includes(searchQuery)) ||
-                (s.createdBy || '').toLowerCase().includes(searchQuery) ||
+                s.title.toLowerCase().includes(searchQuery) ||
+                s.query.toLowerCase().includes(searchQuery) ||
+                s.target.toLowerCase().includes(searchQuery) ||
+                s.category.toLowerCase().includes(searchQuery) ||
+                s.incidentId.toLowerCase().includes(searchQuery) ||
+                s.productName.toLowerCase().includes(searchQuery) ||
+                s.tags.some((t: string) => t.toLowerCase().includes(searchQuery)) ||
+                s.createdBy.toLowerCase().includes(searchQuery) ||
                 s.id.toLowerCase().includes(searchQuery) ||
                 s.thoughts.some((t: string) => typeof t === 'string' && t.toLowerCase().includes(searchQuery))
             );
         });
-        /* v8 ignore stop */
     }
 
     // ── Apply server-side sort ──────────────────────────────────────
     // Pinned first, then running/paused, then by sort order
-    /* v8 ignore start -- sort comparison branches depend on JS engine order & ?? nullish paths are unreachable */
     filtered.sort((a: any, b: any) => {
         const aPinned = pinnedIds.has(a.id);
         const bPinned = pinnedIds.has(b.id);
-        if (aPinned && !bPinned) return -1;
-        if (!aPinned && bPinned) return 1;
+        if (aPinned !== bPinned) return aPinned ? -1 : 1;
         const aActive = a.status === 'running' || a.status === 'paused';
         const bActive = b.status === 'running' || b.status === 'paused';
-        if (aActive && !bActive) return -1;
-        if (!aActive && bActive) return 1;
+        if (aActive !== bActive) return aActive ? -1 : 1;
         if (sortOrder === 'oldest') return a.id.localeCompare(b.id);
-        if (sortOrder === 'steps') return (b.thoughtCount ?? 0) - (a.thoughtCount ?? 0);
-        if (sortOrder === 'modified') return (b.lastModified ?? Number(b.id)) - (a.lastModified ?? Number(a.id));
+        if (sortOrder === 'steps') return b.thoughtCount - a.thoughtCount;
+        if (sortOrder === 'modified') return b.lastModified - a.lastModified;
         return b.id.localeCompare(a.id); // newest
     });
-    /* v8 ignore stop */
 
     // ── Paginate ────────────────────────────────────────────────────
     const totalCount = filtered.length;
