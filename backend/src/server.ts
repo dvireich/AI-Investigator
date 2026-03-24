@@ -2081,6 +2081,7 @@ app.post('/api/investigations/:id/retrospect', async (req, res) => {
             history.set(id, (runner as any).state);
             await (runner as any).saveArtifacts();
             runners.delete(id); // Clean up
+            invalidateListCache();
         }
         res.json({ success: true });
     } catch (e: any) {
@@ -2128,6 +2129,7 @@ app.post('/api/investigations/:id/retrospect/analyze', async (req, res) => {
             await (runner as any).saveArtifacts();
             runners.delete(id);
         }
+        invalidateListCache();
     }).catch((e: any) => {
         console.error(`[retrospect/analyze] Unhandled error for ${id}:`, e.message);
         if (isTemporary) runners.delete(id);
@@ -2517,6 +2519,7 @@ app.patch('/api/investigations/:id/retrospect/proposals/:proposalId', async (req
     } else {
         await (runner as any).saveArtifacts();
     }
+    invalidateListCache();
 
     res.json({ success: true, proposal: updated });
 });
@@ -2549,6 +2552,7 @@ app.post('/api/investigations/:id/retrospect/complete', async (req, res) => {
         } else {
             await (runner as any).saveArtifacts();
         }
+        invalidateListCache();
         broadcast(id, 'retrospect', retro);
         res.json({ success: true, retrospect: retro });
     } catch (e: any) {
@@ -2595,6 +2599,7 @@ app.post('/api/investigations/:id/retrospect/apply', async (req, res) => {
             await (runner as any).saveArtifacts();
             runners.delete(id);
         }
+        invalidateListCache();
         res.json(result);
     } catch (e: any) {
         if (isTemporary) runners.delete(id);
