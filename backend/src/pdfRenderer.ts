@@ -41,7 +41,7 @@ export function resolveChromiumPath(
 let browserInstance: Browser | null = null;
 
 async function getBrowser(executablePath?: string): Promise<Browser> {
-    if (browserInstance && browserInstance.connected && executablePath === undefined) {
+    if (browserInstance && browserInstance.connected) {
         return browserInstance;
     }
     // Lazy-load puppeteer so the exe doesn't crash at startup when puppeteer isn't bundled
@@ -54,9 +54,10 @@ async function getBrowser(executablePath?: string): Promise<Browser> {
     });
     // Clean up on process exit
     const cleanup = () => {
-        if (browserInstance) {
-            browserInstance.close().catch(() => { });
-            browserInstance = null;
+        const inst = browserInstance;
+        browserInstance = null;
+        if (inst) {
+            Promise.resolve(inst.close()).catch(() => { });
         }
     };
     process.on('exit', cleanup);
