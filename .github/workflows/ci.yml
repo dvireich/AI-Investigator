@@ -7,8 +7,17 @@ on:
     branches: [main]
 
 jobs:
+  no-coverage-ignores:
+    name: No Coverage Ignores
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if any coverage-ignore comment exists in src/
+        run: bash scripts/check-no-coverage-ignores.sh
+
   backend-tests:
     name: Backend Tests & Coverage
+    needs: no-coverage-ignores
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -50,6 +59,7 @@ jobs:
 
   frontend-tests:
     name: Frontend Tests & Coverage
+    needs: no-coverage-ignores
     runs-on: ubuntu-latest
     defaults:
       run:
