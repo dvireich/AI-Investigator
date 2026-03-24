@@ -859,15 +859,9 @@ loadHistory();
 import { getVersionStatus, setUpdateManifestUrl } from './utils/updateChecker';
 
 app.get('/api/version', async (req, res) => {
-    try {
-        const forceCheck = req.query.check === 'true';
-        const status = await getVersionStatus(forceCheck);
-        res.json(status);
-    /* v8 ignore start */
-    } catch {
-        res.status(500).json({ error: 'Failed to check version' });
-    }
-    /* v8 ignore stop */
+    const forceCheck = req.query.check === 'true';
+    const status = await getVersionStatus(forceCheck);
+    res.json(status);
 });
 
 // Settings API
