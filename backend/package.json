@@ -10,7 +10,7 @@
         "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
         "build": "tsc",
         "lint": "eslint src",
-        "lint:no-coverage-ignore": "eslint src --config eslint.no-coverage-ignore.config.js",
+        "lint:no-coverage-ignore": "eslint src vitest.config.ts --config eslint.no-coverage-ignore.config.js",
         "test": "vitest run",
         "test:watch": "vitest",
         "test:coverage": "vitest run --coverage"
