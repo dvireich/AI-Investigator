@@ -112,6 +112,62 @@ jobs:
           name: frontend-coverage-summary
           path: frontend/coverage/coverage-summary.json
 
+  build-package:
+    name: Build Package (exe)
+    needs: [backend-tests, frontend-tests]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install backend dependencies
+        run: npm ci
+        working-directory: backend
+
+      - name: Install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Build application
+        run: node scripts/build.js
+
+      - name: Package executable
+        run: node scripts/package.js --no-chromium
+
+      - name: Verify exe starts and responds
+        shell: pwsh
+        run: |
+          $exe = "release\ai-investigator.exe"
+          if (-not (Test-Path $exe)) { Write-Error "exe not found"; exit 1 }
+          # Start exe with --no-open to skip browser launch
+          $proc = Start-Process -FilePath $exe -ArgumentList "--no-open" -PassThru -RedirectStandardOutput "$env:TEMP\ai-inv-out.txt" -RedirectStandardError "$env:TEMP\ai-inv-err.txt"
+          Start-Sleep -Seconds 10
+          try {
+            $response = Invoke-WebRequest "http://localhost:3000/api/version" -UseBasicParsing -TimeoutSec 5
+            if ($response.StatusCode -ne 200) { Write-Error "API returned $($response.StatusCode)"; exit 1 }
+            Write-Host "API responded 200 OK: $($response.Content)"
+          } catch {
+            Write-Host "=== STDOUT ==="; Get-Content "$env:TEMP\ai-inv-out.txt" -ErrorAction SilentlyContinue
+            Write-Host "=== STDERR ==="; Get-Content "$env:TEMP\ai-inv-err.txt" -ErrorAction SilentlyContinue
+            Write-Error "exe failed to respond: $_"; exit 1
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Create zip
+        shell: pwsh
+        run: Compress-Archive -Path release\* -DestinationPath ai-investigator-pr-build.zip -Force
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-investigator-pr-build
+          path: ai-investigator-pr-build.zip
+          retention-days: 7
+
   publish-badges:
     name: Publish Coverage Badges
     needs: [backend-tests, frontend-tests]
