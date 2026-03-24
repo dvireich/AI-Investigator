@@ -52,6 +52,25 @@ export function summarizeRetrospect(retrospect?: InvestigationState['retrospect'
     };
 }
 
+/**
+ * Infer target from legacy 'stamp' field or query text when target is missing.
+ * Handles migration from older investigations that used 'stamp' instead of 'target'.
+ */
+export function inferTarget(state: Record<string, any>): string | undefined {
+    if (state.target?.trim()) return undefined; // already has a valid target
+
+    // Migrate legacy 'stamp' field
+    if ((state as any).stamp?.trim()) return (state as any).stamp.trim();
+
+    // Extract from query text: "Stamp: <value>" or "Target: <value>"
+    if (state.query) {
+        const match = state.query.match(/^(?:Stamp|Target):\s*(.+)$/m);
+        if (match?.[1]?.trim()) return match[1].trim();
+    }
+
+    return undefined;
+}
+
 export function normalizeHistoricalState(state: InvestigationState, productId?: string): StoredInvestigationState {
     const normalized = { ...state } as StoredInvestigationState;
     normalized.thoughts = Array.isArray(normalized.thoughts) ? [...normalized.thoughts] : [];
@@ -66,6 +85,10 @@ export function normalizeHistoricalState(state: InvestigationState, productId?: 
     if (productId && !normalized.productId) {
         normalized.productId = productId;
     }
+
+    // Migrate legacy 'stamp' field or extract target from query text
+    const inferred = inferTarget(normalized);
+    if (inferred) normalized.target = inferred;
 
     return normalized;
 }
@@ -407,6 +430,19 @@ export function loadHistory() {
                                     }
                                     if (productId && !summary.productId) {
                                         summary.productId = productId;
+                                    }
+                                    // Migrate legacy 'stamp' field or extract target from query
+                                    const inferred = inferTarget(summary);
+                                    if (inferred) {
+                                        summary.target = inferred;
+                                        // Persist the fix so it doesn't need re-inference next load
+                                        try {
+                                            const tmpPath = summaryPath + '.tmp';
+                                            const updated = JSON.parse(content);
+                                            updated.target = inferred;
+                                            fs.writeFileSync(tmpPath, JSON.stringify(updated, null, 2));
+                                            fs.renameSync(tmpPath, summaryPath);
+                                        } catch { /* best-effort */ }
                                     }
                                     summary._summaryOnly = true;
                                     summary._lastModified = summaryStat.mtimeMs;
