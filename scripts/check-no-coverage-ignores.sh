@@ -5,7 +5,7 @@
 
 set -euo pipefail
 
-PATTERN='(v8|istanbul|c8) ignore (next|start|stop|line)'
+PATTERN='v8 ignore|istanbul ignore|c8 ignore'
 SEARCH_DIRS=("backend/src" "frontend/src")
 
 found=0

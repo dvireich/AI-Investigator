@@ -4027,9 +4027,6 @@ describe('Dashboard additional coverage', () => {
         });
     });
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // TARGETED: Covers remaining uncovered branches after v8 ignore removal
-    // ══════════════════════════════════════════════════════════════════════════
     describe('Remaining branch coverage — clipboard catch, import fallback, no-file guard, sort ??', () => {
         it('covers clipboard writeText catch block (L316) when writeText rejects', async () => {
             const api = await getApi();
