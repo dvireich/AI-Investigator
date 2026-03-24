@@ -1,3 +1,4 @@
+import * as appRootModule from '../utils/appRoot';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import * as fs from 'fs';
@@ -8,9 +9,12 @@ import { EventEmitter } from 'events';
 import { AgentRunner, type InvestigationState } from '../agent/Runner';
 import {
     __testUtils,
+    applyStaticServing,
+    applySpaFallback,
     autoDiscoverProduct,
     createInvestigation,
     createSummaryState,
+    getDefaultRepoRoot,
     getGlobalInvestigationsDir,
     getEffectiveConfig,
     getInvestigationStoragePath,
@@ -5165,5 +5169,63 @@ describe('server utilities and routes', () => {
             expect(response.body).toHaveProperty('hasProduct');
             expect(response.body).toHaveProperty('hasConfig');
         });
+    });
+});
+
+describe('applyStaticServing / applySpaFallback', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'static-test-'));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('serves static files when the directory exists', async () => {
+        fs.writeFileSync(path.join(tmpDir, 'hello.txt'), 'world');
+        const testApp = require('express')();
+        applyStaticServing(testApp, tmpDir);
+        const res = await request(testApp).get('/hello.txt');
+        expect(res.status).toBe(200);
+        expect(res.text).toBe('world');
+    });
+
+    it('skips static serving when the directory does not exist', async () => {
+        const testApp = require('express')();
+        applyStaticServing(testApp, path.join(tmpDir, 'nonexistent'));
+        const res = await request(testApp).get('/anything');
+        expect(res.status).toBe(404);
+    });
+
+    it('serves index.html for any SPA route when directory exists', async () => {
+        fs.writeFileSync(path.join(tmpDir, 'index.html'), '<html>SPA</html>');
+        const testApp = require('express')();
+        applySpaFallback(testApp, tmpDir);
+        const res = await request(testApp).get('/some/deep/route');
+        expect(res.status).toBe(200);
+        expect(res.text).toContain('SPA');
+    });
+
+    it('skips SPA fallback when the directory does not exist', async () => {
+        const testApp = require('express')();
+        applySpaFallback(testApp, path.join(tmpDir, 'nonexistent'));
+        const res = await request(testApp).get('/any-route');
+        expect(res.status).toBe(404);
+    });
+});
+
+describe('getDefaultRepoRoot', () => {
+    it('returns appRoot when packaged', () => {
+        const result = getDefaultRepoRoot(true);
+        expect(result).toBe(appRootModule.appRoot);
+    });
+
+    it('resolves 4 directory levels up when not packaged', () => {
+        const result = getDefaultRepoRoot(false);
+        // Should be a real path that differs from the backend directory
+        expect(path.isAbsolute(result)).toBe(true);
+        expect(result).not.toContain('backend');
     });
 });

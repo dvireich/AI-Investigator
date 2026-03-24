@@ -251,11 +251,22 @@ app.use(jsonParseErrorHandler);
 
 // In production mode, serve the frontend build from dist/public/
 const publicDir = path.join(__dirname, 'public');
-/* v8 ignore start -- depends on build output at runtime */
-if (fs.existsSync(publicDir)) {
-    app.use(express.static(publicDir));
+
+export function applyStaticServing(targetApp: ReturnType<typeof express>, dir: string): void {
+    if (fs.existsSync(dir)) {
+        targetApp.use(express.static(dir));
+    }
 }
-/* v8 ignore stop */
+
+export function applySpaFallback(targetApp: ReturnType<typeof express>, dir: string): void {
+    if (fs.existsSync(dir)) {
+        targetApp.get('*', (req, res) => {
+            res.sendFile(path.join(dir, 'index.html'));
+        });
+    }
+}
+
+applyStaticServing(app, publicDir);
 
 const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
@@ -643,10 +654,10 @@ const investigatorRoot = appRoot;
 
 // Derive a sensible default repoRoot: in exe mode, use the exe dir.
 // In normal mode, climb from backend/dist/ to the expected outer repo root.
-/* v8 ignore next 3 -- exe-only branch */
-const defaultRepoRoot = isPackaged
-    ? appRoot
-    : path.resolve(__dirname, '..', '..', '..', '..');
+export function getDefaultRepoRoot(pkgd: boolean = isPackaged): string {
+    return pkgd ? appRoot : path.resolve(__dirname, '..', '..', '..', '..');
+}
+const defaultRepoRoot = getDefaultRepoRoot();
 
 interface Product {
     id: string;
@@ -3385,13 +3396,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // SPA fallback: serve index.html for any non-API route (must come after all API routes)
-/* v8 ignore start -- depends on build output at runtime */
-if (fs.existsSync(publicDir)) {
-    app.get('*', (req, res) => {
-        res.sendFile(path.join(publicDir, 'index.html'));
-    });
-}
-/* v8 ignore stop */
+applySpaFallback(app, publicDir);
 
 let serverStarted = false;
 

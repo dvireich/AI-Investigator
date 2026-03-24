@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
 // Use vi.hoisted to define mock variables that can be referenced in vi.mock factory
 const { mockPage, mockBrowser } = vi.hoisted(() => {
@@ -21,7 +24,7 @@ vi.mock('puppeteer', () => ({
     },
 }));
 
-import { renderPdf, closeBrowser } from '../pdfRenderer';
+import { renderPdf, closeBrowser, resolveChromiumPath } from '../pdfRenderer';
 
 describe('pdfRenderer', () => {
     beforeEach(() => {
@@ -191,5 +194,67 @@ describe('pdfRenderer', () => {
             processOnSpy.mockRestore();
             mockBrowser.connected = true;
         });
+    });
+});
+
+describe('resolveChromiumPath', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chromium-test-'));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('returns undefined when not packaged', () => {
+        expect(resolveChromiumPath(false, tmpDir)).toBeUndefined();
+    });
+
+    it('returns undefined when packaged but no chromium directory', () => {
+        expect(resolveChromiumPath(true, tmpDir)).toBeUndefined();
+    });
+
+    it('returns undefined when chromium dir exists but no chrome.exe found', () => {
+        const subDir = path.join(tmpDir, 'chromium', 'v120.0.0');
+        fs.mkdirSync(subDir, { recursive: true });
+        // No chrome.exe inside
+        expect(resolveChromiumPath(true, tmpDir)).toBeUndefined();
+    });
+
+    it('finds chrome.exe in a versioned subfolder', () => {
+        const subDir = path.join(tmpDir, 'chromium', 'v120.0.0');
+        fs.mkdirSync(subDir, { recursive: true });
+        const chromePath = path.join(subDir, 'chrome.exe');
+        fs.writeFileSync(chromePath, '');
+        expect(resolveChromiumPath(true, tmpDir)).toBe(chromePath);
+    });
+
+    it('finds chrome.exe in flat layout when no versioned subfolder has it', () => {
+        const chromiumDir = path.join(tmpDir, 'chromium');
+        fs.mkdirSync(path.join(chromiumDir, 'empty-sub'), { recursive: true });
+        const flat = path.join(chromiumDir, 'chrome.exe');
+        fs.writeFileSync(flat, '');
+        expect(resolveChromiumPath(true, tmpDir)).toBe(flat);
+    });
+
+    it('passes executablePath to puppeteer.launch when chromium is found', async () => {
+        // Set up a fake chrome.exe
+        const subDir = path.join(tmpDir, 'chromium', 'v121');
+        fs.mkdirSync(subDir, { recursive: true });
+        const chromePath = path.join(subDir, 'chrome.exe');
+        fs.writeFileSync(chromePath, '');
+
+        // Reset singleton so getBrowser re-runs with the new executablePath
+        await closeBrowser();
+        const { default: puppeteer } = await import('puppeteer');
+        const launchSpy = puppeteer.launch as ReturnType<typeof vi.fn>;
+        launchSpy.mockClear();
+
+        await renderPdf('test', { id: '99', status: 'completed' }, resolveChromiumPath(true, tmpDir));
+        expect(launchSpy).toHaveBeenCalledWith(
+            expect.objectContaining({ executablePath: chromePath }),
+        );
     });
 });
