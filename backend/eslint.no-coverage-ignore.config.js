@@ -44,6 +44,21 @@ const noCoverageThresholdReductionRule = {
   },
 };
 
+const noCoverageProviderRule = {
+  create(context) {
+    return {
+      'Property[key.name="provider"]'(node) {
+        if (node.value.type !== 'Literal' || node.value.value !== 'v8') {
+          context.report({
+            node,
+            message: "Coverage provider must be 'v8'. Changing it invalidates the v8/istanbul/c8 ignore comment detection.",
+          });
+        }
+      },
+    };
+  },
+};
+
 export default [
   { ignores: ['dist', 'coverage', 'node_modules'] },
   {
@@ -55,6 +70,7 @@ export default [
         rules: {
           'no-coverage-ignore': noCoverageIgnoreRule,
           'no-coverage-threshold-reduction': noCoverageThresholdReductionRule,
+          'no-coverage-provider-change': noCoverageProviderRule,
         },
       },
       '@typescript-eslint': tseslint.plugin,
@@ -63,7 +79,10 @@ export default [
   },
   {
     files: ['vitest.config.ts'],
-    rules: { 'local/no-coverage-threshold-reduction': 'error' },
+    rules: {
+      'local/no-coverage-threshold-reduction': 'error',
+      'local/no-coverage-provider-change': 'error',
+    },
   },
 ];
 
