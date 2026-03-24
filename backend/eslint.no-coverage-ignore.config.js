@@ -1,3 +1,4 @@
+import tsParser from '@typescript-eslint/parser';
 import tseslint from 'typescript-eslint';
 
 const noCoverageIgnoreRule = {
@@ -17,13 +18,17 @@ const noCoverageIgnoreRule = {
   },
 };
 
-export default tseslint.config(
+export default [
   { ignores: ['dist', 'coverage', 'node_modules'] },
   {
     files: ['**/*.ts'],
-    plugins: { local: { rules: { 'no-coverage-ignore': noCoverageIgnoreRule } } },
-    rules: {
-      'local/no-coverage-ignore': 'error',
+    languageOptions: { parser: tsParser },
+    linterOptions: { reportUnusedDisableDirectives: false },
+    plugins: {
+      local: { rules: { 'no-coverage-ignore': noCoverageIgnoreRule } },
+      '@typescript-eslint': tseslint.plugin,
     },
+    rules: { 'local/no-coverage-ignore': 'error' },
   },
-);
+];
+

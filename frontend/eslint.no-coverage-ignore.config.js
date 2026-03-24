@@ -1,4 +1,5 @@
-import tseslint from 'typescript-eslint';
+import tsParser from '@typescript-eslint/parser'
+import reactHooks from 'eslint-plugin-react-hooks'
 
 const noCoverageIgnoreRule = {
   create(context) {
@@ -9,21 +10,25 @@ const noCoverageIgnoreRule = {
             context.report({
               node: comment,
               message: 'Coverage-ignore comments are banned. Make the code testable instead.',
-            });
+            })
           }
         }
       },
-    };
+    }
   },
-};
+}
 
-export default tseslint.config(
+export default [
   { ignores: ['dist', 'coverage', 'node_modules'] },
   {
-    files: ['**/*.ts'],
-    plugins: { local: { rules: { 'no-coverage-ignore': noCoverageIgnoreRule } } },
-    rules: {
-      'local/no-coverage-ignore': 'error',
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: { parser: tsParser },
+    linterOptions: { reportUnusedDisableDirectives: false },
+    plugins: {
+      local: { rules: { 'no-coverage-ignore': noCoverageIgnoreRule } },
+      'react-hooks': reactHooks,
     },
+    rules: { 'local/no-coverage-ignore': 'error' },
   },
-);
+]
+
