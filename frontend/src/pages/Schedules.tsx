@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -34,6 +34,8 @@ export const Schedules = () => {
     const { confirm } = useToast();
     const navigate = useNavigate();
     const [schedules, setSchedules] = useState<ScheduleDefinition[]>([]);
+    const [schedulesTotalCount, setSchedulesTotalCount] = useState(0);
+    const [schedulesTotalPages, setSchedulesTotalPages] = useState(1);
     const [products, setProducts] = useState<Product[]>([]);
     const [loading, setLoading] = useState(true);
     const [schedulerRunning, setSchedulerRunning] = useState(false);
@@ -66,18 +68,21 @@ export const Schedules = () => {
 
     const refresh = useCallback(async () => {
         try {
-            const [scheds, status] = await Promise.all([
-                api.getSchedules(),
+            const [schedsResponse, status] = await Promise.all([
+                api.getSchedules({ page: currentPage, pageSize }),
                 api.getSchedulerStatus(),
             ]);
-            setSchedules(scheds);
+            setSchedules(schedsResponse.items);
+            setSchedulesTotalCount(schedsResponse.totalCount);
+            setSchedulesTotalPages(schedsResponse.totalPages);
+            setCurrentPage(schedsResponse.page);
             setSchedulerRunning(status.running);
         } catch (err) {
             console.error('Failed to load schedules:', err);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [currentPage, pageSize]);
 
     useEffect(() => {
         refresh();
@@ -168,16 +173,13 @@ export const Schedules = () => {
         refresh();
     };
 
-    // Stat counts
+    // Stat counts (computed from current page — acceptable for schedules which are typically small)
     const enabledCount = schedules.filter(s => s.enabled).length;
     const okCount = schedules.filter(s => s.lastVerdict === 'healthy' || s.lastVerdict === 'completed').length;
     const warningCount = schedules.filter(s => s.lastVerdict === 'warning' || s.lastVerdict === 'paused').length;
     const issueCount = schedules.filter(s => s.lastVerdict === 'critical' || s.lastVerdict === 'error').length;
 
-    // Pagination
-    const totalPages = Math.max(1, Math.ceil(schedules.length / pageSize));
-    useEffect(() => { if (currentPage > totalPages) setCurrentPage(totalPages); }, [currentPage, totalPages]);
-    const paginatedSchedules = useMemo(() => schedules.slice((currentPage - 1) * pageSize, currentPage * pageSize), [schedules, currentPage, pageSize]);
+    // Pagination — server provides the page, no client-side slicing needed
 
     const getRelativeTime = (iso?: string) => {
         if (!iso) return 'Never';
@@ -246,9 +248,9 @@ export const Schedules = () => {
             </div>
 
             {/* Stats bar */}
-            {schedules.length > 0 && (
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <StatCard label="Enabled" value={enabledCount} total={schedules.length} color="text-blue-400" />
+            {schedulesTotalCount > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                    <StatCard label="Enabled" value={enabledCount} total={schedulesTotalCount} color="text-blue-400" />
                     <StatCard label="OK" value={okCount} color="text-emerald-400" />
                     <StatCard label="Warning" value={warningCount} color="text-amber-400" />
                     <StatCard label="Issues" value={issueCount} color="text-red-400" />
@@ -256,7 +258,7 @@ export const Schedules = () => {
             )}
 
             {/* Schedule list */}
-            {schedules.length === 0 ? (
+            {schedulesTotalCount === 0 ? (
                 <div className="text-center py-16 bg-slate-900/50 rounded-2xl border border-slate-800/50">
                     <Clock className="w-10 h-10 text-slate-500 mx-auto mb-3" />
                     <h3 className="text-lg font-bold text-white mb-1">No schedules yet</h3>
@@ -270,7 +272,7 @@ export const Schedules = () => {
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {paginatedSchedules.map(sched => {
+                    {schedules.map(sched => {
                         const effectiveVerdict: Verdict = sched.activeInvestigationId ? 'running' : (sched.lastVerdict || 'unknown') as Verdict;
                         const vc = verdictConfig[effectiveVerdict];
                         const isExpanded = expandedId === sched.id;
@@ -571,9 +573,9 @@ export const Schedules = () => {
             )}
 
             {/* Pagination */}
-            {schedules.length > 0 && (
+            {schedulesTotalCount > 0 && (
                 <Pagination
-                    totalItems={schedules.length}
+                    totalItems={schedulesTotalCount}
                     currentPage={currentPage}
                     pageSize={pageSize}
                     onPageChange={setCurrentPage}

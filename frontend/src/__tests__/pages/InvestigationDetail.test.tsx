@@ -6399,9 +6399,6 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
         });
     });
 
-    // ══════════════════════════════════════════════════════════════════════════
-    // TARGETED: Covers remaining uncovered branches after v8 ignore removal
-    // ══════════════════════════════════════════════════════════════════════════
     describe('Final branch coverage — pending intervention reconciliation', () => {
         it('reconciles pending interventions when WS thought has no content field (covers line 643 || branch)', async () => {
             // Covers line 643: `const content = typeof t === 'string' ? t : (t.content || '')`

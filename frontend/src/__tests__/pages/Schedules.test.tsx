@@ -5,6 +5,13 @@ import { MemoryRouter } from 'react-router-dom';
 import { Schedules } from '../../pages/Schedules';
 import { ToastProvider } from '../../components/Toast';
 import type { ScheduleDefinition, ScheduleHistoryEntry } from '../../types/schedule';
+import type { PaginatedResponse } from '../../api';
+
+// ── Paginated response helper ────────────────────────────────────────────
+
+function paginatedSchedules(items: ScheduleDefinition[]): PaginatedResponse<ScheduleDefinition> {
+    return { items, totalCount: items.length, page: 1, pageSize: 20, totalPages: Math.max(1, Math.ceil(items.length / 20)) };
+}
 
 // ── Mock navigation ──────────────────────────────────────────────────────
 
@@ -22,7 +29,7 @@ vi.mock('react-router-dom', async () => {
 
 vi.mock('../../api', () => ({
     api: {
-        getSchedules: vi.fn().mockResolvedValue([]),
+        getSchedules: vi.fn().mockResolvedValue(paginatedSchedules([])),
         getSchedulerStatus: vi.fn().mockResolvedValue({ running: true }),
         listProducts: vi.fn().mockResolvedValue([]),
         listModels: vi.fn().mockResolvedValue(['gpt-4o', 'claude-3-opus']),
@@ -89,7 +96,7 @@ describe('Schedules', () => {
 
         // Reset all mock implementations to defaults
         const { api } = await import('../../api');
-        vi.mocked(api.getSchedules).mockResolvedValue([]);
+        vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([]));
         vi.mocked(api.getSchedulerStatus).mockResolvedValue({ running: true });
         vi.mocked(api.listProducts).mockResolvedValue([
             { id: 'p1', name: 'Teleduct', repoRoot: '/repo', systemPromptPath: '', knowledgeBasePath: '', workingDirectory: '', investigationsPath: '' },
@@ -130,7 +137,7 @@ describe('Schedules', () => {
 
             // Resolve the promise to complete loading
             await act(async () => {
-                resolveSchedules!([]);
+                resolveSchedules!(paginatedSchedules([]));
             });
 
             await waitFor(() => {
@@ -307,7 +314,7 @@ describe('Schedules', () => {
     describe('Schedule List Display', () => {
         it('renders schedule list when data exists', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule()]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule()]));
 
             renderSchedules();
             await waitFor(() => {
@@ -317,7 +324,7 @@ describe('Schedules', () => {
 
         it('displays schedule target', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ target: 'ax-tds-prd-eus2p-01' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ target: 'ax-tds-prd-eus2p-01' })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -327,7 +334,7 @@ describe('Schedules', () => {
 
         it('displays schedule interval', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ intervalMinutes: 30 })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ intervalMinutes: 30 })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -337,7 +344,7 @@ describe('Schedules', () => {
 
         it('displays DISABLED badge for disabled schedules', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ enabled: false })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ enabled: false })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -347,7 +354,7 @@ describe('Schedules', () => {
 
         it('displays product name when productId is set', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ productId: 'p1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ productId: 'p1' })]));
             vi.mocked(api.listProducts).mockResolvedValue([
                 { id: 'p1', name: 'Teleduct Product', repoRoot: '', systemPromptPath: '', knowledgeBasePath: '', workingDirectory: '', investigationsPath: '' },
             ]);
@@ -360,11 +367,11 @@ describe('Schedules', () => {
 
         it('displays multiple schedules', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's1', name: 'Schedule One' }),
                 createSchedule({ id: 's2', name: 'Schedule Two' }),
                 createSchedule({ id: 's3', name: 'Schedule Three' }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -382,7 +389,7 @@ describe('Schedules', () => {
     describe('Verdict Badges', () => {
         it('displays Healthy badge for healthy verdict', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ lastVerdict: 'healthy' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ lastVerdict: 'healthy' })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -392,7 +399,7 @@ describe('Schedules', () => {
 
         it('displays Warning badge for warning verdict', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ lastVerdict: 'warning' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ lastVerdict: 'warning' })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -405,7 +412,7 @@ describe('Schedules', () => {
 
         it('displays Critical badge for critical verdict', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ lastVerdict: 'critical' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ lastVerdict: 'critical' })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -415,7 +422,7 @@ describe('Schedules', () => {
 
         it('displays Error badge for error verdict', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ lastVerdict: 'error' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ lastVerdict: 'error' })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -428,7 +435,7 @@ describe('Schedules', () => {
 
         it('displays Paused badge for paused verdict', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ lastVerdict: 'paused' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ lastVerdict: 'paused' })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -438,7 +445,7 @@ describe('Schedules', () => {
 
         it('displays Completed badge for completed verdict', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ lastVerdict: 'completed' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ lastVerdict: 'completed' })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -448,7 +455,7 @@ describe('Schedules', () => {
 
         it('displays Pending badge for unknown verdict', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ lastVerdict: 'unknown' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ lastVerdict: 'unknown' })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -458,9 +465,9 @@ describe('Schedules', () => {
 
         it('displays Running badge when activeInvestigationId is set', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ activeInvestigationId: 'inv-active', lastVerdict: 'healthy' }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -470,7 +477,7 @@ describe('Schedules', () => {
 
         it('applies critical styling with animation for critical/error verdicts', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ lastVerdict: 'critical' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ lastVerdict: 'critical' })]));
 
             renderSchedules();
             await waitFor(() => {
@@ -488,7 +495,7 @@ describe('Schedules', () => {
     describe('Stats Bar', () => {
         it('displays stats bar when schedules exist', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule()]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule()]));
 
             renderSchedules();
             await waitFor(() => {
@@ -501,11 +508,11 @@ describe('Schedules', () => {
 
         it('calculates enabled count correctly', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's1', enabled: true }),
                 createSchedule({ id: 's2', enabled: true }),
                 createSchedule({ id: 's3', enabled: false }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -517,11 +524,11 @@ describe('Schedules', () => {
 
         it('calculates OK count correctly', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's1', lastVerdict: 'healthy' }),
                 createSchedule({ id: 's2', lastVerdict: 'completed' }),
                 createSchedule({ id: 's3', lastVerdict: 'warning' }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -534,11 +541,11 @@ describe('Schedules', () => {
 
         it('calculates warning count correctly', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's1', lastVerdict: 'warning' }),
                 createSchedule({ id: 's2', lastVerdict: 'paused' }),
                 createSchedule({ id: 's3', lastVerdict: 'healthy' }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -550,11 +557,11 @@ describe('Schedules', () => {
 
         it('calculates issues count correctly', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's1', lastVerdict: 'critical' }),
                 createSchedule({ id: 's2', lastVerdict: 'error' }),
                 createSchedule({ id: 's3', lastVerdict: 'healthy' }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -572,7 +579,7 @@ describe('Schedules', () => {
     describe('Schedule Enable/Disable', () => {
         it('calls disableSchedule when disabling enabled schedule', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1', enabled: true })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', enabled: true })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -588,7 +595,7 @@ describe('Schedules', () => {
 
         it('calls enableSchedule when enabling disabled schedule', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1', enabled: false })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', enabled: false })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -604,7 +611,7 @@ describe('Schedules', () => {
 
         it('refreshes schedules after toggling enabled state', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1', enabled: true })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', enabled: true })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -626,7 +633,7 @@ describe('Schedules', () => {
     describe('Run Now', () => {
         it('calls runScheduleNow when clicking Run now button', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -642,7 +649,7 @@ describe('Schedules', () => {
 
         it('refreshes schedules after running now', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -664,7 +671,7 @@ describe('Schedules', () => {
     describe('Delete Schedule', () => {
         it('shows confirmation dialog when clicking delete', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -680,7 +687,7 @@ describe('Schedules', () => {
 
         it('calls deleteSchedule when confirming deletion', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -702,7 +709,7 @@ describe('Schedules', () => {
 
         it('does not delete when cancelling confirmation', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -726,7 +733,7 @@ describe('Schedules', () => {
     describe('Expand/Collapse', () => {
         it('expands schedule details when clicking row', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule()]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule()]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -744,7 +751,7 @@ describe('Schedules', () => {
 
         it('collapses when clicking expanded row', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule()]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule()]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -764,7 +771,7 @@ describe('Schedules', () => {
 
         it('loads history when expanding schedule', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -779,7 +786,7 @@ describe('Schedules', () => {
 
         it('shows no history message when empty', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule()]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule()]));
             vi.mocked(api.getScheduleHistory).mockResolvedValue([]);
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -795,7 +802,7 @@ describe('Schedules', () => {
 
         it('displays history entries when available', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
             vi.mocked(api.getScheduleHistory).mockResolvedValue([
                 createHistoryEntry({ verdict: 'healthy', summary: 'All good' }),
                 createHistoryEntry({ verdict: 'warning', summary: 'High latency' }),
@@ -815,7 +822,7 @@ describe('Schedules', () => {
 
         it('can refresh history manually', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -847,7 +854,7 @@ describe('Schedules', () => {
         it('shows truncated query by default', async () => {
             const { api } = await import('../../api');
             const longQuery = 'TeleductMetrics | where Stamp == "test" | summarize count() by bin(Timestamp, 1h)';
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ query: longQuery })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ query: longQuery })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -865,7 +872,7 @@ describe('Schedules', () => {
         it('expands query when clicking View button', async () => {
             const { api } = await import('../../api');
             const longQuery = 'TeleductMetrics | where Stamp == "test"';
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ query: longQuery })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ query: longQuery })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -888,7 +895,7 @@ describe('Schedules', () => {
         it('collapses query when clicking Hide button', async () => {
             const { api } = await import('../../api');
             const longQuery = 'TeleductMetrics | where Stamp == "test"';
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ query: longQuery })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ query: longQuery })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -915,7 +922,7 @@ describe('Schedules', () => {
     describe('Inline Editing', () => {
         it('enters edit mode when clicking Edit button', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule()]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule()]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -934,7 +941,7 @@ describe('Schedules', () => {
 
         it('shows editable stamp input in edit mode', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ target: 'my-stamp' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ target: 'my-stamp' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -954,7 +961,7 @@ describe('Schedules', () => {
 
         it('can edit stamp value', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1', target: 'old-stamp' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', target: 'old-stamp' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -975,7 +982,7 @@ describe('Schedules', () => {
 
         it('shows model selector dropdown in edit mode', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ model: 'gpt-4o' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ model: 'gpt-4o' })]));
             vi.mocked(api.listModels).mockResolvedValue(['gpt-4o', 'claude-3-opus', 'gpt-4-turbo']);
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -994,7 +1001,7 @@ describe('Schedules', () => {
 
         it('shows model text input when no models available', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ model: 'custom-model' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ model: 'custom-model' })]));
             vi.mocked(api.listModels).mockResolvedValue([]); // No models available
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1014,7 +1021,7 @@ describe('Schedules', () => {
 
         it('can type in model text input when no models available', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1', model: '' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', model: '' })]));
             vi.mocked(api.listModels).mockResolvedValue([]);
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1038,7 +1045,7 @@ describe('Schedules', () => {
 
         it('shows category dropdown in edit mode', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ category: 'latency' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ category: 'latency' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1056,7 +1063,7 @@ describe('Schedules', () => {
 
         it('saves changes when clicking Save', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1', target: 'old-stamp' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', target: 'old-stamp' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1083,7 +1090,7 @@ describe('Schedules', () => {
 
         it('exits edit mode after saving', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1104,7 +1111,7 @@ describe('Schedules', () => {
 
         it('cancels editing without saving when clicking Cancel', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1', target: 'original-stamp' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', target: 'original-stamp' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1130,7 +1137,7 @@ describe('Schedules', () => {
 
         it('handles save error gracefully', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
             vi.mocked(api.updateSchedule).mockRejectedValue(new Error('Update failed'));
 
             const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
@@ -1161,7 +1168,7 @@ describe('Schedules', () => {
     describe('Time Range Dropdown', () => {
         it('shows time range dropdown in edit mode', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ timeRange: 'ago(1h)' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ timeRange: 'ago(1h)' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1179,7 +1186,7 @@ describe('Schedules', () => {
 
         it('opens time range popup when clicking dropdown', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ timeRange: 'ago(1h)' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ timeRange: 'ago(1h)' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1202,7 +1209,7 @@ describe('Schedules', () => {
 
         it('selects time range from dropdown', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1', timeRange: 'ago(1h)' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', timeRange: 'ago(1h)' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1235,7 +1242,7 @@ describe('Schedules', () => {
 
         it('closes time range popup on outside click', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ timeRange: 'ago(1h)' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ timeRange: 'ago(1h)' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1265,7 +1272,7 @@ describe('Schedules', () => {
     describe('Configuration Display', () => {
         it('displays interval in configuration', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ intervalMinutes: 120 })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ intervalMinutes: 120 })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1282,7 +1289,7 @@ describe('Schedules', () => {
 
         it('displays default model when not specified', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ model: undefined })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ model: undefined })]));
             vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o-default', scheduledInvestigationMaxSteps: 50 } as any);
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1298,7 +1305,7 @@ describe('Schedules', () => {
 
         it('displays "Default" when no model is set anywhere', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ model: undefined })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ model: undefined })]));
             vi.mocked(api.getSettings).mockResolvedValue({ scheduledInvestigationMaxSteps: 50 } as any);
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1314,7 +1321,7 @@ describe('Schedules', () => {
 
         it('displays category when set', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ category: 'throttling' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ category: 'throttling' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1330,7 +1337,7 @@ describe('Schedules', () => {
 
         it('hides category row when not set and not editing', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ category: undefined })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ category: undefined })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1346,7 +1353,7 @@ describe('Schedules', () => {
 
         it('displays product in expanded configuration when productId is set', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ productId: 'p1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ productId: 'p1' })]));
             vi.mocked(api.listProducts).mockResolvedValue([
                 { id: 'p1', name: 'Teleduct Core', repoRoot: '', systemPromptPath: '', knowledgeBasePath: '', workingDirectory: '', investigationsPath: '' },
             ]);
@@ -1371,9 +1378,9 @@ describe('Schedules', () => {
     describe('Latest Investigation Link', () => {
         it('shows link to latest investigation when available', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ lastInvestigationId: 'inv-latest-123' }),
-            ]);
+            ]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1389,9 +1396,9 @@ describe('Schedules', () => {
 
         it('does not show latest investigation link when none exists', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ lastInvestigationId: undefined }),
-            ]);
+            ]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1422,7 +1429,7 @@ describe('Schedules', () => {
 
         it('navigates to edit page when clicking Edit button', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1443,9 +1450,9 @@ describe('Schedules', () => {
     describe('Timing Display', () => {
         it('shows last run time', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ lastRunAt: new Date(Date.now() - 30 * 60 * 1000).toISOString() }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -1455,9 +1462,9 @@ describe('Schedules', () => {
 
         it('shows "Never" when no last run', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ lastRunAt: undefined }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -1467,12 +1474,12 @@ describe('Schedules', () => {
 
         it('shows next run time for enabled schedules', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({
                     enabled: true,
                     nextRunAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
                 }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -1482,12 +1489,12 @@ describe('Schedules', () => {
 
         it('does not show next run for disabled schedules', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({
                     enabled: false,
                     nextRunAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
                 }),
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => screen.getByText('Daily Check'));
@@ -1497,9 +1504,9 @@ describe('Schedules', () => {
 
         it('shows days ago for last run more than 24 hours ago', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ lastRunAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString() }), // 48 hours ago
-            ]);
+            ]));
 
             renderSchedules();
             await waitFor(() => {
@@ -1548,7 +1555,7 @@ describe('Schedules', () => {
     describe('History Entry Links', () => {
         it('links to investigation from history entry', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
             vi.mocked(api.getScheduleHistory).mockResolvedValue([
                 createHistoryEntry({ investigationId: 'inv-abc-123', verdict: 'healthy' }),
             ]);
@@ -1568,7 +1575,7 @@ describe('Schedules', () => {
 
         it('shows verdict dots for history entries', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
             vi.mocked(api.getScheduleHistory).mockResolvedValue([
                 createHistoryEntry({ verdict: 'healthy' }),
                 createHistoryEntry({ verdict: 'warning' }),
@@ -1603,7 +1610,7 @@ describe('Schedules additional coverage', () => {
         vi.clearAllMocks();
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const { api } = await import('../../api');
-        vi.mocked(api.getSchedules).mockResolvedValue([]);
+        vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([]));
         vi.mocked(api.getSchedulerStatus).mockResolvedValue({ running: true });
         vi.mocked(api.listProducts).mockResolvedValue([]);
         vi.mocked(api.listModels).mockResolvedValue(['gpt-4o']);
@@ -1621,7 +1628,7 @@ describe('Schedules additional coverage', () => {
             const { api } = await import('../../api');
             // Non-empty models list → shows SELECT (not text input)
             vi.mocked(api.listModels).mockResolvedValue(['gpt-4o', 'claude-3']);
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1656,7 +1663,7 @@ describe('Schedules additional coverage', () => {
     describe('Category select onChange (onChange@L462)', () => {
         it('changes category via select dropdown in edit mode', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's1', category: 'latency' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', category: 'latency' })]));
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1688,7 +1695,7 @@ describe('Schedules additional coverage', () => {
             vi.clearAllMocks();
             vi.useFakeTimers({ shouldAdvanceTime: true });
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([]));
             vi.mocked(api.getSchedulerStatus).mockResolvedValue({ running: true });
             vi.mocked(api.listProducts).mockResolvedValue([]);
             vi.mocked(api.listModels).mockResolvedValue(['gpt-4o']);
@@ -1699,9 +1706,9 @@ describe('Schedules additional coverage', () => {
 
         it('getRelativeTime shows "just now" for lastRunAt < 1 minute ago', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's-now', lastRunAt: new Date(Date.now() - 10000).toISOString() }),
-            ]);
+            ]));
             renderSchedules();
             await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
             expect(document.body.textContent).toContain('just now');
@@ -1709,18 +1716,18 @@ describe('Schedules additional coverage', () => {
 
         it('getNextRunIn returns empty string when nextRunAt is undefined', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's-nonext', nextRunAt: undefined }),
-            ]);
+            ]));
             renderSchedules();
             await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
         });
 
         it('getNextRunIn shows "due now" when nextRunAt is in the past', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's-past', nextRunAt: new Date(Date.now() - 5000).toISOString() }),
-            ]);
+            ]));
             renderSchedules();
             await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
             expect(document.body.textContent).toContain('due now');
@@ -1728,7 +1735,7 @@ describe('Schedules additional coverage', () => {
 
         it('loadHistory catch block is covered when getScheduleHistory throws', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's-hist' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's-hist' })]));
             vi.mocked(api.getScheduleHistory).mockRejectedValue(new Error('History failed'));
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1741,9 +1748,9 @@ describe('Schedules additional coverage', () => {
 
         it('schedule with activeInvestigationId shows running verdict', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's-active', activeInvestigationId: 'inv-running-123' }),
-            ]);
+            ]));
             renderSchedules();
             await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
             // When activeInvestigationId is set, effectiveVerdict becomes 'running'
@@ -1752,7 +1759,7 @@ describe('Schedules additional coverage', () => {
 
         it('timeRangePopup toggle: click button twice to close popup (covers ? null branch)', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's-popup', timeRange: 'ago(1h)' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's-popup', timeRange: 'ago(1h)' })]));
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
             await waitFor(() => screen.getByText('Daily Check'));
@@ -1784,9 +1791,9 @@ describe('Schedules additional coverage', () => {
 
         it('productName fallback uses id when product not found in list', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's-prod', productId: 'unknown-product-id' }),
-            ]);
+            ]));
             vi.mocked(api.listProducts).mockResolvedValue([
                 { id: 'different-product', name: 'Different Product' } as any,
             ]);
@@ -1798,7 +1805,7 @@ describe('Schedules additional coverage', () => {
 
         it('history entry with summary covers the entry.summary branch', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's-summary' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's-summary' })]));
             vi.mocked(api.getScheduleHistory).mockResolvedValue([
                 createHistoryEntry({ summary: 'All systems nominal' }),
             ]);
@@ -1812,7 +1819,7 @@ describe('Schedules additional coverage', () => {
 
         it('history entry without summary covers the no-summary branch (L523)', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's-no-summary' })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's-no-summary' })]));
             vi.mocked(api.getScheduleHistory).mockResolvedValue([
                 // No summary field → entry.summary is falsy → covers ': ...' : '' FALSE branch
                 createHistoryEntry({ summary: undefined as any }),
@@ -1826,9 +1833,9 @@ describe('Schedules additional coverage', () => {
 
         it('covers getNextRunIn empty return (L180) with schedule missing nextRunAt', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's-no-nextrun', nextRunAt: undefined }),
-            ]);
+            ]));
             renderSchedules();
             await waitFor(() => screen.getByText('Daily Check'));
             // Schedule renders without nextRunAt → getNextRunIn(undefined) → 'if (!iso) return ""'
@@ -1837,9 +1844,9 @@ describe('Schedules additional coverage', () => {
 
         it('covers lastVerdict || "unknown" (L262) with schedule missing lastVerdict', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's-no-verdict', lastVerdict: undefined as any, activeInvestigationId: undefined }),
-            ]);
+            ]));
             renderSchedules();
             await waitFor(() => screen.getByText('Daily Check'));
             // effectiveVerdict = false ? 'running' : (undefined || 'unknown') = 'unknown'
@@ -1848,9 +1855,9 @@ describe('Schedules additional coverage', () => {
 
         it('covers productName empty return (L189) when no productId on expanded schedule', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue([
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
                 createSchedule({ id: 's-no-product', productId: undefined }),
-            ]);
+            ]));
             vi.mocked(api.getScheduleHistory).mockResolvedValue([]);
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
@@ -1865,7 +1872,7 @@ describe('Schedules additional coverage', () => {
             // and the fallback editFields.timeRange is displayed
             const { api } = await import('../../api');
             const customRange = 'between(datetime(2024-01-01T00:00:00) .. datetime(2024-01-02T00:00:00))';
-            vi.mocked(api.getSchedules).mockResolvedValue([createSchedule({ id: 's-custom-tr', timeRange: customRange })]);
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's-custom-tr', timeRange: customRange })]));
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
             await waitFor(() => screen.getByText('Daily Check'));
@@ -1883,8 +1890,7 @@ describe('Schedules additional coverage', () => {
     describe('Pagination', () => {
         it('shows pagination controls when there are schedules', async () => {
             const api = (await import('../../api')).api;
-            const schedules = [createSchedule({ id: 's1', name: 'Schedule 1' })];
-            (api.getSchedules as any).mockResolvedValue(schedules);
+            (api.getSchedules as any).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1', name: 'Schedule 1' })]));
             renderSchedules();
 
             await waitFor(() => {
@@ -1894,10 +1900,12 @@ describe('Schedules additional coverage', () => {
 
         it('paginates schedule list with many items', async () => {
             const api = (await import('../../api')).api;
-            const schedules = Array.from({ length: 15 }, (_, i) =>
+            const page1Items = Array.from({ length: 6 }, (_, i) =>
                 createSchedule({ id: `s${i}`, name: `Schedule ${i + 1}`, target: `stamp-${i}` })
             );
-            (api.getSchedules as any).mockResolvedValue(schedules);
+            (api.getSchedules as any).mockResolvedValue({
+                items: page1Items, totalCount: 15, page: 1, pageSize: 6, totalPages: 3,
+            });
             localStorage.setItem('sched-page-size', '6');
             renderSchedules();
 
@@ -1909,10 +1917,19 @@ describe('Schedules additional coverage', () => {
         it('navigates to next page of schedules', async () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             const api = (await import('../../api')).api;
-            const schedules = Array.from({ length: 15 }, (_, i) =>
+            const page1Items = Array.from({ length: 6 }, (_, i) =>
                 createSchedule({ id: `s${i}`, name: `Schedule ${i + 1}`, target: `stamp-${i}` })
             );
-            (api.getSchedules as any).mockResolvedValue(schedules);
+            const page2Items = Array.from({ length: 6 }, (_, i) =>
+                createSchedule({ id: `s${i + 6}`, name: `Schedule ${i + 7}`, target: `stamp-${i + 6}` })
+            );
+            (api.getSchedules as any).mockImplementation((params?: any) => {
+                const page = params?.page || 1;
+                return Promise.resolve({
+                    items: page === 2 ? page2Items : page1Items,
+                    totalCount: 15, page, pageSize: 6, totalPages: 3,
+                });
+            });
             localStorage.setItem('sched-page-size', '6');
             renderSchedules();
 
@@ -1928,10 +1945,12 @@ describe('Schedules additional coverage', () => {
         it('persists schedule page size to localStorage', async () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             const api = (await import('../../api')).api;
-            const schedules = Array.from({ length: 30 }, (_, i) =>
+            const items = Array.from({ length: 6 }, (_, i) =>
                 createSchedule({ id: `s${i}`, name: `Schedule ${i + 1}`, target: `stamp-${i}` })
             );
-            (api.getSchedules as any).mockResolvedValue(schedules);
+            (api.getSchedules as any).mockResolvedValue({
+                items, totalCount: 30, page: 1, pageSize: 6, totalPages: 5,
+            });
             renderSchedules();
 
             await waitFor(() => screen.getByText(/of 30 schedules/));
@@ -1945,10 +1964,21 @@ describe('Schedules additional coverage', () => {
         it('clamps currentPage when schedules are removed', async () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             const api = (await import('../../api')).api;
-            const schedules = Array.from({ length: 14 }, (_, i) =>
+            const page1Items = Array.from({ length: 6 }, (_, i) =>
                 createSchedule({ id: `c${i}`, name: `Clamp ${i + 1}`, target: `stamp-${i}` })
             );
-            (api.getSchedules as any).mockResolvedValue(schedules);
+            let returnSmallSet = false;
+            (api.getSchedules as any).mockImplementation((params?: any) => {
+                const page = params?.page || 1;
+                if (returnSmallSet) {
+                    return Promise.resolve({
+                        items: page1Items, totalCount: 6, page: 1, pageSize: 6, totalPages: 1,
+                    });
+                }
+                return Promise.resolve({
+                    items: page1Items, totalCount: 14, page, pageSize: 6, totalPages: 3,
+                });
+            });
             localStorage.setItem('sched-page-size', '6');
             renderSchedules();
 
@@ -1956,10 +1986,10 @@ describe('Schedules additional coverage', () => {
 
             // Navigate to page 3
             await user.click(screen.getByText('3'));
-            await waitFor(() => screen.getByText('13–14 of 14 schedules'));
+            await waitFor(() => screen.getByText(/of 14 schedules/));
 
             // Simulate schedules being removed — shrink to 6
-            (api.getSchedules as any).mockResolvedValue(schedules.slice(0, 6));
+            returnSmallSet = true;
             vi.advanceTimersByTime(15000);
 
             await waitFor(() => screen.getByText('1–6 of 6 schedules'));
@@ -1969,10 +1999,12 @@ describe('Schedules additional coverage', () => {
             const api = (await import('../../api')).api;
             localStorage.removeItem('sched-page-size');
             (api.getSettings as any).mockResolvedValue({ model: 'gpt-4o', scheduledInvestigationMaxSteps: 50, defaultPageSize: 6 });
-            const schedules = Array.from({ length: 20 }, (_, i) =>
+            const items = Array.from({ length: 6 }, (_, i) =>
                 createSchedule({ id: `s${i}`, name: `Schedule ${i + 1}`, target: `stamp-${i}` })
             );
-            (api.getSchedules as any).mockResolvedValue(schedules);
+            (api.getSchedules as any).mockResolvedValue({
+                items, totalCount: 20, page: 1, pageSize: 6, totalPages: 4,
+            });
             renderSchedules();
 
             await waitFor(() => {

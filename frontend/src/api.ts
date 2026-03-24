@@ -118,6 +118,60 @@ export interface Investigation {
     verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
 }
 
+export interface PaginatedResponse<T> {
+    items: T[];
+    totalCount: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+}
+
+export interface InvestigationFilterMeta {
+    products: { id: string; name: string }[];
+    tags: string[];
+    creators: string[];
+}
+
+export interface InvestigationStats {
+    total: number;
+    running: number;
+    paused: number;
+    completed: number;
+    failed: number;
+    aborted: number;
+    successRate: number;
+    resolvedCount: number;
+    avgDurationMs: number;
+    durationSamples: number;
+    thisWeekCount: number;
+    lastWeekCount: number;
+    contestRate: number;
+    contestableCount: number;
+}
+
+export interface PaginatedInvestigations extends PaginatedResponse<Investigation> {
+    filterMeta: InvestigationFilterMeta;
+    stats: InvestigationStats;
+}
+
+export interface InvestigationListParams {
+    page?: number;
+    pageSize?: number;
+    sortOrder?: 'newest' | 'oldest' | 'steps' | 'modified';
+    filter?: string;
+    productFilter?: string;
+    sourceFilter?: string;
+    tagFilter?: string;
+    createdByFilter?: string;
+    search?: string;
+    pinnedIds?: string[];
+}
+
+export interface ScheduleListParams {
+    page?: number;
+    pageSize?: number;
+}
+
 export interface IncidentPreview {
     incidentId: string;
     title: string;
@@ -162,22 +216,39 @@ export const api = {
 
     // ETag tracking for conditional polling
     _listEtag: null as string | null,
-    _listCache: null as Investigation[] | null,
+    _listCache: null as PaginatedInvestigations | null,
+    _listCacheKey: null as string | null,
 
-    listInvestigations: async (): Promise<Investigation[]> => {
+    listInvestigations: async (params?: InvestigationListParams): Promise<PaginatedInvestigations> => {
+        const qp = new URLSearchParams();
+        if (params?.page) qp.set('page', String(params.page));
+        if (params?.pageSize) qp.set('pageSize', String(params.pageSize));
+        if (params?.sortOrder) qp.set('sortOrder', params.sortOrder);
+        if (params?.filter && params.filter !== 'all') qp.set('filter', params.filter);
+        if (params?.productFilter && params.productFilter !== 'all') qp.set('productFilter', params.productFilter);
+        if (params?.sourceFilter && params.sourceFilter !== 'all') qp.set('sourceFilter', params.sourceFilter);
+        if (params?.tagFilter && params.tagFilter !== 'all') qp.set('tagFilter', params.tagFilter);
+        if (params?.createdByFilter && params.createdByFilter !== 'all') qp.set('createdByFilter', params.createdByFilter);
+        if (params?.search) qp.set('search', params.search);
+        if (params?.pinnedIds?.length) qp.set('pinnedIds', params.pinnedIds.join(','));
+        const qs = qp.toString();
+        const cacheKey = qs;
+
         const headers: Record<string, string> = {};
-        if (api._listEtag) {
+        if (api._listEtag && api._listCacheKey === cacheKey) {
             headers['If-None-Match'] = api._listEtag;
         }
-        const response = await fetch(`${API_URL}/investigations`, { headers });
-        if (response.status === 304 && api._listCache) {
-            return api._listCache; // Not modified — return cached data
+        const url = qs ? `${API_URL}/investigations?${qs}` : `${API_URL}/investigations`;
+        const response = await fetch(url, { headers });
+        if (response.status === 304 && api._listCache && api._listCacheKey === cacheKey) {
+            return api._listCache;
         }
         if (!response.ok) throw new Error('Failed to list investigations');
         const etag = response.headers.get('etag');
         if (etag) api._listEtag = etag;
-        const data = await response.json();
+        const data: PaginatedInvestigations = await response.json();
         api._listCache = data;
+        api._listCacheKey = cacheKey;
         return data;
     },
 
@@ -660,8 +731,13 @@ export const api = {
 
     // ── Schedules ──────────────────────────────────────────────────────
 
-    getSchedules: async (): Promise<ScheduleDefinition[]> => {
-        const response = await fetch(`${API_URL}/schedules`);
+    getSchedules: async (params?: ScheduleListParams): Promise<PaginatedResponse<ScheduleDefinition>> => {
+        const qp = new URLSearchParams();
+        if (params?.page) qp.set('page', String(params.page));
+        if (params?.pageSize) qp.set('pageSize', String(params.pageSize));
+        const qs = qp.toString();
+        const url = qs ? `${API_URL}/schedules?${qs}` : `${API_URL}/schedules`;
+        const response = await fetch(url);
         if (!response.ok) throw new Error('Failed to fetch schedules');
         return response.json();
     },

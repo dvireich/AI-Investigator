@@ -7,8 +7,39 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    name: Lint (no coverage ignores)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install backend deps
+        run: npm ci
+        working-directory: backend
+
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: frontend
+
+      - name: Lint backend (no ignore comments, thresholds=100, provider=v8)
+        run: npm run lint:no-coverage-ignore
+        working-directory: backend
+
+      - name: Lint frontend (no ignore comments, thresholds=100, provider=v8)
+        run: npm run lint:no-coverage-ignore
+        working-directory: frontend
+
   backend-tests:
     name: Backend Tests & Coverage
+    needs: lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -50,6 +81,7 @@ jobs:
 
   frontend-tests:
     name: Frontend Tests & Coverage
+    needs: lint
     runs-on: ubuntu-latest
     defaults:
       run:

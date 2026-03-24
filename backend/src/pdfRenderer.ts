@@ -13,12 +13,15 @@ type Browser = import('puppeteer').Browser;
 /**
  * Resolve the Chromium executable path.
  * Priority: bundled chromium/ dir next to exe → Puppeteer default download.
+ * Injectable deps allow unit testing without a packaged build.
  */
-function resolveChromiumPath(): string | undefined {
-    /* v8 ignore start -- exe-only path, tested in packaged builds */
-    if (isPackaged) {
+export function resolveChromiumPath(
+    pkgd: boolean = isPackaged,
+    root: string = appRoot,
+): string | undefined {
+    if (pkgd) {
         // Look for bundled Chromium next to the exe
-        const bundledDir = path.join(appRoot, 'chromium');
+        const bundledDir = path.join(root, 'chromium');
         if (fs.existsSync(bundledDir)) {
             // chrome.exe is inside a versioned subfolder
             const entries = fs.readdirSync(bundledDir);
@@ -31,31 +34,30 @@ function resolveChromiumPath(): string | undefined {
             if (fs.existsSync(flat)) return flat;
         }
     }
-    /* v8 ignore stop */
     return undefined; // Let Puppeteer use its default
 }
 
 // Singleton browser instance to avoid re-launching Chromium for each export
 let browserInstance: Browser | null = null;
 
-async function getBrowser(): Promise<Browser> {
+async function getBrowser(executablePath?: string): Promise<Browser> {
     if (browserInstance && browserInstance.connected) {
         return browserInstance;
     }
     // Lazy-load puppeteer so the exe doesn't crash at startup when puppeteer isn't bundled
     const puppeteer = await import('puppeteer');
-    const executablePath = resolveChromiumPath();
+    const resolved = executablePath ?? resolveChromiumPath();
     browserInstance = await puppeteer.default.launch({
         headless: true,
-        /* v8 ignore next */
-        ...(executablePath ? { executablePath } : {}),
+        ...(resolved ? { executablePath: resolved } : {}),
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
     // Clean up on process exit
     const cleanup = () => {
-        if (browserInstance) {
-            browserInstance.close().catch(() => { });
-            browserInstance = null;
+        const inst = browserInstance;
+        browserInstance = null;
+        if (inst) {
+            Promise.resolve(inst.close()).catch(() => { });
         }
     };
     process.on('exit', cleanup);
@@ -92,10 +94,11 @@ interface InvestigationMetadata {
  */
 export async function renderPdf(
     markdownReport: string,
-    metadata: InvestigationMetadata
+    metadata: InvestigationMetadata,
+    chromiumPath?: string,
 ): Promise<Buffer> {
     const html = buildHtml(markdownReport, metadata);
-    const browser = await getBrowser();
+    const browser = await getBrowser(chromiumPath);
     const page = await browser.newPage();
 
     try {

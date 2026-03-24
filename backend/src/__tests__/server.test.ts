@@ -1,3 +1,4 @@
+import * as appRootModule from '../utils/appRoot';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import * as fs from 'fs';
@@ -8,9 +9,12 @@ import { EventEmitter } from 'events';
 import { AgentRunner, type InvestigationState } from '../agent/Runner';
 import {
     __testUtils,
+    applyStaticServing,
+    applySpaFallback,
     autoDiscoverProduct,
     createInvestigation,
     createSummaryState,
+    getDefaultRepoRoot,
     getGlobalInvestigationsDir,
     getEffectiveConfig,
     getInvestigationStoragePath,
@@ -19,6 +23,7 @@ import {
     getThoughtSource,
     hasPersistedInvestigationState,
     hydrateStoredState,
+    inferTarget,
     isPathWithinDirectory,
     loadHistory,
     normalizeHistoricalState,
@@ -199,6 +204,52 @@ describe('server utilities and routes', () => {
 
             expect(result.thoughts).toEqual([]);
             expect(result.status).toBe('completed');
+        });
+
+        it('inferTarget returns undefined when target is already set', () => {
+            expect(inferTarget({ target: 'stamp-01' })).toBeUndefined();
+        });
+
+        it('inferTarget migrates legacy stamp field to target', () => {
+            expect(inferTarget({ target: '', stamp: 'oi-tds-prd-ea-02' })).toBe('oi-tds-prd-ea-02');
+        });
+
+        it('inferTarget extracts from Stamp: prefix in query', () => {
+            expect(inferTarget({ target: '', query: 'Stamp: oi-tds-prd-ea-02\nTime Range: ago(1h)' })).toBe('oi-tds-prd-ea-02');
+        });
+
+        it('inferTarget extracts from Target: prefix in query', () => {
+            expect(inferTarget({ target: '', query: 'Target: ax-tds-prd-cdm-01\nTime Range: ago(1h)' })).toBe('ax-tds-prd-cdm-01');
+        });
+
+        it('inferTarget returns undefined when no target can be inferred', () => {
+            expect(inferTarget({ target: '', query: 'Some random query' })).toBeUndefined();
+        });
+
+        it('normalizeHistoricalState migrates legacy stamp field', () => {
+            const result = normalizeHistoricalState({
+                id: '3',
+                status: 'completed',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                stamp: 'oi-tds-prd-ea-02',
+            } as any);
+
+            expect(result.target).toBe('oi-tds-prd-ea-02');
+        });
+
+        it('normalizeHistoricalState extracts target from query when missing', () => {
+            const result = normalizeHistoricalState({
+                id: '4',
+                status: 'completed',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                query: 'Stamp: oi-tds-prd-eus2p-02\nTime Range: ago(7d)\nUser Question/Context: test',
+            } as any);
+
+            expect(result.target).toBe('oi-tds-prd-eus2p-02');
         });
 
         it('creates a summary state with a thought preview', () => {
@@ -519,6 +570,68 @@ describe('server utilities and routes', () => {
             expect(summary?.status).toBe('paused');
             expect(summary?.productId).toBe('prod-1');
             expect(backfill?.id).toBe('backfill-1');
+        });
+
+        it('persists inferred target from legacy stamp field during summary loading', () => {
+            const productRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-infer-'));
+            const inferDir = path.join(productRoot, '2024-01-01_stamp_infer');
+            fs.mkdirSync(inferDir, { recursive: true });
+            fs.writeFileSync(path.join(inferDir, 'state.json'), JSON.stringify({ id: 'infer-1' }));
+            fs.writeFileSync(path.join(inferDir, 'summary.json'), JSON.stringify({
+                id: 'infer-1',
+                status: 'completed',
+                target: '',
+                stamp: 'legacy-stamp-01',
+                thoughts: [],
+                actions: [],
+                logs: [],
+            }));
+
+            __testUtils.setConfig({
+                investigationsPath: productRoot,
+                products: [],
+                activeProductId: '',
+            });
+
+            loadHistory();
+
+            // Verify inferTarget persisted the inferred target to summary.json on disk
+            const onDisk = JSON.parse(fs.readFileSync(path.join(inferDir, 'summary.json'), 'utf-8'));
+            expect(onDisk.target).toBe('legacy-stamp-01');
+        });
+
+        it('survives a write failure when persisting an inferred target (best-effort catch)', () => {
+            const productRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-infer-fail-'));
+            const inferDir = path.join(productRoot, '2024-01-01_stamp_inferfail');
+            fs.mkdirSync(inferDir, { recursive: true });
+            fs.writeFileSync(path.join(inferDir, 'state.json'), JSON.stringify({ id: 'infer-fail-1' }));
+            const summaryPath = path.join(inferDir, 'summary.json');
+            fs.writeFileSync(summaryPath, JSON.stringify({
+                id: 'infer-fail-1',
+                status: 'completed',
+                target: '',
+                stamp: 'legacy-stamp-fail',
+                thoughts: [],
+                actions: [],
+                logs: [],
+            }));
+
+            // Block the write by placing a directory at the .tmp path so writeFileSync throws
+            fs.mkdirSync(summaryPath + '.tmp');
+
+            __testUtils.setConfig({
+                investigationsPath: productRoot,
+                products: [],
+                activeProductId: '',
+            });
+
+            // loadHistory should not throw - the catch block swallows the error
+            expect(() => loadHistory()).not.toThrow();
+
+            // The in-memory target was inferred - use values() to bypass re-hydration from unchanged disk file
+            const items = Array.from(__testUtils.getHistory().values());
+            const item = items.find(i => i.id === 'infer-fail-1');
+            expect(item?.target).toBe('legacy-stamp-fail');
         });
 
         it('covers path selection and inclusion helpers for product and global investigations', () => {
@@ -1462,7 +1575,7 @@ describe('server utilities and routes', () => {
         it('lists no schedules when the scheduler store is uninitialized', async () => {
             const response = await api().get('/api/schedules');
             expect(response.status).toBe(200);
-            expect(response.body).toEqual([]);
+            expect(response.body.items).toEqual([]);
         });
 
         it('returns default scheduler status when scheduler is absent', async () => {
@@ -1485,7 +1598,7 @@ describe('server utilities and routes', () => {
         it('returns an empty investigation list by default', async () => {
             const response = await api().get('/api/investigations');
             expect(response.status).toBe(200);
-            expect(response.body).toEqual([]);
+            expect(response.body.items).toEqual([]);
         });
 
         it('returns not found for unknown investigation state', async () => {
@@ -2382,7 +2495,7 @@ describe('server utilities and routes', () => {
             const first = await api().get('/api/investigations');
             expect(first.status).toBe(200);
             expect(first.headers.etag).toBeDefined();
-            expect(first.body).toHaveLength(1);
+            expect(first.body.items).toHaveLength(1);
 
             const second = await api().get('/api/investigations').set('If-None-Match', first.headers.etag as string);
             expect(second.status).toBe(304);
@@ -2424,9 +2537,9 @@ describe('server utilities and routes', () => {
 
             expect(second.status).toBe(200);
             expect(second.headers.etag).toBe(first.headers.etag);
-            expect(second.body.find((item: any) => item.id === 'history-known').productName).toBe('Known Product');
-            expect(second.body.find((item: any) => item.id === 'history-known').retrospect.proposals).toEqual([{ id: 'p1', status: 'pending' }]);
-            expect(second.body.find((item: any) => item.id === 'history-unknown').productName).toBe('Unknown');
+            expect(second.body.items.find((item: any) => item.id === 'history-known').productName).toBe('Known Product');
+            expect(second.body.items.find((item: any) => item.id === 'history-known').retrospect.proposals).toEqual([{ id: 'p1', status: 'pending' }]);
+            expect(second.body.items.find((item: any) => item.id === 'history-unknown').productName).toBe('Unknown');
         });
 
         it('hides non-persisted inactive history entries from the dashboard list', async () => {
@@ -2436,7 +2549,7 @@ describe('server utilities and routes', () => {
             const response = await api().get('/api/investigations');
 
             expect(response.status).toBe(200);
-            expect(response.body.some((inv: any) => inv.id === 'memory-only-1')).toBe(false);
+            expect(response.body.items.some((inv: any) => inv.id === 'memory-only-1')).toBe(false);
         });
 
         it('skips investigations that fail summary generation while returning valid items', async () => {
@@ -2459,8 +2572,8 @@ describe('server utilities and routes', () => {
             const response = await api().get('/api/investigations');
 
             expect(response.status).toBe(200);
-            expect(response.body.some((item: any) => item.id === 'good-list')).toBe(true);
-            expect(response.body.some((item: any) => item.id === 'broken-list')).toBe(false);
+            expect(response.body.items.some((item: any) => item.id === 'good-list')).toBe(true);
+            expect(response.body.items.some((item: any) => item.id === 'broken-list')).toBe(false);
         });
 
         it('returns truncated investigation detail and step payloads', async () => {
@@ -2584,7 +2697,7 @@ describe('server utilities and routes', () => {
             expect(response.status).toBe(200);
             expect(response.headers.etag).toBeDefined();
 
-            const item = response.body.find((entry: any) => entry.id === summaryState.id);
+            const item = response.body.items.find((entry: any) => entry.id === summaryState.id);
             expect(item.storagePath).toBe(storagePath);
             expect(item.thoughtCount).toBe(7);
             expect(item.tags).toEqual([]);
@@ -2631,11 +2744,11 @@ describe('server utilities and routes', () => {
 
             let response = await api().get('/api/investigations');
             expect(response.status).toBe(200);
-            const item = response.body.find((entry: any) => entry.id === 'active-summary-only');
+            const item = response.body.items.find((entry: any) => entry.id === 'active-summary-only');
             expect(item.storagePath).toContain('activesummaryonly');
             expect(item.thoughtCount).toBe(9);
             expect(item.retrospect.proposals).toEqual([]);
-            expect(response.body.some((entry: any) => entry.id === 'active-broken-list')).toBe(false);
+            expect(response.body.items.some((entry: any) => entry.id === 'active-broken-list')).toBe(false);
             expect(response.headers.etag).toBeDefined();
 
             const valuesSpy = vi.spyOn(__testUtils.getRunners(), 'values').mockImplementation(() => {
@@ -2689,13 +2802,234 @@ describe('server utilities and routes', () => {
             expect(response.status).toBe(200);
             expect(response.headers.etag).toBeDefined();
             expect(response.headers.etag).toBe('"1700000000999"');
-            expect(response.body).toHaveLength(1);
-            expect(response.body[0].id).toBe('summary-fallback');
-            expect(response.body[0].thoughtCount).toBe(0);
-            expect(response.body[0].thoughts).toEqual([]);
-            expect(response.body[0].productName).toBe('Unknown');
+            expect(response.body.items).toHaveLength(1);
+            expect(response.body.items[0].id).toBe('summary-fallback');
+            expect(response.body.items[0].thoughtCount).toBe(0);
+            expect(response.body.items[0].thoughts).toEqual([]);
+            expect(response.body.items[0].productName).toBe('Unknown');
 
             nowSpy.mockRestore();
+        });
+    });
+
+    describe('investigation list pagination, filtering, sorting, and search', () => {
+        function setupInvestigations() {
+            const investigationsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-pagination-'));
+            __testUtils.setConfig({
+                products: [],
+                activeProductId: '',
+                investigationsPath,
+            });
+
+            const states = [
+                makeState({ id: '1000', status: 'completed', target: 'stamp-alpha', tags: ['urgent'], source: 'manual', createdBy: 'alice', thoughts: ['thought1'], title: 'Alpha latency', contestCount: 1 }),
+                makeState({ id: '2000', status: 'failed', target: 'stamp-beta', tags: ['p0'], source: 'scheduled', createdBy: 'bob', thoughts: ['thought1', 'thought2'], title: 'Beta failure' }),
+                makeState({ id: '3000', status: 'completed', target: 'stamp-gamma', tags: ['urgent', 'p0'], source: 'manual', createdBy: 'alice', thoughts: ['thought1', 'thought2', 'thought3'], title: 'Gamma check' }),
+                makeState({ id: '4000', status: 'aborted', target: 'stamp-delta', source: 'scheduled', createdBy: 'charlie', thoughts: ['t1'], title: 'Delta abort', tags: undefined as any }),
+                makeState({ id: '5000', status: 'completed', target: 'stamp-alpha', tags: ['urgent'], source: 'manual', createdBy: 'bob', thoughts: ['t1'], title: 'Alpha review' }),
+            ];
+
+            for (const s of states) {
+                const statePath = path.join(investigationsPath, `${s.id}-state.json`);
+                fs.writeFileSync(statePath, JSON.stringify(s));
+                (s as any)._statePath = statePath;
+                (s as any)._lastModified = Number(s.id) + 500;
+                __testUtils.getHistory().set(s.id, s as any);
+            }
+
+            return states;
+        }
+
+        it('paginates results with page and pageSize', async () => {
+            setupInvestigations();
+            const r1 = await api().get('/api/investigations?page=1&pageSize=2');
+            expect(r1.status).toBe(200);
+            expect(r1.body.items).toHaveLength(2);
+            expect(r1.body.totalCount).toBe(5);
+            expect(r1.body.totalPages).toBe(3);
+            expect(r1.body.page).toBe(1);
+            expect(r1.body.pageSize).toBe(2);
+
+            const r2 = await api().get('/api/investigations?page=3&pageSize=2');
+            expect(r2.body.items).toHaveLength(1);
+            expect(r2.body.page).toBe(3);
+        });
+
+        it('filters by status', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?filter=completed');
+            expect(r.body.items.every((i: any) => i.status === 'completed')).toBe(true);
+            expect(r.body.totalCount).toBe(3);
+        });
+
+        it('filters by productFilter', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?productFilter=nonexistent');
+            expect(r.body.totalCount).toBe(0);
+        });
+
+        it('filters by sourceFilter', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?sourceFilter=scheduled');
+            expect(r.body.items.every((i: any) => i.source === 'scheduled')).toBe(true);
+            expect(r.body.totalCount).toBe(2);
+        });
+
+        it('filters by tagFilter', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?tagFilter=p0');
+            expect(r.body.totalCount).toBe(2);
+        });
+
+        it('filters by createdByFilter', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?createdByFilter=alice');
+            expect(r.body.items.every((i: any) => i.createdBy === 'alice')).toBe(true);
+            expect(r.body.totalCount).toBe(2);
+        });
+
+        it('searches across title, target, tags, and createdBy', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?search=beta');
+            expect(r.body.totalCount).toBe(1);
+            expect(r.body.items[0].title).toBe('Beta failure');
+        });
+
+        it('sorts by oldest', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?sortOrder=oldest');
+            const ids = r.body.items.map((i: any) => i.id);
+            expect(ids[0]).toBe('1000');
+        });
+
+        it('sorts by steps (thoughtCount descending)', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?sortOrder=steps');
+            const counts = r.body.items.map((i: any) => i.thoughtCount);
+            for (let i = 1; i < counts.length; i++) {
+                expect(counts[i]).toBeLessThanOrEqual(counts[i - 1]);
+            }
+        });
+
+        it('sorts by modified', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?sortOrder=modified');
+            expect(r.body.items[0].id).toBe('5000'); // highest lastModified
+        });
+
+        it('sorts pinned items first', async () => {
+            setupInvestigations();
+            // Pin both 1000 (index 0) and 5000 (index 4) so the sort calls compare in both
+            // directions: (1000_pinned, 2000_unpinned) -> returns -1 AND (3000_unpinned, 5000_pinned) -> returns 1
+            const r = await api().get('/api/investigations?pinnedIds=1000,5000');
+            const ids = r.body.items.map((i: any) => i.id);
+            // Both pinned items must be the first two
+            expect([ids[0], ids[1]].sort()).toEqual(['1000', '5000']);
+        });
+
+        it('returns filterMeta and stats in the envelope', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations');
+            expect(r.body.filterMeta).toBeDefined();
+            expect(r.body.filterMeta.tags).toEqual(expect.arrayContaining(['urgent', 'p0']));
+            expect(r.body.filterMeta.creators).toEqual(expect.arrayContaining(['alice', 'bob', 'charlie']));
+            expect(r.body.stats.total).toBe(5);
+            expect(r.body.stats.completed).toBe(3);
+            expect(r.body.stats.failed).toBe(1);
+            expect(r.body.stats.aborted).toBe(1);
+            expect(r.body.stats.contestRate).toBeGreaterThan(0);
+        });
+
+        it('clamps page when beyond totalPages', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations?page=100&pageSize=2');
+            expect(r.body.page).toBe(3); // clamped to last page
+            expect(r.body.items.length).toBeGreaterThan(0);
+        });
+
+        it('uses correct weekStart when today is Sunday (dayOfWeek === 0 branch)', async () => {
+            // March 22, 2026 is a Sunday
+            vi.useFakeTimers();
+            try {
+                vi.setSystemTime(new Date('2026-03-22T12:00:00.000Z'));
+                setupInvestigations();
+                const r = await api().get('/api/investigations');
+                expect(r.status).toBe(200);
+                expect(r.body.stats).toBeDefined();
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
+        it('counts thisWeekCount and lastWeekCount for items with epoch-range IDs', async () => {
+            // Pin system time so weekStart/lastWeekStart are deterministic
+            vi.useFakeTimers();
+            try {
+            // Tuesday March 24 2026 12:00 UTC
+            const now = new Date('2026-03-24T12:00:00.000Z').getTime();
+            vi.setSystemTime(now);
+
+            // weekStart = Mon March 23 2026 00:00 UTC
+            const weekStart = new Date('2026-03-23T00:00:00.000Z').getTime();
+            // lastWeekStart = Mon March 16 2026 00:00 UTC
+            const lastWeekStart = new Date('2026-03-16T00:00:00.000Z').getTime();
+
+            const investigationsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-week-'));
+            __testUtils.setConfig({ products: [], activeProductId: '', investigationsPath });
+
+            const thisWeekId = (weekStart + 3600_000).toString();      // 1h into this week
+            const lastWeekId = (lastWeekStart + 3600_000).toString();   // 1h into last week
+            const olderWeekId = (lastWeekStart - 86400_000).toString(); // before last week
+
+            for (const [id, status] of [[thisWeekId, 'completed'], [lastWeekId, 'completed'], [olderWeekId, 'failed']] as const) {
+                const s = makeState({ id, status, target: 'stamp-week' });
+                const statePath = path.join(investigationsPath, `${id}-state.json`);
+                fs.writeFileSync(statePath, JSON.stringify(s));
+                (s as any)._statePath = statePath;
+                (s as any)._lastModified = Number(id) + 500; // d=500ms, in (0, dayMs), covers durations.push
+                __testUtils.getHistory().set(id, s as any);
+            }
+
+            // Add a 'running' history item (not in runners map) so summaries has a mix of
+            // active and inactive items, causing sort to call compare(inactive, running) -> 1
+            const runningId = (weekStart + 7200_000).toString(); // 2h into this week
+            const sRunning = makeState({ id: runningId, status: 'running', target: 'stamp-week' });
+            const runningPath = path.join(investigationsPath, `${runningId}-state.json`);
+            fs.writeFileSync(runningPath, JSON.stringify(sRunning));
+            (sRunning as any)._statePath = runningPath;
+            (sRunning as any)._lastModified = Number(runningId) + 500;
+            __testUtils.getHistory().set(runningId, sRunning as any);
+
+            // Add a completed item with ID LARGER than runningId so insertion sort eventually
+            // calls compare(this_inactive, runningId) => aActive=false, bActive=true => returns 1
+            const bigInactiveId = (weekStart + 10800_000).toString(); // 3h into this week > runningId
+            const sBigInactive = makeState({ id: bigInactiveId, status: 'completed', target: 'stamp-week' });
+            const bigInactivePath = path.join(investigationsPath, `${bigInactiveId}-state.json`);
+            fs.writeFileSync(bigInactivePath, JSON.stringify(sBigInactive));
+            (sBigInactive as any)._statePath = bigInactivePath;
+            (sBigInactive as any)._lastModified = Number(bigInactiveId) + 500;
+            __testUtils.getHistory().set(bigInactiveId, sBigInactive as any);
+
+            // Also delete query and target to cover the `s.query || ''` and `s.target || ''` fallbacks
+            const noContestId = (lastWeekStart + 7200_000).toString();
+            const sNoContest = makeState({ id: noContestId, status: 'completed', target: '' });
+            delete (sNoContest as any).contestCount;
+            delete (sNoContest as any).query;
+            const noContestPath = path.join(investigationsPath, `${noContestId}-state.json`);
+            fs.writeFileSync(noContestPath, JSON.stringify(sNoContest));
+            (sNoContest as any)._statePath = noContestPath;
+            (sNoContest as any)._lastModified = Number(noContestId) + 500;
+            __testUtils.getHistory().set(noContestId, sNoContest as any);
+
+            const r = await api().get('/api/investigations');
+            expect(r.status).toBe(200);
+            expect(r.body.stats.thisWeekCount).toBe(3);  // thisWeekId + runningId + bigInactiveId
+            expect(r.body.stats.lastWeekCount).toBe(2);  // lastWeekId + noContestId
+            expect(r.body.stats.durationSamples).toBeGreaterThan(0); // duration push branch covered
+
+            } finally {
+                vi.useRealTimers();
+            }
         });
     });
 
@@ -4014,6 +4348,23 @@ describe('server utilities and routes', () => {
             expect(queryBankStore.delete).toHaveBeenCalledWith('query-1');
         });
 
+        it('paginates schedules with page and pageSize params', async () => {
+            const items = Array.from({ length: 5 }, (_, i) => ({ id: `s${i}`, name: `S${i}`, enabled: true }));
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue(items),
+                create: vi.fn(), update: vi.fn(), delete: vi.fn(), get: vi.fn(), getHistory: vi.fn(),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler(new EventEmitter() as any);
+
+            const r = await api().get('/api/schedules?page=2&pageSize=2');
+            expect(r.status).toBe(200);
+            expect(r.body.items).toHaveLength(2);
+            expect(r.body.totalCount).toBe(5);
+            expect(r.body.page).toBe(2);
+            expect(r.body.totalPages).toBe(3);
+        });
+
         it('returns the inactive-runner MCP restart guidance and lazy-init schedule failure', async () => {
             const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-schedule-init-fail-'));
             const invPath = path.join(tempRoot, 'not-a-dir');
@@ -4818,5 +5169,63 @@ describe('server utilities and routes', () => {
             expect(response.body).toHaveProperty('hasProduct');
             expect(response.body).toHaveProperty('hasConfig');
         });
+    });
+});
+
+describe('applyStaticServing / applySpaFallback', () => {
+    let tmpDir: string;
+
+    beforeEach(() => {
+        tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'static-test-'));
+    });
+
+    afterEach(() => {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+    });
+
+    it('serves static files when the directory exists', async () => {
+        fs.writeFileSync(path.join(tmpDir, 'hello.txt'), 'world');
+        const testApp = require('express')();
+        applyStaticServing(testApp, tmpDir);
+        const res = await request(testApp).get('/hello.txt');
+        expect(res.status).toBe(200);
+        expect(res.text).toBe('world');
+    });
+
+    it('skips static serving when the directory does not exist', async () => {
+        const testApp = require('express')();
+        applyStaticServing(testApp, path.join(tmpDir, 'nonexistent'));
+        const res = await request(testApp).get('/anything');
+        expect(res.status).toBe(404);
+    });
+
+    it('serves index.html for any SPA route when directory exists', async () => {
+        fs.writeFileSync(path.join(tmpDir, 'index.html'), '<html>SPA</html>');
+        const testApp = require('express')();
+        applySpaFallback(testApp, tmpDir);
+        const res = await request(testApp).get('/some/deep/route');
+        expect(res.status).toBe(200);
+        expect(res.text).toContain('SPA');
+    });
+
+    it('skips SPA fallback when the directory does not exist', async () => {
+        const testApp = require('express')();
+        applySpaFallback(testApp, path.join(tmpDir, 'nonexistent'));
+        const res = await request(testApp).get('/any-route');
+        expect(res.status).toBe(404);
+    });
+});
+
+describe('getDefaultRepoRoot', () => {
+    it('returns appRoot when packaged', () => {
+        const result = getDefaultRepoRoot(true);
+        expect(result).toBe(appRootModule.appRoot);
+    });
+
+    it('resolves 4 directory levels up when not packaged', () => {
+        const result = getDefaultRepoRoot(false);
+        // Should be a real path that differs from the backend directory
+        expect(path.isAbsolute(result)).toBe(true);
+        expect(result).not.toContain('backend');
     });
 });

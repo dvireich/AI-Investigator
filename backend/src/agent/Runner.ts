@@ -1500,8 +1500,8 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
                 // Collect continuation lines (non-item lines that follow)
                 const afterItem = groupText.slice(itemMatch.index + itemMatch[0].length);
-                const continuationMatch = afterItem.match(/^((?:\n\s{2,}.*|\n\s+\-\s+.*)*)/);
-                const fullDesc = desc + (continuationMatch?.[1] ?? /* v8 ignore next */ '').replace(/\n\s{2,}/g, ' ').trim();
+                const continuationMatch = afterItem.match(/^((?:\n\s{2,}.*|\n\s+\-\s+.*)*)/)!;
+                const fullDesc = desc + continuationMatch[1].replace(/\n\s{2,}/g, ' ').trim();
 
                 recommendations.push({
                     id: `rec_${groups[g].priority}_${recommendations.length}`,
