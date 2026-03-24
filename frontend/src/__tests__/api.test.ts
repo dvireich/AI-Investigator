@@ -94,6 +94,31 @@ describe('api', () => {
             mockFetch.mockResolvedValue(mockResponse({}, { status: 500 }));
             await expect(api.listInvestigations()).rejects.toThrow('Failed to list investigations');
         });
+
+        it('passes query params when provided', async () => {
+            const data = { items: [], totalCount: 0, page: 2, pageSize: 6, totalPages: 0, filterMeta: { products: [], tags: [], creators: [] }, stats: { total: 0, running: 0, paused: 0, completed: 0, failed: 0, aborted: 0, successRate: 0, resolvedCount: 0, avgDurationMs: 0, durationSamples: 0, thisWeekCount: 0, lastWeekCount: 0, contestRate: 0, contestableCount: 0 } };
+            mockFetch.mockResolvedValue(mockResponse(data));
+
+            await api.listInvestigations({
+                page: 2, pageSize: 6, sortOrder: 'asc',
+                filter: 'completed', productFilter: 'ProdA',
+                sourceFilter: 'manual', tagFilter: 'urgent',
+                createdByFilter: 'alice', search: 'test',
+                pinnedIds: ['a', 'b'],
+            });
+
+            const url = mockFetch.mock.calls[0][0] as string;
+            expect(url).toContain('page=2');
+            expect(url).toContain('pageSize=6');
+            expect(url).toContain('sortOrder=asc');
+            expect(url).toContain('filter=completed');
+            expect(url).toContain('productFilter=ProdA');
+            expect(url).toContain('sourceFilter=manual');
+            expect(url).toContain('tagFilter=urgent');
+            expect(url).toContain('createdByFilter=alice');
+            expect(url).toContain('search=test');
+            expect(url).toContain('pinnedIds=a%2Cb');
+        });
     });
 
     describe('getInvestigation', () => {
@@ -231,6 +256,14 @@ describe('api', () => {
             mockFetch.mockResolvedValue(mockResponse({ items: [{ id: 's1', name: 'Sched' }], totalCount: 1, page: 1, pageSize: 12, totalPages: 1 }));
             const result = await api.getSchedules();
             expect(result.items).toHaveLength(1);
+        });
+
+        it('getSchedules passes page params', async () => {
+            mockFetch.mockResolvedValue(mockResponse({ items: [], totalCount: 0, page: 2, pageSize: 6, totalPages: 0 }));
+            await api.getSchedules({ page: 2, pageSize: 6 });
+            const url = mockFetch.mock.calls[0][0] as string;
+            expect(url).toContain('page=2');
+            expect(url).toContain('pageSize=6');
         });
 
         it('createSchedule sends POST', async () => {
