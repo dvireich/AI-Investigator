@@ -356,13 +356,16 @@ describe('Dashboard', () => {
             const api = await getApi();
             vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
 
             await waitFor(() => screen.getByText('Completed Investigation'));
 
+            // Switch to empty response for search
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([]));
+
             const searchInput = screen.getByPlaceholderText(/search/i);
-            await user.type(searchInput, 'nonexistent123xyz');
+            fireEvent.change(searchInput, { target: { value: 'nonexistent123xyz' } });
+            await vi.advanceTimersByTimeAsync(350);
 
             await waitFor(() => {
                 expect(screen.getByText(/No matching investigations/i)).toBeInTheDocument();
@@ -3939,9 +3942,9 @@ describe('Dashboard additional coverage', () => {
         it('covers groupByTarget sort a.localeCompare(b) (L1253) with three different target groups', async () => {
             const api = await getApi();
             vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
+                createMockInvestigation({ id: 'g3', title: 'No Target Group', target: undefined }),
                 createMockInvestigation({ id: 'g1', title: 'Group Alpha', target: 'alpha-stamp' }),
                 createMockInvestigation({ id: 'g2', title: 'Group Beta', target: 'beta-stamp' }),
-                createMockInvestigation({ id: 'g3', title: 'No Target Group', target: undefined }),
             ]));
             localStorage.setItem('inv-view', 'list');
             renderDashboard();

@@ -19,6 +19,7 @@ import {
     getThoughtSource,
     hasPersistedInvestigationState,
     hydrateStoredState,
+    inferTarget,
     isPathWithinDirectory,
     loadHistory,
     normalizeHistoricalState,
@@ -199,6 +200,52 @@ describe('server utilities and routes', () => {
 
             expect(result.thoughts).toEqual([]);
             expect(result.status).toBe('completed');
+        });
+
+        it('inferTarget returns undefined when target is already set', () => {
+            expect(inferTarget({ target: 'stamp-01' })).toBeUndefined();
+        });
+
+        it('inferTarget migrates legacy stamp field to target', () => {
+            expect(inferTarget({ target: '', stamp: 'oi-tds-prd-ea-02' })).toBe('oi-tds-prd-ea-02');
+        });
+
+        it('inferTarget extracts from Stamp: prefix in query', () => {
+            expect(inferTarget({ target: '', query: 'Stamp: oi-tds-prd-ea-02\nTime Range: ago(1h)' })).toBe('oi-tds-prd-ea-02');
+        });
+
+        it('inferTarget extracts from Target: prefix in query', () => {
+            expect(inferTarget({ target: '', query: 'Target: ax-tds-prd-cdm-01\nTime Range: ago(1h)' })).toBe('ax-tds-prd-cdm-01');
+        });
+
+        it('inferTarget returns undefined when no target can be inferred', () => {
+            expect(inferTarget({ target: '', query: 'Some random query' })).toBeUndefined();
+        });
+
+        it('normalizeHistoricalState migrates legacy stamp field', () => {
+            const result = normalizeHistoricalState({
+                id: '3',
+                status: 'completed',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                stamp: 'oi-tds-prd-ea-02',
+            } as any);
+
+            expect(result.target).toBe('oi-tds-prd-ea-02');
+        });
+
+        it('normalizeHistoricalState extracts target from query when missing', () => {
+            const result = normalizeHistoricalState({
+                id: '4',
+                status: 'completed',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                query: 'Stamp: oi-tds-prd-eus2p-02\nTime Range: ago(7d)\nUser Question/Context: test',
+            } as any);
+
+            expect(result.target).toBe('oi-tds-prd-eus2p-02');
         });
 
         it('creates a summary state with a thought preview', () => {
@@ -1462,7 +1509,7 @@ describe('server utilities and routes', () => {
         it('lists no schedules when the scheduler store is uninitialized', async () => {
             const response = await api().get('/api/schedules');
             expect(response.status).toBe(200);
-            expect(response.body).toEqual([]);
+            expect(response.body.items).toEqual([]);
         });
 
         it('returns default scheduler status when scheduler is absent', async () => {
@@ -1485,7 +1532,7 @@ describe('server utilities and routes', () => {
         it('returns an empty investigation list by default', async () => {
             const response = await api().get('/api/investigations');
             expect(response.status).toBe(200);
-            expect(response.body).toEqual([]);
+            expect(response.body.items).toEqual([]);
         });
 
         it('returns not found for unknown investigation state', async () => {
@@ -2382,7 +2429,7 @@ describe('server utilities and routes', () => {
             const first = await api().get('/api/investigations');
             expect(first.status).toBe(200);
             expect(first.headers.etag).toBeDefined();
-            expect(first.body).toHaveLength(1);
+            expect(first.body.items).toHaveLength(1);
 
             const second = await api().get('/api/investigations').set('If-None-Match', first.headers.etag as string);
             expect(second.status).toBe(304);
@@ -2424,9 +2471,9 @@ describe('server utilities and routes', () => {
 
             expect(second.status).toBe(200);
             expect(second.headers.etag).toBe(first.headers.etag);
-            expect(second.body.find((item: any) => item.id === 'history-known').productName).toBe('Known Product');
-            expect(second.body.find((item: any) => item.id === 'history-known').retrospect.proposals).toEqual([{ id: 'p1', status: 'pending' }]);
-            expect(second.body.find((item: any) => item.id === 'history-unknown').productName).toBe('Unknown');
+            expect(second.body.items.find((item: any) => item.id === 'history-known').productName).toBe('Known Product');
+            expect(second.body.items.find((item: any) => item.id === 'history-known').retrospect.proposals).toEqual([{ id: 'p1', status: 'pending' }]);
+            expect(second.body.items.find((item: any) => item.id === 'history-unknown').productName).toBe('Unknown');
         });
 
         it('hides non-persisted inactive history entries from the dashboard list', async () => {
@@ -2436,7 +2483,7 @@ describe('server utilities and routes', () => {
             const response = await api().get('/api/investigations');
 
             expect(response.status).toBe(200);
-            expect(response.body.some((inv: any) => inv.id === 'memory-only-1')).toBe(false);
+            expect(response.body.items.some((inv: any) => inv.id === 'memory-only-1')).toBe(false);
         });
 
         it('skips investigations that fail summary generation while returning valid items', async () => {
@@ -2459,8 +2506,8 @@ describe('server utilities and routes', () => {
             const response = await api().get('/api/investigations');
 
             expect(response.status).toBe(200);
-            expect(response.body.some((item: any) => item.id === 'good-list')).toBe(true);
-            expect(response.body.some((item: any) => item.id === 'broken-list')).toBe(false);
+            expect(response.body.items.some((item: any) => item.id === 'good-list')).toBe(true);
+            expect(response.body.items.some((item: any) => item.id === 'broken-list')).toBe(false);
         });
 
         it('returns truncated investigation detail and step payloads', async () => {
@@ -2584,7 +2631,7 @@ describe('server utilities and routes', () => {
             expect(response.status).toBe(200);
             expect(response.headers.etag).toBeDefined();
 
-            const item = response.body.find((entry: any) => entry.id === summaryState.id);
+            const item = response.body.items.find((entry: any) => entry.id === summaryState.id);
             expect(item.storagePath).toBe(storagePath);
             expect(item.thoughtCount).toBe(7);
             expect(item.tags).toEqual([]);
@@ -2631,11 +2678,11 @@ describe('server utilities and routes', () => {
 
             let response = await api().get('/api/investigations');
             expect(response.status).toBe(200);
-            const item = response.body.find((entry: any) => entry.id === 'active-summary-only');
+            const item = response.body.items.find((entry: any) => entry.id === 'active-summary-only');
             expect(item.storagePath).toContain('activesummaryonly');
             expect(item.thoughtCount).toBe(9);
             expect(item.retrospect.proposals).toEqual([]);
-            expect(response.body.some((entry: any) => entry.id === 'active-broken-list')).toBe(false);
+            expect(response.body.items.some((entry: any) => entry.id === 'active-broken-list')).toBe(false);
             expect(response.headers.etag).toBeDefined();
 
             const valuesSpy = vi.spyOn(__testUtils.getRunners(), 'values').mockImplementation(() => {
@@ -2689,11 +2736,11 @@ describe('server utilities and routes', () => {
             expect(response.status).toBe(200);
             expect(response.headers.etag).toBeDefined();
             expect(response.headers.etag).toBe('"1700000000999"');
-            expect(response.body).toHaveLength(1);
-            expect(response.body[0].id).toBe('summary-fallback');
-            expect(response.body[0].thoughtCount).toBe(0);
-            expect(response.body[0].thoughts).toEqual([]);
-            expect(response.body[0].productName).toBe('Unknown');
+            expect(response.body.items).toHaveLength(1);
+            expect(response.body.items[0].id).toBe('summary-fallback');
+            expect(response.body.items[0].thoughtCount).toBe(0);
+            expect(response.body.items[0].thoughts).toEqual([]);
+            expect(response.body.items[0].productName).toBe('Unknown');
 
             nowSpy.mockRestore();
         });
