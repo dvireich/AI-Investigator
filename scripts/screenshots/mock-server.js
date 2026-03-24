@@ -192,6 +192,16 @@ app.post('/api/auth/azure-login', (_req, res) => {
     res.json({ success: true });
 });
 
+app.post('/api/auth/login', (_req, res) => {
+    res.json({
+        deviceCode: 'FAKEDEVICECODE',
+        userCode: 'ABCD-1234',
+        verificationUri: 'https://github.com/login/device',
+        expiresIn: 900,
+        interval: 5,
+    });
+});
+
 // ---- Settings ----
 
 app.get('/api/settings', (_req, res) => {
@@ -269,6 +279,20 @@ app.post('/api/investigations/:id/implement', (req, res) => {
 });
 
 app.post('/api/investigations/:id/retrospect/start', (req, res) => {
+    res.json({ success: true });
+});
+
+let analyzeHang = false;
+
+app.post('/api/investigations/:id/retrospect/analyze', (req, res) => {
+    if (analyzeHang) {
+        // Never respond — keeps the frontend fetch pending so isAnalyzing stays true
+        return;
+    }
+    res.json({ success: true });
+});
+
+app.post('/api/investigations/:id/retrospect/abort', (req, res) => {
     res.json({ success: true });
 });
 
@@ -530,6 +554,12 @@ app.post('/__control/reset', (_req, res) => {
     overrideDetail = {};
     authStatus = { authenticated: true, username: 'user@microsoft.com' };
     onboardingComplete = true;
+    analyzeHang = false;
+    res.json({ ok: true });
+});
+
+app.post('/__control/set-analyze-hang', (req, res) => {
+    analyzeHang = req.body.hang ?? false;
     res.json({ ok: true });
 });
 
