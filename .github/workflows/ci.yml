@@ -29,11 +29,11 @@ jobs:
         run: npm ci
         working-directory: frontend
 
-      - name: Lint backend (catches coverage-ignore comments)
+      - name: Lint backend (no ignore comments, thresholds=100, provider=v8)
         run: npm run lint:no-coverage-ignore
         working-directory: backend
 
-      - name: Lint frontend (catches coverage-ignore comments)
+      - name: Lint frontend (no ignore comments, thresholds=100, provider=v8)
         run: npm run lint:no-coverage-ignore
         working-directory: frontend
 
