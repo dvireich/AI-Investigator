@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload } from 'lucide-react';
+import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2 } from 'lucide-react';
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult } from '../api';
 import { useToast } from '../components/Toast';
@@ -7,6 +7,7 @@ import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
 import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
+import { useNotification, getNotifEnabled, setNotifEnabled, getNotifSound, setNotifSound, getNotifEvents, setNotifEvents, ALL_NOTIF_EVENTS, type NotifEvent } from '../hooks/useNotification';
 
 // Path config item component
 const PathItem = ({ icon: Icon, label, value, color, validation }: { icon: any; label: string; value: string; color: string; validation?: PathValidationResult | null }) => {
@@ -72,6 +73,29 @@ export const Settings = () => {
     const [defaultView, setDefaultView] = useState<'grid' | 'list'>(
         () => (localStorage.getItem('inv-view') as 'grid' | 'list') ?? 'grid'
     );
+
+    // Notification preferences (local state backed by localStorage)
+    const [notifEnabled, _setNotifEnabled] = useState(getNotifEnabled);
+    const [notifSoundOn, _setNotifSoundOn] = useState(getNotifSound);
+    const [notifEvents, _setNotifEvents] = useState<NotifEvent[]>(getNotifEvents);
+    const { requestPermission } = useNotification();
+
+    const toggleNotifEnabled = async (enabled: boolean) => {
+        if (enabled && 'Notification' in window && Notification.permission !== 'granted') {
+            const perm = await requestPermission();
+            if (perm !== 'granted') return;
+        }
+        setNotifEnabled(enabled);
+        _setNotifEnabled(enabled);
+    };
+    const toggleNotifSound = (on: boolean) => { setNotifSound(on); _setNotifSoundOn(on); };
+    const toggleNotifEvent = (event: NotifEvent) => {
+        const next = notifEvents.includes(event)
+            ? notifEvents.filter(e => e !== event)
+            : [...notifEvents, event];
+        setNotifEvents(next);
+        _setNotifEvents(next);
+    };
 
     // Products state
     const [products, setProducts] = useState<Product[]>([]);
@@ -1287,6 +1311,59 @@ export const Settings = () => {
                                     />
                                     <span className="text-slate-500 text-sm">sec</span>
                                 </div>
+                            </div>
+
+                            {/* Browser Notifications */}
+                            <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-5">
+                                <div className="flex items-center justify-between">
+                                    <div>
+                                        <h3 className="font-semibold text-slate-200 flex items-center gap-2"><Bell className="w-4 h-4 text-brand-400" /> Browser Notifications</h3>
+                                        <p className="text-sm text-slate-500">Get notified when investigations finish, even if this tab is in the background.</p>
+                                    </div>
+                                    <button
+                                        role="switch"
+                                        aria-checked={notifEnabled}
+                                        onClick={() => toggleNotifEnabled(!notifEnabled)}
+                                        className={`relative w-11 h-6 rounded-full transition-colors ${notifEnabled ? 'bg-brand-500' : 'bg-slate-700'}`}
+                                    >
+                                        <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform shadow ${notifEnabled ? 'translate-x-5' : ''}`} />
+                                    </button>
+                                </div>
+
+                                {notifEnabled && (
+                                    <div className="space-y-4 animate-fade-in pl-1">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2 text-sm text-slate-300">
+                                                <Volume2 className="w-4 h-4 text-slate-400" /> Sound
+                                            </div>
+                                            <button
+                                                role="switch"
+                                                aria-checked={notifSoundOn}
+                                                onClick={() => toggleNotifSound(!notifSoundOn)}
+                                                className={`relative w-11 h-6 rounded-full transition-colors ${notifSoundOn ? 'bg-brand-500' : 'bg-slate-700'}`}
+                                            >
+                                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform shadow ${notifSoundOn ? 'translate-x-5' : ''}`} />
+                                            </button>
+                                        </div>
+
+                                        <div>
+                                            <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Notify on</div>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {ALL_NOTIF_EVENTS.map(evt => (
+                                                    <button
+                                                        key={evt.value}
+                                                        onClick={() => toggleNotifEvent(evt.value)}
+                                                        className={`px-3 py-2 rounded-lg text-sm font-bold transition-all text-left ${
+                                                            notifEvents.includes(evt.value) ? 'bg-brand-500/20 text-brand-300 border border-brand-500/20' : 'bg-slate-800/60 text-slate-500 hover:text-slate-300 border border-slate-700/40'
+                                                        }`}
+                                                    >
+                                                        {evt.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

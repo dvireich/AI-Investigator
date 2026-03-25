@@ -5,6 +5,9 @@ import { useToast } from '../components/Toast';
 import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ScrollToTop } from '../components/ScrollToTop';
+import { useNotification } from '../hooks/useNotification';
+import { useDocumentTitle, buildInvestigationTitle } from '../hooks/useDocumentTitle';
+import { ProgressRing } from '../components/ProgressRing';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -261,7 +264,7 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
     }
 
     return (
-        <div className="flex flex-col gap-2 my-4 animate-fade-in">
+        <div className="flex flex-col gap-2 my-4 animate-slide-in-bottom">
             {/* 1. Agent Thought Bubble */}
             {thoughtContent && (
                 <div className="flex justify-start pr-3 sm:pr-12 group items-end gap-2">
@@ -287,7 +290,7 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
 
             {/* 2. Action Execution Card (Separate) */}
             {action && (
-                <div className="flex justify-start pl-3 pr-2 sm:pl-10 sm:pr-4 animate-fade-in">
+                <div className="flex justify-start pl-3 pr-2 sm:pl-10 sm:pr-4 animate-expand-in">
                     <div className="w-full bg-slate-900/50 border border-slate-800 rounded-xl p-0 overflow-hidden shadow-sm">
                         {/* Header */}
                         <div className="px-4 py-2 bg-slate-800/50 border-b border-slate-800 flex items-center justify-between">
@@ -632,6 +635,31 @@ export const InvestigationDetail = () => {
     const [implLoading, setImplLoading] = useState(false);
     const [implRunning, setImplRunning] = useState(false);
     const [thoughtSearch, setThoughtSearch] = useState('');
+    const { notify: browserNotify } = useNotification();
+    const prevStatusRef = useRef<string | null>(null);
+    const [justCompleted, setJustCompleted] = useState(false);
+
+    // Dynamic tab title
+    useDocumentTitle(
+        investigation ? buildInvestigationTitle(investigation.status, investigation.title || investigation.query) : null
+    );
+
+    // Track status transitions for browser notifications + celebration
+    useEffect(() => {
+        if (!investigation) return;
+        const prev = prevStatusRef.current;
+        if (prev && prev !== investigation.status) {
+            const name = investigation.title || investigation.query || investigation.id;
+            if (investigation.status === 'completed') {
+                browserNotify('Investigation Completed', `${name} finished successfully.`, 'completed');
+                setJustCompleted(true);
+                setTimeout(() => setJustCompleted(false), 1500);
+            }
+            if (investigation.status === 'failed') browserNotify('Investigation Failed', `${name} encountered an error.`, 'failed');
+            if (investigation.status === 'paused') browserNotify('Investigation Paused', `${name} has been paused.`, 'paused');
+        }
+        prevStatusRef.current = investigation.status;
+    }, [investigation?.status, investigation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         api.listModels()
@@ -1086,7 +1114,7 @@ export const InvestigationDetail = () => {
 
                     {/* Mobile: horizontal row | Desktop: vertical centered */}
                     <div className="flex items-center gap-2 lg:gap-3 lg:flex-col lg:items-center lg:justify-center lg:mb-8">
-                        <div className={`relative w-7 h-7 lg:w-20 lg:h-20 rounded-full flex items-center justify-center shrink-0 lg:mb-4 transition-all duration-500 ${
+                        <div className={`relative w-7 h-7 lg:w-20 lg:h-20 rounded-full flex items-center justify-center shrink-0 lg:mb-4 transition-all duration-500 ${justCompleted ? 'animate-celebrate' : ''} ${
                             investigation.status === 'completed' ? 'bg-emerald-500/20 text-emerald-400 ring-2 lg:ring-4 ring-emerald-500/20' :
                             investigation.status === 'running' ? 'bg-green-500/20 text-green-400 ring-2 lg:ring-4 ring-green-500/20' :
                             investigation.status === 'paused' ? 'bg-amber-500/20 text-amber-400 ring-2 lg:ring-4 ring-amber-500/20' :
@@ -1096,6 +1124,7 @@ export const InvestigationDetail = () => {
                             }`}>
                             {investigation.status === 'running' && <div className="absolute inset-0 rounded-full border-2 lg:border-4 border-green-500/30 animate-ping"></div>}
                             {investigation.status === 'completed' && <div className="absolute inset-0 rounded-full border-2 border-emerald-500/30"></div>}
+                            {justCompleted && <div className="absolute inset-0 rounded-full border-4 border-emerald-400/50 animate-ping"></div>}
                             <Activity className={`w-3.5 h-3.5 lg:w-8 lg:h-8 ${investigation.status === 'running' ? 'animate-pulse' : ''}`} />
                         </div>
 
@@ -1245,6 +1274,23 @@ export const InvestigationDetail = () => {
                     </div>
                 </div>
 
+                {/* Step Progress Bar */}
+                {(investigation.status === 'running' || investigation.status === 'paused') && investigation.thoughts.length > 0 && (
+                    <div className="hidden lg:block px-1 shrink-0">
+                        <div className="flex items-center gap-2 mb-1">
+                            <ProgressRing current={investigation.thoughts.length} max={50} size={20} strokeWidth={2} />
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Step {investigation.thoughts.length} / 50</span>
+                        </div>
+                        <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                            <div
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                    investigation.status === 'running' ? 'bg-brand-500 animate-pulse' : 'bg-amber-500'
+                                }`}
+                                style={{ width: `${Math.min((investigation.thoughts.length / 50) * 100, 100)}%` }}
+                            />
+                        </div>
+                    </div>
+                )}
 
 
                 {/* Info Card — collapsible on mobile, always visible on desktop */}

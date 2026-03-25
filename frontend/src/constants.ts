@@ -26,3 +26,8 @@ export const SCHEDULE_INTERVAL_PRESETS = [
     { label: 'Every 12 hours', value: 720 },
     { label: 'Every 24 hours', value: 1440 },
 ];
+
+// Notification preference localStorage keys
+export const NOTIF_ENABLED_KEY = 'notif-enabled';
+export const NOTIF_SOUND_KEY = 'notif-sound';
+export const NOTIF_EVENTS_KEY = 'notif-events';

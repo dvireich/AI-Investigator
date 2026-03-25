@@ -8,6 +8,9 @@ import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
 import { KpiBar } from '../components/charts/KpiBar';
 import { getSelectedWidgetIds, getWidgetById } from '../components/charts/widgetRegistry';
 import { ScrollToTop } from '../components/ScrollToTop';
+import { useNotification } from '../hooks/useNotification';
+import { useDocumentTitle, buildDashboardTitle } from '../hooks/useDocumentTitle';
+import { ProgressRing } from '../components/ProgressRing';
 
 /** Mini 5-segment step depth bar */
 const StepBar = ({ count, color }: { count: number; color: string }) => {
@@ -141,6 +144,7 @@ const _thoughtActivity: Record<string, { count: number; seenAt: number }> = {};
 
 export const Dashboard = () => {
     const { toast, confirm } = useToast();
+    const { notify: browserNotify } = useNotification();
     const [pageItems, setPageItems] = useState<Investigation[]>([]);
     const [serverTotalCount, setServerTotalCount] = useState(0);
     const [serverTotalPages, setServerTotalPages] = useState(1);
@@ -293,11 +297,12 @@ export const Dashboard = () => {
             const prev = prevStatusRef.current;
             const lta  = lastThoughtActivityRef.current;
             data.items.forEach(inv => {
-                // Toast on status change
+                // Toast + browser notification on status change
                 const was = prev[inv.id];
                 if (was && was !== inv.status) {
-                    if (inv.status === 'completed') addToast(inv, 'completed');
-                    if (inv.status === 'failed')    addToast(inv, 'failed');
+                    if (inv.status === 'completed') { addToast(inv, 'completed'); browserNotify(`Investigation Completed`, `${inv.title || inv.query || inv.id} finished successfully.`, 'completed'); }
+                    if (inv.status === 'failed')    { addToast(inv, 'failed');    browserNotify(`Investigation Failed`, `${inv.title || inv.query || inv.id} encountered an error.`, 'failed'); }
+                    if (inv.status === 'paused')    { browserNotify(`Investigation Paused`, `${inv.title || inv.query || inv.id} has been paused.`, 'paused'); }
                 }
                 prev[inv.id] = inv.status;
                 // Stale detection: use actual thoughtCount from API (list endpoint
@@ -601,6 +606,9 @@ export const Dashboard = () => {
         failed:    { icon: <XCircle className="w-7 h-7 text-red-400" />,      title: 'No failures',                   body: "That's a good sign. No failed investigations here." },
         aborted:   { icon: <Ban className="w-7 h-7 text-slate-500" />,        title: 'No aborted investigations',     body: 'Nothing was stopped early.' },
     };
+
+    // Dynamic tab title showing running/paused counts
+    useDocumentTitle(buildDashboardTitle(stats.running, stats.paused));
 
     const mainContent = (
         <div
@@ -1179,6 +1187,9 @@ export const Dashboard = () => {
                                                 {(inv.thoughtCount ?? inv.thoughts?.length ?? 0) > 0 && (
                                                     <StepBar count={inv.thoughtCount ?? inv.thoughts.length}
                                                         color={isRunning ? 'bg-blue-400' : isPaused ? 'bg-amber-400' : isCompleted ? 'bg-emerald-400' : isFailed ? 'bg-red-400' : 'bg-slate-400'} />
+                                                )}
+                                                {(isRunning || isPaused) && (inv.thoughtCount ?? inv.thoughts?.length ?? 0) > 0 && (
+                                                    <ProgressRing current={inv.thoughtCount ?? inv.thoughts.length} max={50} size={24} strokeWidth={2.5} />
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2">

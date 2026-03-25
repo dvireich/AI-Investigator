@@ -3724,4 +3724,93 @@ describe('Settings extra coverage', () => {
             await waitFor(() => expect(screen.getByText(/Failed to import settings/)).toBeInTheDocument());
         });
     });
+
+    describe('Notification Preferences', () => {
+        it('renders notification toggle switch in appearance tab', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Appearance'));
+            expect(screen.getByText('Browser Notifications')).toBeInTheDocument();
+            // The switch has aria-checked="false" by default
+            const switches = screen.getAllByRole('switch');
+            expect(switches.length).toBeGreaterThanOrEqual(1);
+        });
+
+        it('enables notifications and shows sound + event toggles', async () => {
+            localStorage.setItem('notif-enabled', 'true');
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Appearance'));
+            expect(screen.getByText('Sound')).toBeInTheDocument();
+            expect(screen.getByText('Investigation Completed')).toBeInTheDocument();
+            expect(screen.getByText('Investigation Failed')).toBeInTheDocument();
+        });
+
+        it('toggles notification enabled on', async () => {
+            // Mock Notification API
+            const MockNotification = vi.fn() as any;
+            MockNotification.permission = 'granted';
+            MockNotification.requestPermission = vi.fn().mockResolvedValue('granted');
+            Object.defineProperty(window, 'Notification', { value: MockNotification, writable: true, configurable: true });
+
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Appearance'));
+            // Find the first switch (notification toggle — starts as unchecked)
+            const switches = screen.getAllByRole('switch');
+            const notifToggle = switches.find(t => t.getAttribute('aria-checked') === 'false');
+            if (notifToggle) await user.click(notifToggle);
+            expect(localStorage.getItem('notif-enabled')).toBe('true');
+        });
+
+        it('toggles sound off', async () => {
+            localStorage.setItem('notif-enabled', 'true');
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Appearance'));
+            // Sound starts as enabled (aria-checked=true) — click to disable
+            await waitFor(() => screen.getByText('Sound'));
+            const switches = screen.getAllByRole('switch');
+            // The second switch is the sound toggle (first is notif enabled)
+            const soundSwitch = switches[1];
+            if (soundSwitch) await user.click(soundSwitch);
+            await waitFor(() => expect(localStorage.getItem('notif-sound')).toBe('false'));
+        });
+
+        it('toggles notification event type off and on', async () => {
+            localStorage.setItem('notif-enabled', 'true');
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Appearance'));
+            // Click "Investigation Completed" to toggle it
+            const completedBtn = screen.getByText('Investigation Completed');
+            await user.click(completedBtn);
+            // Click it again to re-enable
+            await user.click(completedBtn);
+            // Just verify no crash and events were toggled
+            expect(screen.getByText('Investigation Completed')).toBeInTheDocument();
+        });
+
+        it('requests permission when enabling and permission is default', async () => {
+            const MockNotification = vi.fn() as any;
+            MockNotification.permission = 'default';
+            MockNotification.requestPermission = vi.fn().mockResolvedValue('denied');
+            Object.defineProperty(window, 'Notification', { value: MockNotification, writable: true, configurable: true });
+
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Appearance'));
+            const switches = screen.getAllByRole('switch');
+            const notifToggle = switches.find(t => t.getAttribute('aria-checked') === 'false');
+            if (notifToggle) await user.click(notifToggle);
+            // Permission denied → should not enable
+            expect(localStorage.getItem('notif-enabled')).not.toBe('true');
+        });
+    });
 });
