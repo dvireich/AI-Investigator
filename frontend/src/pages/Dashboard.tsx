@@ -177,7 +177,7 @@ export const Dashboard = () => {
                 setPageSize(settings.defaultPageSize);
                 localStorage.setItem('inv-page-size', String(settings.defaultPageSize));
             }
-        }).catch(() => {});
+        }).catch(() => { console.warn('Failed to load default settings'); });
     }, []);
     const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'steps' | 'modified'>(() =>
         (localStorage.getItem('inv-sort') as 'newest' | 'oldest' | 'steps' | 'modified') ?? 'newest'
@@ -187,7 +187,7 @@ export const Dashboard = () => {
     const [copiedCorrelationId, setCopiedCorrelationId] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [pinnedIds, setPinnedIds] = useState<Set<string>>(
-        () => new Set(JSON.parse(localStorage.getItem('inv-pinned') || '[]'))
+        () => { try { return new Set(JSON.parse(localStorage.getItem('inv-pinned') || '[]')); } catch { return new Set(); } }
     );
     const prevStatusRef = useRef<Record<string, string>>({});
     const lastThoughtActivityRef = useRef(_thoughtActivity);
@@ -236,6 +236,7 @@ export const Dashboard = () => {
             }
         } catch (err) {
             console.error('Resume all failed:', err);
+            toast('error', 'Failed to resume investigations. Please try again.');
         } finally {
             setResumingAll(false);
         }

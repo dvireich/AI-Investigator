@@ -29,6 +29,9 @@ vi.mock('../pages/About', () => ({
 vi.mock('../pages/OnboardingWizard', () => ({
     OnboardingWizard: () => <div data-testid="onboarding">Onboarding</div>,
 }));
+vi.mock('../pages/NotFound', () => ({
+    NotFound: () => <div data-testid="not-found">Not Found</div>,
+}));
 
 // Mock Layout to render its Outlet
 vi.mock('../components/Layout', () => ({
@@ -73,34 +76,34 @@ describe('App', () => {
         await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
     });
 
-    it('renders NewInvestigation at /new', () => {
+    it('renders NewInvestigation at /new', async () => {
         renderApp('/new');
-        expect(screen.getByTestId('new-investigation')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId('new-investigation')).toBeInTheDocument());
     });
 
-    it('renders InvestigationDetail at /investigation/:id', () => {
+    it('renders InvestigationDetail at /investigation/:id', async () => {
         renderApp('/investigation/123');
-        expect(screen.getByTestId('investigation-detail')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId('investigation-detail')).toBeInTheDocument());
     });
 
-    it('renders Settings at /settings', () => {
+    it('renders Settings at /settings', async () => {
         renderApp('/settings');
-        expect(screen.getByTestId('settings')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId('settings')).toBeInTheDocument());
     });
 
-    it('renders Schedules at /schedules', () => {
+    it('renders Schedules at /schedules', async () => {
         renderApp('/schedules');
-        expect(screen.getByTestId('schedules')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId('schedules')).toBeInTheDocument());
     });
 
-    it('renders About at /about', () => {
+    it('renders About at /about', async () => {
         renderApp('/about');
-        expect(screen.getByTestId('about')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId('about')).toBeInTheDocument());
     });
 
-    it('renders OnboardingWizard at /onboarding', () => {
+    it('renders OnboardingWizard at /onboarding', async () => {
         renderApp('/onboarding');
-        expect(screen.getByTestId('onboarding')).toBeInTheDocument();
+        await waitFor(() => expect(screen.getByTestId('onboarding')).toBeInTheDocument());
     });
 
     it('redirects to onboarding when onboarding is not complete', async () => {
@@ -112,6 +115,11 @@ describe('App', () => {
         }));
         renderApp('/');
         await waitFor(() => expect(screen.getByTestId('onboarding')).toBeInTheDocument());
+    });
+
+    it('renders NotFound for unknown routes', async () => {
+        renderApp('/some/unknown/path');
+        await waitFor(() => expect(screen.getByTestId('not-found')).toBeInTheDocument());
     });
 
     it('shows dashboard when onboarding fetch fails', async () => {

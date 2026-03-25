@@ -1036,6 +1036,18 @@ describe('Dashboard', () => {
             const pinned = JSON.parse(localStorage.getItem('inv-pinned') || '[]');
             expect(pinned.length).toBe(0);
         });
+
+        it('handles corrupted localStorage for pinned IDs gracefully', async () => {
+            localStorage.setItem('inv-pinned', '{{invalid json!!');
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
+
+            // Should not crash – the catch fallback returns new Set()
+            renderDashboard();
+            await waitFor(() => {
+                expect(screen.getByText('Completed Investigation')).toBeInTheDocument();
+            });
+        });
     });
 
     // === Resume All ===

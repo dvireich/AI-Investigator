@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code, ArrowLeft } from 'lucide-react';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -769,6 +769,17 @@ export const InvestigationDetail = () => {
         };
     }, [id]);
 
+    // Reconnect WebSocket and refresh data when tab regains focus
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                fetchInvestigation();
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, []);
+
     useEffect(() => {
         if (logsEndRef.current) {
             logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
@@ -1062,6 +1073,15 @@ export const InvestigationDetail = () => {
 
             {/* Sidebar: Status & Info */}
             <div className="lg:col-span-3 flex flex-col gap-1 lg:gap-4 lg:overflow-y-auto scrollbar-hidden shrink-0">
+                {/* Back to Dashboard */}
+                <button
+                    onClick={() => navigate('/')}
+                    className="hidden lg:flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors mb-1 self-start focus:outline-none focus:ring-2 focus:ring-brand-500 rounded-lg px-1 py-0.5"
+                    aria-label="Back to dashboard"
+                >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Dashboard</span>
+                </button>
                 {/* Status Card */}
                 <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl lg:rounded-3xl p-1.5 lg:p-6 shadow-2xl border border-white/[0.06] relative overflow-hidden group shrink-0">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
