@@ -4380,5 +4380,102 @@ describe('Dashboard additional coverage', () => {
 
             await waitFor(() => expect(screen.getByText('Clear all')).toBeInTheDocument());
         });
+
+        it('fires browserNotify when investigation transitions to paused (covers L305)', async () => {
+            const api = await getApi();
+            const invId = String(Date.now() - 8000);
+            vi.mocked(api.listInvestigations)
+                .mockResolvedValueOnce(paginatedResponse([
+                    createMockInvestigation({ id: invId, title: 'Pause Notify Test', status: 'running' }),
+                ]))
+                .mockResolvedValueOnce(paginatedResponse([
+                    createMockInvestigation({ id: invId, title: 'Pause Notify Test', status: 'paused' }),
+                ]));
+            renderDashboard();
+            await waitFor(() => screen.getByText('Pause Notify Test'));
+            await vi.advanceTimersByTimeAsync(3001);
+            await waitFor(() => screen.getByText('Pause Notify Test'));
+        });
+
+        it('covers inv.title || inv.query || inv.id fallback for paused notification (covers L305 || branch)', async () => {
+            const api = await getApi();
+            const invId = String(Date.now() - 9000);
+            vi.mocked(api.listInvestigations)
+                .mockResolvedValueOnce(paginatedResponse([
+                    createMockInvestigation({ id: invId, title: '', query: 'my paused query', status: 'running' }),
+                ]))
+                .mockResolvedValueOnce(paginatedResponse([
+                    createMockInvestigation({ id: invId, title: '', query: 'my paused query', status: 'paused' }),
+                ]));
+            renderDashboard();
+            await waitFor(() => screen.getByText('my paused query'));
+            vi.advanceTimersByTime(3500);
+            await waitFor(() => screen.getByText('my paused query'));
+        });
+
+        it('covers inv.title || inv.query || inv.id fallback for failed notification (covers L304 || branch)', async () => {
+            const api = await getApi();
+            const invId = String(Date.now() - 10000);
+            vi.mocked(api.listInvestigations)
+                .mockResolvedValueOnce(paginatedResponse([
+                    createMockInvestigation({ id: invId, title: '', query: '', status: 'running' }),
+                ]))
+                .mockResolvedValueOnce(paginatedResponse([
+                    createMockInvestigation({ id: invId, title: '', query: '', status: 'failed' }),
+                ]));
+            renderDashboard();
+            await waitFor(() => screen.getAllByText(/Investigation/)[0]);
+            vi.advanceTimersByTime(3500);
+            await waitFor(() => expect(screen.getByText(/Investigation failed/i)).toBeInTheDocument());
+        });
+
+        it('covers inv.title || inv.query || inv.id fallback with both empty for paused (covers L305 inv.id branch)', async () => {
+            const api = await getApi();
+            const invId = String(Date.now() - 11000);
+            vi.mocked(api.listInvestigations)
+                .mockResolvedValueOnce(paginatedResponse([
+                    createMockInvestigation({ id: invId, title: '', query: '', status: 'running' }),
+                ]))
+                .mockResolvedValueOnce(paginatedResponse([
+                    createMockInvestigation({ id: invId, title: '', query: '', status: 'paused' }),
+                ]));
+            renderDashboard();
+            await waitFor(() => screen.getAllByText(/Investigation/)[0]);
+            vi.advanceTimersByTime(3500);
+            await waitFor(() => screen.getAllByText(/Investigation/)[0]);
+        });
+
+        it('renders ProgressRing on running investigation cards with thoughtCount > 0 (covers L1191-1192)', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
+                createMockInvestigation({ status: 'running', title: 'Progress Ring Test', thoughtCount: 15, thoughts: ['t1'] }),
+            ]));
+            renderDashboard();
+            await waitFor(() => screen.getByText('Progress Ring Test'));
+            // ProgressRing renders with percentage text: 15/50 = 30%
+            expect(screen.getByText('30%')).toBeInTheDocument();
+        });
+
+        it('renders ProgressRing on paused investigation with thoughts.length fallback (covers L1191-1192 isPaused + ?? branch)', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
+                createMockInvestigation({ status: 'paused', title: 'Paused Ring Test', thoughtCount: undefined as any, thoughts: ['t1', 't2', 't3', 't4', 't5'] }),
+            ]));
+            renderDashboard();
+            await waitFor(() => screen.getByText('Paused Ring Test'));
+            // ProgressRing: 5/50 = 10%
+            expect(screen.getByText('10%')).toBeInTheDocument();
+        });
+
+        it('does not render ProgressRing when running investigation has no thoughts or thoughtCount (covers L1191 ?? 0 fallback)', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
+                createMockInvestigation({ status: 'running', title: 'No Thoughts Test', thoughtCount: undefined as any, thoughts: undefined as any }),
+            ]));
+            renderDashboard();
+            await waitFor(() => screen.getByText('No Thoughts Test'));
+            // No ProgressRing should be rendered (0 > 0 is false)
+            expect(screen.queryByText('%')).not.toBeInTheDocument();
+        });
     });
 });

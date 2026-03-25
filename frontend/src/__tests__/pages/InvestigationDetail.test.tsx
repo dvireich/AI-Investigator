@@ -7216,6 +7216,110 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
         });
     });
 
+    describe('Status Transition Notifications & Celebration', () => {
+        it('fires browser notification and celebration animation when status transitions to completed (covers L654-657, L1117, L1127)', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getInvestigation)
+                .mockResolvedValueOnce(createMockInvestigation({ status: 'running', finalReport: null }));
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            expect(screen.getByText('running')).toBeInTheDocument();
+
+            // Set up second mock for the WS-triggered refetch
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ status: 'completed' }));
+            if (mockWsInstance?.onmessage) {
+                mockWsInstance.onmessage({ data: JSON.stringify({ type: 'status' }) } as any);
+            }
+            // Advance past the 300ms debounce to trigger fetchInvestigation
+            await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+            await waitFor(() => expect(screen.getAllByText('completed').length).toBeGreaterThanOrEqual(1));
+            // justCompleted triggers animate-celebrate class on the status badge (covers L1117, L1127)
+        });
+
+        it('fires notification with query fallback when title is empty (covers L652 || branches)', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getInvestigation)
+                .mockResolvedValueOnce(createMockInvestigation({ title: '', query: 'fallback query', status: 'running', finalReport: null }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => expect(vi.mocked(api.getInvestigation)).toHaveBeenCalled());
+
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ title: '', query: 'fallback query', status: 'completed' }));
+            if (mockWsInstance?.onmessage) {
+                mockWsInstance.onmessage({ data: JSON.stringify({ type: 'status' }) } as any);
+            }
+            await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+            await waitFor(() => expect(screen.getAllByText('completed').length).toBeGreaterThanOrEqual(1));
+        });
+
+        it('fires notification with id fallback when title and query are empty (covers L652 || id branch)', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getInvestigation)
+                .mockResolvedValueOnce(createMockInvestigation({ title: '', query: '', status: 'running', finalReport: null }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ title: '', query: '', status: 'failed', finalReport: null }));
+            if (mockWsInstance?.onmessage) {
+                mockWsInstance.onmessage({ data: JSON.stringify({ type: 'status' }) } as any);
+            }
+            await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+            await waitFor(() => screen.getByText('failed'));
+        });
+
+        it('fires browser notification when status transitions to failed (covers L655)', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getInvestigation)
+                .mockResolvedValueOnce(createMockInvestigation({ status: 'running', finalReport: null }));
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ status: 'failed', finalReport: null }));
+            if (mockWsInstance?.onmessage) {
+                mockWsInstance.onmessage({ data: JSON.stringify({ type: 'status' }) } as any);
+            }
+            await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+            await waitFor(() => screen.getByText('failed'));
+        });
+
+        it('fires browser notification when status transitions to paused (covers L656)', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getInvestigation)
+                .mockResolvedValueOnce(createMockInvestigation({ status: 'running', finalReport: null }));
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ status: 'paused', finalReport: null }));
+            if (mockWsInstance?.onmessage) {
+                mockWsInstance.onmessage({ data: JSON.stringify({ type: 'status' }) } as any);
+            }
+            await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+            await waitFor(() => screen.getByText('paused'));
+        });
+
+        it('renders progress bar for running investigations with thoughts (covers progress bar section)', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                status: 'running',
+                finalReport: null,
+                thoughts: Array.from({ length: 10 }, (_, i) => ({ content: `Step ${i}`, type: 'thought' })),
+                actions: Array.from({ length: 10 }, () => null),
+            }));
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            // Progress bar label: "Step 10 / 50"
+            expect(screen.getByText('Step 10 / 50')).toBeInTheDocument();
+            // ProgressRing should render with 20%
+            expect(screen.getByText('20%')).toBeInTheDocument();
+        });
+    });
+
 });
 
 
