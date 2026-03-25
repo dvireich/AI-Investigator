@@ -4260,28 +4260,19 @@ describe('server utilities and routes', () => {
             expect(response.body.error).toBe('restart failed');
         });
 
-        it('pauses runners during server restart without exiting the test process', async () => {
-            vi.useFakeTimers();
-            try {
-                const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as any);
+        it('performs in-process restart: pauses runners, reloads config, reinits providers', async () => {
                 const runner = makeRunner({ id: 'active-6', status: 'running' });
                 __testUtils.getRunners().set('active-6', runner as any);
 
                 const response = await api().post('/api/server/restart').send({});
                 expect(response.status).toBe(200);
+                expect(response.body.status).toBe('restarted');
                 expect(runner.pause).toHaveBeenCalled();
-
-                await vi.advanceTimersByTimeAsync(600);
-                expect(exitSpy).toHaveBeenCalledWith(0);
-            } finally {
-                vi.useRealTimers();
-            }
+                // Runners should be cleared after restart
+                expect(__testUtils.getRunners().size).toBe(0);
         });
 
         it('continues restart when a runner pause throws', async () => {
-            vi.useFakeTimers();
-            try {
-                const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as any);
                 const runner = makeRunner({ id: 'active-7', status: 'running' }, {
                     pause: vi.fn(() => {
                         throw new Error('pause failed');
@@ -4292,11 +4283,9 @@ describe('server utilities and routes', () => {
                 const response = await api().post('/api/server/restart').send({});
 
                 expect(response.status).toBe(200);
-                await vi.advanceTimersByTimeAsync(600);
-                expect(exitSpy).toHaveBeenCalledWith(0);
-            } finally {
-                vi.useRealTimers();
-            }
+                expect(response.body.status).toBe('restarted');
+                // Runners should still be cleared even when pause fails
+                expect(__testUtils.getRunners().size).toBe(0);
         });
 
     });

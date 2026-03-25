@@ -1079,6 +1079,25 @@ describe('Dashboard', () => {
                 expect(api.resumeAll).toHaveBeenCalled();
             });
         });
+
+        it('hides Resume All button after successful resume by updating stats', async () => {
+            const api = await getApi();
+            const pausedId = mockInvestigations.find(i => i.status === 'paused')!.id;
+            vi.mocked(api.resumeAll).mockResolvedValue({ resumed: 1, skipped: 0, ids: [pausedId] });
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDashboard();
+
+            await waitFor(() => screen.getByText(/Resume All/i));
+
+            await user.click(screen.getByText(/Resume All/i));
+
+            // Button should disappear because stats.paused becomes 0
+            await waitFor(() => {
+                expect(screen.queryByText(/Resume All/i)).not.toBeInTheDocument();
+            });
+        });
     });
 
     // === Restart Server ===
@@ -2599,11 +2618,11 @@ describe('Dashboard', () => {
 
     // === Restart Server Confirmation Path ===
     describe('Restart Server Confirmation Path', () => {
-        it('calls restartServer API and polls when restart is confirmed', async () => {
-            // Covers: handleRestartServer post-confirm path, pollInterval callback, setTimeout 30s callback
+        it('calls restartServer API when restart is confirmed', async () => {
+            // Covers: handleRestartServer post-confirm path, setTimeout 1500ms callback
             const api = await getApi();
             vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
-            vi.mocked(api.restartServer).mockResolvedValue({ status: 'ok' });
+            vi.mocked(api.restartServer).mockResolvedValue({ status: 'restarted' });
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
@@ -2628,20 +2647,13 @@ describe('Dashboard', () => {
                 expect(api.restartServer).toHaveBeenCalled();
             });
 
-            // Advance 1001ms to trigger the poll interval callback
-            vi.advanceTimersByTime(1001);
-
-            // api.listInvestigations is called by the poll (to check if server is back)
-            // At least initial call + poll call(s) = more than 1 total
-            await waitFor(() => {
-                expect(api.listInvestigations.mock.calls.length).toBeGreaterThanOrEqual(2);
+            // Advance past the 1500ms delay to clear restarting state
+            await act(async () => {
+                vi.advanceTimersByTime(1600);
             });
-
-            // Advance to 30s timeout to cover the safety timeout callback
-            vi.advanceTimersByTime(30000);
         });
 
-        it('handles restartServer error (server shuts down) gracefully', async () => {
+        it('handles restartServer error (connection drops) gracefully', async () => {
             // Covers the catch block in handleRestartServer around api.restartServer()
             const api = await getApi();
             vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
@@ -2667,10 +2679,9 @@ describe('Dashboard', () => {
                 expect(api.restartServer).toHaveBeenCalled();
             });
 
-            // Advance timers to cover the poll interval callback catching the down-server error
+            // Advance past the 1500ms delay
             await act(async () => {
-                vi.mocked(api.listInvestigations).mockRejectedValueOnce(new Error('Server down'));
-                vi.advanceTimersByTime(1001);
+                vi.advanceTimersByTime(1600);
             });
         });
     });

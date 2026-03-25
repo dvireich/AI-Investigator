@@ -231,6 +231,12 @@ export const Dashboard = () => {
                 setPageItems(prev => prev.map(inv =>
                     resumedSet.has(inv.id) ? { ...inv, status: 'running' as Investigation['status'] } : inv
                 ));
+                // Update stats so the button disappears immediately
+                setStats(prev => ({
+                    ...prev,
+                    paused: Math.max(0, prev.paused - result.resumed),
+                    running: prev.running + result.resumed,
+                }));
             }
             if (result.skipped > 0) {
                 console.log(`Resume-all: ${result.resumed} resumed, ${result.skipped} skipped (concurrency limit)`);
@@ -255,23 +261,12 @@ export const Dashboard = () => {
         try {
             await api.restartServer();
         } catch {
-            // Expected — server shuts down, connection drops
+            // Connection may drop if server truly exits
         }
-        // Poll until server comes back
-        const pollInterval = setInterval(async () => {
-            try {
-                await api.listInvestigations({ page: 1, pageSize });
-                clearInterval(pollInterval);
-                setRestarting(false);
-            } catch {
-                // Server still down, keep polling
-            }
-        }, 1000);
-        // Safety timeout — stop polling after 30s
+        // Brief delay then refresh data
         setTimeout(() => {
-            clearInterval(pollInterval);
             setRestarting(false);
-        }, 30000);
+        }, 1500);
     };
 
     const dismissToast = (key: number) => setToasts(t => t.filter(x => x.key !== key));
@@ -1523,11 +1518,12 @@ export const Dashboard = () => {
                 {pausedCount > 0 && (
                     <button
                         onClick={handleResumeAll}
-                        className="flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/30 transition-all whitespace-nowrap"
+                        disabled={resumingAll}
+                        className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap ${resumingAll ? 'text-amber-300/50 bg-amber-500/5 border border-amber-500/10 cursor-not-allowed' : 'text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 hover:border-amber-500/30'}`}
                     >
-                        <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-                        <span className="hidden xs:inline">Resume All</span>
-                        <span className="xs:hidden">Resume</span>
+                        {resumingAll ? <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" /> : <Play className="w-3.5 h-3.5 sm:w-4 sm:h-4" />}
+                        <span className="hidden xs:inline">{resumingAll ? 'Resuming…' : 'Resume All'}</span>
+                        <span className="xs:hidden">{resumingAll ? '…' : 'Resume'}</span>
                     </button>
                 )}
                 <button

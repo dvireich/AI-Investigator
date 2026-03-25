@@ -2242,11 +2242,13 @@ app.post('/api/investigations/resume-all', async (req, res) => {
     }
 });
 
-// Graceful server restart — process manager (ts-node-dev --respawn) will restart automatically
+// Graceful server restart — in-process reload of config, providers, and state
 app.post('/api/server/restart', (req, res) => {
-    console.log('Server restart requested via API. Exiting for respawn...');
+    try {
+    console.log('Server restart requested via API. Performing in-process restart...');
+    invalidateListCache();
 
-    // Pause all running investigations before exit so they auto-pause on reload
+    // 1. Pause all running investigations and save state
     for (const [id, runner] of runners.entries()) {
         try {
             runner.pause();
@@ -2256,13 +2258,37 @@ app.post('/api/server/restart', (req, res) => {
             console.error(`  Failed to pause runner ${id}:`, e.message);
         }
     }
+    runners.clear();
+    storagePathCache.clear();
 
-    res.json({ status: 'restarting' });
+    // 2. Reload config from disk
+    try {
+        const loaded = loadConfigFromDisk(configFile, config, configFileDir);
+        config = loaded.config;
+        persistedConfig = loaded.persistedConfig;
+        console.log('  Config reloaded from disk.');
+    } catch (e: any) {
+        console.error('  Failed to reload config:', e.message);
+    }
 
-    // Give the response time to flush, then exit
-    setTimeout(() => {
-        process.exit(0);
-    }, 500);
+    // 3. Reinitialize providers
+    initializeProviders();
+
+    // 4. Reload investigation history
+    loadHistory();
+
+    // 5. Reinitialize scheduler
+    if (scheduler) {
+        try { scheduler.stop(); } catch { /* ignore */ }
+    }
+    initScheduler();
+
+    console.log('In-process restart complete.');
+    res.json({ status: 'restarted' });
+    } catch (err: any) {
+        console.error('Server restart failed:', err);
+        res.status(500).json({ error: 'Restart failed', details: err.message });
+    }
 });
 
 app.post('/api/investigations/:id/model', async (req, res) => {
