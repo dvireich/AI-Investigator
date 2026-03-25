@@ -182,7 +182,7 @@ describe('InvestigationDetail', () => {
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
             await waitFor(() => {
-                expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
             });
         });
 
@@ -229,10 +229,10 @@ describe('InvestigationDetail', () => {
             await act(async () => { await vi.advanceTimersByTimeAsync(200); });
             
             // Wait for the investigation to load first
-            await waitFor(() => screen.getByText('Test Investigation'), { timeout: 5000 });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0], { timeout: 5000 });
             
             // The status text appears in an h2 element - verify page loads successfully
-            expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+            expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
         });
 
         it('renders time range', async () => {
@@ -380,7 +380,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Find the Report tab (the one with "Final Report" text)
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
@@ -470,7 +470,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const retroTab = screen.getByRole('button', { name: /Retrospect|Retro/i });
             await user.click(retroTab);
@@ -525,7 +525,7 @@ describe('InvestigationDetail', () => {
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
             // Wait for Investigation to load and find the Resume button (Play icon)
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // The Resume button has the play icon, look for it by title or find it
             // In paused state, there should be a button to resume
@@ -542,7 +542,7 @@ describe('InvestigationDetail', () => {
                 });
             } else {
                 // Just verify the investigation loaded in paused state
-                expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
             }
         });
 
@@ -611,7 +611,7 @@ describe('InvestigationDetail', () => {
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
             await waitFor(() => {
-                expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
             });
             
             // The title should have an edit button/icon visible
@@ -624,7 +624,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const titleButton = screen.getByTitle(/Click to edit/i);
             await user.click(titleButton);
@@ -640,7 +640,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const titleButton = screen.getByTitle(/Click to edit/i);
             await user.click(titleButton);
@@ -660,7 +660,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const titleButton = screen.getByTitle(/Click to edit/i);
             await user.click(titleButton);
@@ -670,7 +670,7 @@ describe('InvestigationDetail', () => {
             
             // Should exit edit mode without saving
             await waitFor(() => {
-                expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
             });
             expect(api.updateTitle).not.toHaveBeenCalled();
         });
@@ -681,7 +681,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const titleButton = screen.getByTitle(/Click to edit/i);
             await user.click(titleButton);
@@ -704,7 +704,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const titleButton = screen.getByTitle(/Click to edit/i);
             await user.click(titleButton);
@@ -713,7 +713,7 @@ describe('InvestigationDetail', () => {
             await user.click(cancelBtn);
             
             await waitFor(() => {
-                expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
             });
             expect(api.updateTitle).not.toHaveBeenCalled();
         });
@@ -738,7 +738,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const addTagBtn = screen.getByText(/Add tag/i);
             await user.click(addTagBtn);
@@ -754,7 +754,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const addTagBtn = screen.getByText(/Add tag/i);
             await user.click(addTagBtn);
@@ -792,7 +792,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const addTagBtn = screen.getByText(/Add tag/i);
             await user.click(addTagBtn);
@@ -980,7 +980,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Switch to Report tab
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
@@ -997,7 +997,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -1017,7 +1017,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -1042,7 +1042,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -1078,7 +1078,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1099,7 +1099,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1126,7 +1126,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1157,7 +1157,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1182,7 +1182,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1220,7 +1220,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1255,7 +1255,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1296,7 +1296,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1337,7 +1337,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1365,7 +1365,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1393,7 +1393,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
             
@@ -1418,7 +1418,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Use title attribute for specificity - the icon button has this title
             const shareBtn = screen.getByTitle(/Share investigation/i);
@@ -1435,7 +1435,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Use title attribute for specificity
             const pdfBtn = screen.getByTitle(/Export report as PDF/i);
@@ -1455,7 +1455,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Use title attribute for specificity
             const shareBtn = screen.getByTitle(/Share investigation/i);
@@ -1490,7 +1490,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Simulate WebSocket close
             await act(async () => {
@@ -1508,7 +1508,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Reset call count
             vi.mocked(api.getInvestigation).mockClear();
@@ -1574,7 +1574,7 @@ describe('InvestigationDetail', () => {
             
             // Should still render the page even if models fail to load
             await waitFor(() => {
-                expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
             });
         });
     });
@@ -1589,7 +1589,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Click View button next to Query
             const viewBtn = screen.getByRole('button', { name: /View/i });
@@ -1606,7 +1606,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Open modal
             await user.click(screen.getByRole('button', { name: /View/i }));
@@ -1625,7 +1625,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Open modal
             await user.click(screen.getByRole('button', { name: /View/i }));
@@ -1838,7 +1838,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Switch to Report tab - use more specific selector
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
@@ -1893,7 +1893,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Failed status should show in the status area
             expect(document.body.textContent).toContain('failed');
         });
@@ -1907,7 +1907,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toContain('aborted');
         });
 
@@ -1999,7 +1999,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Simulate WebSocket close
             await act(async () => {
@@ -2017,7 +2017,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Open query modal
             await user.click(screen.getByRole('button', { name: /View/i }));
@@ -2070,7 +2070,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // The ID 1700000000000 represents a timestamp that should be formatted
             expect(document.body.textContent).toContain('2023');
         });
@@ -2091,7 +2091,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Advance time and check duration updates
             await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
@@ -2112,7 +2112,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Find a step card with tool execution
             const toolCards = screen.getAllByText(/execute_kql_query|Executing Tool/i);
@@ -2136,7 +2136,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Look for Load Full Output button
             const loadBtn = screen.queryByText(/Load Full Output/i);
@@ -2158,7 +2158,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Simulate WebSocket close (triggers disconnection)
             await act(async () => {
@@ -2196,7 +2196,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Simulate WebSocket error
             await act(async () => {
@@ -2205,7 +2205,7 @@ describe('InvestigationDetail', () => {
             });
             
             // Error should be handled gracefully - component should still render
-            expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+            expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
         });
 
         it('processes different WebSocket message types', async () => {
@@ -2218,7 +2218,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Clear call count
             vi.mocked(api.getInvestigation).mockClear();
@@ -2267,7 +2267,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             vi.mocked(api.getInvestigation).mockClear();
             
@@ -2304,7 +2304,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Switch to Retrospect tab
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
@@ -2319,7 +2319,7 @@ describe('InvestigationDetail', () => {
             });
             
             // Tool activity may be shown in the UI
-            expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+            expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
         });
     });
 
@@ -2336,7 +2336,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Click PDF export button
             const pdfBtn = screen.getByTitle(/Export report as PDF/i);
@@ -2356,7 +2356,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const pdfBtn = screen.getByTitle(/Export report as PDF/i);
             await user.click(pdfBtn);
@@ -2382,7 +2382,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const pdfBtn = screen.getByTitle(/Export report as PDF/i);
             await user.click(pdfBtn);
@@ -2421,7 +2421,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Open query modal (only appears when investigation.query is truthy)
             await user.click(screen.getByRole('button', { name: /View/i }));
@@ -2455,7 +2455,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // When query is empty the View button should not be rendered
             // (the component gates it on `investigation.query && ...`)
@@ -2479,7 +2479,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Switch to Report tab
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
@@ -2520,7 +2520,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Switch to Retrospect tab
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
@@ -2561,7 +2561,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Switch to Retrospect tab - triggers analysis
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
@@ -2679,7 +2679,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             scrollIntoViewMock.mockClear();
             
@@ -2724,7 +2724,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Switch to Retrospect tab — activeTab change fires the scroll useEffect
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
@@ -2772,7 +2772,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Find the chevron toggle button (lg:hidden)
             const chevronButtons = document.querySelectorAll('button svg.lucide-chevron-down');
@@ -2889,7 +2889,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Find Show All button
             const showAllBtn = screen.queryByText(/Show All/i);
@@ -2915,7 +2915,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Expand first
             const showAllBtn = screen.queryByText(/Show All/i);
@@ -2950,7 +2950,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Switch to Retrospect tab
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
@@ -2972,7 +2972,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Switch to Retrospect tab - triggers analysis
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
@@ -3018,7 +3018,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             // Switch to Retrospect tab
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
@@ -3080,7 +3080,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
             const shareBtn = screen.getByTitle(/Share investigation/i);
             await user.click(shareBtn);
@@ -3139,7 +3139,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Switch to Report tab
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
@@ -3174,7 +3174,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
 
@@ -3201,7 +3201,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
 
@@ -3229,7 +3229,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
 
@@ -3272,7 +3272,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
 
@@ -3314,7 +3314,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
 
@@ -3356,7 +3356,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
 
@@ -3402,7 +3402,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
 
@@ -3442,7 +3442,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
 
@@ -3476,7 +3476,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
 
@@ -3508,7 +3508,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Switch to Report tab
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
@@ -3552,7 +3552,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Open modal
             await user.click(screen.getByRole('button', { name: /View/i }));
@@ -3584,7 +3584,7 @@ describe('InvestigationDetail', () => {
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // The unrecognized range is returned as-is via formatTimeRange
             expect(document.body.textContent).toContain('custom-unrecognized-range');
         });
@@ -3597,7 +3597,7 @@ describe('InvestigationDetail', () => {
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
         });
     });
 
@@ -3619,7 +3619,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Click on a thought step to expand details
             const stepBtns = screen.getAllByRole('button');
@@ -3650,7 +3650,7 @@ describe('InvestigationDetail', () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // The CONTESTED REPORT thought should NOT appear (it returns null)
             expect(screen.queryByText(/CONTESTED REPORT \(attempt/i)).not.toBeInTheDocument();
             // But normal thought should appear
@@ -3669,7 +3669,7 @@ describe('InvestigationDetail', () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Navigate to Report tab
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
@@ -3698,7 +3698,7 @@ describe('InvestigationDetail', () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -3734,7 +3734,7 @@ describe('InvestigationDetail', () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Click the pencil edit icon (title edit trigger)
             const editBtns = screen.getAllByRole('button');
@@ -3784,7 +3784,7 @@ describe('InvestigationDetail', () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Navigate to Retrospect tab — triggers auto-analysis effect
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
@@ -3813,7 +3813,7 @@ describe('InvestigationDetail', () => {
 
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toContain('queued');
         });
     });
@@ -3833,7 +3833,7 @@ describe('InvestigationDetail', () => {
 
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // The storagePath is shown in the details panel
             expect(document.body.textContent).toContain(expectedPath);
         });
@@ -3847,7 +3847,7 @@ describe('InvestigationDetail', () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Find and hover over a tag to reveal the remove button
             const tagEl = screen.getByText('prod');
@@ -3868,7 +3868,7 @@ describe('InvestigationDetail', () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Click the add tag button to show tag input
             const addTagBtn = document.querySelector('button[title="Add tag"]') ||
@@ -3911,7 +3911,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Navigate to Report tab to render the finalReport
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
@@ -3958,7 +3958,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -3982,7 +3982,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4013,7 +4013,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4045,7 +4045,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4074,7 +4074,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4103,7 +4103,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4154,7 +4154,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4189,7 +4189,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4227,7 +4227,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect|Retro/i });
             await user.click(retrospectTab);
@@ -4257,7 +4257,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Mobile buttons are inside the lg:hidden div — in jsdom CSS doesn't apply
             // They are icon-only (no text) buttons. Find via the mobile container.
@@ -4281,7 +4281,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Find red abort buttons (mobile + desktop both exist in DOM)
             const allBtns = screen.getAllByRole('button');
@@ -4309,7 +4309,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Target the desktop sidebar button specifically (inside hidden lg:block div)
             // The desktop section has a div wrapper with class "hidden lg:block"
@@ -4337,7 +4337,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Click the Share button with text "Share" (desktop sidebar version)
             const shareBtn = screen.getByRole('button', { name: /^Share$/i });
@@ -4356,7 +4356,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const pdfBtn = screen.getByRole('button', { name: /Export PDF/i });
             await user.click(pdfBtn);
@@ -4375,7 +4375,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Click "Add tag" to open tag input
             const addTagBtn = screen.getByRole('button', { name: /Add tag/i });
@@ -4403,7 +4403,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const scheduledBtn = screen.getByRole('button', { name: /Scheduled/i });
             await user.click(scheduledBtn);
@@ -4420,7 +4420,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Switch to Report tab first — use getAllByRole to avoid multiple-match issues
             const reportTabs = screen.getAllByRole('button', { name: /Final Report|Report/i });
@@ -4440,7 +4440,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Open query modal using fireEvent to bypass jsdom dimension checks
             const viewBtn = Array.from(document.querySelectorAll('button')).find(b =>
@@ -4482,7 +4482,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // 'Read More...' button appears when thought._truncated is true
             await waitFor(() => screen.getByText('Read More...'), { timeout: 3000 });
@@ -4501,14 +4501,14 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             // Covers: lines 713-714 — catch(e) { console.error("WebSocket message error:", e) }
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(200); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Send an invalid (non-JSON) WebSocket message to trigger the catch block
             await act(async () => {
                 mockWsInstance?.onmessage?.({ data: 'this is not valid json!!!' });
             });
             // Component should not crash; the error is swallowed in catch
-            expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+            expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
         });
     });
 
@@ -4536,7 +4536,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(200); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4581,7 +4581,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(200); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4598,7 +4598,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
             await act(async () => { await vi.runAllTimersAsync(); });
             // Component should survive the error
-            expect(screen.queryByText('Test Investigation')).toBeInTheDocument();
+            expect(screen.queryAllByText('Test Investigation')[0]).toBeInTheDocument();
         });
     });
 
@@ -4615,7 +4615,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
         });
 
         it('renders between() with <60min duration showing minutes label (covers line 31)', async () => {
@@ -4629,7 +4629,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
         });
 
         it('renders between() with no duration (durLabel empty, covers line 35 false branch)', async () => {
@@ -4641,7 +4641,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
         });
 
         it('renders ago() with day unit (covers line 44 unit=day branch)', async () => {
@@ -4652,7 +4652,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toMatch(/3 days/i);
         });
 
@@ -4664,7 +4664,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toMatch(/1 day(?!s)/i);
         });
     });
@@ -4688,7 +4688,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail(recentId);
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Duration timer renders (component mounts with paused state)
             expect(document.body.textContent).toContain('paused');
         });
@@ -4705,7 +4705,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail(recentId);
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Duration timer shows the running time (which should include hours)
             expect(document.body.textContent).toContain('running');
         });
@@ -4724,7 +4724,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
         });
 
         it('shows no tags state when investigation has empty tags (covers line 1219)', async () => {
@@ -4735,7 +4735,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // "Add tag" button should appear
             expect(screen.getByRole('button', { name: /Add tag/i })).toBeInTheDocument();
         });
@@ -4748,7 +4748,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail('abc-legacy-id');
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toContain('Legacy');
         });
 
@@ -4760,7 +4760,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toContain('Contested 2 times');
         });
 
@@ -4773,7 +4773,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // The model name should be extracted from logs
             expect(document.body.textContent).toContain('gpt-4-from-logs');
         });
@@ -4805,7 +4805,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Final Report|Report/i });
             await user.click(reportTabs[0]);
@@ -4843,7 +4843,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4894,7 +4894,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -4936,7 +4936,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Result should be JSON stringified
             expect(document.body.textContent).toContain('value1');
         });
@@ -4972,7 +4972,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5036,7 +5036,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Open query modal
             await user.click(screen.getByRole('button', { name: /View/i }));
@@ -5054,7 +5054,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             await user.click(screen.getByRole('button', { name: /View/i }));
             await waitFor(() => screen.getByText(/Investigation Query/i));
@@ -5084,7 +5084,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(200); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5131,7 +5131,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // formatTimeRange('ago(2h)') = 'Last 2 hours'
             expect(document.body.textContent).toContain('Last 2 hours');
         });
@@ -5147,7 +5147,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Should show formatted "2h" (minutes % 60 === 0 → 0 decimal places)
             expect(document.body.textContent).toContain('2h');
         });
@@ -5161,7 +5161,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Should show formatted "1.5h"
             expect(document.body.textContent).toContain('1.5h');
         });
@@ -5176,7 +5176,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toContain('This is a plain string thought');
         });
     });
@@ -5189,7 +5189,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // With non-numeric ID, "Started" shows "Legacy"
             expect(document.body.textContent).toContain('Legacy');
         });
@@ -5202,7 +5202,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // With empty target, the target row (line 1204 branch) is skipped
             // Verify investigation loaded without the target value
             expect(screen.queryByText('stamp-01')).not.toBeInTheDocument();
@@ -5215,7 +5215,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Time Range section should not be shown
             expect(document.body.textContent).not.toContain('Time Range');
         });
@@ -5227,7 +5227,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Query "View" button should not be shown
             expect(screen.queryByRole('button', { name: /View/i })).not.toBeInTheDocument();
         });
@@ -5239,7 +5239,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toContain('user@contoso.com');
         });
 
@@ -5250,7 +5250,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toContain('/kb/latency-guide.md');
         });
     });
@@ -5266,7 +5266,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Final Report|Report/i });
             await user.click(reportTabs[0]);
@@ -5285,7 +5285,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Final Report|Report/i });
             await user.click(reportTabs[0]);
@@ -5307,7 +5307,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Find sidebar Share button (has text 'Share' and is a full-width button)
             const sidebarShareBtn = screen.getByText('Share').closest('button') as HTMLElement;
@@ -5329,7 +5329,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Find sidebar Export PDF button by text
             const sidebarPdfBtn = screen.getByText('Export PDF').closest('button') as HTMLElement;
@@ -5359,7 +5359,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5391,7 +5391,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5420,7 +5420,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5450,7 +5450,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5481,7 +5481,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             await waitFor(() => {
                 expect(document.body.textContent).toContain('Context Limit Exceeded');
             }, { timeout: 3000 });
@@ -5522,7 +5522,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5579,7 +5579,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5616,7 +5616,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // formatTimeRange('ago(30m)') = 'Last 30 minutes'
             expect(document.body.textContent).toContain('Last 30 minutes');
         });
@@ -5635,7 +5635,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             expect(document.body.textContent).toContain('Plain string is the last thought entry');
         });
     });
@@ -5648,7 +5648,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // (undefined || []).length === 0 → shows "No tags"
             expect(document.body.textContent).toContain('No tags');
         });
@@ -5676,7 +5676,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5708,7 +5708,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
         it('uses message.data.tool when description is absent (covers || tool branch)', async () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Send retrospect-tool-activity with no description → falls back to .tool value
             await act(async () => {
@@ -5750,7 +5750,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5790,7 +5790,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // DurationTimer should show "0s" with no minute component
             // This covers the false branch of `if (minutes > 0 || hours > 0)`
             expect(document.body.textContent).toMatch(/\d+s/);
@@ -5807,7 +5807,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // The thought renders via JSON.stringify fallback
             expect(document.body.textContent).toContain('read_brainstorm');
         });
@@ -5836,7 +5836,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Switching to Retrospect tab auto-triggers analysis (useEffect detects !analysisComplete)
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
@@ -5877,7 +5877,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const retrospectTab = screen.getByRole('button', { name: /Retrospect/i });
             await user.click(retrospectTab);
@@ -5917,7 +5917,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Click "Add tag" button to show the controlled input
             const addTagBtn = Array.from(document.querySelectorAll('button')).find(b =>
@@ -5939,7 +5939,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 }
             }
             // Component should still render
-            expect(screen.getByText('Test Investigation')).toBeDefined();
+            expect(screen.getAllByText('Test Investigation')[0]).toBeDefined();
         });
     });
 
@@ -5957,9 +5957,9 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Component renders; formatTimeRange('') returns '' without throwing
-            expect(screen.getByText('Test Investigation')).toBeDefined();
+            expect(screen.getAllByText('Test Investigation')[0]).toBeDefined();
         });
     });
 
@@ -5976,7 +5976,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             } as any));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // DurationTimer shows elapsed accounting for totalPausedTime
             expect(document.body.textContent).toMatch(/\d+s/);
         });
@@ -5990,7 +5990,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Switch to Report tab where ContestForm lives
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6014,7 +6014,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                     }
                 }
             }
-            expect(screen.getByText('Test Investigation')).toBeDefined();
+            expect(screen.getAllByText('Test Investigation')[0]).toBeDefined();
         });
     });
 
@@ -6055,9 +6055,9 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Model section IIFE returns null — no Model selector shown
-            expect(screen.getByText('Test Investigation')).toBeDefined();
+            expect(screen.getAllByText('Test Investigation')[0]).toBeDefined();
         });
     });
 
@@ -6080,7 +6080,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             // Find the Abort button (available for running investigations)
             const abortBtn = Array.from(document.querySelectorAll('button')).find(b =>
                 b.textContent?.trim() === 'Abort' && !b.disabled
@@ -6096,7 +6096,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 resolveAbort({ success: true });
                 await act(async () => { await vi.advanceTimersByTimeAsync(600); });
             }
-            expect(screen.getByText('Test Investigation')).toBeDefined();
+            expect(screen.getAllByText('Test Investigation')[0]).toBeDefined();
         });
     });
 
@@ -6145,7 +6145,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 }));
                 renderDetail();
                 await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-                await waitFor(() => screen.getByText('Test Investigation'));
+                await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
                 // Trigger handleIntervention to add a pending intervention to state
                 // The component has an intervention input (user message input)
@@ -6175,7 +6175,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                     }
                 });
 
-                expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
             });
         });
 
@@ -6204,7 +6204,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 }));
                 renderDetail();
                 await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-                await waitFor(() => screen.getByText('Test Investigation'));
+                await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
                 // Now update investigation via WS to have null tags
                 // This changes the investigation state but keeps the rendered tag buttons
@@ -6218,7 +6218,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                     }));
                     fireEvent.click(removeTagBtns[0]);
                 }
-                expect(screen.getByText('Test Investigation')).toBeInTheDocument();
+                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
             });
         });
 
@@ -6243,7 +6243,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
                 renderDetail();
                 await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-                await waitFor(() => screen.getByText('Test Investigation'));
+                await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
                 // Navigate to Retrospect tab to ensure the view is active
                 // Find the Retrospect tab button
@@ -6281,7 +6281,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 }));
                 renderDetail();
                 await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-                await waitFor(() => screen.getByText('Test Investigation'));
+                await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
                 // Navigate to Retrospect tab
                 const allButtons = screen.getAllByRole('button');
@@ -6311,7 +6311,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 }));
                 renderDetail();
                 await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-                await waitFor(() => screen.getByText('Test Investigation'));
+                await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
                 // Navigate to Retrospect tab
                 const allButtons = screen.getAllByRole('button');
@@ -6341,7 +6341,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 }));
                 renderDetail();
                 await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-                await waitFor(() => screen.getByText('Test Investigation'));
+                await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
                 // Navigate to Retrospect tab
                 const allButtons = screen.getAllByRole('button');
@@ -6369,7 +6369,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 try {
                     renderDetail();
                     await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-                    await waitFor(() => screen.getByText('Test Investigation'));
+                    await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
                     // Click "View" to open Query Modal — use fireEvent for reliable dispatch
                     const viewButtons = screen.getAllByRole('button');
@@ -6421,7 +6421,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Submit an intervention so pendingInterventions becomes non-empty
             const input = screen.getByPlaceholderText(/feedback|instructions/i);
@@ -6461,7 +6461,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Switch to Report tab
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
@@ -6478,7 +6478,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6499,7 +6499,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6519,7 +6519,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6540,7 +6540,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6563,7 +6563,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
 
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             expect(screen.queryByText(/Implement Recommendations/i)).not.toBeInTheDocument();
         });
@@ -6575,7 +6575,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6598,7 +6598,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6619,7 +6619,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6646,7 +6646,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6669,7 +6669,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6696,7 +6696,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6730,7 +6730,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6753,7 +6753,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6772,7 +6772,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6794,7 +6794,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
 
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6876,7 +6876,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6945,7 +6945,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -6965,7 +6965,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -7009,7 +7009,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -7051,7 +7051,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -7099,7 +7099,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const reportTabs = screen.getAllByRole('button', { name: /Report/i });
             const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
@@ -7119,7 +7119,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const { api } = await import('../../api');
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             // Clear the mock so we can track new calls
             vi.mocked(api.getInvestigation).mockClear();
@@ -7147,7 +7147,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
         it('navigates to / when back button is clicked', async () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getByText('Test Investigation'));
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
             const backButton = screen.getByLabelText('Back to dashboard');
             await act(async () => { backButton.click(); });

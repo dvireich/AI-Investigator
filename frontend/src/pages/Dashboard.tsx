@@ -674,7 +674,7 @@ export const Dashboard = () => {
                 <button onClick={() => { setFilter('completed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5 group">
                     <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Done</span>
+                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Done</span>
                     </div>
                     <div className="text-2xl sm:text-3xl font-black text-slate-100 tabular-nums">{completedDisplay}</div>
                     {totalCount > 0 && (
@@ -686,21 +686,21 @@ export const Dashboard = () => {
                 <button onClick={() => { setFilter('failed'); setFocusedIdx(null); }} className="text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5 group">
                     <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <XCircle className={`w-4 h-4 ${failedCount > 0 ? 'text-red-400' : 'text-slate-600'}`} />
-                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Failed</span>
+                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Failed</span>
                         {failedCount > 0 && <span className="ml-auto w-2 h-2 rounded-full bg-red-400 animate-pulse" />}
                     </div>
                     <div className={`text-2xl sm:text-3xl font-black tabular-nums ${failedCount > 0 ? 'text-red-400' : 'text-slate-100'}`}>{failedDisplay}</div>
-                    <div className="text-slate-500 text-xs mt-1">{failedCount > 0 ? 'Need review' : 'All clear'}</div>
+                    <div className="text-slate-400 text-xs mt-1">{failedCount > 0 ? 'Need review' : 'All clear'}</div>
                 </button>
                 <button onClick={() => { setFilter('all'); setFocusedIdx(null); }} className="col-span-2 sm:col-span-1 text-left glass-card-interactive rounded-xl sm:rounded-2xl p-3 sm:p-5">
                     <div className="flex items-center gap-2 mb-1.5 sm:mb-3">
                         <BarChart3 className="w-4 h-4 text-slate-400" />
-                        <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider">Total</span>
+                        <span className="text-slate-400 text-xs font-semibold uppercase tracking-wider">Total</span>
                     </div>
                     <div className="text-2xl sm:text-3xl font-black tabular-nums text-slate-100">
                         {totalDisplay}
                     </div>
-                    <div className="text-slate-500 text-xs mt-1">
+                    <div className="text-slate-400 text-xs mt-1">
                         All investigations
                     </div>
                 </button>
@@ -710,7 +710,7 @@ export const Dashboard = () => {
             {totalCount > 0 && (
                 <button
                     onClick={toggleAnalytics}
-                    className="flex items-center gap-2 text-xs font-bold text-slate-500 hover:text-slate-300 transition-colors group"
+                    className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-slate-300 transition-colors group"
                 >
                     <BarChart3 className="w-3.5 h-3.5" />
                     Analytics
@@ -734,7 +734,7 @@ export const Dashboard = () => {
                         const WidgetComponent = widget.component;
                         return (
                             <div key={widgetId} className="glass-card p-4 chart-enter">
-                                <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-3">{widget.name}</div>
+                                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3">{widget.name}</div>
                                 <div className="h-36">
                                     <WidgetComponent investigations={pageItems} />
                                 </div>
@@ -761,7 +761,7 @@ export const Dashboard = () => {
                         <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-500 bg-slate-800 px-1.5 py-0.5 rounded-md pointer-events-none border border-slate-700">/</kbd>
                     )}
                     {search && (
-                        <button onClick={() => setSearch('')} aria-label="Reset search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs font-bold">x</button>
+                        <button onClick={() => setSearch('')} aria-label="Reset search" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-300 text-xs font-bold">x</button>
                     )}
                 </div>
 
@@ -777,7 +777,7 @@ export const Dashboard = () => {
                             className={`flex items-center gap-0.5 sm:gap-1 px-1.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-bold transition-all whitespace-nowrap ${
                                 hideOnMobile ? 'hidden sm:flex' : ''
                             } ${
-                                filter === key ? 'bg-brand-500/15 text-brand-300 border border-brand-500/20 shadow-sm' : 'text-slate-500 hover:bg-slate-800/60 hover:text-slate-300 border border-transparent'
+                                filter === key ? 'bg-brand-500/15 text-brand-300 border border-brand-500/20 shadow-sm' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-300 border border-transparent'
                             }`}
                         >
                             <span className="sm:hidden">{shortLabel}</span>
@@ -891,14 +891,14 @@ export const Dashboard = () => {
                     <div className="flex items-center bg-slate-900/60 border border-slate-700/50 rounded-xl p-1 shadow-sm">
                         <button
                             onClick={() => toggleView('grid')}
-                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-brand-500/20 text-brand-300' : 'text-slate-500 hover:bg-slate-800'}`}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-brand-500/20 text-brand-300' : 'text-slate-400 hover:bg-slate-800'}`}
                             title="Grid view"
                         >
                             <LayoutGrid className="w-3.5 h-3.5" />
                         </button>
                         <button
                             onClick={() => toggleView('list')}
-                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-brand-500/20 text-brand-300' : 'text-slate-500 hover:bg-slate-800'}`}
+                            className={`p-1.5 rounded-lg transition-all ${viewMode === 'list' ? 'bg-brand-500/20 text-brand-300' : 'text-slate-400 hover:bg-slate-800'}`}
                             title="List view"
                         >
                             <List className="w-3.5 h-3.5" />
@@ -911,7 +911,7 @@ export const Dashboard = () => {
                             className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm ${
                                 groupByTarget
                                     ? 'bg-brand-500/20 text-brand-300 border-brand-500/20'
-                                    : 'bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800 border-slate-700/50'
+                                    : 'bg-slate-900/60 text-slate-400 hover:text-slate-300 hover:bg-slate-800 border-slate-700/50'
                             }`}
                             title="Group by target"
                         >
@@ -922,7 +922,7 @@ export const Dashboard = () => {
                     <button
                         onClick={() => setShowShortcuts(s => !s)}
                         className={`p-1.5 rounded-xl text-xs font-black transition-all border shadow-sm ${
-                            showShortcuts ? 'bg-brand-500/20 text-brand-300 border-brand-500/20' : 'bg-slate-900/60 text-slate-500 hover:text-slate-300 hover:bg-slate-800 border-slate-700/50'
+                            showShortcuts ? 'bg-brand-500/20 text-brand-300 border-brand-500/20' : 'bg-slate-900/60 text-slate-400 hover:text-slate-300 hover:bg-slate-800 border-slate-700/50'
                         }`}
                         title="Keyboard shortcuts (?)"
                     >?</button>
@@ -931,7 +931,7 @@ export const Dashboard = () => {
 
             {/* Results count */}
             {(search || filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all') && serverTotalCount > 0 && (
-                <p className="text-xs text-slate-500 font-medium flex items-center gap-2">
+                <p className="text-xs text-slate-400 font-medium flex items-center gap-2">
                     <span>{serverTotalCount} {serverTotalCount === 1 ? 'investigation' : 'investigations'}</span>
                     {search && <><span>matching</span> <span className="font-bold text-slate-300">"{search}"</span></>}
                     {productFilter !== 'all' && (

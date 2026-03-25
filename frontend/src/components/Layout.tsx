@@ -195,7 +195,7 @@ export const Layout = () => {
                             <h1 className="text-lg font-black tracking-tight text-white/90">
                                 <span className="bg-clip-text text-transparent bg-gradient-to-r from-white to-slate-400">AI</span>
                                 <span className="text-brand-400 font-medium ml-1 text-sm tracking-wide hidden sm:inline">Investigator</span>
-                                {appVersion && <span className="ml-2 text-[10px] font-normal text-slate-500 align-middle">v{appVersion}</span>}
+                                {appVersion && <span className="ml-2 text-[10px] font-normal text-slate-400 align-middle">v{appVersion}</span>}
                             </h1>
                         </div>
                     </div>
@@ -297,14 +297,14 @@ export const Layout = () => {
 
                         <div className="bg-slate-950 p-4 rounded-xl border border-slate-800 mb-6 text-center">
                             <div className="text-2xl sm:text-4xl font-mono font-black text-brand-400 tracking-widest mb-2">{loginData.userCode}</div>
-                            <div className="text-xs text-slate-500">USER CODE</div>
+                            <div className="text-xs text-slate-400">USER CODE</div>
                         </div>
 
                         <div className="flex flex-col gap-4">
                             <a href={loginData.verificationUri} target="_blank" rel="noreferrer" className="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold text-center transition-colors">
                                 Open Login Page
                             </a>
-                            <button onClick={() => { if (loginPollerRef.current) { clearInterval(loginPollerRef.current); loginPollerRef.current = null; } setShowLoginModal(false); }} className="text-slate-500 hover:text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 rounded-lg px-2 py-1">
+                            <button onClick={() => { if (loginPollerRef.current) { clearInterval(loginPollerRef.current); loginPollerRef.current = null; } setShowLoginModal(false); }} className="text-slate-400 hover:text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 rounded-lg px-2 py-1">
                                 Cancel
                             </button>
                         </div>

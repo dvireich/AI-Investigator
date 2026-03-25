@@ -1187,6 +1187,47 @@ describe('server utilities and routes', () => {
             expect(shouldAutoStartServer({} as any)).toBe(true);
         });
 
+        it('WebSocket heartbeat marks alive, pings, and terminates unresponsive clients', () => {
+            const wsHandlers = new Map<string, Function>();
+            const ws = {
+                readyState: 1,
+                send: vi.fn(),
+                ping: vi.fn(),
+                terminate: vi.fn(),
+                on: vi.fn((event: string, handler: Function) => {
+                    wsHandlers.set(event, handler);
+                }),
+            };
+
+            // Add mock ws to wss.clients so heartbeat can iterate it
+            (__testUtils.wss.clients as Set<any>).add(ws);
+
+            // Simulate connection — sets isAlive and registers pong handler
+            __testUtils.wss.emit('connection', ws as any, { url: '/?id=heartbeat-test', headers: { host: 'localhost:3000' } } as any);
+            expect((ws as any).isAlive).toBe(true);
+
+            // Run heartbeat check: isAlive is true → sets false + pings
+            __testUtils.wsHeartbeatCheck();
+            expect((ws as any).isAlive).toBe(false);
+            expect(ws.ping).toHaveBeenCalled();
+
+            // Simulate pong response → isAlive back to true
+            wsHandlers.get('pong')?.();
+            expect((ws as any).isAlive).toBe(true);
+
+            // Run heartbeat again: isAlive is true → sets false + pings
+            ws.ping.mockClear();
+            __testUtils.wsHeartbeatCheck();
+            expect(ws.ping).toHaveBeenCalled();
+
+            // Run heartbeat without pong → isAlive is false → terminate
+            __testUtils.wsHeartbeatCheck();
+            expect(ws.terminate).toHaveBeenCalled();
+
+            // Cleanup
+            (__testUtils.wss.clients as Set<any>).delete(ws);
+        });
+
         it('covers global directory fallback and inclusion helper defaults', () => {
             __testUtils.setConfig({ repoRoot: 'C:/repo-root', investigationsPath: '', products: [], activeProductId: '' });
 
