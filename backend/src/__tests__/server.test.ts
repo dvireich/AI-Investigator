@@ -1370,7 +1370,9 @@ describe('server utilities and routes', () => {
         it('returns health status', async () => {
             const response = await api().get('/api/health');
             expect(response.status).toBe(200);
-            expect(response.body).toEqual({ status: 'ok' });
+            expect(response.body.status).toBe('ok');
+            expect(response.body.components).toBeDefined();
+            expect(response.body.uptime).toBeGreaterThanOrEqual(0);
         });
 
         it('returns no-auth status when no llm provider is active', async () => {

@@ -2922,7 +2922,18 @@ app.post('/api/investigations/:id/compact', async (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok' });
+    const hasLlm = !!(config.llmProvider && config.llmProvider.type && config.llmProvider.type !== 'none');
+    const storageAccessible = (() => { try { fs.accessSync(config.investigationsPath || '.', fs.constants.W_OK); return true; } catch { return false; } })();
+    const mcpConfigured = Array.isArray(config.mcpServers) && config.mcpServers.length > 0;
+    res.json({
+        status: 'ok',
+        components: {
+            llmProvider: { configured: hasLlm, type: config.llmProvider?.type || 'none' },
+            storage: { accessible: storageAccessible },
+            mcpServers: { configured: mcpConfigured, count: config.mcpServers?.length || 0 },
+        },
+        uptime: process.uptime(),
+    });
 });
 
 // Auth Routes

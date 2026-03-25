@@ -35,7 +35,7 @@ export const Layout = () => {
         fetch('/api/version')
             .then(r => { if (r.ok) return r.json(); })
             .then(d => { if (d?.current) setAppVersion(d.current); })
-            .catch(() => {});
+            .catch(() => { console.warn('Failed to fetch app version'); });
         // Cleanup poller on unmount
         return () => {
             if (loginPollerRef.current) clearInterval(loginPollerRef.current);
@@ -221,11 +221,11 @@ export const Layout = () => {
                             {activeLabel}
                         </div>
                     )}
-                    <Link to="/settings" className="p-2 text-slate-400 hover:text-white transition-colors">
+                    <Link to="/settings" className="p-2 text-slate-400 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-brand-500 rounded-lg" aria-label="Settings">
                         <Settings size={20} />
                     </Link>
                     {user && user.avatar_url ? (
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 p-0.5" title={user.name || user.login}>
+                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-purple-600 p-0.5" title={user.name || user.login} role="img" aria-label={user.name || user.login}>
                             <img 
                                 src={user.avatar_url} 
                                 alt={user.login}
@@ -304,7 +304,7 @@ export const Layout = () => {
                             <a href={loginData.verificationUri} target="_blank" rel="noreferrer" className="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold text-center transition-colors">
                                 Open Login Page
                             </a>
-                            <button onClick={() => { if (loginPollerRef.current) { clearInterval(loginPollerRef.current); loginPollerRef.current = null; } setShowLoginModal(false); }} className="text-slate-500 hover:text-white text-sm">
+                            <button onClick={() => { if (loginPollerRef.current) { clearInterval(loginPollerRef.current); loginPollerRef.current = null; } setShowLoginModal(false); }} className="text-slate-500 hover:text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 rounded-lg px-2 py-1">
                                 Cancel
                             </button>
                         </div>
