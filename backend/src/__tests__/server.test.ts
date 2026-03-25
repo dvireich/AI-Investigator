@@ -4288,6 +4288,28 @@ describe('server utilities and routes', () => {
                 expect(__testUtils.getRunners().size).toBe(0);
         });
 
+        it('ignores scheduler.stop() errors during restart', async () => {
+                const fakeScheduler = { stop: vi.fn(() => { throw new Error('stop failed'); }), start: vi.fn() };
+                __testUtils.setScheduler(fakeScheduler as any);
+
+                const response = await api().post('/api/server/restart').send({});
+
+                expect(response.status).toBe(200);
+                expect(response.body.status).toBe('restarted');
+                expect(fakeScheduler.stop).toHaveBeenCalled();
+        });
+
+        it('returns 500 when restart encounters an unexpected error', async () => {
+                // Set an invalid path (null byte) that will cause fs.mkdirSync to throw
+                // inside initScheduler → ensureDirectoryExists
+                __testUtils.setConfig({ investigationsPath: 'path\0with-null-byte' });
+
+                const response = await api().post('/api/server/restart').send({});
+
+                expect(response.status).toBe(500);
+                expect(response.body.error).toBe('Restart failed');
+        });
+
     });
 
     describe('incident, schedule, and query-bank routes', () => {
