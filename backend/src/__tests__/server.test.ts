@@ -1375,6 +1375,39 @@ describe('server utilities and routes', () => {
             expect(response.body.uptime).toBeGreaterThanOrEqual(0);
         });
 
+        it('health reports configured LLM when provider is set', async () => {
+            __testUtils.setConfig({
+                ...__testUtils.getConfig(),
+                llmProvider: { type: 'openai' } as any,
+                mcpServers: [{ name: 'srv', command: 'echo', args: [] }] as any,
+            });
+            const response = await api().get('/api/health');
+            expect(response.body.components.llmProvider.configured).toBe(true);
+            expect(response.body.components.llmProvider.type).toBe('openai');
+            expect(response.body.components.mcpServers.configured).toBe(true);
+            expect(response.body.components.mcpServers.count).toBe(1);
+        });
+
+        it('health reports inaccessible storage for bad path', async () => {
+            __testUtils.setConfig({
+                ...__testUtils.getConfig(),
+                investigationsPath: '/nonexistent_path_that_does_not_exist_abc123',
+            });
+            const response = await api().get('/api/health');
+            expect(response.body.components.storage.accessible).toBe(false);
+        });
+
+        it('health falls back when llmProvider and mcpServers are missing', async () => {
+            __testUtils.setConfig({
+                ...__testUtils.getConfig(),
+                llmProvider: undefined as any,
+                mcpServers: undefined as any,
+            });
+            const response = await api().get('/api/health');
+            expect(response.body.components.llmProvider).toEqual({ configured: false, type: 'none' });
+            expect(response.body.components.mcpServers).toEqual({ configured: false, count: 0 });
+        });
+
         it('returns no-auth status when no llm provider is active', async () => {
             const response = await api().get('/api/auth/status');
             expect(response.status).toBe(200);

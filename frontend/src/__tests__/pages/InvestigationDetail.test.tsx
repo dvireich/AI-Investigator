@@ -7114,6 +7114,47 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
         });
     });
 
+    describe('Tab Focus Reconnection', () => {
+        it('re-fetches investigation when tab becomes visible', async () => {
+            const { api } = await import('../../api');
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            // Clear the mock so we can track new calls
+            vi.mocked(api.getInvestigation).mockClear();
+
+            // Simulate tab losing then regaining focus
+            await act(async () => {
+                Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+                document.dispatchEvent(new Event('visibilitychange'));
+            });
+
+            // Should NOT fetch while hidden
+            expect(api.getInvestigation).not.toHaveBeenCalled();
+
+            await act(async () => {
+                Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+                document.dispatchEvent(new Event('visibilitychange'));
+                await vi.advanceTimersByTimeAsync(100);
+            });
+
+            expect(api.getInvestigation).toHaveBeenCalled();
+        });
+    });
+
+    describe('Back to Dashboard Button', () => {
+        it('navigates to / when back button is clicked', async () => {
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Test Investigation'));
+
+            const backButton = screen.getByLabelText('Back to dashboard');
+            await act(async () => { backButton.click(); });
+            expect(mockNavigate).toHaveBeenCalledWith('/');
+        });
+    });
+
 });
 
 
