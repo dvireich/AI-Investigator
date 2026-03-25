@@ -2453,7 +2453,45 @@ ${recsText}
         try {
             return await this.toolManager.callTool(action.tool, action.args);
         } catch (e: any) {
-            return `Error: ${e.message}`;
+            return `Error: ${e.message}${this.getErrorRemediation(e.message)}`;
         }
+    }
+
+    /**
+     * Returns actionable remediation guidance for known error patterns so
+     * the agent can relay clear instructions to the end user.
+     */
+    private getErrorRemediation(errorMessage: string): string {
+        const msg = (errorMessage || '').toLowerCase();
+
+        // Authentication / credential errors (Kusto, Azure, etc.)
+        if (msg.includes('authentication') || msg.includes('unauthorized') ||
+            msg.includes('no_system_webview') || msg.includes('login_required') ||
+            msg.includes('credential') || msg.includes('access token') ||
+            msg.includes('aadsts')) {
+            return '\n\n⚠️ REMEDIATION: This is an authentication error. ' +
+                'The user (or the environment running this tool) needs to re-authenticate. ' +
+                'Common fixes:\n' +
+                '1. Run "az login" in a terminal to refresh Azure credentials.\n' +
+                '2. If running headless/remote, use "az login --use-device-code" instead.\n' +
+                '3. If using a service principal, ensure AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, and AZURE_TENANT_ID environment variables are set correctly.\n' +
+                '4. Restart the MCP tool server after re-authenticating.\n' +
+                'Please include these steps in your response to help the user resolve the issue.';
+        }
+
+        // Connection / network errors
+        if (msg.includes('econnrefused') || msg.includes('enotfound') ||
+            msg.includes('etimedout') || msg.includes('econnreset') ||
+            msg.includes('socket hang up') || msg.includes('not connected') ||
+            msg.includes('connect failed')) {
+            return '\n\n⚠️ REMEDIATION: This is a connection error. ' +
+                'The target service may be unreachable. Common fixes:\n' +
+                '1. Check that the service/cluster URL is correct in the configuration.\n' +
+                '2. Verify network connectivity (VPN, firewall, DNS).\n' +
+                '3. If using an MCP tool server, verify it is running and accessible.\n' +
+                'Please include these steps in your response to help the user resolve the issue.';
+        }
+
+        return '';
     }
 }
