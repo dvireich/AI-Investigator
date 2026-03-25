@@ -74,7 +74,7 @@ export const Settings = () => {
         () => (localStorage.getItem('inv-view') as 'grid' | 'list') ?? 'grid'
     );
 
-    // Notification preferences (local state backed by localStorage)
+    // Notification preferences (synced to both localStorage and server config)
     const [notifEnabled, _setNotifEnabled] = useState(getNotifEnabled);
     const [notifSoundOn, _setNotifSoundOn] = useState(getNotifSound);
     const [notifEvents, _setNotifEvents] = useState<NotifEvent[]>(getNotifEvents);
@@ -87,14 +87,23 @@ export const Settings = () => {
         }
         setNotifEnabled(enabled);
         _setNotifEnabled(enabled);
+        setDirty(true);
+        setSaveSuccess(false);
     };
-    const toggleNotifSound = (on: boolean) => { setNotifSound(on); _setNotifSoundOn(on); };
+    const toggleNotifSound = (on: boolean) => {
+        setNotifSound(on);
+        _setNotifSoundOn(on);
+        setDirty(true);
+        setSaveSuccess(false);
+    };
     const toggleNotifEvent = (event: NotifEvent) => {
         const next = notifEvents.includes(event)
             ? notifEvents.filter(e => e !== event)
             : [...notifEvents, event];
         setNotifEvents(next);
         _setNotifEvents(next);
+        setDirty(true);
+        setSaveSuccess(false);
     };
 
     // Products state
@@ -320,6 +329,19 @@ export const Settings = () => {
             if (settings.incidentProvider?.type) {
                 setIncidentProviderType(settings.incidentProvider.type);
             }
+            // Sync notification preferences from server config to localStorage
+            if (typeof settings.notifEnabled === 'boolean') {
+                setNotifEnabled(settings.notifEnabled);
+                _setNotifEnabled(settings.notifEnabled);
+            }
+            if (typeof settings.notifSound === 'boolean') {
+                setNotifSound(settings.notifSound);
+                _setNotifSoundOn(settings.notifSound);
+            }
+            if (Array.isArray(settings.notifEvents)) {
+                setNotifEvents(settings.notifEvents);
+                _setNotifEvents(settings.notifEvents);
+            }
             // Sync MCP servers from saved config
             if (Array.isArray(settings.mcpServers)) {
                 setMcpServers(settings.mcpServers.map((s: any) => ({
@@ -351,7 +373,12 @@ export const Settings = () => {
         try {
             setSaving(true);
             setError(null);
-            await api.saveSettings(config);
+            await api.saveSettings({
+                ...config,
+                notifEnabled,
+                notifSound: notifSoundOn,
+                notifEvents,
+            });
             setSaveSuccess(true);
             setDirty(false);
             setTimeout(() => setSaveSuccess(false), 3000);

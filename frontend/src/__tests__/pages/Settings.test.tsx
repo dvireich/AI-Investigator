@@ -3812,5 +3812,67 @@ describe('Settings extra coverage', () => {
             // Permission denied → should not enable
             expect(localStorage.getItem('notif-enabled')).not.toBe('true');
         });
+
+        it('includes notification prefs when Save Changes is clicked', async () => {
+            const { api } = await import('../../api');
+            const MockNotification = vi.fn() as any;
+            MockNotification.permission = 'granted';
+            MockNotification.requestPermission = vi.fn().mockResolvedValue('granted');
+            Object.defineProperty(window, 'Notification', { value: MockNotification, writable: true, configurable: true });
+
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Appearance'));
+
+            // Toggle notifications on → sets dirty
+            const switches = screen.getAllByRole('switch');
+            const notifToggle = switches.find(t => t.getAttribute('aria-checked') === 'false');
+            if (notifToggle) await user.click(notifToggle);
+
+            // Click Save Changes
+            await user.click(screen.getByRole('button', { name: /Save Changes/i }));
+
+            await waitFor(() => {
+                expect(api.saveSettings).toHaveBeenCalledWith(
+                    expect.objectContaining({
+                        notifEnabled: true,
+                        notifSound: true,
+                        notifEvents: expect.arrayContaining(['completed', 'failed']),
+                    })
+                );
+            });
+        });
+
+        it('restores notification prefs from server config on load', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSettings).mockResolvedValue({
+                model: 'gpt-4o',
+                maxSteps: 50,
+                maxConcurrentInvestigations: 3,
+                retrospectTimeoutMinutes: 10,
+                autoRefreshInterval: 30,
+                defaultTimeRange: 'ago(1h)',
+                defaultView: 'grid',
+                defaultSortOrder: 'newest',
+                defaultPageSize: 12,
+                notifications: true,
+                notifEnabled: true,
+                notifSound: false,
+                notifEvents: ['completed', 'paused'],
+            });
+
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Appearance'));
+
+            // localStorage should be synced from server config
+            await waitFor(() => {
+                expect(localStorage.getItem('notif-enabled')).toBe('true');
+                expect(localStorage.getItem('notif-sound')).toBe('false');
+                expect(JSON.parse(localStorage.getItem('notif-events') || '[]')).toEqual(['completed', 'paused']);
+            });
+        });
     });
 });
