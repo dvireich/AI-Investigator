@@ -72,6 +72,8 @@ vi.mock('../../api', () => ({
         ]),
         getAuthStatus: vi.fn().mockResolvedValue({ authenticated: false }),
         configureLlmProvider: vi.fn().mockResolvedValue({}),
+        exportSettings: vi.fn().mockResolvedValue(undefined),
+        importSettings: vi.fn().mockResolvedValue({ imported: 3, config: { model: 'gpt-4o', maxSteps: 50 } }),
     },
 }));
 
@@ -203,6 +205,8 @@ async function resetApiMocks() {
     ]);
     vi.mocked(api.getAuthStatus).mockResolvedValue({ authenticated: false });
     vi.mocked(api.configureLlmProvider).mockResolvedValue({});
+    vi.mocked(api.exportSettings).mockResolvedValue(undefined);
+    vi.mocked(api.importSettings).mockResolvedValue({ imported: 3, config: { model: 'gpt-4o', maxSteps: 50 } } as any);
 }
 
 describe('Settings', () => {
@@ -3608,6 +3612,116 @@ describe('Settings extra coverage', () => {
             const spy = vi.spyOn(event, 'preventDefault');
             window.dispatchEvent(event);
             expect(spy).not.toHaveBeenCalled();
+        });
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  IMPORT / EXPORT
+    // ══════════════════════════════════════════════════════════════════════
+
+    describe('Import / Export', () => {
+        it('renders Export button on System tab', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => expect(screen.getByText('Export')).toBeInTheDocument());
+        });
+
+        it('renders Import button on System tab', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => expect(screen.getByText('Import')).toBeInTheDocument());
+        });
+
+        it('calls api.exportSettings when Export is clicked', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Export'));
+            await user.click(screen.getByText('Export'));
+            expect(api.exportSettings).toHaveBeenCalled();
+        });
+
+        it('shows error when export fails', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.exportSettings).mockRejectedValueOnce(new Error('Export failed'));
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Export'));
+            await user.click(screen.getByText('Export'));
+            await waitFor(() => expect(screen.getByText(/Export failed/)).toBeInTheDocument());
+        });
+
+        it('imports settings from a JSON file', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.importSettings).mockResolvedValueOnce({ imported: 2, config: { model: 'gpt-4o', maxSteps: 50 } } as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import'));
+
+            const file = new File([JSON.stringify({ model: 'gpt-4o' })], 'config.json', { type: 'application/json' });
+            Object.defineProperty(file, 'text', { value: () => Promise.resolve(JSON.stringify({ model: 'gpt-4o' })) });
+            const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+            fireEvent.change(input, { target: { files: [file] } });
+
+            await waitFor(() => expect(api.importSettings).toHaveBeenCalledWith({ model: 'gpt-4o' }));
+        });
+
+        it('shows error when import fails', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.importSettings).mockRejectedValueOnce(new Error('Invalid settings'));
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import'));
+
+            const file = new File([JSON.stringify({ bad: true })], 'config.json', { type: 'application/json' });
+            Object.defineProperty(file, 'text', { value: () => Promise.resolve(JSON.stringify({ bad: true })) });
+            const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+            fireEvent.change(input, { target: { files: [file] } });
+
+            await waitFor(() => expect(screen.getByText(/Invalid settings/)).toBeInTheDocument());
+        });
+
+        it('does nothing when no file is selected', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import'));
+
+            const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+            fireEvent.change(input, { target: { files: [] } });
+
+            expect(api.importSettings).not.toHaveBeenCalled();
+        });
+
+        it('shows fallback error when import error has no message', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.importSettings).mockRejectedValueOnce({ message: '' });
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import'));
+
+            const file = new File(['{}'], 'config.json', { type: 'application/json' });
+            Object.defineProperty(file, 'text', { value: () => Promise.resolve('{}') });
+            const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+            fireEvent.change(input, { target: { files: [file] } });
+
+            await waitFor(() => expect(screen.getByText(/Failed to import settings/)).toBeInTheDocument());
         });
     });
 });

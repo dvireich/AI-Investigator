@@ -4303,4 +4303,71 @@ describe('Dashboard additional coverage', () => {
             });
         });
     });
+
+    // === Clear All Filters ===
+    describe('Clear All Filters', () => {
+        it('shows Clear all button when a status filter is active', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDashboard();
+
+            await waitFor(() => screen.getByText('Completed Investigation'));
+
+            // Click the Running filter
+            const runningButton = getFilterButton(screen, 'Running');
+            await user.click(runningButton);
+
+            await waitFor(() => expect(screen.getByText('Clear all')).toBeInTheDocument());
+        });
+
+        it('does not show Clear all when no filters are active', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
+
+            renderDashboard();
+
+            await waitFor(() => screen.getByText('Completed Investigation'));
+
+            expect(screen.queryByText('Clear all')).not.toBeInTheDocument();
+        });
+
+        it('resets all filters when Clear all is clicked', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDashboard();
+
+            await waitFor(() => screen.getByText('Completed Investigation'));
+
+            // Activate a status filter
+            const runningButton = getFilterButton(screen, 'Running');
+            await user.click(runningButton);
+
+            await waitFor(() => expect(screen.getByText('Clear all')).toBeInTheDocument());
+
+            // Click Clear all
+            await user.click(screen.getByText('Clear all'));
+
+            // Clear all button should disappear
+            await waitFor(() => expect(screen.queryByText('Clear all')).not.toBeInTheDocument());
+        });
+
+        it('shows Clear all when search is active', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDashboard();
+
+            await waitFor(() => screen.getByText('Completed Investigation'));
+
+            const searchInput = screen.getByPlaceholderText(/search/i);
+            await user.type(searchInput, 'Running');
+
+            await waitFor(() => expect(screen.getByText('Clear all')).toBeInTheDocument());
+        });
+    });
 });

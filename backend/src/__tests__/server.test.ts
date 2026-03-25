@@ -1857,6 +1857,57 @@ describe('server utilities and routes', () => {
             }
         });
 
+        it('exports settings via GET /api/settings/export', async () => {
+            const response = await api().get('/api/settings/export');
+            expect(response.status).toBe(200);
+            expect(response.headers['content-disposition']).toContain('config.json');
+            expect(response.body.model).toBeDefined();
+        });
+
+        it('imports valid settings via POST /api/settings/import', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const response = await api().post('/api/settings/import').send({ model: 'gpt-4.1-imported', defaultView: 'list' });
+                expect(response.status).toBe(200);
+                expect(response.body.imported).toBe(2);
+                expect(response.body.config.model).toBe('gpt-4.1-imported');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('rejects non-object import body', async () => {
+            const response = await api().post('/api/settings/import').send([1, 2, 3]);
+            expect(response.status).toBe(400);
+        });
+
+        it('rejects import with no valid keys', async () => {
+            const response = await api().post('/api/settings/import').send({ unknownKey: 'value' });
+            expect(response.status).toBe(400);
+        });
+
+        it('import with llmProvider triggers initializeProviders', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const response = await api().post('/api/settings/import').send({ llmProvider: { type: 'copilot' } });
+                expect(response.status).toBe(200);
+                expect(response.body.imported).toBe(1);
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('import returns 500 when saveConfigToDisk throws', async () => {
+            const circular: any = {};
+            circular.self = circular;
+            __testUtils.setPersistedConfig(circular);
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const response = await api().post('/api/settings/import').send({ model: 'gpt-crash' });
+            expect(response.status).toBe(500);
+            expect(response.body.error).toContain('circular structure');
+            consoleSpy.mockRestore();
+        });
+
         it('supports auth login, polling, and configure success paths', async () => {
             const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
 

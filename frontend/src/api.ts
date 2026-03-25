@@ -406,6 +406,33 @@ export const api = {
         return response.json();
     },
 
+    exportSettings: async () => {
+        const response = await fetch(`${API_URL}/settings/export`);
+        if (!response.ok) throw new Error('Failed to export settings');
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'config.json';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    importSettings: async (settings: any) => {
+        const response = await fetch(`${API_URL}/settings/import`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings)
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to import settings');
+        }
+        return response.json();
+    },
+
     // Products
     listProducts: async (): Promise<Product[]> => {
         const response = await fetch(`${API_URL}/products`);

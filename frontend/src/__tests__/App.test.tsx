@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import App from '../App';
+import App, { lazyRetry } from '../App';
 import { ToastProvider } from '../components/Toast';
 
 // Mock all page components to simplify
@@ -144,5 +144,29 @@ describe('App', () => {
         // Wait a tick then verify nothing renders (stuck in loading since data=null → needsOnboarding stays null)
         await new Promise(r => setTimeout(r, 100));
         expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
+    });
+});
+
+describe('lazyRetry', () => {
+    it('resolves on first successful call', async () => {
+        const factory = vi.fn().mockResolvedValue({ default: 'ok' });
+        const result = await lazyRetry(factory);
+        expect(result).toEqual({ default: 'ok' });
+        expect(factory).toHaveBeenCalledTimes(1);
+    });
+
+    it('retries on failure and succeeds', async () => {
+        const factory = vi.fn()
+            .mockRejectedValueOnce(new Error('chunk load failed'))
+            .mockResolvedValueOnce({ default: 'recovered' });
+        const result = await lazyRetry(factory, 2);
+        expect(result).toEqual({ default: 'recovered' });
+        expect(factory).toHaveBeenCalledTimes(2);
+    });
+
+    it('throws after exhausting retries', async () => {
+        const factory = vi.fn().mockRejectedValue(new Error('always fails'));
+        await expect(lazyRetry(factory, 0)).rejects.toThrow('always fails');
+        expect(factory).toHaveBeenCalledTimes(1);
     });
 });

@@ -7,6 +7,7 @@ import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, 
 import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
 import { KpiBar } from '../components/charts/KpiBar';
 import { getSelectedWidgetIds, getWidgetById } from '../components/charts/widgetRegistry';
+import { ScrollToTop } from '../components/ScrollToTop';
 
 /** Mini 5-segment step depth bar */
 const StepBar = ({ count, color }: { count: number; color: string }) => {
@@ -875,6 +876,15 @@ export const Dashboard = () => {
                             }`} />
                         </div>
                     )}
+                    {(filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all' || search) && (
+                        <button
+                            onClick={() => { setFilter('all'); setProductFilter('all'); setSourceFilter('all'); setTagFilter('all'); setCreatedByFilter('all'); setSearch(''); setDebouncedSearch(''); }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-bold text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all shadow-sm whitespace-nowrap"
+                        >
+                            <X className="w-3 h-3" />
+                            Clear all
+                        </button>
+                    )}
                     <div className="relative">
                         <select
                             value={sortOrder}
@@ -1589,6 +1599,7 @@ export const Dashboard = () => {
         <>
             {portalContent}
             {mainContent}
+            <ScrollToTop />
         </>
     );
 };

@@ -236,7 +236,7 @@ let activeLlmProvider: LlmProvider | null = null;
 let activeIncidentProvider: IncidentProvider | null = null;
 
 app.use(cors());
-app.use(express.json({ limit: Infinity }));
+app.use(express.json({ limit: '10mb' }));
 
 export function jsonParseErrorHandler(err: any, req: express.Request, res: express.Response, next: express.NextFunction) {
     if (err.type === 'entity.parse.failed') {
@@ -979,6 +979,49 @@ app.post('/api/settings', (req, res) => {
         res.json(config);
     } catch (e: any) {
         console.error("Failed to save settings:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/settings/export', (_req, res) => {
+    res.setHeader('Content-Disposition', 'attachment; filename="config.json"');
+    res.json(config);
+});
+
+app.post('/api/settings/import', (req, res) => {
+    try {
+        const imported = req.body;
+        if (!imported || typeof imported !== 'object' || Array.isArray(imported)) {
+            return res.status(400).json({ error: 'Request body must be a JSON object' });
+        }
+        // Whitelist the same keys as POST /api/settings
+        const ALLOWED_KEYS = new Set([
+            'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
+            'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
+            'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
+            'notifications', 'investigationsPath', 'products', 'activeProductId',
+            'llmProvider', 'incidentProvider',
+            'defaultView', 'defaultSortOrder', 'defaultPageSize'
+        ]);
+        const filtered = Object.fromEntries(
+            Object.entries(imported).filter(([k]) => ALLOWED_KEYS.has(k))
+        );
+        if (Object.keys(filtered).length === 0) {
+            return res.status(400).json({ error: 'No valid settings keys found in import' });
+        }
+        config = { ...config, ...filtered };
+        for (const [key, value] of Object.entries(filtered)) {
+            if (key in persistedConfig || !INTERNAL_DEFAULT_KEYS.has(key)) {
+                persistedConfig[key] = value;
+            }
+        }
+        saveConfigToDisk();
+        if ('llmProvider' in filtered || 'incidentProvider' in filtered) {
+            initializeProviders();
+        }
+        res.json({ imported: Object.keys(filtered).length, config });
+    } catch (e: any) {
+        console.error("Failed to import settings:", e);
         res.status(500).json({ error: e.message });
     }
 });

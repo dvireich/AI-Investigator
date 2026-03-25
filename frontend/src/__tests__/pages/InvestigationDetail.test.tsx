@@ -7155,6 +7155,64 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
         });
     });
 
+    describe('Thought Search', () => {
+        it('renders search input in Live tab', async () => {
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            expect(screen.getByPlaceholderText('Search thoughts...')).toBeInTheDocument();
+        });
+
+        it('shows match count when searching', async () => {
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const searchInput = screen.getByPlaceholderText('Search thoughts...');
+            fireEvent.change(searchInput, { target: { value: 'latency' } });
+
+            // Should show "X of Y" count
+            await waitFor(() => {
+                expect(screen.getByText(/of 2/)).toBeInTheDocument();
+            });
+        });
+
+        it('clears search when X button is clicked', async () => {
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const searchInput = screen.getByPlaceholderText('Search thoughts...');
+            fireEvent.change(searchInput, { target: { value: 'latency' } });
+
+            await waitFor(() => screen.getByText(/of 2/));
+
+            // Find and click the clear button next to the search
+            const clearButtons = searchInput.closest('.flex')!.querySelectorAll('button');
+            const clearBtn = clearButtons[clearButtons.length - 1];
+            fireEvent.click(clearBtn);
+
+            expect(searchInput).toHaveValue('');
+        });
+
+        it('handles string-type thoughts in search count and filter', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                thoughts: ['plain string thought about latency', { content: 'object thought', type: 'thought' }, { type: 'thought' }],
+                actions: [null, null, null],
+            }));
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const searchInput = screen.getByPlaceholderText('Search thoughts...');
+            fireEvent.change(searchInput, { target: { value: 'latency' } });
+
+            await waitFor(() => expect(screen.getByText('1 of 3')).toBeInTheDocument());
+        });
+    });
+
 });
 
 
