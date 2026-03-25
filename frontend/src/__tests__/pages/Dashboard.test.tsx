@@ -159,7 +159,7 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../../api', () => ({
     api: {
         listInvestigations: vi.fn().mockResolvedValue(paginatedResponse([])),
-        getSettings: vi.fn().mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest' }),
+        getSettings: vi.fn().mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest', maxSteps: 50 }),
         sendAction: vi.fn().mockResolvedValue({ success: true }),
         deleteInvestigation: vi.fn().mockResolvedValue({}),
         updateTitle: vi.fn().mockResolvedValue({}),
@@ -3181,7 +3181,7 @@ describe('Dashboard additional coverage', () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const api = await getApi();
         vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
-        vi.mocked(api.getSettings).mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest' });
+        vi.mocked(api.getSettings).mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest', maxSteps: 50 });
         vi.mocked(api.sendAction).mockResolvedValue({ success: true });
     });
 
@@ -4453,7 +4453,7 @@ describe('Dashboard additional coverage', () => {
             renderDashboard();
             await waitFor(() => screen.getByText('Progress Ring Test'));
             // ProgressRing renders with percentage text: 15/50 = 30%
-            expect(screen.getByText('30%')).toBeInTheDocument();
+            await waitFor(() => expect(screen.getByText('30%')).toBeInTheDocument());
         });
 
         it('renders ProgressRing on paused investigation with thoughts.length fallback (covers L1191-1192 isPaused + ?? branch)', async () => {
@@ -4464,7 +4464,7 @@ describe('Dashboard additional coverage', () => {
             renderDashboard();
             await waitFor(() => screen.getByText('Paused Ring Test'));
             // ProgressRing: 5/50 = 10%
-            expect(screen.getByText('10%')).toBeInTheDocument();
+            await waitFor(() => expect(screen.getByText('10%')).toBeInTheDocument());
         });
 
         it('does not render ProgressRing when running investigation has no thoughts or thoughtCount (covers L1191 ?? 0 fallback)', async () => {

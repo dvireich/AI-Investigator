@@ -639,6 +639,7 @@ export const InvestigationDetail = () => {
     const { notify: browserNotify } = useNotification();
     const prevStatusRef = useRef<string | null>(null);
     const [justCompleted, setJustCompleted] = useState(false);
+    const [maxSteps, setMaxSteps] = useState<number>(0);
 
     // Memoized thought filtering to avoid re-filtering on every render
     const filteredThoughts = useMemo(() => {
@@ -725,6 +726,9 @@ export const InvestigationDetail = () => {
 
     useEffect(() => {
         fetchInvestigation();
+        api.getSettings().then((s: any) => {
+            if (typeof s.maxSteps === 'number') setMaxSteps(s.maxSteps);
+        }).catch(() => {});
     }, [id, navigate]);
 
     // WebSocket logic with auto-reconnect
@@ -1290,17 +1294,23 @@ export const InvestigationDetail = () => {
                 {(investigation.status === 'running' || investigation.status === 'paused') && investigation.thoughts.length > 0 && (
                     <div className="hidden lg:block px-1 shrink-0">
                         <div className="flex items-center gap-2 mb-1">
-                            <ProgressRing current={investigation.thoughts.length} max={50} size={20} strokeWidth={2} />
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Step {investigation.thoughts.length} / 50</span>
+                            {maxSteps > 0 && (
+                                <ProgressRing current={investigation.thoughts.length} max={maxSteps} size={20} strokeWidth={2} />
+                            )}
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                                Step {investigation.thoughts.length}{maxSteps > 0 ? ` / ${maxSteps}` : ''}
+                            </span>
                         </div>
-                        <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                            <div
-                                className={`h-full rounded-full transition-all duration-500 ${
-                                    investigation.status === 'running' ? 'bg-brand-500 animate-pulse' : 'bg-amber-500'
-                                }`}
-                                style={{ width: `${Math.min((investigation.thoughts.length / 50) * 100, 100)}%` }}
-                            />
-                        </div>
+                        {maxSteps > 0 && (
+                            <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                                <div
+                                    className={`h-full rounded-full transition-all duration-500 ${
+                                        investigation.status === 'running' ? 'bg-brand-500 animate-pulse' : 'bg-amber-500'
+                                    }`}
+                                    style={{ width: `${Math.min((investigation.thoughts.length / maxSteps) * 100, 100)}%` }}
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
 
