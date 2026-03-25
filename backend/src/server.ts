@@ -701,6 +701,9 @@ let config: {
     autoRefreshInterval: number;
     workingDirectory: string;
     notifications: boolean;
+    notifEnabled: boolean;
+    notifSound: boolean;
+    notifEvents: string[];
     investigationsPath: string;
     llmProvider: { type: string; [key: string]: any };
     incidentProvider: { type: string; [key: string]: any };
@@ -726,6 +729,9 @@ let config: {
     autoRefreshInterval: 30,
     workingDirectory: process.cwd(),
     notifications: true,
+    notifEnabled: true,
+    notifSound: true,
+    notifEvents: ['completed', 'failed'],
     investigationsPath: '',
     llmProvider: { type: 'copilot' },
     incidentProvider: { type: 'manual' },
@@ -937,7 +943,8 @@ app.post('/api/settings', (req, res) => {
             'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
             'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
-            'notifications', 'investigationsPath', 'products', 'activeProductId',
+            'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
+            'investigationsPath', 'products', 'activeProductId',
             'llmProvider', 'incidentProvider',
             'defaultView', 'defaultSortOrder', 'defaultPageSize'
         ]);
@@ -999,7 +1006,8 @@ app.post('/api/settings/import', (req, res) => {
             'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
             'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
-            'notifications', 'investigationsPath', 'products', 'activeProductId',
+            'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
+            'investigationsPath', 'products', 'activeProductId',
             'llmProvider', 'incidentProvider',
             'defaultView', 'defaultSortOrder', 'defaultPageSize'
         ]);
