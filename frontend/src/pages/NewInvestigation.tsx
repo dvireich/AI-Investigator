@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, type IncidentPreview, type IncidentProgressEvent, type Product, type ProductValidation, type SavedQuery } from '../api';
 import { useToast } from '../components/Toast';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { Tooltip } from '../components/Tooltip';
 import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, X, Check, Pencil } from 'lucide-react';
 import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../constants';
 
@@ -465,6 +467,12 @@ export const NewInvestigation = () => {
 
     return (
         <div className="max-w-5xl mx-auto space-y-4 animate-fade-in pb-8">
+            {/* Breadcrumbs */}
+            <Breadcrumbs crumbs={[
+                { label: 'Dashboard', to: '/' },
+                { label: 'New Investigation' },
+            ]} />
+
             {/* Header */}
             <div className="text-center space-y-1">
                 <h1 className="text-2xl font-black bg-clip-text text-transparent bg-gradient-to-r from-brand-400 via-brand-300 to-brand-200 drop-shadow-sm">
@@ -838,10 +846,11 @@ export const NewInvestigation = () => {
 
                             <div className="space-y-3">
                                 <div className="space-y-2 group/input">
-                                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
-                                        <Command className="w-3 h-3" /> Target Name
+                                    <label htmlFor="inv-target" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
+                                        <Command className="w-3 h-3" /> Target Name <span className="text-red-400">*</span>
                                     </label>
                                     <input
+                                        id="inv-target"
                                         type="text"
                                         required={mode === 'standard'}
                                         placeholder="e.g. my-app-prd-eus2-01"
@@ -875,10 +884,12 @@ export const NewInvestigation = () => {
                                 </div>
 
                                 <div className="space-y-2 group/input">
-                                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
+                                    <label htmlFor="inv-correlation" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
                                         <Search className="w-3 h-3" /> Correlation ID (Optional)
+                                        <Tooltip text="A unique identifier for correlating events across services — e.g. Request ID, Correlation ID, or Incident GUID" />
                                     </label>
                                     <input
+                                        id="inv-correlation"
                                         type="text"
                                         placeholder="Correlation ID, Request ID, or Incident GUID"
                                         className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all outline-none font-mono text-sm shadow-sm"
@@ -1054,11 +1065,12 @@ export const NewInvestigation = () => {
                         </div>
 
                         <div className="space-y-2 group/input">
-                            <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-purple-500 transition-colors">
+                            <label htmlFor="inv-model" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-purple-500 transition-colors">
                                 <Zap className="w-3 h-3" /> Selected Model
                             </label>
                             <div className="relative">
                                 <select
+                                    id="inv-model"
                                     className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none appearance-none shadow-sm cursor-pointer text-sm"
                                     value={formData.model}
                                     onChange={(e) => setFormData({ ...formData, model: e.target.value })}
@@ -1074,10 +1086,11 @@ export const NewInvestigation = () => {
                         </div>
 
                         <div className="space-y-2 group/input">
-                            <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-purple-500 transition-colors">
+                            <label htmlFor="inv-query" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-purple-500 transition-colors">
                                 Additional Context / Query
                             </label>
                             <textarea
+                                id="inv-query"
                                 rows={2}
                                 className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none text-sm shadow-sm"
                                 placeholder="Describe the issue symptoms, specific errors observed, or any hypotheses you have..."

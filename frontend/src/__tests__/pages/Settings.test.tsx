@@ -218,7 +218,7 @@ describe('Settings', () => {
     describe('Basic Rendering', () => {
         it('renders settings heading', async () => {
             renderSettings();
-            expect(screen.getByText('Settings')).toBeInTheDocument();
+            expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
         });
 
         it('renders all tab buttons', async () => {
@@ -266,7 +266,7 @@ describe('Settings', () => {
         it('switches to Connections tab and shows LLM provider options', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Connections'));
             await waitFor(() => {
@@ -278,7 +278,7 @@ describe('Settings', () => {
         it('switches to Agent Behavior tab and shows max steps slider', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => {
@@ -290,7 +290,7 @@ describe('Settings', () => {
         it('switches to Appearance tab and shows view options', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => {
@@ -302,7 +302,7 @@ describe('Settings', () => {
         it('switches to Analytics tab and shows widget selection', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Analytics'));
             await waitFor(() => {
@@ -314,7 +314,7 @@ describe('Settings', () => {
         it('switches to System tab and shows time range options', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('System'));
             await waitFor(() => {
@@ -830,7 +830,7 @@ describe('Settings', () => {
             it('displays all LLM provider options', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => {
@@ -844,7 +844,7 @@ describe('Settings', () => {
             it('shows connected/not connected status', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => {
@@ -857,7 +857,7 @@ describe('Settings', () => {
                 vi.mocked(api.getAuthStatus).mockResolvedValue({ authenticated: true, providerType: 'openai' });
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => {
@@ -868,7 +868,7 @@ describe('Settings', () => {
             it('selects provider when clicked', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('OpenAI'));
@@ -883,7 +883,7 @@ describe('Settings', () => {
             it('shows API key input for api-key providers', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await user.click(screen.getByText('OpenAI'));
@@ -897,7 +897,7 @@ describe('Settings', () => {
             it('shows additional fields for Azure OpenAI', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await user.click(screen.getByText('Azure OpenAI'));
@@ -912,7 +912,7 @@ describe('Settings', () => {
             it('shows no auth required message for Ollama', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await user.click(screen.getByText('Ollama'));
@@ -925,7 +925,7 @@ describe('Settings', () => {
             it('shows OAuth device flow hint for Copilot', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 // Copilot is selected by default
@@ -937,7 +937,7 @@ describe('Settings', () => {
             it('toggles API key visibility', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await user.click(screen.getByText('OpenAI'));
@@ -958,7 +958,7 @@ describe('Settings', () => {
             it('displays all incident provider options', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => {
@@ -971,7 +971,7 @@ describe('Settings', () => {
             it('selects incident provider when clicked', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('IcM'));
@@ -987,7 +987,7 @@ describe('Settings', () => {
             it('shows empty state when no MCP servers configured', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => {
@@ -998,7 +998,7 @@ describe('Settings', () => {
             it('opens add server form when Add Server is clicked', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await user.click(screen.getByRole('button', { name: /Add Server/i }));
@@ -1013,7 +1013,7 @@ describe('Settings', () => {
             it('adds MCP server when form is filled and saved', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('No MCP servers configured.'));
@@ -1040,7 +1040,7 @@ describe('Settings', () => {
             it('validates required fields for MCP server', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('No MCP servers configured.'));
@@ -1057,7 +1057,7 @@ describe('Settings', () => {
             it('edits existing MCP server', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('No MCP servers configured.'));
@@ -1093,7 +1093,7 @@ describe('Settings', () => {
             it('deletes MCP server', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('No MCP servers configured.'));
@@ -1122,7 +1122,7 @@ describe('Settings', () => {
             it('supports environment variables input', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('No MCP servers configured.'));
@@ -1150,7 +1150,7 @@ describe('Settings', () => {
                 const { api } = await import('../../api');
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByRole('button', { name: /Save Connections/i }));
@@ -1166,7 +1166,7 @@ describe('Settings', () => {
             it('shows success message after saving', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await user.click(screen.getByRole('button', { name: /Save Connections/i }));
@@ -1181,7 +1181,7 @@ describe('Settings', () => {
                 vi.mocked(api.configureLlmProvider).mockRejectedValueOnce(new Error('Configuration failed'));
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await user.click(screen.getByRole('button', { name: /Save Connections/i }));
@@ -1200,7 +1200,7 @@ describe('Settings', () => {
         it('displays max steps slider with current value', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => {
@@ -1217,7 +1217,7 @@ describe('Settings', () => {
             } as any);
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => {
@@ -1228,7 +1228,7 @@ describe('Settings', () => {
         it('changes max steps via slider', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => screen.getByText('Max Steps Limit'));
@@ -1245,7 +1245,7 @@ describe('Settings', () => {
         it('displays model selection dropdown', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => {
@@ -1257,7 +1257,7 @@ describe('Settings', () => {
         it('shows available models in dropdown', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => {
@@ -1270,7 +1270,7 @@ describe('Settings', () => {
             const { api } = await import('../../api');
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => screen.getByRole('button', { name: /Save Changes/i }));
@@ -1285,7 +1285,7 @@ describe('Settings', () => {
         it('shows success message after saving', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await user.click(screen.getByRole('button', { name: /Save Changes/i }));
@@ -1299,7 +1299,7 @@ describe('Settings', () => {
             const { api } = await import('../../api');
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => screen.getByRole('button', { name: 'Reset' }));
@@ -1314,7 +1314,7 @@ describe('Settings', () => {
         it('displays max concurrent investigations slider', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => {
@@ -1325,7 +1325,7 @@ describe('Settings', () => {
         it('displays retrospective timeout slider', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => {
@@ -1341,7 +1341,7 @@ describe('Settings', () => {
         it('displays default view toggle buttons', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => {
@@ -1353,7 +1353,7 @@ describe('Settings', () => {
         it('toggles view mode when button is clicked', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => screen.getByText('List'));
@@ -1366,7 +1366,7 @@ describe('Settings', () => {
         it('displays default sort order selector', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => {
@@ -1381,7 +1381,7 @@ describe('Settings', () => {
         it('changes sort order when button is clicked', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => screen.getByText('Last Modified'));
@@ -1394,7 +1394,7 @@ describe('Settings', () => {
         it('displays default page size selector', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => {
@@ -1405,7 +1405,7 @@ describe('Settings', () => {
         it('changes default page size when button is clicked', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => screen.getByText('Default Page Size'));
@@ -1424,7 +1424,7 @@ describe('Settings', () => {
         it('displays auto-refresh interval input', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => {
@@ -1435,7 +1435,7 @@ describe('Settings', () => {
         it('changes auto-refresh interval value', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => screen.getByText('Auto-refresh Interval'));
@@ -1457,7 +1457,7 @@ describe('Settings', () => {
         it('displays all available widgets', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Analytics'));
             await waitFor(() => {
@@ -1472,7 +1472,7 @@ describe('Settings', () => {
         it('shows selection count', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Analytics'));
             await waitFor(() => {
@@ -1483,7 +1483,7 @@ describe('Settings', () => {
         it('toggles widget selection', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Analytics'));
             await waitFor(() => screen.getByText('Categories'));
@@ -1500,7 +1500,7 @@ describe('Settings', () => {
         it('enforces minimum 3 widgets selection', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Analytics'));
             await waitFor(() => screen.getByText('14-Day Trend'));
@@ -1520,7 +1520,7 @@ describe('Settings', () => {
             const { setSelectedWidgetIds } = await import('../../components/charts/widgetRegistry');
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Analytics'));
             await waitFor(() => screen.getByRole('button', { name: /Save Widgets/i }));
@@ -1535,7 +1535,7 @@ describe('Settings', () => {
         it('shows success message after saving widgets', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Analytics'));
             await user.click(screen.getByRole('button', { name: /Save Widgets/i }));
@@ -1548,7 +1548,7 @@ describe('Settings', () => {
         it('resets to default widgets when Reset to Default is clicked', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Analytics'));
             await waitFor(() => screen.getByRole('button', { name: /Reset to Default/i }));
@@ -1566,7 +1566,7 @@ describe('Settings', () => {
             vi.mocked(getSelectedWidgetIds).mockReturnValue(['trend', 'categories']); // Only 2
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Analytics'));
             await waitFor(() => {
@@ -1583,7 +1583,7 @@ describe('Settings', () => {
         it('displays default time range dropdown', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('System'));
             await waitFor(() => {
@@ -1594,7 +1594,7 @@ describe('Settings', () => {
         it('shows all time preset options', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('System'));
             await waitFor(() => {
@@ -1608,7 +1608,7 @@ describe('Settings', () => {
         it('changes time range selection', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('System'));
             await waitFor(() => screen.getByRole('combobox'));
@@ -1630,7 +1630,7 @@ describe('Settings', () => {
 
             renderSettings();
             await waitFor(() => {
-                expect(screen.getByText('Settings')).toBeInTheDocument();
+                expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
             });
         });
 
@@ -1640,7 +1640,7 @@ describe('Settings', () => {
 
             renderSettings();
             await waitFor(() => {
-                expect(screen.getByText('Settings')).toBeInTheDocument();
+                expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
             });
         });
 
@@ -1650,7 +1650,7 @@ describe('Settings', () => {
 
             renderSettings();
             await waitFor(() => {
-                expect(screen.getByText('Settings')).toBeInTheDocument();
+                expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
             });
         });
 
@@ -1659,7 +1659,7 @@ describe('Settings', () => {
             vi.mocked(api.saveSettings).mockRejectedValueOnce(new Error('Save failed'));
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Agent Behavior'));
             await user.click(screen.getByRole('button', { name: /Save Changes/i }));
@@ -1789,7 +1789,7 @@ describe('Settings', () => {
             } as any);
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Connections'));
             await waitFor(() => {
@@ -1806,7 +1806,7 @@ describe('Settings', () => {
             } as any);
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Appearance'));
             await waitFor(() => {
@@ -1825,7 +1825,7 @@ describe('Settings', () => {
             } as any);
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getByText('Settings'));
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             await user.click(screen.getByText('Connections'));
             await waitFor(() => {
@@ -2337,7 +2337,7 @@ describe('Settings', () => {
             it('types in API key input when api-key provider is selected', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('OpenAI'));
@@ -2355,7 +2355,7 @@ describe('Settings', () => {
             it('types in Azure OpenAI base URL and API version', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('Azure OpenAI'));
@@ -2383,7 +2383,7 @@ describe('Settings', () => {
                 const { api } = await import('../../api');
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('OpenAI'));
@@ -2409,7 +2409,7 @@ describe('Settings', () => {
                 const { api } = await import('../../api');
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('Azure OpenAI'));
@@ -2434,7 +2434,7 @@ describe('Settings', () => {
                 const { api } = await import('../../api');
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('No MCP servers configured.'));
@@ -2479,7 +2479,7 @@ describe('Settings', () => {
             it('closes MCP form with X button in header', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await waitFor(() => screen.getByText('No MCP servers configured.'));
@@ -2507,7 +2507,7 @@ describe('Settings', () => {
             it('types in MCP form args and cwd fields', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await user.click(screen.getByRole('button', { name: /Add Server/i }));
@@ -2530,7 +2530,7 @@ describe('Settings', () => {
             it('cancels MCP form with bottom Cancel button', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Connections'));
                 await user.click(screen.getByRole('button', { name: /Add Server/i }));
@@ -2548,7 +2548,7 @@ describe('Settings', () => {
             it('changes maxConcurrentInvestigations via slider', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Agent Behavior'));
                 await waitFor(() => screen.getByText('Max Concurrent Investigations'));
@@ -2572,7 +2572,7 @@ describe('Settings', () => {
                 } as any);
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Agent Behavior'));
                 await waitFor(() => {
@@ -2583,7 +2583,7 @@ describe('Settings', () => {
             it('changes retrospectTimeoutMinutes via slider', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Agent Behavior'));
                 await waitFor(() => screen.getByText('Retrospective Timeout'));
@@ -2600,7 +2600,7 @@ describe('Settings', () => {
             it('changes model selection dropdown value', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Agent Behavior'));
                 await waitFor(() => screen.getByRole('combobox'));
@@ -2615,7 +2615,7 @@ describe('Settings', () => {
                 vi.mocked(api.listModels).mockResolvedValue([]);
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Agent Behavior'));
                 // With empty models, the fallback "Loading models..." option shows
@@ -2629,7 +2629,7 @@ describe('Settings', () => {
             it('clicks Grid button to set grid view (after switching to list)', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Appearance'));
                 await waitFor(() => screen.getByText('List'));
@@ -2646,7 +2646,7 @@ describe('Settings', () => {
             it('changes auto-refresh interval by typing in the number input', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Appearance'));
                 await waitFor(() => screen.getByText('Auto-refresh Interval'));
@@ -2666,7 +2666,7 @@ describe('Settings', () => {
                 vi.mocked(api.listModels).mockRejectedValue(new Error('Models unavailable'));
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getByText('Settings'));
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Agent Behavior'));
                 await waitFor(() => {
@@ -3578,6 +3578,36 @@ describe('Settings extra coverage', () => {
                 }
                 expect(screen.getByText('Edit Product')).toBeInTheDocument();
             });
+        });
+    });
+
+    describe('beforeunload dirty-state guard', () => {
+        it('calls preventDefault on beforeunload when form is dirty', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+
+            // Switch to Agent Behavior tab and change a value to set dirty=true
+            await user.click(screen.getByRole('button', { name: 'Agent Behavior' }));
+            await waitFor(() => document.querySelector('input[type="range"]'));
+            const slider = document.querySelector('input[type="range"]') as HTMLInputElement;
+            fireEvent.change(slider, { target: { value: '30' } });
+
+            // Fire beforeunload — handler should call preventDefault
+            const event = new Event('beforeunload', { cancelable: true });
+            const spy = vi.spyOn(event, 'preventDefault');
+            window.dispatchEvent(event);
+            expect(spy).toHaveBeenCalled();
+        });
+
+        it('does NOT call preventDefault on beforeunload when form is clean', async () => {
+            renderSettings();
+            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+
+            const event = new Event('beforeunload', { cancelable: true });
+            const spy = vi.spyOn(event, 'preventDefault');
+            window.dispatchEvent(event);
+            expect(spy).not.toHaveBeenCalled();
         });
     });
 });

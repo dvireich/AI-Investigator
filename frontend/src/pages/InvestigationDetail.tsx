@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
 import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code, ArrowLeft } from 'lucide-react';
+import { Breadcrumbs } from '../components/Breadcrumbs';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1018,6 +1019,7 @@ export const InvestigationDetail = () => {
 
     return (
         <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 pt-3 sm:pt-6 pb-1 px-3 sm:px-6 md:px-12 z-0">
+        <Breadcrumbs crumbs={[{ label: 'Dashboard', to: '/' }, { label: investigation?.title || 'Investigation' }]} />
         <div className="h-full max-w-[1600px] mx-auto overflow-hidden grid grid-cols-1 lg:grid-cols-12 grid-rows-[auto_1fr] lg:grid-rows-1 gap-1 lg:gap-6">
 
             {/* Connection Lost / Reconnecting Overlay */}

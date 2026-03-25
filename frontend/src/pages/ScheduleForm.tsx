@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useToast } from '../components/Toast';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { Tooltip } from '../components/Tooltip';
 import type { SavedQuery } from '../api';
 import type { ScheduleDefinition } from '../types/schedule';
 import type { Product } from '../types/product';
@@ -89,9 +91,17 @@ export const ScheduleForm = () => {
     const [loading, setLoading] = useState(false);
     const [loadingData, setLoadingData] = useState(!!id); // only block render when editing (need to populate form)
     const [error, setError] = useState('');
+    const [dirty, setDirty] = useState(false);
 
     const startPickerRef = useRef<HTMLInputElement>(null);
     const endPickerRef = useRef<HTMLInputElement>(null);
+
+    // Warn before navigating away with unsaved changes
+    useEffect(() => {
+        const handler = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); } };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [dirty]);
 
     // Query Bank state
     const [savedQueries, setSavedQueries] = useState<SavedQuery[]>([]);
@@ -245,6 +255,7 @@ export const ScheduleForm = () => {
             } else {
                 await api.createSchedule(data);
             }
+            setDirty(false);
             navigate('/schedules');
         } catch (err: any) {
             setError(err.message || 'Failed to save schedule');
@@ -359,6 +370,13 @@ export const ScheduleForm = () => {
 
     return (
         <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
+            {/* Breadcrumbs */}
+            <Breadcrumbs crumbs={[
+                { label: 'Dashboard', to: '/' },
+                { label: 'Schedules', to: '/schedules' },
+                { label: isEdit ? 'Edit Schedule' : 'New Schedule' },
+            ]} />
+
             {/* Header */}
             <div className="text-center space-y-2 pt-2">
                 <h1 className="text-3xl font-black text-white tracking-tight">
@@ -531,7 +549,7 @@ export const ScheduleForm = () => {
             )}
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} onChange={() => setDirty(true)} className="space-y-4">
                 {/* Two-column grid: Target Scope + Time Window */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     {/* Section 1: Target Scope */}
@@ -550,10 +568,11 @@ export const ScheduleForm = () => {
                             <div className="space-y-3">
                                 {/* Schedule Name */}
                                 <div className="space-y-2 group/input">
-                                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
-                                        <Sparkles className="w-3 h-3" /> Schedule Name
+                                    <label htmlFor="sched-name" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
+                                        <Sparkles className="w-3 h-3" /> Schedule Name <span className="text-red-400">*</span>
                                     </label>
                                     <input
+                                        id="sched-name"
                                         type="text"
                                         required
                                         placeholder="e.g. EUS2P-01 Health Check"
@@ -565,10 +584,11 @@ export const ScheduleForm = () => {
 
                                 {/* target Name */}
                                 <div className="space-y-2 group/input">
-                                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
-                                        <Command className="w-3 h-3" /> target Name
+                                    <label htmlFor="sched-target" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
+                                        <Command className="w-3 h-3" /> Target Name <span className="text-red-400">*</span>
                                     </label>
                                     <input
+                                        id="sched-target"
                                         type="text"
                                         required
                                         placeholder="e.g. my-service-prod-01"
@@ -580,11 +600,12 @@ export const ScheduleForm = () => {
 
                                 {/* Category */}
                                 <div className="space-y-2 group/input">
-                                    <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
+                                    <label htmlFor="sched-category" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-brand-500 transition-colors">
                                         <AlertTriangle className="w-3 h-3" /> Category
                                     </label>
                                     <div className="relative">
                                         <select
+                                            id="sched-category"
                                             className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all outline-none appearance-none shadow-sm cursor-pointer text-sm"
                                             value={category}
                                             onChange={(e) => setCategory(e.target.value)}
@@ -835,10 +856,11 @@ export const ScheduleForm = () => {
 
                         {/* Investigation Query */}
                         <div className="space-y-2 group/input">
-                            <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-purple-500 transition-colors">
-                                Investigation Query
+                            <label htmlFor="sched-query" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-purple-500 transition-colors">
+                                Investigation Query <span className="text-red-400">*</span>
                             </label>
                             <textarea
+                                id="sched-query"
                                 required
                                 rows={4}
                                 className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all outline-none text-sm shadow-sm resize-none font-mono text-xs"

@@ -2475,4 +2475,30 @@ describe('ScheduleForm additional coverage', () => {
             });
         });
     });
+
+    describe('beforeunload dirty-state guard', () => {
+        it('calls preventDefault on beforeunload when form has unsaved changes', async () => {
+            const user = userEvent.setup();
+            renderScheduleForm();
+            await waitFor(() => screen.getByRole('heading', { name: 'Create Schedule' }));
+
+            // Type into the name field to trigger form onChange → setDirty(true)
+            await user.type(screen.getByPlaceholderText(/health check/i), 'dirty');
+
+            const event = new Event('beforeunload', { cancelable: true });
+            const spy = vi.spyOn(event, 'preventDefault');
+            window.dispatchEvent(event);
+            expect(spy).toHaveBeenCalled();
+        });
+
+        it('does NOT call preventDefault on beforeunload when form is clean', async () => {
+            renderScheduleForm();
+            await waitFor(() => screen.getByRole('heading', { name: 'Create Schedule' }));
+
+            const event = new Event('beforeunload', { cancelable: true });
+            const spy = vi.spyOn(event, 'preventDefault');
+            window.dispatchEvent(event);
+            expect(spy).not.toHaveBeenCalled();
+        });
+    });
 });

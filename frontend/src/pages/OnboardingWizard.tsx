@@ -194,9 +194,10 @@ export const OnboardingWizard = () => {
                             </div>
 
                             <div>
-                                <label className="block text-xs text-slate-400 font-semibold mb-2">Repository Path</label>
+                                <label htmlFor="onboarding-repo-path" className="block text-xs text-slate-400 font-semibold mb-2">Repository Path</label>
                                 <div className="flex gap-2">
                                     <input
+                                        id="onboarding-repo-path"
                                         type="text"
                                         value={repoPath}
                                         onChange={e => setRepoPath(e.target.value)}

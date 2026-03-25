@@ -149,3 +149,79 @@ MCP (Model Context Protocol) servers provide data access tools to the investigat
 ```
 
 The exe does **not** bundle MCP servers. Ensure `node` (or `python`, etc.) is in your PATH if your MCP servers need it.
+
+---
+
+## Configuration Reference
+
+All fields in `config.json` (and `config.sample.json`):
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | string | `"gpt-4o"` | LLM model name passed to the provider |
+| `maxSteps` | number | `50` | Max reasoning steps per investigation (0 = unlimited) |
+| `retrospectTimeoutMinutes` | number | `10` | Timeout for retrospective analysis |
+| `defaultTimeRange` | string | `"ago(1h)"` | Default KQL time range for queries |
+| `maxConcurrentInvestigations` | number | `3` | Max simultaneous investigations (0 = unlimited) |
+| `maxConcurrentScheduledInvestigations` | number | `2` | Max simultaneous scheduled investigations |
+| `scheduledInvestigationMaxSteps` | number | `20` | Max steps for scheduled investigations |
+| `autoRefreshInterval` | number | `30` | Dashboard auto-refresh interval in seconds |
+| `notifications` | boolean | `true` | Enable browser notifications |
+| `defaultView` | string | `"grid"` | Dashboard layout: `"grid"` or `"list"` |
+| `defaultSortOrder` | string | `"newest"` | Sort order: `"newest"` or `"oldest"` |
+| `defaultPageSize` | number | `12` | Investigations per page |
+| `llmProvider` | object | — | LLM provider config (see examples above) |
+| `llmProvider.type` | string | — | `"openai"`, `"azure-openai"`, `"anthropic"`, `"copilot"`, or `"ollama"` |
+| `incidentProvider` | object | `{"type":"manual"}` | Incident provider (`"manual"` or `"sentinel"`) |
+| `mcpServers` | array | `[]` | MCP server definitions (name, command, args, env, cwd) |
+| `products` | array | `[]` | Product definitions for multi-repo support |
+| `activeProductId` | string | — | Currently active product ID |
+
+---
+
+## Troubleshooting
+
+### Port 3000 already in use
+
+Another process is using port 3000. Either stop it or set a custom port:
+
+```bash
+# Find what's using port 3000
+netstat -ano | findstr :3000
+
+# Or use a different port
+PORT=3001 npm start
+```
+
+### Node.js version errors
+
+AI Investigator requires Node.js 18 or later. Check your version:
+
+```bash
+node --version
+```
+
+If outdated, update via [nodejs.org](https://nodejs.org) or `winget install OpenJS.NodeJS.LTS`.
+
+### Chromium / PDF export fails
+
+If PDF export shows an error, Chromium may be missing:
+
+```bash
+npx puppeteer browsers install chrome
+```
+
+The standalone exe bundles Chromium — this only applies to npm/source installs.
+
+### LLM provider authentication errors
+
+- **OpenAI**: Verify your API key starts with `sk-` and has active billing
+- **Azure OpenAI**: Ensure endpoint URL, API key, and deployment name are all correct
+- **Copilot**: Click "Connect" in the header and complete the device-code flow
+- **Ollama**: Ensure Ollama is running locally (`ollama serve`) and the model is pulled
+
+### MCP server won't start
+
+- Verify the command (e.g., `node`, `npx`, `python`) is in your system PATH
+- Check that arguments are correct — use Settings → MCP Servers to test
+- Review the terminal/console output for error messages

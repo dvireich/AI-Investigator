@@ -3,6 +3,8 @@ import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, Folder
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult } from '../api';
 import { useToast } from '../components/Toast';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { Tooltip } from '../components/Tooltip';
 import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
 
@@ -120,6 +122,14 @@ export const Settings = () => {
     const [showMcpForm, setShowMcpForm] = useState(false);
     const [editingMcpIndex, setEditingMcpIndex] = useState<number | null>(null);
     const [mcpForm, setMcpForm] = useState<McpServerEntry>(emptyMcpServer());
+    const [dirty, setDirty] = useState(false);
+
+    // Warn before navigating away with unsaved changes
+    useEffect(() => {
+        const handler = (e: BeforeUnloadEvent) => { if (dirty) { e.preventDefault(); } };
+        window.addEventListener('beforeunload', handler);
+        return () => window.removeEventListener('beforeunload', handler);
+    }, [dirty]);
 
     const toggleProductExpanded = (productId: string) => {
         setExpandedProducts(prev => {
@@ -308,6 +318,7 @@ export const Settings = () => {
         // Protect against NaN from cleared numeric inputs
         if (typeof value === 'number' && isNaN(value)) return;
         setConfig(prev => ({ ...prev, [key]: value }));
+        setDirty(true);
         // Reset success message on change
         if (saveSuccess) setSaveSuccess(false);
     };
@@ -318,6 +329,7 @@ export const Settings = () => {
             setError(null);
             await api.saveSettings(config);
             setSaveSuccess(true);
+            setDirty(false);
             setTimeout(() => setSaveSuccess(false), 3000);
         } catch (err: any) {
             console.error("Failed to save settings:", err);
@@ -423,6 +435,7 @@ export const Settings = () => {
         <div className="max-w-6xl mx-auto min-h-[calc(100dvh-140px)] md:h-[calc(100dvh-140px)] flex flex-col md:flex-row gap-4 md:gap-8 animate-fade-in">
             {/* Sidebar Navigation */}
             <div className="w-full md:w-64 md:shrink-0">
+                <Breadcrumbs crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Settings' }]} />
                 <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight mb-4 md:mb-8 px-4">Settings</h1>
 
                 <div className="flex md:flex-col gap-1 md:gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0 px-1 md:px-0">
@@ -484,9 +497,10 @@ export const Settings = () => {
 
                             {/* Active Product Selector */}
                             <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
-                                <label className="text-sm font-bold text-slate-300 block">Active Product</label>
+                                <label htmlFor="settings-active-product" className="text-sm font-bold text-slate-300 block">Active Product</label>
                                 <p className="text-xs text-slate-500">New investigations will use the paths from the selected product.</p>
                                 <select
+                                    id="settings-active-product"
                                     value={activeProductId}
                                     disabled={products.length === 0}
                                     onChange={async (e) => {
@@ -784,9 +798,10 @@ export const Settings = () => {
                                     <div className="space-y-4">
                                         {/* API Key */}
                                         <div className="space-y-2">
-                                            <label className="text-sm font-bold text-slate-300">API Key</label>
+                                            <label htmlFor="settings-api-key" className="text-sm font-bold text-slate-300">API Key</label>
                                             <div className="relative">
                                                 <input
+                                                    id="settings-api-key"
                                                     type={showApiKey ? 'text' : 'password'}
                                                     value={llmApiKey}
                                                     onChange={(e) => setLlmApiKey(e.target.value)}
@@ -808,8 +823,9 @@ export const Settings = () => {
                                         {authReq === 'api-key-and-endpoint' && (
                                             <>
                                                 <div className="space-y-2">
-                                                    <label className="text-sm font-bold text-slate-300">Base URL / Endpoint</label>
+                                                    <label htmlFor="settings-base-url" className="text-sm font-bold text-slate-300">Base URL / Endpoint</label>
                                                     <input
+                                                        id="settings-base-url"
                                                         type="text"
                                                         value={llmBaseUrl}
                                                         onChange={(e) => setLlmBaseUrl(e.target.value)}
@@ -818,8 +834,9 @@ export const Settings = () => {
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
-                                                    <label className="text-sm font-bold text-slate-300">API Version</label>
+                                                    <label htmlFor="settings-api-version" className="text-sm font-bold text-slate-300">API Version</label>
                                                     <input
+                                                        id="settings-api-version"
                                                         type="text"
                                                         value={llmApiVersion}
                                                         onChange={(e) => setLlmApiVersion(e.target.value)}
@@ -958,8 +975,9 @@ export const Settings = () => {
                                         </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                             <div className="space-y-1.5">
-                                                <label className="text-xs font-bold text-slate-400">Name <span className="text-red-400">*</span></label>
+                                                <label htmlFor="mcp-name" className="text-xs font-bold text-slate-400">Name <span className="text-red-400">*</span></label>
                                                 <input
+                                                    id="mcp-name"
                                                     type="text"
                                                     value={mcpForm.name}
                                                     onChange={(e) => setMcpForm(f => ({ ...f, name: e.target.value }))}
@@ -968,8 +986,9 @@ export const Settings = () => {
                                                 />
                                             </div>
                                             <div className="space-y-1.5">
-                                                <label className="text-xs font-bold text-slate-400">Command <span className="text-red-400">*</span></label>
+                                                <label htmlFor="mcp-command" className="text-xs font-bold text-slate-400">Command <span className="text-red-400">*</span></label>
                                                 <input
+                                                    id="mcp-command"
                                                     type="text"
                                                     value={mcpForm.command}
                                                     onChange={(e) => setMcpForm(f => ({ ...f, command: e.target.value }))}
@@ -979,8 +998,9 @@ export const Settings = () => {
                                             </div>
                                         </div>
                                         <div className="space-y-1.5">
-                                            <label className="text-xs font-bold text-slate-400">Arguments <span className="text-slate-600">(space-separated)</span></label>
+                                            <label htmlFor="mcp-args" className="text-xs font-bold text-slate-400">Arguments <span className="text-slate-600">(space-separated)</span></label>
                                             <input
+                                                id="mcp-args"
                                                 type="text"
                                                 value={mcpForm.args}
                                                 onChange={(e) => setMcpForm(f => ({ ...f, args: e.target.value }))}
@@ -989,8 +1009,9 @@ export const Settings = () => {
                                             />
                                         </div>
                                         <div className="space-y-1.5">
-                                            <label className="text-xs font-bold text-slate-400">Working Directory <span className="text-slate-600">(optional)</span></label>
+                                            <label htmlFor="mcp-cwd" className="text-xs font-bold text-slate-400">Working Directory <span className="text-slate-600">(optional)</span></label>
                                             <input
+                                                id="mcp-cwd"
                                                 type="text"
                                                 value={mcpForm.cwd}
                                                 onChange={(e) => setMcpForm(f => ({ ...f, cwd: e.target.value }))}
@@ -999,8 +1020,9 @@ export const Settings = () => {
                                             />
                                         </div>
                                         <div className="space-y-1.5">
-                                            <label className="text-xs font-bold text-slate-400">Environment Variables <span className="text-slate-600">(KEY=VALUE, one per line)</span></label>
+                                            <label htmlFor="mcp-env" className="text-xs font-bold text-slate-400">Environment Variables <span className="text-slate-600">(KEY=VALUE, one per line)</span></label>
                                             <textarea
+                                                id="mcp-env"
                                                 value={mcpForm.env}
                                                 onChange={(e) => setMcpForm(f => ({ ...f, env: e.target.value }))}
                                                 placeholder={"DATABASE_URL=https://...\nAPI_KEY=sk-..."}
@@ -1084,7 +1106,7 @@ export const Settings = () => {
                                 {/* Max Steps Slider */}
                                 <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
                                     <div className="flex justify-between items-center">
-                                        <label className="text-sm font-bold text-slate-300 block">Max Steps Limit</label>
+                                        <label htmlFor="settings-max-steps" className="text-sm font-bold text-slate-300 block">Max Steps Limit</label>
                                         <span className={`text-xs font-mono px-2 py-1 rounded ${config.maxSteps === 0 ? 'bg-brand-500/15 text-brand-400 font-bold' : 'bg-slate-700 text-slate-300'}`}>
                                             {config.maxSteps === 0 ? 'Unlimited' : `${config.maxSteps} steps`}
                                         </span>
@@ -1092,6 +1114,7 @@ export const Settings = () => {
                                     <div className="flex items-center gap-4">
                                         <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
                                         <input
+                                            id="settings-max-steps"
                                             type="range"
                                             min="0"
                                             max="200"
@@ -1108,7 +1131,7 @@ export const Settings = () => {
                                 {/* Max Concurrent Investigations */}
                                 <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
                                     <div className="flex justify-between items-center">
-                                        <label className="text-sm font-bold text-slate-300 block">Max Concurrent Investigations</label>
+                                        <label htmlFor="settings-max-concurrent" className="text-sm font-bold text-slate-300 block">Max Concurrent Investigations</label>
                                         <span className={`text-xs font-mono px-2 py-1 rounded ${(config.maxConcurrentInvestigations ?? 3) === 0 ? 'bg-brand-500/20 text-brand-400' : 'bg-slate-700 text-slate-300'}`}>
                                             {(config.maxConcurrentInvestigations ?? 3) === 0 ? '∞ Unlimited' : config.maxConcurrentInvestigations ?? 3}
                                         </span>
@@ -1116,6 +1139,7 @@ export const Settings = () => {
                                     <div className="flex items-center gap-4">
                                         <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
                                         <input
+                                            id="settings-max-concurrent"
                                             type="range"
                                             min="0"
                                             max="10"
@@ -1132,13 +1156,14 @@ export const Settings = () => {
                                 {/* Retrospective Timeout */}
                                 <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
                                     <div className="flex justify-between items-center">
-                                        <label className="text-sm font-bold text-slate-300 block">Retrospective Timeout</label>
+                                        <label htmlFor="settings-retro-timeout" className="text-sm font-bold text-slate-300 block">Retrospective Timeout</label>
                                         <span className="text-xs font-mono px-2 py-1 rounded bg-slate-700 text-slate-300">
                                             {config.retrospectTimeoutMinutes ?? 10} min
                                         </span>
                                     </div>
                                     <div className="flex items-center gap-4">
                                         <input
+                                            id="settings-retro-timeout"
                                             type="range"
                                             min="1"
                                             max="30"
@@ -1153,8 +1178,9 @@ export const Settings = () => {
 
                                 {/* Model Selection */}
                                 <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
-                                    <label className="text-sm font-bold text-slate-300 block">Model Selection</label>
+                                    <label htmlFor="settings-model" className="text-sm font-bold text-slate-300 block">Model Selection</label>
                                     <select
+                                        id="settings-model"
                                         value={config.model}
                                         onChange={(e) => handleChange('model', e.target.value)}
                                         className="w-full px-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all"
@@ -1340,9 +1366,10 @@ export const Settings = () => {
                             </div>
 
                             <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
-                                <label className="text-sm font-bold text-slate-300 block">Default Time Range</label>
+                                <label htmlFor="settings-time-range" className="text-sm font-bold text-slate-300 block">Default Time Range</label>
                                 <div className="relative">
                                     <select
+                                        id="settings-time-range"
                                         value={config.defaultTimeRange}
                                         onChange={(e) => handleChange('defaultTimeRange', e.target.value)}
                                         className="w-full pl-10 pr-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all appearance-none cursor-pointer"
@@ -1516,8 +1543,9 @@ export const Settings = () => {
                                     )}
 
                                     <div>
-                                        <label className="text-sm font-bold text-slate-300 block mb-2">Product Name</label>
+                                        <label htmlFor="product-name" className="text-sm font-bold text-slate-300 block mb-2">Product Name</label>
                                         <input
+                                            id="product-name"
                                             type="text"
                                             value={productForm.name}
                                             onChange={(e) => setProductForm(prev => ({ ...prev, name: e.target.value }))}
@@ -1545,9 +1573,10 @@ export const Settings = () => {
                                         const hasError = pathError?.error;
                                         return (
                                         <div key={key}>
-                                            <label className="text-sm font-bold text-slate-300 block mb-2">{label}</label>
+                                            <label htmlFor={`product-${key}`} className="text-sm font-bold text-slate-300 block mb-2">{label}</label>
                                             <div className="flex gap-2">
                                                 <input
+                                                    id={`product-${key}`}
                                                     type="text"
                                                     value={productForm[key]}
                                                     onChange={(e) => {

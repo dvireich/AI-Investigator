@@ -700,6 +700,16 @@ Includes a server-side **file browser** for selecting directories.
 | **LLM Provider** | Any of: OpenAI API key, Anthropic API key, GitHub Copilot subscription, Azure OpenAI endpoint, or local Ollama instance |
 | **MCP Server(s)** *(optional)* | For data querying (e.g., MCP KQL Server, or any custom MCP server) |
 
+#### System Requirements
+
+| Resource | Minimum | Recommended |
+|----------|---------|-------------|
+| **RAM** | 512 MB | 1 GB+ (more for concurrent investigations) |
+| **Disk** | 100 MB | 500 MB+ (investigations generate artifacts) |
+| **OS** | Windows 10, macOS 12, Ubuntu 20.04 | Latest stable |
+| **Ports** | 3000 (HTTP + WebSocket) | — |
+| **Browser** | Chrome, Edge, Firefox, Safari (latest 2 versions) | — |
+
 > **Note:** `Setup-Dashboard.ps1` automatically installs Node.js via `winget` if not found.
 
 ### Option A: Standalone Executable (Recommended)

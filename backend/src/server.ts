@@ -600,7 +600,25 @@ export function registerWebSocketClient(
 // WebSocket for real-time updates
 wss.on('connection', (ws, req) => {
     registerWebSocketClient(clients, ws, req);
+
+    // Mark alive on connect and on pong response
+    (ws as any).isAlive = true;
+    ws.on('pong', () => { (ws as any).isAlive = true; });
 });
+
+// Heartbeat: ping every 30s, terminate unresponsive clients
+function wsHeartbeatCheck() {
+    wss.clients.forEach((ws) => {
+        if ((ws as any).isAlive === false) {
+            ws.terminate();
+            return;
+        }
+        (ws as any).isAlive = false;
+        ws.ping();
+    });
+}
+const wsHeartbeatInterval = setInterval(wsHeartbeatCheck, 30_000);
+wss.on('close', () => clearInterval(wsHeartbeatInterval));
 
 /**
  * Build the effective AgentConfig for a given investigation state.
@@ -3573,6 +3591,7 @@ export const __testUtils = {
     resolveConfigFilePath,
     loadConfigFromDisk,
     killProcessOnPort,
+    wsHeartbeatCheck,
     internal,
     llmRegistry,
     incidentRegistry,
