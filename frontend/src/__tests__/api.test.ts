@@ -183,6 +183,73 @@ describe('api', () => {
                 expect.objectContaining({ method: 'POST' }),
             );
         });
+
+        it('exportSettings downloads config.json', async () => {
+            const blobContent = new Blob(['{}'], { type: 'application/json' });
+            mockFetch.mockResolvedValue({
+                ok: true,
+                blob: vi.fn().mockResolvedValue(blobContent),
+            });
+            const createObjectURL = vi.fn().mockReturnValue('blob:url');
+            const revokeObjectURL = vi.fn();
+            globalThis.URL.createObjectURL = createObjectURL;
+            globalThis.URL.revokeObjectURL = revokeObjectURL;
+
+            const clickSpy = vi.fn();
+            const appendSpy = vi.spyOn(document.body, 'appendChild').mockImplementation((el: any) => { el.click = clickSpy; el.click(); return el; });
+            const removeSpy = vi.spyOn(document.body, 'removeChild').mockImplementation((el: any) => el);
+
+            await api.exportSettings();
+
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/settings/export'));
+            expect(createObjectURL).toHaveBeenCalledWith(blobContent);
+            expect(clickSpy).toHaveBeenCalled();
+            expect(revokeObjectURL).toHaveBeenCalledWith('blob:url');
+            appendSpy.mockRestore();
+            removeSpy.mockRestore();
+        });
+
+        it('exportSettings throws on error', async () => {
+            mockFetch.mockResolvedValue(mockResponse({}, { status: 500 }));
+            await expect(api.exportSettings()).rejects.toThrow('Failed to export settings');
+        });
+
+        it('importSettings sends POST and returns result', async () => {
+            mockFetch.mockResolvedValue(mockResponse({ imported: 2, config: { model: 'gpt-4o' } }));
+            const result = await api.importSettings({ model: 'gpt-4o' });
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.stringContaining('/settings/import'),
+                expect.objectContaining({ method: 'POST' }),
+            );
+            expect(result.imported).toBe(2);
+        });
+
+        it('importSettings throws server error message', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false,
+                statusText: 'Bad Request',
+                json: vi.fn().mockResolvedValue({ error: 'No valid keys' }),
+            });
+            await expect(api.importSettings({ bad: true })).rejects.toThrow('No valid keys');
+        });
+
+        it('importSettings falls back to statusText when json parse fails', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false,
+                statusText: 'Bad Request',
+                json: vi.fn().mockRejectedValue(new Error('parse error')),
+            });
+            await expect(api.importSettings({ bad: true })).rejects.toThrow('Bad Request');
+        });
+
+        it('importSettings falls back to default message when error field is empty', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false,
+                statusText: 'Bad Request',
+                json: vi.fn().mockResolvedValue({ error: '' }),
+            });
+            await expect(api.importSettings({ bad: true })).rejects.toThrow('Failed to import settings');
+        });
     });
 
     describe('models', () => {

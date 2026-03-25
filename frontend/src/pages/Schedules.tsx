@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api';
@@ -9,7 +9,7 @@ import type { Product } from '../types/product';
 import {
     Clock, Play, Pause, Plus, Trash2, Pencil, CheckCircle2, AlertTriangle,
     XCircle, Activity, RefreshCw, ChevronDown, ChevronRight, ChevronLeft, Server, Timer,
-    ExternalLink, Eye, EyeOff, Loader2, Check, X, Cpu, Calendar
+    ExternalLink, Eye, EyeOff, Loader2, Check, X, Cpu, Calendar, Search, Copy
 } from 'lucide-react';
 import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
 
@@ -48,6 +48,7 @@ export const Schedules = () => {
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editFields, setEditFields] = useState<{ model?: string; target?: string; timeRange?: string; category?: string }>({});
     const [timeRangePopupId, setTimeRangePopupId] = useState<string | null>(null);
+    const [scheduleSearch, setScheduleSearch] = useState('');
     const timeRangePopupRef = useRef<HTMLDivElement>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [pageSize, setPageSize] = useState<number>(
@@ -173,6 +174,36 @@ export const Schedules = () => {
         refresh();
     };
 
+    const handleClone = async (sched: ScheduleDefinition) => {
+        try {
+            await api.createSchedule({
+                name: `${sched.name} (copy)`,
+                target: sched.target,
+                query: sched.query,
+                intervalMinutes: sched.intervalMinutes,
+                productId: sched.productId,
+                model: sched.model,
+                maxSteps: sched.maxSteps,
+                timeRange: sched.timeRange,
+                category: sched.category,
+                enabled: false,
+            });
+            refresh();
+        } catch (err) {
+            console.error('Failed to clone schedule:', err);
+        }
+    };
+
+    const filteredSchedules = useMemo(() => {
+        if (!scheduleSearch) return schedules;
+        const q = scheduleSearch.toLowerCase();
+        return schedules.filter(s =>
+            s.name.toLowerCase().includes(q) ||
+            s.target.toLowerCase().includes(q) ||
+            (s.query && s.query.toLowerCase().includes(q))
+        );
+    }, [schedules, scheduleSearch]);
+
     // Stat counts (computed from current page — acceptable for schedules which are typically small)
     const enabledCount = schedules.filter(s => s.enabled).length;
     const okCount = schedules.filter(s => s.lastVerdict === 'healthy' || s.lastVerdict === 'completed').length;
@@ -272,7 +303,23 @@ export const Schedules = () => {
                 </div>
             ) : (
                 <div className="space-y-3">
-                    {schedules.map(sched => {
+                    {/* Search */}
+                    <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+                        <input
+                            type="text"
+                            value={scheduleSearch}
+                            onChange={(e) => setScheduleSearch(e.target.value)}
+                            placeholder="Search schedules..."
+                            className="w-full pl-9 pr-8 py-2 rounded-xl border border-slate-700/50 bg-slate-900/60 text-sm text-slate-200 placeholder:text-slate-600 focus:ring-2 focus:ring-brand-500/40 focus:border-brand-500/30 outline-none transition-all"
+                        />
+                        {scheduleSearch && (
+                            <button onClick={() => setScheduleSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300">
+                                <X className="w-3.5 h-3.5" />
+                            </button>
+                        )}
+                    </div>
+                    {filteredSchedules.map(sched => {
                         const effectiveVerdict: Verdict = sched.activeInvestigationId ? 'running' : (sched.lastVerdict || 'unknown') as Verdict;
                         const vc = verdictConfig[effectiveVerdict];
                         const isExpanded = expandedId === sched.id;
@@ -338,6 +385,9 @@ export const Schedules = () => {
                                             </button>
                                             <button onClick={() => navigate(`/schedules/${sched.id}/edit`)} title="Edit" className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/5 transition-colors">
                                                 <Pencil className="w-3.5 h-3.5" />
+                                            </button>
+                                            <button onClick={() => handleClone(sched)} title="Clone" className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/5 transition-colors">
+                                                <Copy className="w-3.5 h-3.5" />
                                             </button>
                                             <button onClick={() => handleDelete(sched.id)} title="Delete" className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-white/5 transition-colors">
                                                 <Trash2 className="w-3.5 h-3.5" />

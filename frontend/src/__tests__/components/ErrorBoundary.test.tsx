@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
 
 // A component that throws on render
@@ -81,5 +81,32 @@ describe('ErrorBoundary', () => {
         );
         screen.getByText('Refresh Page').click();
         expect(reloadMock).toHaveBeenCalled();
+    });
+
+    it('renders Try Again button in error state', () => {
+        render(
+            <ErrorBoundary>
+                <ThrowingChild error={new Error('try again test')} />
+            </ErrorBoundary>,
+        );
+        expect(screen.getByText('Try Again')).toBeInTheDocument();
+    });
+
+    it('resets error state when Try Again is clicked', () => {
+        let shouldThrow = true;
+        function ConditionalChild() {
+            if (shouldThrow) throw new Error('recoverable');
+            return <div data-testid="recovered">Recovered</div>;
+        }
+        render(
+            <ErrorBoundary>
+                <ConditionalChild />
+            </ErrorBoundary>,
+        );
+        expect(screen.getByText('Something went wrong')).toBeInTheDocument();
+
+        shouldThrow = false;
+        fireEvent.click(screen.getByText('Try Again'));
+        expect(screen.getByTestId('recovered')).toBeInTheDocument();
     });
 });

@@ -4,6 +4,7 @@ import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
 import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code, ArrowLeft } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
+import { ScrollToTop } from '../components/ScrollToTop';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -630,6 +631,7 @@ export const InvestigationDetail = () => {
     const [implSelected, setImplSelected] = useState<Set<string>>(new Set());
     const [implLoading, setImplLoading] = useState(false);
     const [implRunning, setImplRunning] = useState(false);
+    const [thoughtSearch, setThoughtSearch] = useState('');
 
     useEffect(() => {
         api.listModels()
@@ -1547,6 +1549,31 @@ export const InvestigationDetail = () => {
                                 </div>
                             )}
 
+                            {/* Thought Search Bar */}
+                            <div className="flex items-center gap-2 px-2 sm:px-4 py-1.5 border-b border-slate-800/50 shrink-0">
+                                <Search className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                <input
+                                    type="text"
+                                    value={thoughtSearch}
+                                    onChange={(e) => setThoughtSearch(e.target.value)}
+                                    placeholder="Search thoughts..."
+                                    className="flex-1 bg-transparent text-xs text-slate-300 placeholder:text-slate-600 outline-none"
+                                />
+                                {thoughtSearch && (
+                                    <>
+                                        <span className="text-[10px] text-slate-500 font-mono whitespace-nowrap">
+                                            {investigation.thoughts.filter((t: any) => {
+                                                const content = typeof t === 'string' ? t : (t?.content || '');
+                                                return content.toLowerCase().includes(thoughtSearch.toLowerCase());
+                                            }).length} of {investigation.thoughts.length}
+                                        </span>
+                                        <button onClick={() => setThoughtSearch('')} className="text-slate-500 hover:text-slate-300">
+                                            <X className="w-3 h-3" />
+                                        </button>
+                                    </>
+                                )}
+                            </div>
+
                             {/* Chat History */}
                             <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-3 sm:space-y-4 font-mono text-sm leading-relaxed custom-scrollbar bg-slate-900">
                                 {/* Init Logs */}
@@ -1558,7 +1585,11 @@ export const InvestigationDetail = () => {
                                     ))}
                                 </div>
 
-                                {investigation.thoughts.map((thought, i) => (
+                                {investigation.thoughts.filter((t: any) => {
+                                    if (!thoughtSearch) return true;
+                                    const content = typeof t === 'string' ? t : (t?.content || '');
+                                    return content.toLowerCase().includes(thoughtSearch.toLowerCase());
+                                }).map((thought, i) => (
                                     <StepItem
                                         key={`step-${i}-${typeof thought === 'string' ? thought.substring(0, 30) : (thought?.content || '').substring(0, 30)}`}
                                         thought={thought}
@@ -2500,6 +2531,7 @@ export const InvestigationDetail = () => {
                 )}
             </div>
         </div>
+        <ScrollToTop />
         </div>
     );
 };

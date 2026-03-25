@@ -40,6 +40,7 @@ vi.mock('../../api', () => ({
         disableSchedule: vi.fn().mockResolvedValue({}),
         runScheduleNow: vi.fn().mockResolvedValue({}),
         updateSchedule: vi.fn().mockResolvedValue({}),
+        createSchedule: vi.fn().mockResolvedValue({}),
         startScheduler: vi.fn().mockResolvedValue({}),
         stopScheduler: vi.fn().mockResolvedValue({}),
     },
@@ -111,6 +112,7 @@ describe('Schedules', () => {
         vi.mocked(api.updateSchedule).mockResolvedValue({});
         vi.mocked(api.startScheduler).mockResolvedValue({});
         vi.mocked(api.stopScheduler).mockResolvedValue({});
+        vi.mocked(api.createSchedule).mockResolvedValue({} as any);
     });
 
     afterEach(() => {
@@ -2010,6 +2012,112 @@ describe('Schedules additional coverage', () => {
             await waitFor(() => {
                 expect(screen.getByText('1–6 of 20 schedules')).toBeInTheDocument();
             });
+        });
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  SEARCH & CLONE
+    // ══════════════════════════════════════════════════════════════════════
+
+    describe('Search', () => {
+        it('renders search input when schedules exist', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule()]));
+            renderSchedules();
+            await waitFor(() => expect(screen.getByPlaceholderText('Search schedules...')).toBeInTheDocument());
+        });
+
+        it('filters schedules by name', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
+                createSchedule({ id: 's1', name: 'Daily Check' }),
+                createSchedule({ id: 's2', name: 'Weekly Report' }),
+            ]));
+            renderSchedules();
+            await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
+            expect(screen.getByText('Weekly Report')).toBeInTheDocument();
+
+            const searchInput = screen.getByPlaceholderText('Search schedules...');
+            await userEvent.type(searchInput, 'Weekly');
+
+            expect(screen.queryByText('Daily Check')).not.toBeInTheDocument();
+            expect(screen.getByText('Weekly Report')).toBeInTheDocument();
+        });
+
+        it('filters schedules by target', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
+                createSchedule({ id: 's1', name: 'Schedule A', target: 'stamp-alpha' }),
+                createSchedule({ id: 's2', name: 'Schedule B', target: 'stamp-beta' }),
+            ]));
+            renderSchedules();
+            await waitFor(() => expect(screen.getByText('Schedule A')).toBeInTheDocument());
+
+            const searchInput = screen.getByPlaceholderText('Search schedules...');
+            await userEvent.type(searchInput, 'beta');
+
+            expect(screen.queryByText('Schedule A')).not.toBeInTheDocument();
+            expect(screen.getByText('Schedule B')).toBeInTheDocument();
+        });
+
+        it('clears search with X button', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
+                createSchedule({ id: 's1', name: 'Daily Check' }),
+                createSchedule({ id: 's2', name: 'Weekly Report' }),
+            ]));
+            renderSchedules();
+            await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
+
+            const searchInput = screen.getByPlaceholderText('Search schedules...');
+            await userEvent.type(searchInput, 'Weekly');
+            expect(screen.queryByText('Daily Check')).not.toBeInTheDocument();
+
+            // Click the X clear button
+            const clearButtons = screen.getAllByRole('button');
+            const clearBtn = clearButtons.find(btn => btn.closest('.relative') && btn.querySelector('svg'));
+            // Find the clear button in the search bar
+            const container = searchInput.closest('.relative')!;
+            const xBtn = within(container as HTMLElement).getAllByRole('button')[0];
+            await userEvent.click(xBtn);
+
+            expect(screen.getByText('Daily Check')).toBeInTheDocument();
+            expect(screen.getByText('Weekly Report')).toBeInTheDocument();
+        });
+    });
+
+    describe('Clone', () => {
+        it('calls createSchedule with cloned fields when Clone is clicked', async () => {
+            const { api } = await import('../../api');
+            const sched = createSchedule({ id: 's1', name: 'Daily Check', target: 'stamp-a', intervalMinutes: 60 });
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([sched]));
+            renderSchedules();
+            await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
+
+            const cloneBtn = screen.getByTitle('Clone');
+            await userEvent.click(cloneBtn);
+
+            expect(api.createSchedule).toHaveBeenCalledWith(expect.objectContaining({
+                name: 'Daily Check (copy)',
+                target: 'stamp-a',
+                intervalMinutes: 60,
+                enabled: false,
+            }));
+        });
+
+        it('logs error when clone fails', async () => {
+            const { api } = await import('../../api');
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const sched = createSchedule({ id: 's1', name: 'Fail Clone', target: 'stamp-b', intervalMinutes: 30 });
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([sched]));
+            vi.mocked(api.createSchedule).mockRejectedValueOnce(new Error('clone boom'));
+            renderSchedules();
+            await waitFor(() => expect(screen.getByText('Fail Clone')).toBeInTheDocument());
+
+            await userEvent.click(screen.getByTitle('Clone'));
+
+            await waitFor(() => expect(consoleSpy).toHaveBeenCalledWith('Failed to clone schedule:', expect.any(Error)));
+            consoleSpy.mockRestore();
         });
     });
 });

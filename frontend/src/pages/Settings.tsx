@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench } from 'lucide-react';
+import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload } from 'lucide-react';
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult } from '../api';
 import { useToast } from '../components/Toast';
@@ -1384,6 +1384,47 @@ export const Settings = () => {
                                     <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
                                         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-chevron-down"><path d="m6 9 6 6 6-6" /></svg>
                                     </div>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
+                                <div className="text-sm font-bold text-slate-300">Import / Export Settings</div>
+                                <p className="text-xs text-slate-500">Export your settings to back them up or import them on another instance.</p>
+                                <div className="flex gap-3">
+                                    <button
+                                        onClick={async () => {
+                                            try { await api.exportSettings(); } catch (e: any) { setError(e.message); }
+                                        }}
+                                        className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-bold transition-colors"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        Export
+                                    </button>
+                                    <label className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-bold transition-colors cursor-pointer">
+                                        <Upload className="w-4 h-4" />
+                                        Import
+                                        <input
+                                            type="file"
+                                            accept=".json"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                try {
+                                                    const text = await file.text();
+                                                    const parsed = JSON.parse(text);
+                                                    const result = await api.importSettings(parsed);
+                                                    setConfig(result.config);
+                                                    setDirty(false);
+                                                    setSaveSuccess(true);
+                                                    setTimeout(() => setSaveSuccess(false), 3000);
+                                                } catch (err: any) {
+                                                    setError(err.message || 'Failed to import settings');
+                                                }
+                                                e.target.value = '';
+                                            }}
+                                        />
+                                    </label>
                                 </div>
                             </div>
                         </div>

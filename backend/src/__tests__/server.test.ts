@@ -1857,6 +1857,57 @@ describe('server utilities and routes', () => {
             }
         });
 
+        it('exports settings via GET /api/settings/export', async () => {
+            const response = await api().get('/api/settings/export');
+            expect(response.status).toBe(200);
+            expect(response.headers['content-disposition']).toContain('config.json');
+            expect(response.body.model).toBeDefined();
+        });
+
+        it('imports valid settings via POST /api/settings/import', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const response = await api().post('/api/settings/import').send({ model: 'gpt-4.1-imported', defaultView: 'list' });
+                expect(response.status).toBe(200);
+                expect(response.body.imported).toBe(2);
+                expect(response.body.config.model).toBe('gpt-4.1-imported');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('rejects non-object import body', async () => {
+            const response = await api().post('/api/settings/import').send([1, 2, 3]);
+            expect(response.status).toBe(400);
+        });
+
+        it('rejects import with no valid keys', async () => {
+            const response = await api().post('/api/settings/import').send({ unknownKey: 'value' });
+            expect(response.status).toBe(400);
+        });
+
+        it('import with llmProvider triggers initializeProviders', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const response = await api().post('/api/settings/import').send({ llmProvider: { type: 'copilot' } });
+                expect(response.status).toBe(200);
+                expect(response.body.imported).toBe(1);
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+            }
+        });
+
+        it('import returns 500 when saveConfigToDisk throws', async () => {
+            const circular: any = {};
+            circular.self = circular;
+            __testUtils.setPersistedConfig(circular);
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+            const response = await api().post('/api/settings/import').send({ model: 'gpt-crash' });
+            expect(response.status).toBe(500);
+            expect(response.body.error).toContain('circular structure');
+            consoleSpy.mockRestore();
+        });
+
         it('supports auth login, polling, and configure success paths', async () => {
             const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
 
@@ -4209,28 +4260,19 @@ describe('server utilities and routes', () => {
             expect(response.body.error).toBe('restart failed');
         });
 
-        it('pauses runners during server restart without exiting the test process', async () => {
-            vi.useFakeTimers();
-            try {
-                const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as any);
+        it('performs in-process restart: pauses runners, reloads config, reinits providers', async () => {
                 const runner = makeRunner({ id: 'active-6', status: 'running' });
                 __testUtils.getRunners().set('active-6', runner as any);
 
                 const response = await api().post('/api/server/restart').send({});
                 expect(response.status).toBe(200);
+                expect(response.body.status).toBe('restarted');
                 expect(runner.pause).toHaveBeenCalled();
-
-                await vi.advanceTimersByTimeAsync(600);
-                expect(exitSpy).toHaveBeenCalledWith(0);
-            } finally {
-                vi.useRealTimers();
-            }
+                // Runners should be cleared after restart
+                expect(__testUtils.getRunners().size).toBe(0);
         });
 
         it('continues restart when a runner pause throws', async () => {
-            vi.useFakeTimers();
-            try {
-                const exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as any);
                 const runner = makeRunner({ id: 'active-7', status: 'running' }, {
                     pause: vi.fn(() => {
                         throw new Error('pause failed');
@@ -4241,11 +4283,31 @@ describe('server utilities and routes', () => {
                 const response = await api().post('/api/server/restart').send({});
 
                 expect(response.status).toBe(200);
-                await vi.advanceTimersByTimeAsync(600);
-                expect(exitSpy).toHaveBeenCalledWith(0);
-            } finally {
-                vi.useRealTimers();
-            }
+                expect(response.body.status).toBe('restarted');
+                // Runners should still be cleared even when pause fails
+                expect(__testUtils.getRunners().size).toBe(0);
+        });
+
+        it('ignores scheduler.stop() errors during restart', async () => {
+                const fakeScheduler = { stop: vi.fn(() => { throw new Error('stop failed'); }), start: vi.fn() };
+                __testUtils.setScheduler(fakeScheduler as any);
+
+                const response = await api().post('/api/server/restart').send({});
+
+                expect(response.status).toBe(200);
+                expect(response.body.status).toBe('restarted');
+                expect(fakeScheduler.stop).toHaveBeenCalled();
+        });
+
+        it('returns 500 when restart encounters an unexpected error', async () => {
+                // Set an invalid path (null byte) that will cause fs.mkdirSync to throw
+                // inside initScheduler → ensureDirectoryExists
+                __testUtils.setConfig({ investigationsPath: 'path\0with-null-byte' });
+
+                const response = await api().post('/api/server/restart').send({});
+
+                expect(response.status).toBe(500);
+                expect(response.body.error).toBe('Restart failed');
         });
 
     });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Home, RotateCcw } from 'lucide-react';
 
 interface ErrorBoundaryState {
     hasError: boolean;
@@ -20,6 +20,10 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
         console.error('ErrorBoundary caught:', error, info.componentStack);
     }
 
+    handleTryAgain = () => {
+        this.setState({ hasError: false, error: null });
+    };
+
     render() {
         if (this.state.hasError) {
             return (
@@ -39,6 +43,13 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
                         )}
                         <div className="flex gap-3 justify-center">
                             <button
+                                onClick={this.handleTryAgain}
+                                className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-sm font-bold transition-colors"
+                            >
+                                <RotateCcw className="w-4 h-4" />
+                                Try Again
+                            </button>
+                            <button
                                 onClick={() => window.location.reload()}
                                 className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-bold transition-colors"
                             >
@@ -47,7 +58,7 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
                             </button>
                             <a
                                 href="/"
-                                className="flex items-center gap-2 px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-sm font-bold transition-colors"
+                                className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-bold transition-colors"
                             >
                                 <Home className="w-4 h-4" />
                                 Go to Dashboard

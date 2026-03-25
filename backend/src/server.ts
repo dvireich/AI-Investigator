@@ -236,7 +236,7 @@ let activeLlmProvider: LlmProvider | null = null;
 let activeIncidentProvider: IncidentProvider | null = null;
 
 app.use(cors());
-app.use(express.json({ limit: Infinity }));
+app.use(express.json({ limit: '10mb' }));
 
 export function jsonParseErrorHandler(err: any, req: express.Request, res: express.Response, next: express.NextFunction) {
     if (err.type === 'entity.parse.failed') {
@@ -979,6 +979,49 @@ app.post('/api/settings', (req, res) => {
         res.json(config);
     } catch (e: any) {
         console.error("Failed to save settings:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/settings/export', (_req, res) => {
+    res.setHeader('Content-Disposition', 'attachment; filename="config.json"');
+    res.json(config);
+});
+
+app.post('/api/settings/import', (req, res) => {
+    try {
+        const imported = req.body;
+        if (!imported || typeof imported !== 'object' || Array.isArray(imported)) {
+            return res.status(400).json({ error: 'Request body must be a JSON object' });
+        }
+        // Whitelist the same keys as POST /api/settings
+        const ALLOWED_KEYS = new Set([
+            'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
+            'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
+            'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
+            'notifications', 'investigationsPath', 'products', 'activeProductId',
+            'llmProvider', 'incidentProvider',
+            'defaultView', 'defaultSortOrder', 'defaultPageSize'
+        ]);
+        const filtered = Object.fromEntries(
+            Object.entries(imported).filter(([k]) => ALLOWED_KEYS.has(k))
+        );
+        if (Object.keys(filtered).length === 0) {
+            return res.status(400).json({ error: 'No valid settings keys found in import' });
+        }
+        config = { ...config, ...filtered };
+        for (const [key, value] of Object.entries(filtered)) {
+            if (key in persistedConfig || !INTERNAL_DEFAULT_KEYS.has(key)) {
+                persistedConfig[key] = value;
+            }
+        }
+        saveConfigToDisk();
+        if ('llmProvider' in filtered || 'incidentProvider' in filtered) {
+            initializeProviders();
+        }
+        res.json({ imported: Object.keys(filtered).length, config });
+    } catch (e: any) {
+        console.error("Failed to import settings:", e);
         res.status(500).json({ error: e.message });
     }
 });
@@ -2199,11 +2242,13 @@ app.post('/api/investigations/resume-all', async (req, res) => {
     }
 });
 
-// Graceful server restart — process manager (ts-node-dev --respawn) will restart automatically
+// Graceful server restart — in-process reload of config, providers, and state
 app.post('/api/server/restart', (req, res) => {
-    console.log('Server restart requested via API. Exiting for respawn...');
+    try {
+    console.log('Server restart requested via API. Performing in-process restart...');
+    invalidateListCache();
 
-    // Pause all running investigations before exit so they auto-pause on reload
+    // 1. Pause all running investigations and save state
     for (const [id, runner] of runners.entries()) {
         try {
             runner.pause();
@@ -2213,13 +2258,37 @@ app.post('/api/server/restart', (req, res) => {
             console.error(`  Failed to pause runner ${id}:`, e.message);
         }
     }
+    runners.clear();
+    storagePathCache.clear();
 
-    res.json({ status: 'restarting' });
+    // 2. Reload config from disk
+    try {
+        const loaded = loadConfigFromDisk(configFile, config, configFileDir);
+        config = loaded.config;
+        persistedConfig = loaded.persistedConfig;
+        console.log('  Config reloaded from disk.');
+    } catch (e: any) {
+        console.error('  Failed to reload config:', e.message);
+    }
 
-    // Give the response time to flush, then exit
-    setTimeout(() => {
-        process.exit(0);
-    }, 500);
+    // 3. Reinitialize providers
+    initializeProviders();
+
+    // 4. Reload investigation history
+    loadHistory();
+
+    // 5. Reinitialize scheduler
+    if (scheduler) {
+        try { scheduler.stop(); } catch { /* ignore */ }
+    }
+    initScheduler();
+
+    console.log('In-process restart complete.');
+    res.json({ status: 'restarted' });
+    } catch (err: any) {
+        console.error('Server restart failed:', err);
+        res.status(500).json({ error: 'Restart failed', details: err.message });
+    }
 });
 
 app.post('/api/investigations/:id/model', async (req, res) => {
