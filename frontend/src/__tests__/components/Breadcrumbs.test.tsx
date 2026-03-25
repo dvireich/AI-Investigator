@@ -17,36 +17,45 @@ describe('Breadcrumbs', () => {
         expect(screen.getByRole('navigation', { name: 'Breadcrumb' })).toBeInTheDocument();
     });
 
-    it('renders single crumb without separator', () => {
+    it('renders single non-navigable crumb as plain text', () => {
         renderBreadcrumbs([{ label: 'Dashboard' }]);
         expect(screen.getByText('Dashboard')).toBeInTheDocument();
+        expect(screen.queryByRole('link')).not.toBeInTheDocument();
     });
 
-    it('renders clickable crumb as link', () => {
-        renderBreadcrumbs([{ label: 'Dashboard', to: '/' }]);
-        const link = screen.getByRole('link', { name: 'Dashboard' });
-        expect(link).toHaveAttribute('href', '/');
-    });
-
-    it('renders last crumb (no to) as plain text', () => {
+    it('renders back pill linking to parent', () => {
         renderBreadcrumbs([{ label: 'Dashboard', to: '/' }, { label: 'Settings' }]);
-        expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
+        const link = screen.getByRole('link', { name: /Dashboard/i });
+        expect(link).toHaveAttribute('href', '/');
+        // Current page shown as text
         expect(screen.getByText('Settings')).toBeInTheDocument();
-        // Settings should not be a link
         expect(screen.queryByRole('link', { name: 'Settings' })).not.toBeInTheDocument();
     });
 
-    it('renders separator between crumbs', () => {
+    it('renders separator between back pill and current page', () => {
         const { container } = renderBreadcrumbs([{ label: 'Home', to: '/' }, { label: 'Page' }]);
-        // ChevronRight renders as an SVG
+        // ArrowLeft + ChevronRight = 2 SVGs
         const svgs = container.querySelectorAll('svg');
-        expect(svgs.length).toBeGreaterThanOrEqual(1);
+        expect(svgs.length).toBeGreaterThanOrEqual(2);
     });
 
-    it('renders three-level breadcrumb', () => {
+    it('uses nearest parent as back target for three-level breadcrumb', () => {
         renderBreadcrumbs([{ label: 'Dashboard', to: '/' }, { label: 'Schedules', to: '/schedules' }, { label: 'New Schedule' }]);
-        expect(screen.getByRole('link', { name: 'Dashboard' })).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'Schedules' })).toBeInTheDocument();
+        // Back pill links to nearest parent (Schedules), not Dashboard
+        const link = screen.getByRole('link', { name: /Schedules/i });
+        expect(link).toHaveAttribute('href', '/schedules');
         expect(screen.getByText('New Schedule')).toBeInTheDocument();
+    });
+
+    it('renders no back pill when only a single navigable crumb', () => {
+        renderBreadcrumbs([{ label: 'Dashboard', to: '/' }]);
+        // Single navigable crumb with no current-page crumb — back pill shows but no current label
+        const link = screen.getByRole('link', { name: /Dashboard/i });
+        expect(link).toHaveAttribute('href', '/');
+    });
+
+    it('renders no links when all crumbs are non-navigable', () => {
+        renderBreadcrumbs([{ label: 'Home' }, { label: 'Page' }]);
+        expect(screen.queryByRole('link')).not.toBeInTheDocument();
     });
 });

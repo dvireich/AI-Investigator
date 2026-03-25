@@ -3687,6 +3687,9 @@ describe('InvestigationDetail', () => {
             // Advance through the 500ms delay inside handleContest
             await act(async () => { await vi.advanceTimersByTimeAsync(600); });
 
+            // Advance past the 150ms scroll-to-bottom setTimeout
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+
             // fetchInvestigation should have been called more than the initial load (covers lines 883-884, 888)
             expect(api.getInvestigation).toHaveBeenCalled();
         });
@@ -7149,9 +7152,9 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
-            const backButton = screen.getByLabelText('Back to dashboard');
-            await act(async () => { backButton.click(); });
-            expect(mockNavigate).toHaveBeenCalledWith('/');
+            // Breadcrumbs renders back pill as a link to Dashboard
+            const backLink = screen.getByRole('link', { name: /Dashboard/i });
+            expect(backLink).toHaveAttribute('href', '/');
         });
     });
 
@@ -7172,9 +7175,9 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const searchInput = screen.getByPlaceholderText('Search thoughts...');
             fireEvent.change(searchInput, { target: { value: 'latency' } });
 
-            // Should show "X of Y" count
+            // Should show "X/Y" count
             await waitFor(() => {
-                expect(screen.getByText(/of 2/)).toBeInTheDocument();
+                expect(screen.getByText(/^\d+\/2$/)).toBeInTheDocument();
             });
         });
 
@@ -7186,11 +7189,11 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const searchInput = screen.getByPlaceholderText('Search thoughts...');
             fireEvent.change(searchInput, { target: { value: 'latency' } });
 
-            await waitFor(() => screen.getByText(/of 2/));
+            await waitFor(() => screen.getByText(/^\d+\/2$/));
 
             // Find and click the clear button next to the search
-            const clearButtons = searchInput.closest('.flex')!.querySelectorAll('button');
-            const clearBtn = clearButtons[clearButtons.length - 1];
+            const searchContainer = searchInput.closest('div')!;
+            const clearBtn = searchContainer.querySelector('button')!;
             fireEvent.click(clearBtn);
 
             expect(searchInput).toHaveValue('');
@@ -7209,7 +7212,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             const searchInput = screen.getByPlaceholderText('Search thoughts...');
             fireEvent.change(searchInput, { target: { value: 'latency' } });
 
-            await waitFor(() => expect(screen.getByText('1 of 3')).toBeInTheDocument());
+            await waitFor(() => expect(screen.getByText('1/3')).toBeInTheDocument());
         });
     });
 

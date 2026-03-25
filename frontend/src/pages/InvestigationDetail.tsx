@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code, ArrowLeft } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ScrollToTop } from '../components/ScrollToTop';
 
@@ -947,8 +947,11 @@ export const InvestigationDetail = () => {
         setActingAction('contest');
         try {
             await api.sendAction(id!, 'contest', feedback);
+            setActiveTab('live');
             await new Promise(r => setTimeout(r, 500));
             await fetchInvestigation();
+            // Scroll to bottom of live session after tab switch + data refresh
+            setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 150);
         } catch (e: any) {
             toast('error', `Action failed: ${e.message}`);
         } finally {
@@ -1020,9 +1023,9 @@ export const InvestigationDetail = () => {
     const isActive = investigation.status === 'running' || investigation.status === 'paused';
 
     return (
-        <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 pt-3 sm:pt-6 pb-1 px-3 sm:px-6 md:px-12 z-0">
+        <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 pt-3 sm:pt-6 pb-2 px-3 sm:px-6 md:px-12 z-0 flex flex-col">
         <Breadcrumbs crumbs={[{ label: 'Dashboard', to: '/' }, { label: investigation?.title || 'Investigation' }]} />
-        <div className="h-full max-w-[1600px] mx-auto overflow-hidden grid grid-cols-1 lg:grid-cols-12 grid-rows-[auto_1fr] lg:grid-rows-1 gap-1 lg:gap-6">
+        <div className="flex-1 min-h-0 max-w-[1600px] mx-auto overflow-hidden grid grid-cols-1 lg:grid-cols-12 grid-rows-[auto_1fr] lg:grid-rows-1 gap-1 lg:gap-6">
 
             {/* Connection Lost / Reconnecting Overlay */}
             {(!wsConnected || wsJustReconnected) && (
@@ -1077,15 +1080,6 @@ export const InvestigationDetail = () => {
 
             {/* Sidebar: Status & Info */}
             <div className="lg:col-span-3 flex flex-col gap-1 lg:gap-4 lg:overflow-y-auto scrollbar-hidden shrink-0">
-                {/* Back to Dashboard */}
-                <button
-                    onClick={() => navigate('/')}
-                    className="hidden lg:flex items-center gap-1.5 text-sm text-slate-400 hover:text-white transition-colors mb-1 self-start focus:outline-none focus:ring-2 focus:ring-brand-500 rounded-lg px-1 py-0.5"
-                    aria-label="Back to dashboard"
-                >
-                    <ArrowLeft className="w-4 h-4" />
-                    <span>Dashboard</span>
-                </button>
                 {/* Status Card */}
                 <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl lg:rounded-3xl p-1.5 lg:p-6 shadow-2xl border border-white/[0.06] relative overflow-hidden group shrink-0">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
@@ -1550,28 +1544,30 @@ export const InvestigationDetail = () => {
                             )}
 
                             {/* Thought Search Bar */}
-                            <div className="flex items-center gap-2 px-2 sm:px-4 py-1.5 border-b border-slate-800/50 shrink-0">
-                                <Search className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                                <input
-                                    type="text"
-                                    value={thoughtSearch}
-                                    onChange={(e) => setThoughtSearch(e.target.value)}
-                                    placeholder="Search thoughts..."
-                                    className="flex-1 bg-transparent text-xs text-slate-300 placeholder:text-slate-600 outline-none"
-                                />
-                                {thoughtSearch && (
-                                    <>
-                                        <span className="text-[10px] text-slate-500 font-mono whitespace-nowrap">
-                                            {investigation.thoughts.filter((t: any) => {
-                                                const content = typeof t === 'string' ? t : (t?.content || '');
-                                                return content.toLowerCase().includes(thoughtSearch.toLowerCase());
-                                            }).length} of {investigation.thoughts.length}
-                                        </span>
-                                        <button onClick={() => setThoughtSearch('')} className="text-slate-500 hover:text-slate-300">
-                                            <X className="w-3 h-3" />
-                                        </button>
-                                    </>
-                                )}
+                            <div className="px-2 sm:px-3 py-1.5 border-b border-slate-800/50 shrink-0">
+                                <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/40 focus-within:border-brand-500/40 focus-within:bg-slate-800/80 transition-all duration-200">
+                                    <Search className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                                    <input
+                                        type="text"
+                                        value={thoughtSearch}
+                                        onChange={(e) => setThoughtSearch(e.target.value)}
+                                        placeholder="Search thoughts..."
+                                        className="flex-1 bg-transparent text-xs text-slate-300 placeholder:text-slate-500 outline-none min-w-0"
+                                    />
+                                    {thoughtSearch && (
+                                        <>
+                                            <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap bg-slate-700/50 px-1.5 py-0.5 rounded">
+                                                {investigation.thoughts.filter((t: any) => {
+                                                    const content = typeof t === 'string' ? t : (t?.content || '');
+                                                    return content.toLowerCase().includes(thoughtSearch.toLowerCase());
+                                                }).length}/{investigation.thoughts.length}
+                                            </span>
+                                            <button onClick={() => setThoughtSearch('')} className="text-slate-500 hover:text-slate-300 transition-colors p-0.5 rounded hover:bg-slate-700/50">
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </>
+                                    )}
+                                </div>
                             </div>
 
                             {/* Chat History */}

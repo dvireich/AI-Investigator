@@ -844,6 +844,68 @@ describe('AgentRunner', () => {
             const result = await (runner as any).executeAction({ tool: 'bad', args: {} });
             expect(result).toContain('Error: tool failed');
         });
+
+        it('appends auth remediation for authentication errors', async () => {
+            mockToolManager.callTool.mockRejectedValue(new Error('KustoClientAuthenticationException: no_system_webview'));
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = await (runner as any).executeAction({ tool: 'kql', args: {} });
+            expect(result).toContain('REMEDIATION');
+            expect(result).toContain('az login');
+            expect(result).toContain('authentication error');
+        });
+
+        it('appends connection remediation for network errors', async () => {
+            mockToolManager.callTool.mockRejectedValue(new Error('connect ECONNREFUSED 127.0.0.1:443'));
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = await (runner as any).executeAction({ tool: 'kql', args: {} });
+            expect(result).toContain('REMEDIATION');
+            expect(result).toContain('connection error');
+        });
+
+        it('does not append remediation for generic errors', async () => {
+            mockToolManager.callTool.mockRejectedValue(new Error('KQL syntax error near line 5'));
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = await (runner as any).executeAction({ tool: 'kql', args: {} });
+            expect(result).toBe('Error: KQL syntax error near line 5');
+            expect(result).not.toContain('REMEDIATION');
+        });
+    });
+
+    describe('getErrorRemediation', () => {
+        let runner: any;
+        beforeEach(() => { runner = new AgentRunner(makeConfig(), provider); });
+
+        it.each([
+            ['authentication', 'Contains "authentication"'],
+            ['unauthorized', 'Contains "unauthorized"'],
+            ['no_system_webview', 'Contains "no_system_webview"'],
+            ['login_required', 'Contains "login_required"'],
+            ['credential', 'Contains "credential"'],
+            ['access token expired', 'Contains "access token"'],
+            ['AADSTS70001: application error', 'Contains "aadsts"'],
+        ])('returns auth remediation for: %s', (errorMsg) => {
+            const result = runner.getErrorRemediation(errorMsg);
+            expect(result).toContain('az login');
+            expect(result).toContain('authentication error');
+        });
+
+        it.each([
+            ['ECONNREFUSED', 'Contains "econnrefused"'],
+            ['ENOTFOUND cluster.kusto.windows.net', 'Contains "enotfound"'],
+            ['ETIMEDOUT', 'Contains "etimedout"'],
+            ['ECONNRESET', 'Contains "econnreset"'],
+            ['socket hang up', 'Contains "socket hang up"'],
+            ['MCP server "kql" is not connected.', 'Contains "not connected"'],
+            ['connect failed', 'Contains "connect failed"'],
+        ])('returns connection remediation for: %s', (errorMsg) => {
+            const result = runner.getErrorRemediation(errorMsg);
+            expect(result).toContain('connection error');
+        });
+
+        it('returns empty string for unknown errors', () => {
+            expect(runner.getErrorRemediation('KQL syntax error')).toBe('');
+            expect(runner.getErrorRemediation('')).toBe('');
+        });
     });
 
     describe('handleProposeChange', () => {
