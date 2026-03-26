@@ -1068,7 +1068,9 @@ export const InvestigationDetail = () => {
 
     return (
         <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 pt-3 sm:pt-6 pb-2 px-3 sm:px-6 md:px-12 z-0 flex flex-col">
-        <Breadcrumbs crumbs={[{ label: 'Dashboard', to: '/' }, { label: investigation?.title || 'Investigation' }]} />
+        <div className="max-w-[1600px] mx-auto w-full">
+            <Breadcrumbs crumbs={[{ label: 'Dashboard', to: '/' }, { label: investigation?.title || 'Investigation' }]} />
+        </div>
         <div className="flex-1 min-h-0 max-w-[1600px] mx-auto overflow-hidden grid grid-cols-1 lg:grid-cols-12 grid-rows-[auto_1fr] lg:grid-rows-1 gap-1 lg:gap-6">
 
             {/* Connection Lost / Reconnecting Overlay */}
