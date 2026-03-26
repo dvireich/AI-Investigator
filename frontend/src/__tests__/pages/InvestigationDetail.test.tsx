@@ -603,124 +603,6 @@ describe('InvestigationDetail', () => {
     });
 
     // ════════════════════════════════════════════════════════════════════════════
-    // TITLE EDITING TESTS
-    // ════════════════════════════════════════════════════════════════════════════
-
-    describe('Title Editing', () => {
-        it('shows edit icon on title hover area', async () => {
-            renderDetail();
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            
-            await waitFor(() => {
-                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
-            });
-            
-            // The title should have an edit button/icon visible
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            expect(titleButton).toBeInTheDocument();
-        });
-
-        it('opens edit mode when title is clicked', async () => {
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-            renderDetail();
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            
-            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-            
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
-            
-            await waitFor(() => {
-                expect(screen.getByPlaceholderText(/Enter investigation name/i)).toBeInTheDocument();
-            });
-        });
-
-        it('saves title on Enter key', async () => {
-            const { api } = await import('../../api');
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-            renderDetail();
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            
-            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-            
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
-            
-            const input = screen.getByPlaceholderText(/Enter investigation name/i);
-            await user.clear(input);
-            await user.type(input, 'New Title{Enter}');
-            
-            await waitFor(() => {
-                expect(api.updateTitle).toHaveBeenCalledWith('1700000000000', 'New Title');
-            });
-        });
-
-        it('cancels edit on Escape key', async () => {
-            const { api } = await import('../../api');
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-            renderDetail();
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            
-            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-            
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
-            
-            const input = screen.getByPlaceholderText(/Enter investigation name/i);
-            await user.type(input, 'Changed{Escape}');
-            
-            // Should exit edit mode without saving
-            await waitFor(() => {
-                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
-            });
-            expect(api.updateTitle).not.toHaveBeenCalled();
-        });
-
-        it('saves title on Save button click', async () => {
-            const { api } = await import('../../api');
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-            renderDetail();
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            
-            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-            
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
-            
-            const input = screen.getByPlaceholderText(/Enter investigation name/i);
-            await user.clear(input);
-            await user.type(input, 'Updated Title');
-            
-            const saveBtn = screen.getByTitle(/Save/i);
-            await user.click(saveBtn);
-            
-            await waitFor(() => {
-                expect(api.updateTitle).toHaveBeenCalledWith('1700000000000', 'Updated Title');
-            });
-        });
-
-        it('cancels edit on Cancel button click', async () => {
-            const { api } = await import('../../api');
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-            renderDetail();
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            
-            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-            
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
-            
-            const cancelBtn = screen.getByTitle(/Cancel/i);
-            await user.click(cancelBtn);
-            
-            await waitFor(() => {
-                expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
-            });
-            expect(api.updateTitle).not.toHaveBeenCalled();
-        });
-    });
-
-    // ════════════════════════════════════════════════════════════════════════════
     // TAG MANAGEMENT TESTS
     // ════════════════════════════════════════════════════════════════════════════
 
@@ -1786,20 +1668,6 @@ describe('InvestigationDetail', () => {
     // ════════════════════════════════════════════════════════════════════════════
 
     describe('Edge Cases', () => {
-        it('shows "Untitled" when title is empty', async () => {
-            const { api } = await import('../../api');
-            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
-                title: '',
-            }));
-            
-            renderDetail();
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            
-            await waitFor(() => {
-                expect(screen.getByText(/Untitled/i)).toBeInTheDocument();
-            });
-        });
-
         it('handles scheduled investigation source', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
@@ -2665,10 +2533,10 @@ describe('InvestigationDetail', () => {
     describe('Scroll Behavior', () => {
         it('scrolls to bottom when new thoughts are added', async () => {
             const { api } = await import('../../api');
-            const scrollIntoViewMock = vi.fn();
+            const scrollToMock = vi.fn();
             
-            // Mock scrollIntoView
-            Element.prototype.scrollIntoView = scrollIntoViewMock;
+            // Mock scrollTo on elements (used by container.scrollTo)
+            Element.prototype.scrollTo = scrollToMock;
             
             vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
                 status: 'running',
@@ -2682,7 +2550,7 @@ describe('InvestigationDetail', () => {
             
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
-            scrollIntoViewMock.mockClear();
+            scrollToMock.mockClear();
             
             // Update with more thoughts
             vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
@@ -2701,16 +2569,16 @@ describe('InvestigationDetail', () => {
                 await vi.advanceTimersByTimeAsync(400);
             });
             
-            // scrollIntoView should have been called
+            // scrollTo should have been called on the chat container
             await waitFor(() => {
-                expect(scrollIntoViewMock).toHaveBeenCalled();
+                expect(scrollToMock).toHaveBeenCalled();
             });
         });
 
         it('scrolls retrospect chat when messages are added', async () => {
             const { api } = await import('../../api');
-            const scrollIntoViewMock = vi.fn();
-            Element.prototype.scrollIntoView = scrollIntoViewMock;
+            const scrollToMock = vi.fn();
+            Element.prototype.scrollTo = scrollToMock;
             
             vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
                 retrospect: { 
@@ -2732,9 +2600,9 @@ describe('InvestigationDetail', () => {
             
             // Tab activation scroll fires once (activeTab dependency changed)
             await waitFor(() => {
-                expect(scrollIntoViewMock).toHaveBeenCalled();
+                expect(scrollToMock).toHaveBeenCalled();
             });
-            scrollIntoViewMock.mockClear();
+            scrollToMock.mockClear();
             
             // Now update investigation to have more messages
             vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
@@ -2758,7 +2626,7 @@ describe('InvestigationDetail', () => {
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
             await waitFor(() => {
-                expect(scrollIntoViewMock).toHaveBeenCalled();
+                expect(scrollToMock).toHaveBeenCalled();
             });
         });
     });
@@ -3723,44 +3591,6 @@ describe('InvestigationDetail', () => {
                 expect(screen.getAllByText(/Action failed/i).length).toBeGreaterThan(0) ||
                 expect(document.body.textContent).toContain('Action failed');
             });
-        });
-    });
-
-    // ════════════════════════════════════════════════════════════════════════════
-    // COVERAGE COMPLETION: TITLE EDITOR ERROR PATH
-    // ════════════════════════════════════════════════════════════════════════════
-
-    describe('TitleEditor save error path', () => {
-        it('handles updateTitle error gracefully (covers line 519 catch console.error)', async () => {
-            // Covers: line 519 — console.error('Failed to update title:', err) in catch block
-            const { api } = await import('../../api');
-            vi.mocked(api.updateTitle).mockRejectedValueOnce(new Error('Title update failed'));
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-            renderDetail();
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-
-            // Click the pencil edit icon (title edit trigger)
-            const editBtns = screen.getAllByRole('button');
-            const pencilBtn = editBtns.find(btn => btn.querySelector('svg.lucide-pencil'));
-            if (pencilBtn) {
-                await user.click(pencilBtn);
-                await waitFor(() => screen.getByDisplayValue('Test Investigation'));
-
-                // Change title value and save
-                const input = screen.getByDisplayValue('Test Investigation') as HTMLInputElement;
-                fireEvent.change(input, { target: { value: 'Updated Title' } });
-
-                // Find and click the save button (checkmark)
-                const saveBtns = screen.getAllByRole('button');
-                const saveBtn = saveBtns.find(btn => btn.querySelector('svg.lucide-check'));
-                if (saveBtn) {
-                    await user.click(saveBtn);
-                    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
-                    // Title editor error is handled gracefully (catch block covered)
-                    expect(api.updateTitle).toHaveBeenCalled();
-                }
-            }
         });
     });
 
@@ -5108,21 +4938,6 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
         });
     });
 
-    describe('TitleEditor with null/empty title', () => {
-        it('initializes draft with empty string when title is null (covers line 506)', async () => {
-            // Covers: line 506 — setDraft(title || '')
-            const { api } = await import('../../api');
-            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
-                title: '',  // empty title falls back to '' via title || ''
-            }));
-            renderDetail();
-            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-            // Wait for investigation to load; with empty title, check for other fixed content
-            await waitFor(() => screen.getByText('Last 1 hour'));
-            // The title editor should be rendered with empty initial draft
-        });
-    });
-
     // ════════════════════════════════════════════════════════════════════════════
     // COVERAGE BATCH 2: BROADER BRANCH COVERAGE
     // ════════════════════════════════════════════════════════════════════════════
@@ -6109,36 +5924,6 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
     // ════════════════════════════════════════════════════════════════════════════
 
     describe('Branch coverage completion', () => {
-        describe('InlineEditableTitle with no title - setDraft(title || "") (L507)', () => {
-            it('sets empty draft when investigation has no title', async () => {
-                const { api } = await import('../../api');
-                vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
-                    title: undefined,  // title is undefined → setDraft(undefined || '') = setDraft('')
-                }));
-                renderDetail();
-                await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-                // Wait for investigation to load (shows 'Untitled' or investigation id)
-                await waitFor(() => {
-                    const body = document.body.textContent || '';
-                    // Either shows 'Untitled' or the id
-                    expect(body.length).toBeGreaterThan(0);
-                });
-
-                // Click the title edit button that has title="Click to edit investigation name"
-                const editBtn = document.querySelector('[title="Click to edit investigation name"]') as HTMLElement;
-                if (editBtn) {
-                    fireEvent.click(editBtn);
-                    // After clicking, draft is set to title || '' = undefined || '' = ''
-                    // The input should appear with value = ''
-                    await waitFor(() => {
-                        const titleInput = document.querySelector('input[placeholder="Enter investigation name"]');
-                        expect(titleInput).toBeTruthy();
-                        expect((titleInput as HTMLInputElement).value).toBe('');
-                    });
-                }
-            });
-        });
-
         describe('String thought content in pending intervention filter (L646)', () => {
             it('handles string thoughts when filtering pending interventions via fetchInvestigation', async () => {
                 const { api } = await import('../../api');
