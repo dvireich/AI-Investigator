@@ -7314,8 +7314,9 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
 
             renderDetail();
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-            // Progress bar label: "Step 10 / 50"
-            expect(screen.getByText('Step 10 / 50')).toBeInTheDocument();
+            // Step counter: "10" count + "/ 50" denominator + "steps" label
+            expect(screen.getByText('/ 50')).toBeInTheDocument();
+            expect(screen.getByText('steps')).toBeInTheDocument();
             // ProgressRing should render with 20%
             expect(screen.getByText('20%')).toBeInTheDocument();
         });
@@ -7332,8 +7333,9 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
 
             renderDetail();
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-            // Should show "Step 10" without "/ 50" when unlimited
-            expect(screen.getByText('Step 10')).toBeInTheDocument();
+            // Should show step count and "steps" label but no denominator
+            expect(screen.getByText('steps')).toBeInTheDocument();
+            expect(screen.queryByText(/^\/ \d+$/)).not.toBeInTheDocument();
             // ProgressRing should NOT render
             expect(screen.queryByText('%')).not.toBeInTheDocument();
         });

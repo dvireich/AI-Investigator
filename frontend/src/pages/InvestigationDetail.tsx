@@ -686,6 +686,16 @@ export const InvestigationDetail = () => {
         return investigation.logs.slice(-100);
     }, [investigation?.logs]);
 
+    const stepColors = useMemo(() => {
+        switch (investigation?.status) {
+            case 'running': return { ring: 'text-brand-400', bar: 'bg-brand-500', barAnimate: 'animate-pulse', label: 'text-brand-400', circleBorder: 'border-brand-500/30', circleBg: 'bg-brand-500/10' };
+            case 'paused': return { ring: 'text-amber-400', bar: 'bg-amber-500', barAnimate: '', label: 'text-amber-400', circleBorder: 'border-amber-500/30', circleBg: 'bg-amber-500/10' };
+            case 'completed': return { ring: 'text-emerald-400', bar: 'bg-emerald-500', barAnimate: '', label: 'text-emerald-400', circleBorder: 'border-emerald-500/30', circleBg: 'bg-emerald-500/10' };
+            case 'failed': return { ring: 'text-red-400', bar: 'bg-red-500', barAnimate: '', label: 'text-red-400', circleBorder: 'border-red-500/30', circleBg: 'bg-red-500/10' };
+            default: return { ring: 'text-slate-400', bar: 'bg-slate-500', barAnimate: '', label: 'text-slate-400', circleBorder: 'border-slate-500/30', circleBg: 'bg-slate-500/10' };
+        }
+    }, [investigation?.status]);
+
     const showTokenAlert = useMemo(() => {
         if (!investigation) return false;
         // Check if last thought was a token alert
@@ -1292,27 +1302,45 @@ export const InvestigationDetail = () => {
                     </div>
                 </div>
 
-                {/* Step Progress Bar */}
-                {(investigation.status === 'running' || investigation.status === 'paused') && investigation.thoughts.length > 0 && (
-                    <div className="hidden lg:block px-1 shrink-0">
-                        <div className="flex items-center gap-2 mb-1">
-                            {maxSteps > 0 && (
-                                <ProgressRing current={investigation.thoughts.length} max={maxSteps} size={20} strokeWidth={2} />
-                            )}
-                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
-                                Step {investigation.thoughts.length}{maxSteps > 0 ? ` / ${maxSteps}` : ''}
-                            </span>
-                        </div>
-                        {maxSteps > 0 && (
-                            <div className="w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                                <div
-                                    className={`h-full rounded-full transition-all duration-500 ${
-                                        investigation.status === 'running' ? 'bg-brand-500 animate-pulse' : 'bg-amber-500'
-                                    }`}
-                                    style={{ width: `${Math.min((investigation.thoughts.length / maxSteps) * 100, 100)}%` }}
-                                />
+                {/* Step Progress */}
+                {investigation.thoughts.length > 0 && (
+                    <div className="hidden lg:block shrink-0">
+                        <div className="bg-slate-900/50 backdrop-blur-md rounded-2xl p-4 border border-white/[0.06] shadow-lg">
+                            <div className="flex flex-col items-center gap-2">
+                                {maxSteps > 0 ? (
+                                    <ProgressRing
+                                        current={investigation.thoughts.length}
+                                        max={maxSteps}
+                                        size={56}
+                                        strokeWidth={3.5}
+                                        ringColorClass={stepColors.ring}
+                                    />
+                                ) : (
+                                    <div className={`relative inline-flex items-center justify-center w-14 h-14 rounded-full border-2 ${stepColors.circleBorder} ${stepColors.circleBg}`}>
+                                        <span className={`text-lg font-bold ${stepColors.label}`}>{investigation.thoughts.length}</span>
+                                    </div>
+                                )}
+                                <div className="text-center">
+                                    <div className="flex items-center justify-center gap-1">
+                                        <span className="text-sm font-bold text-slate-200">
+                                            {investigation.thoughts.length}
+                                        </span>
+                                        {maxSteps > 0 && (
+                                            <span className="text-sm text-slate-500 font-medium">/ {maxSteps}</span>
+                                        )}
+                                        <span className="text-xs text-slate-500 font-medium ml-0.5">steps</span>
+                                    </div>
+                                </div>
                             </div>
-                        )}
+                            {maxSteps > 0 && (
+                                <div className="mt-3 w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-500 ${stepColors.bar} ${stepColors.barAnimate}`}
+                                        style={{ width: `${Math.min((investigation.thoughts.length / maxSteps) * 100, 100)}%` }}
+                                    />
+                                </div>
+                            )}
+                        </div>
                     </div>
                 )}
 
