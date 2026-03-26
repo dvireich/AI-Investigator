@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback, useDeferredVa
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { useNotification } from '../hooks/useNotification';
@@ -501,6 +501,99 @@ const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedb
     );
 });
 
+/* Isolated editable-title component.
+   Uses an uncontrolled editing pattern: while the user is typing, parent
+   re-renders (from WebSocket-driven fetchInvestigation) are completely ignored
+   because all editing state is local and we skip memo comparison during editing. */
+function InlineEditableTitle({ title, investigationId, onSaved }: {
+    title: string;
+    investigationId: string;
+    onSaved: () => void;
+}) {
+    const [editing, setEditing] = useState(false);
+    const [draft, setDraft] = useState('');
+    const [saving, setSaving] = useState(false);
+    const inputRef = useRef<HTMLInputElement>(null);
+    // Keep a ref so the save closure always sees the latest investigationId/onSaved
+    const latestRef = useRef({ investigationId, onSaved });
+    latestRef.current = { investigationId, onSaved };
+
+    const startEditing = useCallback(() => {
+        setDraft(title || '');
+        setEditing(true);
+        setTimeout(() => inputRef.current?.focus(), 50);
+    }, [title]);
+
+    const save = useCallback(async () => {
+        const trimmed = draft.trim();
+        setSaving(true);
+        try {
+            await api.updateTitle(latestRef.current.investigationId, trimmed);
+            setEditing(false);
+            latestRef.current.onSaved();
+        } catch (err) {
+            console.error('Failed to update title:', err);
+        } finally {
+            setSaving(false);
+        }
+    }, [draft]);
+
+    const cancel = useCallback(() => {
+        setEditing(false);
+        setDraft('');
+    }, []);
+
+    // While editing, render only the input — completely ignores parent re-renders
+    if (editing) {
+        return (
+            <div className="flex items-center gap-1.5">
+                <input
+                    ref={inputRef}
+                    type="text"
+                    className="flex-1 px-2 py-1 rounded-lg border border-brand-500/40 bg-slate-800/60 text-sm font-medium text-slate-100 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
+                    value={draft}
+                    onChange={(e) => setDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                        if (e.key === 'Enter') save();
+                        if (e.key === 'Escape') cancel();
+                    }}
+                    placeholder="Enter investigation name"
+                    disabled={saving}
+                />
+                <button
+                    onClick={save}
+                    disabled={saving}
+                    className="p-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
+                    title="Save"
+                >
+                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                    onClick={cancel}
+                    disabled={saving}
+                    className="p-1 rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                    title="Cancel"
+                >
+                    <X className="w-3.5 h-3.5" />
+                </button>
+            </div>
+        );
+    }
+
+    return (
+        <button
+            onClick={startEditing}
+            className="group/title flex items-center gap-2 w-full text-left"
+            title="Click to edit investigation name"
+        >
+            <span className="font-semibold text-slate-200 truncate flex-1">
+                {title || <span className="text-slate-500 italic font-normal">Untitled</span>}
+            </span>
+            <Pencil className="w-3.5 h-3.5 text-slate-600 group-hover/title:text-brand-400 transition-colors shrink-0" />
+        </button>
+    );
+}
+
 function implProposalStatusClass(status: string): string {
     if (status === 'applied') return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20';
     if (status === 'approved') return 'bg-sky-500/15 text-sky-400 border border-sky-500/20';
@@ -745,8 +838,9 @@ export const InvestigationDetail = () => {
     }, []);
 
     useEffect(() => {
-        const container = logsEndRef.current?.parentElement;
-        if (container) container.scrollTo?.({ top: container.scrollHeight, behavior: 'smooth' });
+        if (logsEndRef.current) {
+            logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
     }, [investigation?.thoughts.length, pendingInterventions.length]);  // Also scroll when pending messages are added
 
     // Cleanup stale pending interventions (safety net: remove after 2 minutes)
@@ -765,8 +859,9 @@ export const InvestigationDetail = () => {
 
     // Auto-scroll retrospect chat
     useEffect(() => {
-        const container = retrospectEndRef.current?.parentElement;
-        if (container) container.scrollTo?.({ top: container.scrollHeight, behavior: 'smooth' });
+        if (retrospectEndRef.current) {
+            retrospectEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
     }, [investigation?.retrospect?.messages.length, activeTab]);
 
     // Auto-switch away from report/retrospect tabs when investigation is contested
@@ -910,7 +1005,7 @@ export const InvestigationDetail = () => {
             await new Promise(r => setTimeout(r, 500));
             await fetchInvestigation();
             // Scroll to bottom of live session after tab switch + data refresh
-            setTimeout(() => { const el = logsEndRef.current?.parentElement; el?.scrollTo?.({ top: el.scrollHeight, behavior: 'smooth' }); }, 150);
+            setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 150);
         } catch (e: any) {
             toast('error', `Action failed: ${e.message}`);
         } finally {
@@ -1210,37 +1305,60 @@ export const InvestigationDetail = () => {
                 {/* Step Progress */}
                 {investigation.thoughts.length > 0 && (
                     <div className="hidden lg:block shrink-0">
-                        <div className="bg-slate-900/50 backdrop-blur-md rounded-2xl p-3 border border-white/[0.06] shadow-lg">
-                            <div className="flex flex-col items-center gap-1.5">
+                        <div className="bg-slate-900/50 backdrop-blur-md rounded-2xl p-4 border border-white/[0.06] shadow-lg">
+                            <div className="flex flex-col items-center gap-2">
                                 {maxSteps > 0 ? (
                                     <ProgressRing
                                         current={investigation.thoughts.length}
                                         max={maxSteps}
-                                        size={40}
-                                        strokeWidth={3}
+                                        size={56}
+                                        strokeWidth={3.5}
                                         ringColorClass={stepColors.ring}
                                     />
                                 ) : (
-                                    <div className={`relative inline-flex items-center justify-center w-10 h-10 rounded-full border-2 ${stepColors.circleBorder} ${stepColors.circleBg}`}>
-                                        <span className={`text-sm font-bold ${stepColors.label}`}>{investigation.thoughts.length}</span>
+                                    <div className={`relative inline-flex items-center justify-center w-14 h-14 rounded-full border-2 ${stepColors.circleBorder} ${stepColors.circleBg}`}>
+                                        <span className={`text-lg font-bold ${stepColors.label}`}>{investigation.thoughts.length}</span>
                                     </div>
                                 )}
-                                <div className="flex items-center justify-center gap-1">
-                                    {maxSteps > 0 && (
-                                        <span className="text-xs text-slate-500 font-medium">/ {maxSteps}</span>
-                                    )}
-                                    <span className="text-[10px] text-slate-500 font-medium">steps</span>
+                                <div className="text-center">
+                                    <div className="flex items-center justify-center gap-1">
+                                        <span className="text-sm font-bold text-slate-200">
+                                            {investigation.thoughts.length}
+                                        </span>
+                                        {maxSteps > 0 && (
+                                            <span className="text-sm text-slate-500 font-medium">/ {maxSteps}</span>
+                                        )}
+                                        <span className="text-xs text-slate-500 font-medium ml-0.5">steps</span>
+                                    </div>
                                 </div>
                             </div>
+                            {maxSteps > 0 && (
+                                <div className="mt-3 w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                                    <div
+                                        className={`h-full rounded-full transition-all duration-500 ${stepColors.bar} ${stepColors.barAnimate}`}
+                                        style={{ width: `${Math.min((investigation.thoughts.length / maxSteps) * 100, 100)}%` }}
+                                    />
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
 
 
                 {/* Info Card — collapsible on mobile, always visible on desktop */}
-                <div className={`${mobileSidebarExpanded ? 'block' : 'hidden'} lg:block bg-slate-900/50 backdrop-blur-md rounded-2xl p-4 shadow-lg border border-white/[0.06] text-sm shrink-0`}>
+                <div className={`${mobileSidebarExpanded ? 'block' : 'hidden'} lg:block bg-slate-900/50 backdrop-blur-md rounded-2xl p-5 shadow-lg border border-white/[0.06] text-sm shrink-0`}>
+                    {/* Editable Investigation Name */}
+                    <div className="mb-4 pb-4 border-b border-white/[0.06]">
+                        <span className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1.5">Name</span>
+                        <InlineEditableTitle
+                            title={investigation.title}
+                            investigationId={id!}
+                            onSaved={fetchInvestigation}
+                        />
+                    </div>
+
                     {/* Tags */}
-                    <div className="mb-3 pb-3 border-b border-white/[0.06]">
+                    <div className="mb-4 pb-4 border-b border-white/[0.06]">
                         <span className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1.5">Tags</span>
                         <div className="flex flex-wrap gap-1.5 mb-2">
                             {(investigation.tags || []).map((tag) => (
@@ -1317,7 +1435,7 @@ export const InvestigationDetail = () => {
                         )}
                     </div>
 
-                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Details</h3>
+                    <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Details</h3>
                     <div className="space-y-2">
                         {investigation.status === 'running' && (
                             <div className="flex items-center gap-2">
@@ -1333,6 +1451,11 @@ export const InvestigationDetail = () => {
                                 </span>
                             </div>
                         )}
+                        <div className="flex items-center gap-2">
+                            <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            <span className="text-slate-500 text-xs">Started</span>
+                            <span className="font-medium text-slate-200 text-xs ml-auto">{isNaN(Number(investigation.id)) ? 'Legacy' : new Date(parseInt(investigation.id)).toLocaleString()}</span>
+                        </div>
                         {investigation.target && (
                             <div className="flex items-center gap-2">
                                 <div className="w-3.5 h-3.5 flex items-center justify-center rounded bg-blue-500/20 text-blue-400 font-bold text-[9px] shrink-0">S</div>
@@ -1372,25 +1495,20 @@ export const InvestigationDetail = () => {
                                 </button>
                             </div>
                         )}
-                        {/* Started, Created By, System ID & Storage Path - collapsible */}
+                        {investigation.createdBy && (
+                            <div className="flex items-center gap-2">
+                                <User className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                                <span className="text-slate-500 text-xs">Created By</span>
+                                <span className="font-medium text-slate-200 text-xs ml-auto">{investigation.createdBy}</span>
+                            </div>
+                        )}
+                        {/* System ID & Storage Path - collapsible */}
                         <details className="group/details">
                             <summary className="flex items-center gap-2 cursor-pointer text-slate-600 hover:text-slate-400 transition-colors text-[11px] font-medium select-none list-none [&::-webkit-details-marker]:hidden">
                                 <ChevronDown className="w-3 h-3 transition-transform group-open/details:rotate-180" />
                                 More details
                             </summary>
                             <div className="mt-2 space-y-2 pl-5">
-                                <div className="flex items-center gap-2">
-                                    <Clock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                                    <span className="text-slate-500 text-xs">Started</span>
-                                    <span className="font-medium text-slate-200 text-xs ml-auto">{isNaN(Number(investigation.id)) ? 'Legacy' : new Date(parseInt(investigation.id)).toLocaleString()}</span>
-                                </div>
-                                {investigation.createdBy && (
-                                    <div className="flex items-center gap-2">
-                                        <User className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                                        <span className="text-slate-500 text-xs">Created By</span>
-                                        <span className="font-medium text-slate-200 text-xs ml-auto">{investigation.createdBy}</span>
-                                    </div>
-                                )}
                                 <div className="flex items-start gap-2">
                                     <div className="w-3.5 h-3.5 flex items-center justify-center rounded bg-slate-700 text-slate-400 font-bold text-[9px] shrink-0 mt-0.5">#</div>
                                     <div className="min-w-0 flex-1">
