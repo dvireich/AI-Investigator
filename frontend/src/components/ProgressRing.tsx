@@ -6,6 +6,7 @@ interface ProgressRingProps {
     size?: number;
     strokeWidth?: number;
     className?: string;
+    ringColorClass?: string;
 }
 
 export const ProgressRing: React.FC<ProgressRingProps> = React.memo(({
@@ -14,6 +15,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = React.memo(({
     size = 40,
     strokeWidth = 3,
     className = '',
+    ringColorClass = 'text-brand-400',
 }) => {
     const effectiveMax = max > 0 ? max : 50;
     const pct = Math.min(current / effectiveMax, 1);
@@ -46,7 +48,7 @@ export const ProgressRing: React.FC<ProgressRingProps> = React.memo(({
                     strokeDasharray={circumference}
                     strokeDashoffset={offset}
                     strokeLinecap="round"
-                    className="text-brand-400 transition-all duration-500"
+                    className={`${ringColorClass} transition-all duration-500`}
                 />
             </svg>
             <span className="absolute text-[9px] font-bold text-slate-300">{percent}%</span>
