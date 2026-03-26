@@ -747,7 +747,7 @@ export const Dashboard = () => {
             )}
 
             {/* Filters & Search */}
-            <div className="flex flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-center sticky top-16 z-10 bg-surface/80 backdrop-blur-xl py-2 -mx-4 px-4 border-b border-white/[0.04]">
+            <div className="flex flex-col sm:flex-row flex-wrap gap-2 items-stretch sm:items-center sticky top-14 sm:top-16 z-10 bg-surface/80 backdrop-blur-xl py-2 -mx-4 px-4 border-b border-white/[0.04]">
                 {/* Search */}
                 <div className="relative flex-1 sm:max-w-xs group">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4 group-focus-within:text-brand-400 transition-colors" />

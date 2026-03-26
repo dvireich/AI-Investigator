@@ -63,14 +63,14 @@ export const About = () => {
     };
 
     return (
-    <div className="min-h-screen pt-16">
+    <div className="pb-8">
 
         {/* ── Hero ── */}
         <div className="relative overflow-hidden bg-gradient-to-b from-slate-900/60 via-transparent to-transparent border-b border-slate-800">
             <div className="absolute -top-24 left-1/2 -translate-x-1/2 w-[280px] h-[140px] sm:w-[480px] sm:h-[240px] rounded-full bg-brand-500/10 blur-3xl pointer-events-none" />
             <div className="absolute top-0 right-0 w-64 h-64 rounded-full bg-purple-600/5 blur-3xl pointer-events-none" />
 
-            <div className="relative max-w-4xl mx-auto px-6 pt-20 pb-16 text-center space-y-5">
+            <div className="relative max-w-4xl mx-auto px-6 pt-10 pb-12 text-center space-y-5">
                 <div className="inline-flex items-center gap-2 bg-slate-800 border border-slate-600 rounded-full px-4 py-1.5 text-xs text-slate-200 font-semibold mb-2">
                     <span className="w-1.5 h-1.5 rounded-full bg-brand-400 animate-pulse" />
                     Internal Tool

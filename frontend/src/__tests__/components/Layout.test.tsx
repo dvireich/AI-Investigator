@@ -860,4 +860,12 @@ describe('Layout additional coverage', () => {
         expect(screen.queryByText(/^v\d/)).not.toBeInTheDocument();
         globalThis.fetch = origFetch;
     });
+
+    it('applies h-screen overflow-hidden and skips main padding on investigation route', async () => {
+        renderLayout('/investigation/123');
+        const wrapper = document.querySelector('.h-screen.overflow-hidden');
+        expect(wrapper).toBeTruthy();
+        const main = document.querySelector('main');
+        expect(main?.className).not.toContain('pt-[4.5rem]');
+    });
 });
