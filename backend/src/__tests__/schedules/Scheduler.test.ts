@@ -145,11 +145,22 @@ describe('Scheduler', () => {
         });
 
         it('skips execution when concurrency limit reached', async () => {
+            scheduler = new Scheduler(store as any, createInv, getResult, { maxConcurrentScheduledInvestigations: 1 });
+            // Two due schedules, neither has an active investigation
+            store.getAll.mockReturnValue([makeSchedule({ id: '1' }), makeSchedule({ id: '2' })]);
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+            // First schedule executes (activeCount→1), second is blocked by limit
+            expect(createInv).toHaveBeenCalledTimes(1);
+            expect(createInv).toHaveBeenCalledWith(expect.objectContaining({ scheduleId: '1' }));
+        });
+
+        it('treats maxConcurrentScheduledInvestigations=0 as unlimited', async () => {
             scheduler = new Scheduler(store as any, createInv, getResult, { maxConcurrentScheduledInvestigations: 0 });
             store.getAll.mockReturnValue([makeSchedule()]);
             scheduler.start();
             await vi.advanceTimersByTimeAsync(0);
-            expect(createInv).not.toHaveBeenCalled();
+            expect(createInv).toHaveBeenCalled();
         });
     });
 

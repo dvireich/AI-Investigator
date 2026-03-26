@@ -159,7 +159,7 @@ vi.mock('react-router-dom', async () => {
 vi.mock('../../api', () => ({
     api: {
         listInvestigations: vi.fn().mockResolvedValue(paginatedResponse([])),
-        getSettings: vi.fn().mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest', maxSteps: 50 }),
+        getSettings: vi.fn().mockResolvedValue({ maxSteps: 50 }),
         sendAction: vi.fn().mockResolvedValue({ success: true }),
         deleteInvestigation: vi.fn().mockResolvedValue({}),
         updateTitle: vi.fn().mockResolvedValue({}),
@@ -227,6 +227,9 @@ describe('Dashboard', () => {
         vi.clearAllMocks();
         localStorage.clear();
         vi.useFakeTimers({ shouldAdvanceTime: true });
+        // Reset getSettings to neutral default so per-test overrides don't leak
+        const api = await getApi();
+        vi.mocked(api.getSettings).mockResolvedValue({ maxSteps: 50 });
     });
 
     afterEach(() => {
@@ -1600,7 +1603,7 @@ describe('Dashboard', () => {
             expect(localStorage.getItem('inv-view')).toBe('list');
         });
 
-        it('does not override existing localStorage settings', async () => {
+        it('server defaults always override localStorage settings', async () => {
             localStorage.setItem('inv-view', 'grid');
             localStorage.setItem('inv-sort', 'newest');
             localStorage.setItem('inv-page-size', '12');
@@ -1617,10 +1620,10 @@ describe('Dashboard', () => {
 
             await waitFor(() => screen.getByText('Completed Investigation'));
 
-            // Should NOT override - localStorage was already set
-            expect(localStorage.getItem('inv-view')).toBe('grid');
-            expect(localStorage.getItem('inv-sort')).toBe('newest');
-            expect(localStorage.getItem('inv-page-size')).toBe('12');
+            // Server defaults are always authoritative — Settings is source of truth
+            await waitFor(() => expect(localStorage.getItem('inv-view')).toBe('list'));
+            expect(localStorage.getItem('inv-sort')).toBe('oldest');
+            expect(localStorage.getItem('inv-page-size')).toBe('48');
         });
     });
 
@@ -2907,6 +2910,77 @@ describe('Dashboard', () => {
         });
     });
 
+    // === List View Badge Coverage ===
+    describe('List View Badge Coverage', () => {
+        it('renders incidentId badge in list view', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
+                createMockInvestigation({
+                    status: 'completed',
+                    title: 'List Incident Inv',
+                    incidentId: 'INC-99',
+                }),
+            ]));
+
+            localStorage.setItem('inv-view', 'list');
+            renderDashboard();
+            await waitFor(() => screen.getByText('List Incident Inv'));
+            expect(screen.getByTitle('Incident INC-99')).toBeInTheDocument();
+        });
+
+        it('renders retroProposalCount badge in list view when retro not completed', async () => {
+            const api = await getApi();
+            const proposedChange = { id: 'p1', location: 'file.ts', type: 'addition', description: 'update', content: 'x', accepted: false, applied: false };
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
+                createMockInvestigation({
+                    status: 'completed',
+                    title: 'List Retro Proposals',
+                    retrospect: {
+                        messages: [],
+                        proposals: [proposedChange],
+                        analysisComplete: true,
+                        completed: false,
+                    },
+                }),
+            ]));
+
+            localStorage.setItem('inv-view', 'list');
+            renderDashboard();
+            await waitFor(() => screen.getByText('List Retro Proposals'));
+            const retroBadges = document.querySelectorAll('.bg-purple-600.text-white');
+            expect(retroBadges.length).toBeGreaterThan(0);
+        });
+
+        it('covers isFocused branch in list view via keyboard navigation', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
+                createMockInvestigation({ id: 'list-kb-1', title: 'List KB Item' }),
+            ]));
+
+            localStorage.setItem('inv-view', 'list');
+            renderDashboard();
+            await waitFor(() => screen.getByText('List KB Item'));
+            // ArrowDown sets focusedIdx=0 → triggers isFocused styling in list view
+            fireEvent.keyDown(window, { key: 'ArrowDown' });
+            expect(screen.getByText('List KB Item')).toBeInTheDocument();
+        });
+
+        it('covers delete button onClick in list view', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
+                createMockInvestigation({ id: 'list-del-1', title: 'List Delete Target', status: 'completed' }),
+            ]));
+
+            localStorage.setItem('inv-view', 'list');
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDashboard();
+            await waitFor(() => screen.getByText('List Delete Target'));
+            const deleteButton = screen.getByTitle('Delete');
+            await user.click(deleteButton);
+            await waitFor(() => expect(screen.getByText('Delete Investigation')).toBeInTheDocument());
+        });
+    });
+
     // === Coverage for getDateGroup, getRelativeTime, getLastThought ===
     describe('Relative Time and Date Group Coverage', () => {
         it('shows hours-ago relative time for investigation created 2h ago', async () => {
@@ -3181,7 +3255,7 @@ describe('Dashboard additional coverage', () => {
         vi.useFakeTimers({ shouldAdvanceTime: true });
         const api = await getApi();
         vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
-        vi.mocked(api.getSettings).mockResolvedValue({ defaultView: 'grid', defaultSortOrder: 'newest', maxSteps: 50 });
+        vi.mocked(api.getSettings).mockResolvedValue({ maxSteps: 50 });
         vi.mocked(api.sendAction).mockResolvedValue({ success: true });
     });
 

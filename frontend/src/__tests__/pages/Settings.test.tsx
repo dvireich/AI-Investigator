@@ -2572,6 +2572,7 @@ describe('Settings', () => {
                     model: 'gpt-4o',
                     maxSteps: 50,
                     maxConcurrentInvestigations: 0,
+                    maxConcurrentScheduledInvestigations: 1,
                     retrospectTimeoutMinutes: 10,
                 } as any);
                 const user = userEvent.setup();
@@ -2584,6 +2585,42 @@ describe('Settings', () => {
                 });
             });
 
+            it('changes maxConcurrentScheduledInvestigations via slider', async () => {
+                const user = userEvent.setup();
+                renderSettings();
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+                await user.click(screen.getByText('Agent Behavior'));
+                await waitFor(() => screen.getByText('Max Concurrent Scheduled Investigations'));
+
+                const sliders = screen.getAllByRole('slider');
+                // The max concurrent scheduled slider is sliders[2] (after max steps and max concurrent)
+                fireEvent.change(sliders[2], { target: { value: '4' } });
+
+                await waitFor(() => {
+                    expect(screen.getByText('4')).toBeInTheDocument();
+                });
+            });
+
+            it('shows unlimited label when maxConcurrentScheduledInvestigations is 0', async () => {
+                const { api } = await import('../../api');
+                vi.mocked(api.getSettings).mockResolvedValue({
+                    model: 'gpt-4o',
+                    maxSteps: 50,
+                    maxConcurrentInvestigations: 3,
+                    maxConcurrentScheduledInvestigations: 0,
+                    retrospectTimeoutMinutes: 10,
+                } as any);
+                const user = userEvent.setup();
+                renderSettings();
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+                await user.click(screen.getByText('Agent Behavior'));
+                await waitFor(() => {
+                    expect(screen.getAllByText('∞ Unlimited').length).toBeGreaterThanOrEqual(1);
+                });
+            });
+
             it('changes retrospectTimeoutMinutes via slider', async () => {
                 const user = userEvent.setup();
                 renderSettings();
@@ -2593,8 +2630,8 @@ describe('Settings', () => {
                 await waitFor(() => screen.getByText('Retrospective Timeout'));
 
                 const sliders = screen.getAllByRole('slider');
-                // The retrospective timeout slider is sliders[2]
-                fireEvent.change(sliders[2], { target: { value: '20' } });
+                // The retrospective timeout slider is sliders[3] (after max steps, max concurrent, max concurrent scheduled)
+                fireEvent.change(sliders[3], { target: { value: '20' } });
 
                 await waitFor(() => {
                     expect(screen.getByText('20 min')).toBeInTheDocument();
@@ -3514,13 +3551,14 @@ describe('Settings extra coverage', () => {
             });
         });
 
-        describe('config.maxSteps ?? 50 / config.maxConcurrentInvestigations ?? 3 / config.retrospectTimeoutMinutes ?? 10', () => {
+        describe('config.maxSteps ?? 50 / config.maxConcurrentInvestigations ?? 3 / config.maxConcurrentScheduledInvestigations ?? 2 / config.retrospectTimeoutMinutes ?? 10', () => {
             it('uses fallback values when config fields are null/undefined', async () => {
                 const { api } = await import('../../api');
                 vi.mocked(api.getSettings).mockResolvedValue({
                     model: 'gpt-4o',
                     maxSteps: undefined,
                     maxConcurrentInvestigations: undefined,
+                    maxConcurrentScheduledInvestigations: undefined,
                     retrospectTimeoutMinutes: undefined,
                     autoRefreshInterval: 30,
                     defaultTimeRange: 'ago(1h)',

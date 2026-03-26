@@ -164,22 +164,19 @@ export const Dashboard = () => {
         (localStorage.getItem('inv-view') as 'grid' | 'list') ?? 'grid'
     );
 
-    // Apply server-side defaults when localStorage hasn't been set yet, and always fetch maxSteps
+    // Always apply server-side defaults so Dashboard matches Settings (source of truth)
     useEffect(() => {
-        const needsView = !localStorage.getItem('inv-view');
-        const needsSort = !localStorage.getItem('inv-sort');
-        const needsPageSize = !localStorage.getItem('inv-page-size');
         api.getSettings().then((settings: any) => {
             if (typeof settings.maxSteps === 'number') setMaxSteps(settings.maxSteps);
-            if (needsView && (settings.defaultView === 'grid' || settings.defaultView === 'list')) {
+            if (settings.defaultView === 'grid' || settings.defaultView === 'list') {
                 setViewMode(settings.defaultView);
                 localStorage.setItem('inv-view', settings.defaultView);
             }
-            if (needsSort && ['newest', 'oldest', 'steps', 'modified'].includes(settings.defaultSortOrder)) {
+            if (['newest', 'oldest', 'steps', 'modified'].includes(settings.defaultSortOrder)) {
                 setSortOrder(settings.defaultSortOrder);
                 localStorage.setItem('inv-sort', settings.defaultSortOrder);
             }
-            if (needsPageSize && typeof settings.defaultPageSize === 'number' && settings.defaultPageSize > 0) {
+            if (typeof settings.defaultPageSize === 'number' && settings.defaultPageSize > 0) {
                 setPageSize(settings.defaultPageSize);
                 localStorage.setItem('inv-page-size', String(settings.defaultPageSize));
             }

@@ -138,8 +138,8 @@ export class Scheduler extends EventEmitter {
                 continue; // not due yet
             }
 
-            // Check concurrency limit
-            if (this.activeCount >= this.config.maxConcurrentScheduledInvestigations) {
+            // Check concurrency limit (0 = unlimited)
+            if (this.config.maxConcurrentScheduledInvestigations > 0 && this.activeCount >= this.config.maxConcurrentScheduledInvestigations) {
                 continue; // skip until a slot opens
             }
 

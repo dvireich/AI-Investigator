@@ -942,7 +942,8 @@ app.post('/api/settings', (req, res) => {
         const ALLOWED_KEYS = new Set([
             'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
-            'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
+            'maxConcurrentInvestigations', 'maxConcurrentScheduledInvestigations',
+            'autoRefreshInterval', 'workingDirectory',
             'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
             'investigationsPath', 'products', 'activeProductId',
             'llmProvider', 'incidentProvider',
@@ -1005,7 +1006,8 @@ app.post('/api/settings/import', (req, res) => {
         const ALLOWED_KEYS = new Set([
             'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
-            'maxConcurrentInvestigations', 'autoRefreshInterval', 'workingDirectory',
+            'maxConcurrentInvestigations', 'maxConcurrentScheduledInvestigations',
+            'autoRefreshInterval', 'workingDirectory',
             'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
             'investigationsPath', 'products', 'activeProductId',
             'llmProvider', 'incidentProvider',
