@@ -116,7 +116,7 @@ export const Layout = () => {
     const activeLabel = `${providerDisplayName} Active`;
 
     return (
-        <div className="min-h-screen bg-transparent text-slate-100 font-sans selection:bg-brand-500/30">
+        <div className={`min-h-screen bg-transparent text-slate-100 font-sans selection:bg-brand-500/30${location.pathname.startsWith('/investigation/') ? ' h-screen overflow-hidden' : ''}`}>
             <UpdateBanner />
             {/* Header */}
             <header className="fixed top-0 left-0 right-0 h-14 sm:h-16 bg-slate-900/70 backdrop-blur-xl border-b border-white/[0.06] z-50 flex items-center justify-between px-3 sm:px-6 shadow-2xl shadow-black/20">
@@ -313,7 +313,7 @@ export const Layout = () => {
             )}
 
             {/* Main Content */}
-            <main className="pt-28 sm:pt-32 px-3 sm:px-6 md:px-12 max-w-[1600px] mx-auto animate-slide-up">
+            <main className={location.pathname.startsWith('/investigation/') ? 'animate-slide-up' : 'pt-[4.5rem] sm:pt-[5rem] px-3 sm:px-6 md:px-8 max-w-[1600px] mx-auto animate-slide-up'}>
                 <Outlet />
             </main>
         </div>

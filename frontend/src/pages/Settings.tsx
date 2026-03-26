@@ -483,7 +483,7 @@ export const Settings = () => {
     ];
 
     return (
-        <div className="max-w-6xl mx-auto min-h-[calc(100dvh-140px)] md:h-[calc(100dvh-140px)] flex flex-col md:flex-row gap-4 md:gap-8 animate-fade-in">
+        <div className="max-w-6xl mx-auto min-h-[calc(100dvh-6rem)] md:h-[calc(100dvh-6rem)] flex flex-col md:flex-row gap-4 md:gap-8 animate-fade-in">
             {/* Sidebar Navigation */}
             <div className="w-full md:w-64 md:shrink-0">
                 <Breadcrumbs crumbs={[{ label: 'Dashboard', to: '/' }, { label: 'Settings' }]} />

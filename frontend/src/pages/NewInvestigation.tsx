@@ -484,7 +484,7 @@ export const NewInvestigation = () => {
             </div>
 
             {/* Query Bank + Product side by side */}
-            <div className="flex gap-4 items-stretch relative z-10">
+            <div className="flex flex-col sm:flex-row gap-4 items-stretch relative z-10">
             {/* Query Bank Bar */}
             <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] flex-1">
                 <div className="px-4 py-3 flex items-center gap-3">

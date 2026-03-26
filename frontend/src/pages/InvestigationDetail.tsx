@@ -940,7 +940,8 @@ export const InvestigationDetail = () => {
     };
 
     if (!investigation) return (
-        <div className="min-h-[calc(100dvh-7rem)] lg:h-[calc(100dvh-7rem)] overflow-y-auto lg:overflow-hidden grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 pb-2 animate-pulse">
+        <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 px-3 sm:px-6 md:px-8 pt-2 sm:pt-4 pb-2 z-0">
+        <div className="h-full overflow-hidden grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 max-w-[1600px] mx-auto animate-pulse">
             {/* Sidebar skeleton */}
             <div className="lg:col-span-4 xl:col-span-3 space-y-4">
                 <div className="glass-card p-5 space-y-4">
@@ -983,13 +984,14 @@ export const InvestigationDetail = () => {
                 </div>
             </div>
         </div>
+        </div>
     );
 
     const isActive = investigation.status === 'running' || investigation.status === 'paused';
 
     return (
-        <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 pt-3 sm:pt-6 pb-2 px-3 sm:px-6 md:px-12 z-0 flex flex-col">
-        <div className="max-w-[1600px] mx-auto w-full">
+        <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 pt-2 sm:pt-4 pb-2 px-3 sm:px-6 md:px-8 z-0 flex flex-col">
+        <div className="max-w-[1600px] mx-auto w-full shrink-0">
             <Breadcrumbs
                 crumbs={[{ label: 'Dashboard', to: '/' }, { label: investigation?.title || 'Investigation' }]}
                 onEditLabel={async (newTitle) => {
@@ -1056,7 +1058,7 @@ export const InvestigationDetail = () => {
             )}
 
             {/* Sidebar: Status & Info */}
-            <div className="lg:col-span-3 flex flex-col gap-1 lg:gap-4 lg:overflow-y-auto scrollbar-hidden shrink-0">
+            <div className="lg:col-span-3 flex flex-col gap-1 lg:gap-4 min-h-0">
                 {/* Status Card */}
                 <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl lg:rounded-3xl p-1.5 lg:p-6 shadow-2xl border border-white/[0.06] relative overflow-hidden group shrink-0">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
@@ -1224,7 +1226,7 @@ export const InvestigationDetail = () => {
                 </div>
 
                 {/* Info Card — collapsible on mobile, always visible on desktop */}
-                <div className={`${mobileSidebarExpanded ? 'block' : 'hidden'} lg:block bg-slate-900/50 backdrop-blur-md rounded-2xl p-5 shadow-lg border border-white/[0.06] text-sm shrink-0`}>
+                <div className={`${mobileSidebarExpanded ? 'block max-h-[40vh] overflow-y-auto scrollbar-hidden' : 'hidden'} lg:block lg:flex-1 lg:min-h-0 lg:overflow-y-auto scrollbar-hidden bg-slate-900/50 backdrop-blur-md rounded-2xl p-5 shadow-lg border border-white/[0.06] text-sm`}>
                     {/* Tags */}
                     <div className="mb-4 pb-4 border-b border-white/[0.06]">
                         <span className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1.5">Tags</span>
