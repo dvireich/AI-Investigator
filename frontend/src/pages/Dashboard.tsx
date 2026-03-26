@@ -152,6 +152,7 @@ export const Dashboard = () => {
     const [stats, setStats] = useState<InvestigationStats>({ total: 0, running: 0, paused: 0, completed: 0, failed: 0, aborted: 0, successRate: 0, resolvedCount: 0, avgDurationMs: 0, durationSamples: 0, thisWeekCount: 0, lastWeekCount: 0, contestRate: 0, contestableCount: 0 });
     const [debouncedSearch, setDebouncedSearch] = useState('');
     const [search, setSearch] = useState('');
+    const [maxSteps, setMaxSteps] = useState<number>(0);
     const [filter, setFilter] = useState<'all' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted'>('all');
     const [productFilter, setProductFilter] = useState<string>('all');
     const [sourceFilter, setSourceFilter] = useState<'all' | 'manual' | 'scheduled'>('all');
@@ -163,13 +164,13 @@ export const Dashboard = () => {
         (localStorage.getItem('inv-view') as 'grid' | 'list') ?? 'grid'
     );
 
-    // Apply server-side defaults when localStorage hasn't been set yet (single API call)
+    // Apply server-side defaults when localStorage hasn't been set yet, and always fetch maxSteps
     useEffect(() => {
         const needsView = !localStorage.getItem('inv-view');
         const needsSort = !localStorage.getItem('inv-sort');
         const needsPageSize = !localStorage.getItem('inv-page-size');
-        if (!needsView && !needsSort && !needsPageSize) return;
         api.getSettings().then((settings: any) => {
+            if (typeof settings.maxSteps === 'number') setMaxSteps(settings.maxSteps);
             if (needsView && (settings.defaultView === 'grid' || settings.defaultView === 'list')) {
                 setViewMode(settings.defaultView);
                 localStorage.setItem('inv-view', settings.defaultView);
@@ -1188,8 +1189,8 @@ export const Dashboard = () => {
                                                     <StepBar count={inv.thoughtCount ?? inv.thoughts.length}
                                                         color={isRunning ? 'bg-blue-400' : isPaused ? 'bg-amber-400' : isCompleted ? 'bg-emerald-400' : isFailed ? 'bg-red-400' : 'bg-slate-400'} />
                                                 )}
-                                                {(isRunning || isPaused) && (inv.thoughtCount ?? inv.thoughts?.length ?? 0) > 0 && (
-                                                    <ProgressRing current={inv.thoughtCount ?? inv.thoughts.length} max={50} size={24} strokeWidth={2.5} />
+                                                {(isRunning || isPaused) && (inv.thoughtCount ?? inv.thoughts?.length ?? 0) > 0 && maxSteps > 0 && (
+                                                    <ProgressRing current={inv.thoughtCount ?? inv.thoughts.length} max={maxSteps} size={24} strokeWidth={2.5} />
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2">

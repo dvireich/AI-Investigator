@@ -109,6 +109,7 @@ vi.mock('../../api', () => ({
             { id: 'rec_P0_1', priority: 'P0', title: 'Engage Kusto SRE', description: 'Contact the team', category: 'operational' },
             { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
         ]),
+        getSettings: vi.fn().mockResolvedValue({ maxSteps: 50 }),
     },
     BASE_URL: 'http://localhost:3000',
 }));
@@ -7318,9 +7319,25 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             // ProgressRing should render with 20%
             expect(screen.getByText('20%')).toBeInTheDocument();
         });
+
+        it('renders step count without denominator when maxSteps is 0 (unlimited) (covers L1301 maxSteps > 0 false branch)', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getSettings).mockResolvedValue({ maxSteps: 0 });
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                status: 'running',
+                finalReport: null,
+                thoughts: Array.from({ length: 10 }, (_, i) => ({ content: `Step ${i}`, type: 'thought' })),
+                actions: Array.from({ length: 10 }, () => null),
+            }));
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            // Should show "Step 10" without "/ 50" when unlimited
+            expect(screen.getByText('Step 10')).toBeInTheDocument();
+            // ProgressRing should NOT render
+            expect(screen.queryByText('%')).not.toBeInTheDocument();
+        });
     });
 
 });
-
-
 

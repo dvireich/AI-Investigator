@@ -33,7 +33,7 @@ export const Breadcrumbs = ({ crumbs }: BreadcrumbsProps) => {
             )}
             {/* Current page label */}
             {currentCrumb && !currentCrumb.to && (
-                <span className="text-slate-300 font-medium truncate">{currentCrumb.label}</span>
+                <span className="px-2.5 py-1 rounded-lg bg-brand-500/10 border border-brand-500/20 text-brand-300 text-xs font-semibold truncate">{currentCrumb.label}</span>
             )}
         </nav>
     );
