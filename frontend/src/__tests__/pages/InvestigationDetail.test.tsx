@@ -607,7 +607,7 @@ describe('InvestigationDetail', () => {
     // ════════════════════════════════════════════════════════════════════════════
 
     describe('Title Editing', () => {
-        it('shows edit icon on title hover area', async () => {
+        it('shows pencil edit icon in breadcrumbs', async () => {
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
@@ -615,23 +615,23 @@ describe('InvestigationDetail', () => {
                 expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
             });
             
-            // The title should have an edit button/icon visible
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            expect(titleButton).toBeInTheDocument();
+            // The breadcrumb should have a pencil edit button
+            const editBtn = screen.getByRole('button', { name: /Edit title/i });
+            expect(editBtn).toBeInTheDocument();
         });
 
-        it('opens edit mode when title is clicked', async () => {
+        it('opens edit mode when pencil icon is clicked', async () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
+            const editBtn = screen.getByRole('button', { name: /Edit title/i });
+            await user.click(editBtn);
             
             await waitFor(() => {
-                expect(screen.getByPlaceholderText(/Enter investigation name/i)).toBeInTheDocument();
+                expect(screen.getByLabelText('Edit title')).toHaveAttribute('type', 'text');
             });
         });
 
@@ -643,10 +643,10 @@ describe('InvestigationDetail', () => {
             
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
+            const editBtn = screen.getByRole('button', { name: /Edit title/i });
+            await user.click(editBtn);
             
-            const input = screen.getByPlaceholderText(/Enter investigation name/i);
+            const input = screen.getByLabelText('Edit title');
             await user.clear(input);
             await user.type(input, 'New Title{Enter}');
             
@@ -663,10 +663,10 @@ describe('InvestigationDetail', () => {
             
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
+            const editBtn = screen.getByRole('button', { name: /Edit title/i });
+            await user.click(editBtn);
             
-            const input = screen.getByPlaceholderText(/Enter investigation name/i);
+            const input = screen.getByLabelText('Edit title');
             await user.type(input, 'Changed{Escape}');
             
             // Should exit edit mode without saving
@@ -676,7 +676,7 @@ describe('InvestigationDetail', () => {
             expect(api.updateTitle).not.toHaveBeenCalled();
         });
 
-        it('saves title on Save button click', async () => {
+        it('saves title on blur', async () => {
             const { api } = await import('../../api');
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
@@ -684,22 +684,20 @@ describe('InvestigationDetail', () => {
             
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
+            const editBtn = screen.getByRole('button', { name: /Edit title/i });
+            await user.click(editBtn);
             
-            const input = screen.getByPlaceholderText(/Enter investigation name/i);
+            const input = screen.getByLabelText('Edit title');
             await user.clear(input);
-            await user.type(input, 'Updated Title');
-            
-            const saveBtn = screen.getByTitle(/Save/i);
-            await user.click(saveBtn);
+            await user.type(input, 'Blur Title');
+            fireEvent.blur(input);
             
             await waitFor(() => {
-                expect(api.updateTitle).toHaveBeenCalledWith('1700000000000', 'Updated Title');
+                expect(api.updateTitle).toHaveBeenCalledWith('1700000000000', 'Blur Title');
             });
         });
 
-        it('cancels edit on Cancel button click', async () => {
+        it('does not save when title is unchanged', async () => {
             const { api } = await import('../../api');
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
@@ -707,11 +705,12 @@ describe('InvestigationDetail', () => {
             
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
             
-            const titleButton = screen.getByTitle(/Click to edit/i);
-            await user.click(titleButton);
+            const editBtn = screen.getByRole('button', { name: /Edit title/i });
+            await user.click(editBtn);
             
-            const cancelBtn = screen.getByTitle(/Cancel/i);
-            await user.click(cancelBtn);
+            // Press Enter without changing — same title
+            const input = screen.getByLabelText('Edit title');
+            fireEvent.keyDown(input, { key: 'Enter' });
             
             await waitFor(() => {
                 expect(screen.getAllByText('Test Investigation')[0]).toBeInTheDocument();
@@ -1786,7 +1785,7 @@ describe('InvestigationDetail', () => {
     // ════════════════════════════════════════════════════════════════════════════
 
     describe('Edge Cases', () => {
-        it('shows "Untitled" when title is empty', async () => {
+        it('shows "Investigation" fallback when title is empty', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
                 title: '',
@@ -1796,7 +1795,7 @@ describe('InvestigationDetail', () => {
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
             await waitFor(() => {
-                expect(screen.getByText(/Untitled/i)).toBeInTheDocument();
+                expect(screen.getByText('Investigation')).toBeInTheDocument();
             });
         });
 
@@ -3731,36 +3730,30 @@ describe('InvestigationDetail', () => {
     // ════════════════════════════════════════════════════════════════════════════
 
     describe('TitleEditor save error path', () => {
-        it('handles updateTitle error gracefully (covers line 519 catch console.error)', async () => {
-            // Covers: line 519 — console.error('Failed to update title:', err) in catch block
+        it('handles updateTitle error gracefully (covers catch console.error)', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.updateTitle).mockRejectedValueOnce(new Error('Title update failed'));
+            const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
 
-            // Click the pencil edit icon (title edit trigger)
-            const editBtns = screen.getAllByRole('button');
-            const pencilBtn = editBtns.find(btn => btn.querySelector('svg.lucide-pencil'));
-            if (pencilBtn) {
-                await user.click(pencilBtn);
-                await waitFor(() => screen.getByDisplayValue('Test Investigation'));
-
-                // Change title value and save
-                const input = screen.getByDisplayValue('Test Investigation') as HTMLInputElement;
-                fireEvent.change(input, { target: { value: 'Updated Title' } });
-
-                // Find and click the save button (checkmark)
-                const saveBtns = screen.getAllByRole('button');
-                const saveBtn = saveBtns.find(btn => btn.querySelector('svg.lucide-check'));
-                if (saveBtn) {
-                    await user.click(saveBtn);
-                    await act(async () => { await vi.advanceTimersByTimeAsync(200); });
-                    // Title editor error is handled gracefully (catch block covered)
-                    expect(api.updateTitle).toHaveBeenCalled();
-                }
-            }
+            // Click the pencil edit icon in breadcrumbs
+            const editBtn = screen.getByRole('button', { name: /Edit title/i });
+            await user.click(editBtn);
+            
+            const input = screen.getByLabelText('Edit title');
+            await user.clear(input);
+            await user.type(input, 'Updated Title{Enter}');
+            
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            expect(api.updateTitle).toHaveBeenCalled();
+            // Error is caught and logged
+            await waitFor(() => {
+                expect(consoleSpy).toHaveBeenCalledWith('Failed to update title', expect.any(Error));
+            });
+            consoleSpy.mockRestore();
         });
     });
 
@@ -6109,33 +6102,25 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
     // ════════════════════════════════════════════════════════════════════════════
 
     describe('Branch coverage completion', () => {
-        describe('InlineEditableTitle with no title - setDraft(title || "") (L507)', () => {
-            it('sets empty draft when investigation has no title', async () => {
+        describe('Breadcrumb title edit with no title', () => {
+            it('shows Investigation as fallback label when title is undefined', async () => {
                 const { api } = await import('../../api');
                 vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
-                    title: undefined,  // title is undefined → setDraft(undefined || '') = setDraft('')
+                    title: undefined,
                 }));
                 renderDetail();
                 await act(async () => { await vi.advanceTimersByTimeAsync(100); });
-                // Wait for investigation to load (shows 'Untitled' or investigation id)
                 await waitFor(() => {
-                    const body = document.body.textContent || '';
-                    // Either shows 'Untitled' or the id
-                    expect(body.length).toBeGreaterThan(0);
+                    expect(screen.getByText('Investigation')).toBeInTheDocument();
                 });
 
-                // Click the title edit button that has title="Click to edit investigation name"
-                const editBtn = document.querySelector('[title="Click to edit investigation name"]') as HTMLElement;
-                if (editBtn) {
-                    fireEvent.click(editBtn);
-                    // After clicking, draft is set to title || '' = undefined || '' = ''
-                    // The input should appear with value = ''
-                    await waitFor(() => {
-                        const titleInput = document.querySelector('input[placeholder="Enter investigation name"]');
-                        expect(titleInput).toBeTruthy();
-                        expect((titleInput as HTMLInputElement).value).toBe('');
-                    });
-                }
+                // Click pencil to edit — draft should be initialized to 'Investigation' (the fallback)
+                const editBtn = screen.getByRole('button', { name: /Edit title/i });
+                fireEvent.click(editBtn);
+                await waitFor(() => {
+                    const input = screen.getByLabelText('Edit title') as HTMLInputElement;
+                    expect(input.value).toBe('Investigation');
+                });
             });
         });
 
@@ -7314,9 +7299,8 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
 
             renderDetail();
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-            // Step counter: "10" count + "/ 50" denominator + "steps" label
-            expect(screen.getByText('/ 50')).toBeInTheDocument();
-            expect(screen.getByText('steps')).toBeInTheDocument();
+            // Step counter: "10" inside circle + "/ 50 steps" label next to it
+            expect(screen.getByText('/ 50 steps')).toBeInTheDocument();
             // ProgressRing should render with 20%
             expect(screen.getByText('20%')).toBeInTheDocument();
         });
@@ -7333,9 +7317,9 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
 
             renderDetail();
             await waitFor(() => screen.getAllByText('Test Investigation')[0]);
-            // Should show step count and "steps" label but no denominator
+            // Should show "steps" label without denominator
             expect(screen.getByText('steps')).toBeInTheDocument();
-            expect(screen.queryByText(/^\/ \d+$/)).not.toBeInTheDocument();
+            expect(screen.queryByText(/\/ \d+/)).not.toBeInTheDocument();
             // ProgressRing should NOT render
             expect(screen.queryByText('%')).not.toBeInTheDocument();
         });

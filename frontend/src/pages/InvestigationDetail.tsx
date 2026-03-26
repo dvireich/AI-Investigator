@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback, useDeferredVa
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Pencil, Tag, Plus, Wrench, Code } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { useNotification } from '../hooks/useNotification';
@@ -505,95 +505,6 @@ const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedb
    Uses an uncontrolled editing pattern: while the user is typing, parent
    re-renders (from WebSocket-driven fetchInvestigation) are completely ignored
    because all editing state is local and we skip memo comparison during editing. */
-function InlineEditableTitle({ title, investigationId, onSaved }: {
-    title: string;
-    investigationId: string;
-    onSaved: () => void;
-}) {
-    const [editing, setEditing] = useState(false);
-    const [draft, setDraft] = useState('');
-    const [saving, setSaving] = useState(false);
-    const inputRef = useRef<HTMLInputElement>(null);
-    // Keep a ref so the save closure always sees the latest investigationId/onSaved
-    const latestRef = useRef({ investigationId, onSaved });
-    latestRef.current = { investigationId, onSaved };
-
-    const startEditing = useCallback(() => {
-        setDraft(title || '');
-        setEditing(true);
-        setTimeout(() => inputRef.current?.focus(), 50);
-    }, [title]);
-
-    const save = useCallback(async () => {
-        const trimmed = draft.trim();
-        setSaving(true);
-        try {
-            await api.updateTitle(latestRef.current.investigationId, trimmed);
-            setEditing(false);
-            latestRef.current.onSaved();
-        } catch (err) {
-            console.error('Failed to update title:', err);
-        } finally {
-            setSaving(false);
-        }
-    }, [draft]);
-
-    const cancel = useCallback(() => {
-        setEditing(false);
-        setDraft('');
-    }, []);
-
-    // While editing, render only the input — completely ignores parent re-renders
-    if (editing) {
-        return (
-            <div className="flex items-center gap-1.5">
-                <input
-                    ref={inputRef}
-                    type="text"
-                    className="flex-1 px-2 py-1 rounded-lg border border-brand-500/40 bg-slate-800/60 text-sm font-medium text-slate-100 focus:ring-2 focus:ring-brand-500 focus:border-transparent outline-none transition-all"
-                    value={draft}
-                    onChange={(e) => setDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                        if (e.key === 'Enter') save();
-                        if (e.key === 'Escape') cancel();
-                    }}
-                    placeholder="Enter investigation name"
-                    disabled={saving}
-                />
-                <button
-                    onClick={save}
-                    disabled={saving}
-                    className="p-1 rounded-md bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 transition-colors disabled:opacity-50"
-                    title="Save"
-                >
-                    {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                </button>
-                <button
-                    onClick={cancel}
-                    disabled={saving}
-                    className="p-1 rounded-md bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
-                    title="Cancel"
-                >
-                    <X className="w-3.5 h-3.5" />
-                </button>
-            </div>
-        );
-    }
-
-    return (
-        <button
-            onClick={startEditing}
-            className="group/title flex items-center gap-2 w-full text-left"
-            title="Click to edit investigation name"
-        >
-            <span className="font-semibold text-slate-200 truncate flex-1">
-                {title || <span className="text-slate-500 italic font-normal">Untitled</span>}
-            </span>
-            <Pencil className="w-3.5 h-3.5 text-slate-600 group-hover/title:text-brand-400 transition-colors shrink-0" />
-        </button>
-    );
-}
-
 function implProposalStatusClass(status: string): string {
     if (status === 'applied') return 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20';
     if (status === 'approved') return 'bg-sky-500/15 text-sky-400 border border-sky-500/20';
@@ -1079,9 +990,19 @@ export const InvestigationDetail = () => {
     return (
         <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 pt-3 sm:pt-6 pb-2 px-3 sm:px-6 md:px-12 z-0 flex flex-col">
         <div className="max-w-[1600px] mx-auto w-full">
-            <Breadcrumbs crumbs={[{ label: 'Dashboard', to: '/' }, { label: investigation?.title || 'Investigation' }]} />
+            <Breadcrumbs
+                crumbs={[{ label: 'Dashboard', to: '/' }, { label: investigation?.title || 'Investigation' }]}
+                onEditLabel={async (newTitle) => {
+                    try {
+                        await api.updateTitle(investigation.id, newTitle);
+                        await fetchInvestigation();
+                    } catch (err) {
+                        console.error('Failed to update title', err);
+                    }
+                }}
+            />
         </div>
-        <div className="flex-1 min-h-0 max-w-[1600px] mx-auto overflow-hidden grid grid-cols-1 lg:grid-cols-12 grid-rows-[auto_1fr] lg:grid-rows-1 gap-1 lg:gap-6">
+        <div className="flex-1 min-h-0 max-w-[1600px] mx-auto w-full overflow-hidden grid grid-cols-1 lg:grid-cols-12 grid-rows-[auto_1fr] lg:grid-rows-1 gap-1 lg:gap-6">
 
             {/* Connection Lost / Reconnecting Overlay */}
             {(!wsConnected || wsJustReconnected) && (
@@ -1302,61 +1223,8 @@ export const InvestigationDetail = () => {
                     </div>
                 </div>
 
-                {/* Step Progress */}
-                {investigation.thoughts.length > 0 && (
-                    <div className="hidden lg:block shrink-0">
-                        <div className="bg-slate-900/50 backdrop-blur-md rounded-2xl p-4 border border-white/[0.06] shadow-lg">
-                            <div className="flex flex-col items-center gap-2">
-                                {maxSteps > 0 ? (
-                                    <ProgressRing
-                                        current={investigation.thoughts.length}
-                                        max={maxSteps}
-                                        size={56}
-                                        strokeWidth={3.5}
-                                        ringColorClass={stepColors.ring}
-                                    />
-                                ) : (
-                                    <div className={`relative inline-flex items-center justify-center w-14 h-14 rounded-full border-2 ${stepColors.circleBorder} ${stepColors.circleBg}`}>
-                                        <span className={`text-lg font-bold ${stepColors.label}`}>{investigation.thoughts.length}</span>
-                                    </div>
-                                )}
-                                <div className="text-center">
-                                    <div className="flex items-center justify-center gap-1">
-                                        <span className="text-sm font-bold text-slate-200">
-                                            {investigation.thoughts.length}
-                                        </span>
-                                        {maxSteps > 0 && (
-                                            <span className="text-sm text-slate-500 font-medium">/ {maxSteps}</span>
-                                        )}
-                                        <span className="text-xs text-slate-500 font-medium ml-0.5">steps</span>
-                                    </div>
-                                </div>
-                            </div>
-                            {maxSteps > 0 && (
-                                <div className="mt-3 w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                                    <div
-                                        className={`h-full rounded-full transition-all duration-500 ${stepColors.bar} ${stepColors.barAnimate}`}
-                                        style={{ width: `${Math.min((investigation.thoughts.length / maxSteps) * 100, 100)}%` }}
-                                    />
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                )}
-
-
                 {/* Info Card — collapsible on mobile, always visible on desktop */}
                 <div className={`${mobileSidebarExpanded ? 'block' : 'hidden'} lg:block bg-slate-900/50 backdrop-blur-md rounded-2xl p-5 shadow-lg border border-white/[0.06] text-sm shrink-0`}>
-                    {/* Editable Investigation Name */}
-                    <div className="mb-4 pb-4 border-b border-white/[0.06]">
-                        <span className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1.5">Name</span>
-                        <InlineEditableTitle
-                            title={investigation.title}
-                            investigationId={id!}
-                            onSaved={fetchInvestigation}
-                        />
-                    </div>
-
                     {/* Tags */}
                     <div className="mb-4 pb-4 border-b border-white/[0.06]">
                         <span className="block text-slate-500 text-xs font-bold uppercase tracking-wider mb-1.5">Tags</span>
@@ -1566,7 +1434,28 @@ export const InvestigationDetail = () => {
 
                     {/* Window Header (Banner) — hidden on mobile, sidebar compact bar has status info */}
                     <div className="hidden lg:flex bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 px-4 py-3 items-center justify-between border-b border-slate-800 shrink-0 z-10">
-                        <div className="flex-1"></div>
+                        <div className="flex-1 flex items-center">
+                            {investigation.thoughts.length > 0 && (
+                                <div className="flex items-center gap-2">
+                                    {maxSteps > 0 ? (
+                                        <ProgressRing
+                                            current={investigation.thoughts.length}
+                                            max={maxSteps}
+                                            size={28}
+                                            strokeWidth={2.5}
+                                            ringColorClass={stepColors.ring}
+                                        />
+                                    ) : (
+                                        <div className={`inline-flex items-center justify-center w-7 h-7 rounded-full border ${stepColors.circleBorder} ${stepColors.circleBg}`}>
+                                            <span className={`text-xs font-bold ${stepColors.label}`}>{investigation.thoughts.length}</span>
+                                        </div>
+                                    )}
+                                    <span className="text-xs text-slate-400 font-medium">
+                                        {maxSteps > 0 ? `/ ${maxSteps} ` : ''}steps
+                                    </span>
+                                </div>
+                            )}
+                        </div>
                         <div className="flex items-center gap-2.5">
                             <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shadow-sm">
                                 <Bot className="w-4 h-4 text-emerald-400" />
