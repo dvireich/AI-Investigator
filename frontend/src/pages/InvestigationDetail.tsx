@@ -1135,7 +1135,7 @@ export const InvestigationDetail = () => {
             )}
 
             {/* Sidebar: Status & Info */}
-            <div className="lg:col-span-3 flex flex-col gap-1 lg:gap-4 lg:overflow-y-auto scrollbar-hidden shrink-0">
+            <div className="lg:col-span-3 flex flex-col gap-1 lg:gap-4 shrink-0">
                 {/* Status Card */}
                 <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl lg:rounded-3xl p-1.5 lg:p-6 shadow-2xl border border-white/[0.06] relative overflow-hidden group shrink-0">
                     <div className="absolute top-0 right-0 w-32 h-32 bg-brand-500/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
@@ -1305,41 +1305,28 @@ export const InvestigationDetail = () => {
                 {/* Step Progress */}
                 {investigation.thoughts.length > 0 && (
                     <div className="hidden lg:block shrink-0">
-                        <div className="bg-slate-900/50 backdrop-blur-md rounded-2xl p-4 border border-white/[0.06] shadow-lg">
-                            <div className="flex flex-col items-center gap-2">
+                        <div className="bg-slate-900/50 backdrop-blur-md rounded-2xl p-3 border border-white/[0.06] shadow-lg">
+                            <div className="flex flex-col items-center gap-1.5">
                                 {maxSteps > 0 ? (
                                     <ProgressRing
                                         current={investigation.thoughts.length}
                                         max={maxSteps}
-                                        size={56}
-                                        strokeWidth={3.5}
+                                        size={40}
+                                        strokeWidth={3}
                                         ringColorClass={stepColors.ring}
                                     />
                                 ) : (
-                                    <div className={`relative inline-flex items-center justify-center w-14 h-14 rounded-full border-2 ${stepColors.circleBorder} ${stepColors.circleBg}`}>
-                                        <span className={`text-lg font-bold ${stepColors.label}`}>{investigation.thoughts.length}</span>
+                                    <div className={`relative inline-flex items-center justify-center w-10 h-10 rounded-full border-2 ${stepColors.circleBorder} ${stepColors.circleBg}`}>
+                                        <span className={`text-sm font-bold ${stepColors.label}`}>{investigation.thoughts.length}</span>
                                     </div>
                                 )}
-                                <div className="text-center">
-                                    <div className="flex items-center justify-center gap-1">
-                                        <span className="text-sm font-bold text-slate-200">
-                                            {investigation.thoughts.length}
-                                        </span>
-                                        {maxSteps > 0 && (
-                                            <span className="text-sm text-slate-500 font-medium">/ {maxSteps}</span>
-                                        )}
-                                        <span className="text-xs text-slate-500 font-medium ml-0.5">steps</span>
-                                    </div>
+                                <div className="flex items-center justify-center gap-1">
+                                    {maxSteps > 0 && (
+                                        <span className="text-xs text-slate-500 font-medium">/ {maxSteps}</span>
+                                    )}
+                                    <span className="text-[10px] text-slate-500 font-medium">steps</span>
                                 </div>
                             </div>
-                            {maxSteps > 0 && (
-                                <div className="mt-3 w-full h-1.5 rounded-full bg-slate-800 overflow-hidden">
-                                    <div
-                                        className={`h-full rounded-full transition-all duration-500 ${stepColors.bar} ${stepColors.barAnimate}`}
-                                        style={{ width: `${Math.min((investigation.thoughts.length / maxSteps) * 100, 100)}%` }}
-                                    />
-                                </div>
-                            )}
                         </div>
                     </div>
                 )}
