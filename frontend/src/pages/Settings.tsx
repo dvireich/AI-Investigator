@@ -1204,6 +1204,31 @@ export const Settings = () => {
                                     <p className="text-xs text-slate-500">Maximum number of investigations that can run simultaneously. Set to <strong className="text-slate-400">∞</strong> for unlimited. New investigations will be rejected if a numeric limit is reached. Default: 3.</p>
                                 </div>
 
+                                {/* Max Concurrent Scheduled Investigations */}
+                                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <label htmlFor="settings-max-concurrent-scheduled" className="text-sm font-bold text-slate-300 block">Max Concurrent Scheduled Investigations</label>
+                                        <span className={`text-xs font-mono px-2 py-1 rounded ${(config.maxConcurrentScheduledInvestigations ?? 2) === 0 ? 'bg-brand-500/20 text-brand-400' : 'bg-slate-700 text-slate-300'}`}>
+                                            {(config.maxConcurrentScheduledInvestigations ?? 2) === 0 ? '∞ Unlimited' : config.maxConcurrentScheduledInvestigations ?? 2}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
+                                        <input
+                                            id="settings-max-concurrent-scheduled"
+                                            type="range"
+                                            min="0"
+                                            max="10"
+                                            step="1"
+                                            value={config.maxConcurrentScheduledInvestigations ?? 2}
+                                            onChange={(e) => handleChange('maxConcurrentScheduledInvestigations', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500"
+                                        />
+                                        <span className="text-[10px] text-slate-500 font-bold w-4">10</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500">Maximum number of scheduled investigations that can run at the same time. Set to <strong className="text-slate-400">∞</strong> for unlimited. Default: 2.</p>
+                                </div>
+
                                 {/* Retrospective Timeout */}
                                 <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
                                     <div className="flex justify-between items-center">
