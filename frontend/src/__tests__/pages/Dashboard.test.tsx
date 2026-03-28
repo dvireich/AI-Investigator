@@ -735,22 +735,16 @@ describe('Dashboard', () => {
             });
         });
 
-        it('filters by source (manual vs scheduled)', async () => {
+        it('does not show source filter dropdown (scheduled hidden by default)', async () => {
             const api = await getApi();
             vi.mocked(api.listInvestigations).mockImplementation(smartListMock(mockInvestigations));
 
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDashboard();
 
             await waitFor(() => screen.getByText('Completed Investigation'));
 
-            const sourceSelect = screen.getByDisplayValue('All Sources');
-            await user.selectOptions(sourceSelect, 'scheduled');
-
-            await waitFor(() => {
-                expect(screen.getByText('Running Investigation')).toBeInTheDocument();
-                expect(screen.queryByText('Completed Investigation')).not.toBeInTheDocument();
-            });
+            // Source filter dropdown should no longer be present
+            expect(screen.queryByDisplayValue('All Sources')).not.toBeInTheDocument();
         });
 
         it('filters by tag via dropdown', async () => {
@@ -1658,25 +1652,17 @@ describe('Dashboard', () => {
 
             await waitFor(() => screen.getByText('Completed Investigation'));
 
-            // Apply a source filter
-            const sourceSelect = screen.getByDisplayValue('All Sources');
-            await user.selectOptions(sourceSelect, 'scheduled');
+            // Enter a search to trigger filter bar with Clear all button
+            const searchInput = screen.getByPlaceholderText(/search/i);
+            await user.type(searchInput, 'Completed');
 
             await waitFor(() => {
-                expect(screen.queryByText('Completed Investigation')).not.toBeInTheDocument();
+                expect(screen.getByText('Clear all')).toBeInTheDocument();
             });
 
-            // Find the filter chip area and click the clear button
-            // The chip has a span with filter value and an X button inside
-            const filterChips = screen.getAllByText('Scheduled');
-            // Find the one that's part of a filter chip (has a sibling button with X)
-            const chipElement = filterChips.find(el => el.closest('span')?.querySelector('button'));
-            if (chipElement) {
-                const clearButton = chipElement.closest('span')!.querySelector('button');
-                if (clearButton) {
-                    await user.click(clearButton);
-                }
-            }
+            // Click the Clear all button to reset
+            const clearBtn = screen.getByText('Clear all');
+            await user.click(clearBtn);
 
             await waitFor(() => {
                 expect(screen.getByText('Completed Investigation')).toBeInTheDocument();
@@ -3037,10 +3023,12 @@ describe('Dashboard', () => {
 
         it('shows Yesterday date group for investigation created yesterday', async () => {
             const api = await getApi();
-            const yesterdayMs = Date.now() - 25 * 3600 * 1000;
+            // Use noon yesterday to avoid flaky midnight boundary issues
+            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+            const yesterdayNoon = todayStart.getTime() - 12 * 3600 * 1000;
             vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
                 createMockInvestigation({
-                    id: String(yesterdayMs),
+                    id: String(yesterdayNoon),
                     status: 'completed',
                     title: 'Yesterday Investigation',
                 }),
@@ -3473,37 +3461,15 @@ describe('Dashboard additional coverage', () => {
         });
     });
 
-    describe('Source filter chip shows Scheduled or Manual (L977)', () => {
-        it('shows Scheduled chip when source filter is set to scheduled', async () => {
+    describe('Source filter removed (scheduled hidden by default)', () => {
+        it('does not render source filter dropdown or source chips', async () => {
             const api = await getApi();
             vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
-                createMockInvestigation({ id: 'sched-inv-1', status: 'completed', title: 'Scheduled Inv', source: 'scheduled' }),
-            ]));
-            renderDashboard();
-            await waitFor(() => screen.getByText('Scheduled Inv'));
-            const sourceSelect = screen.getByDisplayValue('All Sources');
-            fireEvent.change(sourceSelect, { target: { value: 'scheduled' } });
-            // The source filter chip should now show 'Scheduled'
-            await waitFor(() => {
-                // The chip has a Clock icon + text content, check it's rendered
-                const chips = document.querySelectorAll('[class*="bg-cyan-500/10"]');
-                expect(chips.length).toBeGreaterThan(0);
-            });
-        });
-
-        it('shows Manual chip when source filter is set to manual', async () => {
-            const api = await getApi();
-            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
-                createMockInvestigation({ id: 'manual-inv-1', status: 'completed', title: 'Manual Inv', source: 'manual' }),
+                createMockInvestigation({ id: 'inv-1', status: 'completed', title: 'Manual Inv', source: 'manual' }),
             ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Manual Inv'));
-            const sourceSelect = screen.getByDisplayValue('All Sources');
-            fireEvent.change(sourceSelect, { target: { value: 'manual' } });
-            await waitFor(() => {
-                const chips = document.querySelectorAll('[class*="bg-cyan-500/10"]');
-                expect(chips.length).toBeGreaterThan(0);
-            });
+            expect(screen.queryByDisplayValue('All Sources')).not.toBeInTheDocument();
         });
     });
 

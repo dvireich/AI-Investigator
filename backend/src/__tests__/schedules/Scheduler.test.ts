@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { Scheduler, SchedulerConfig, CreateInvestigationFn, GetInvestigationResultFn } from '../../schedules/Scheduler';
-import { ScheduleStore, ScheduleDefinition } from '../../schedules/ScheduleStore';
+import { Scheduler, SchedulerConfig, CreateInvestigationFn, GetInvestigationResultFn, DeleteInvestigationFn, ListScheduleInvestigationsFn, generateExecutiveReport } from '../../schedules/Scheduler';
+import { ScheduleStore, ScheduleDefinition, ScheduleHistoryEntry } from '../../schedules/ScheduleStore';
 
 // Minimal schedule definition
 function makeSchedule(overrides: Partial<ScheduleDefinition> = {}): ScheduleDefinition {
@@ -12,9 +12,11 @@ function makeSchedule(overrides: Partial<ScheduleDefinition> = {}): ScheduleDefi
 }
 
 describe('Scheduler', () => {
-    let store: { getAll: any; get: any; update: any; appendHistory: any };
+    let store: { getAll: any; get: any; update: any; appendHistory: any; getHistory: any; writeRunReport: any; writeExecutiveReport: any; removeHistoryEntries: any };
     let createInv: ReturnType<typeof vi.fn>;
     let getResult: ReturnType<typeof vi.fn>;
+    let deleteInv: ReturnType<typeof vi.fn>;
+    let listScheduleInvs: ReturnType<typeof vi.fn>;
     let scheduler: Scheduler;
 
     beforeEach(() => {
@@ -24,13 +26,21 @@ describe('Scheduler', () => {
             get: vi.fn((id: string) => makeSchedule({ id })),
             update: vi.fn(),
             appendHistory: vi.fn(),
+            getHistory: vi.fn(() => []),
+            writeRunReport: vi.fn(),
+            writeExecutiveReport: vi.fn(),
+            removeHistoryEntries: vi.fn(),
         };
         createInv = vi.fn(async () => ({ id: 'inv-1' }));
         getResult = vi.fn(() => undefined);
+        deleteInv = vi.fn(async () => {});
+        listScheduleInvs = vi.fn(() => []);
         scheduler = new Scheduler(
             store as any,
             createInv as CreateInvestigationFn,
             getResult as GetInvestigationResultFn,
+            deleteInv as DeleteInvestigationFn,
+            listScheduleInvs as ListScheduleInvestigationsFn,
         );
     });
 
@@ -104,7 +114,7 @@ describe('Scheduler', () => {
 
         it('respects concurrency limit', async () => {
             const config: Partial<SchedulerConfig> = { maxConcurrentScheduledInvestigations: 1 };
-            scheduler = new Scheduler(store as any, createInv, getResult, config);
+            scheduler = new Scheduler(store as any, createInv, getResult, deleteInv, listScheduleInvs, config);
 
             // First schedule: currently active
             store.getAll.mockReturnValue([
@@ -137,7 +147,7 @@ describe('Scheduler', () => {
         });
 
         it('uses scheduledInvestigationMaxSteps when different from default', async () => {
-            scheduler = new Scheduler(store as any, createInv, getResult, { scheduledInvestigationMaxSteps: 15 });
+            scheduler = new Scheduler(store as any, createInv, getResult, deleteInv, listScheduleInvs, { scheduledInvestigationMaxSteps: 15 });
             store.getAll.mockReturnValue([makeSchedule()]);
             scheduler.start();
             await vi.advanceTimersByTimeAsync(0);
@@ -145,7 +155,7 @@ describe('Scheduler', () => {
         });
 
         it('skips execution when concurrency limit reached', async () => {
-            scheduler = new Scheduler(store as any, createInv, getResult, { maxConcurrentScheduledInvestigations: 1 });
+            scheduler = new Scheduler(store as any, createInv, getResult, deleteInv, listScheduleInvs, { maxConcurrentScheduledInvestigations: 1 });
             // Two due schedules, neither has an active investigation
             store.getAll.mockReturnValue([makeSchedule({ id: '1' }), makeSchedule({ id: '2' })]);
             scheduler.start();
@@ -156,7 +166,7 @@ describe('Scheduler', () => {
         });
 
         it('treats maxConcurrentScheduledInvestigations=0 as unlimited', async () => {
-            scheduler = new Scheduler(store as any, createInv, getResult, { maxConcurrentScheduledInvestigations: 0 });
+            scheduler = new Scheduler(store as any, createInv, getResult, deleteInv, listScheduleInvs, { maxConcurrentScheduledInvestigations: 0 });
             store.getAll.mockReturnValue([makeSchedule()]);
             scheduler.start();
             await vi.advanceTimersByTimeAsync(0);
@@ -492,5 +502,445 @@ describe('Scheduler', () => {
             await vi.advanceTimersByTimeAsync(60_000);
             expect(store.getAll.mock.calls.length).toBeGreaterThan(initialCalls);
         });
+    });
+
+    describe('pruning', () => {
+        it('prunes old investigations when over retention limit', async () => {
+            listScheduleInvs.mockReturnValue(['inv-3', 'inv-2', 'inv-1']); // newest first
+            scheduler.updateConfig({ scheduledInvestigationRetentionCount: 2 });
+
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            // Should delete the oldest one (inv-1 = 3rd = index 2, past retention of 2)
+            expect(deleteInv).toHaveBeenCalledWith('inv-1');
+            expect(deleteInv).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not prune when within retention limit', async () => {
+            listScheduleInvs.mockReturnValue(['inv-2', 'inv-1']); // only 2
+            scheduler.updateConfig({ scheduledInvestigationRetentionCount: 5 });
+
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-2' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(deleteInv).not.toHaveBeenCalled();
+        });
+
+        it('uses schedule-level retentionCount override', async () => {
+            listScheduleInvs.mockReturnValue(['inv-3', 'inv-2', 'inv-1']);
+            scheduler.updateConfig({ scheduledInvestigationRetentionCount: 10 }); // global
+
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-3', retentionCount: 1 })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            // Schedule override of 1 → delete inv-2 and inv-1
+            expect(deleteInv).toHaveBeenCalledTimes(2);
+            expect(deleteInv).toHaveBeenCalledWith('inv-2');
+            expect(deleteInv).toHaveBeenCalledWith('inv-1');
+        });
+
+        it('skips pruning when retentionCount is 0 (keep all)', async () => {
+            listScheduleInvs.mockReturnValue(['inv-3', 'inv-2', 'inv-1']);
+            scheduler.updateConfig({ scheduledInvestigationRetentionCount: 0 });
+
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-3' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(deleteInv).not.toHaveBeenCalled();
+            expect(listScheduleInvs).not.toHaveBeenCalled();
+        });
+
+        it('handles deletion failure gracefully', async () => {
+            listScheduleInvs.mockReturnValue(['inv-3', 'inv-2', 'inv-1']);
+            deleteInv.mockRejectedValue(new Error('disk error'));
+            scheduler.updateConfig({ scheduledInvestigationRetentionCount: 2 });
+
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-3' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            // Should not throw
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(deleteInv).toHaveBeenCalledWith('inv-1');
+        });
+
+        it('handles listScheduleInvestigations failure gracefully', async () => {
+            listScheduleInvs.mockImplementation(() => { throw new Error('list error'); });
+            scheduler.updateConfig({ scheduledInvestigationRetentionCount: 2 });
+
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            // Should not throw
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(deleteInv).not.toHaveBeenCalled();
+        });
+
+        it('removes pruned investigation IDs from history and regenerates report', async () => {
+            listScheduleInvs.mockReturnValue(['inv-3', 'inv-2', 'inv-1']); // newest first
+            scheduler.updateConfig({ scheduledInvestigationRetentionCount: 2 });
+
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-3' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            // inv-1 was pruned
+            expect(deleteInv).toHaveBeenCalledWith('inv-1');
+            // History entries for pruned investigations should be removed
+            expect(store.removeHistoryEntries).toHaveBeenCalledWith('1', new Set(['inv-1']));
+            // Executive report should be regenerated after pruning
+            // writeExecutiveReport is called once during settlement and once after pruning
+            expect(store.writeExecutiveReport).toHaveBeenCalledTimes(2);
+        });
+
+        it('does not remove history entries when no investigations are pruned', async () => {
+            listScheduleInvs.mockReturnValue(['inv-2', 'inv-1']); // exactly at limit
+            scheduler.updateConfig({ scheduledInvestigationRetentionCount: 2 });
+
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-2' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(store.removeHistoryEntries).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('report generation', () => {
+        it('writes per-run report and executive report on settlement', async () => {
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy', finalReport: 'All good' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(store.writeRunReport).toHaveBeenCalledWith('1', 'inv-1', expect.stringContaining('Investigation Report'));
+            expect(store.writeRunReport).toHaveBeenCalledWith('1', 'inv-1', expect.stringContaining('All good'));
+            expect(store.writeExecutiveReport).toHaveBeenCalledWith('1', expect.stringContaining('Executive Summary'));
+        });
+
+        it('handles writeRunReport failure gracefully', async () => {
+            store.writeRunReport.mockImplementation(() => { throw new Error('disk full'); });
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            // Should not throw — settlement still succeeds
+            expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({ lastVerdict: 'healthy' }));
+        });
+
+        it('handles writeExecutiveReport failure gracefully', async () => {
+            store.writeExecutiveReport.mockImplementation(() => { throw new Error('disk full'); });
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            // Should not throw — settlement still succeeds
+            expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({ lastVerdict: 'healthy' }));
+        });
+
+        it('includes schedule details in per-run report', async () => {
+            store.getAll.mockReturnValue([makeSchedule({
+                activeInvestigationId: 'inv-1',
+                name: 'My Health Check',
+                target: 'prod-service',
+            })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'warning', finalReport: 'Some issues found' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            const reportContent = store.writeRunReport.mock.calls[0][2] as string;
+            expect(reportContent).toContain('My Health Check');
+            expect(reportContent).toContain('prod-service');
+            expect(reportContent).toContain('warning');
+            expect(reportContent).toContain('Some issues found');
+        });
+    });
+});
+
+describe('generateExecutiveReport', () => {
+    const schedule = { name: 'Test Schedule', target: 'my-target', query: 'check health', intervalMinutes: 15 };
+
+    it('handles empty entries', () => {
+        const result = generateExecutiveReport(schedule, []);
+        expect(result).toContain('Executive Summary: Test Schedule');
+        expect(result).toContain('No completed runs yet');
+    });
+
+    it('generates report with statistics and breach sections', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1', summary: 'All good' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'healthy', investigationId: 'inv-2', summary: 'Still good' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'warning', investigationId: 'inv-3', summary: 'Latency spike detected\nImpact: 200ms p99 latency\nRoot cause: DB connection pool exhaustion' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('# Test Schedule');
+        expect(result).toContain('my-target');
+        expect(result).toContain('3');
+        expect(result).toContain('Findings Breakdown');
+        expect(result).toContain('Healthy');
+        expect(result).toContain('Warning');
+        expect(result).toContain('Detailed Findings');
+        expect(result).toContain('Warning Breaches');
+        expect(result).toContain('Latency spike detected');
+        expect(result).toContain('200ms p99 latency');
+        expect(result).toContain('DB connection pool exhaustion');
+        expect(result).toContain('Healthy Runs');
+    });
+
+    it('detects improving trend', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'critical', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'critical', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'warning', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'healthy', investigationId: 'inv-4' },
+            { timestamp: '2024-01-01T04:00:00Z', verdict: 'healthy', investigationId: 'inv-5' },
+            { timestamp: '2024-01-01T05:00:00Z', verdict: 'healthy', investigationId: 'inv-6' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Improving');
+    });
+
+    it('detects degrading trend', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'healthy', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'warning', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'critical', investigationId: 'inv-4' },
+            { timestamp: '2024-01-01T04:00:00Z', verdict: 'critical', investigationId: 'inv-5' },
+            { timestamp: '2024-01-01T05:00:00Z', verdict: 'critical', investigationId: 'inv-6' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Degrading');
+    });
+
+    it('shows high success rate assessment', () => {
+        const entries: ScheduleHistoryEntry[] = Array.from({ length: 10 }, (_, i) => ({
+            timestamp: `2024-01-01T${String(i).padStart(2, '0')}:00:00Z`,
+            verdict: 'healthy' as const,
+            investigationId: `inv-${i}`,
+        }));
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('✅ **Healthy**');
+        expect(result).toContain('100%');
+        expect(result).toContain('No breaches detected');
+    });
+
+    it('shows low success rate alert', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'critical', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'error', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'critical', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'healthy', investigationId: 'inv-4' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('🔴 **Critical**');
+        expect(result).toContain('Critical Breaches');
+        expect(result).toContain('Error Breaches');
+    });
+
+    it('shows consecutive critical alert', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'critical', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'critical', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'critical', investigationId: 'inv-4' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('consecutive CRITICAL runs');
+    });
+
+    it('formats breach entries with details and impact', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'error', investigationId: 'inv-1', summary: 'Service timeout\nImpact: Users cannot log in\nRoot cause: Auth service OOM' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('#### Service timeout');
+        expect(result).toContain('🕐');
+        expect(result).toContain('**Impact:** Users cannot log in');
+        expect(result).toContain('**Root cause:** Auth service OOM');
+    });
+
+    it('handles entries without summaries showing defaults', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'warning', investigationId: 'inv-1' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('No details available');
+    });
+
+    it('includes report generation timestamp', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Report generated at');
+    });
+
+    it('shows moderate success rate assessment (70-90%)', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'healthy', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'healthy', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'warning', investigationId: 'inv-4' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Mostly Healthy');
+    });
+
+    it('shows intermittent issues assessment (50-70%)', () => {
+        // 3 healthy out of 5 = 60% → 50-70% range
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'healthy', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'healthy', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'critical', investigationId: 'inv-4' },
+            { timestamp: '2024-01-01T04:00:00Z', verdict: 'error', investigationId: 'inv-5' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Needs Attention');
+    });
+
+    it('shows consecutive error pattern alert', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'error', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'error', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'error', investigationId: 'inv-4' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('consecutive ERROR runs');
+    });
+
+    it('includes paused verdicts in severity scoring for trend calculation', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'paused', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'paused', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'healthy', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'healthy', investigationId: 'inv-4' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        // paused(severity 1) → healthy(severity 0) = Improving
+        expect(result).toContain('Improving');
+        expect(result).toContain('Paused');
+        expect(result).toContain('Paused Runs');
+    });
+
+    it('handles completed verdicts and all verdict types in distribution', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'completed', investigationId: 'inv-1', summary: 'Done' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'unknown', investigationId: 'inv-2' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Completed');
+        expect(result).toContain('Unknown');
+        expect(result).toContain('Unknown Issues');
+    });
+
+    it('parses impact and root cause from summary with alternate keywords', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'critical', investigationId: 'inv-1', summary: 'API Gateway Down\nCause: Certificate expired\nImpact: All external traffic blocked' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('API Gateway Down');
+        expect(result).toContain('Certificate expired');
+        expect(result).toContain('All external traffic blocked');
+    });
+
+    it('handles whitespace-only summary with fallback title', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'error', investigationId: 'inv-1', summary: '   \n   \n  ' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Investigation finding');
+        expect(result).toContain('Error Breaches');
+    });
+
+    it('shows body text as readable paragraph for breaches with extra text', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'critical', investigationId: 'inv-1',
+                summary: 'CRITICAL health breach\nThe API returned 503 errors for 15 minutes.\nImpact: Full service outage\nMultiple downstream consumers affected.' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('#### CRITICAL health breach');
+        expect(result).toContain('503 errors');
+        expect(result).toContain('downstream consumers');
+        expect(result).toContain('**Impact:** Full service outage');
+        // Body text should be a paragraph, not a blockquote
+        expect(result).not.toContain('> ');
+    });
+
+    it('shows Key Takeaways for recurring issues', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'critical', investigationId: 'inv-1', summary: 'Service timeout on payment API' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'critical', investigationId: 'inv-2', summary: 'Service timeout on payment API' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'critical', investigationId: 'inv-3', summary: 'Service timeout on payment API' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Key Takeaways');
+        expect(result).toContain('Recurring');
+        expect(result).toContain('×3');
+        expect(result).toContain('systemic problem likely');
+    });
+
+    it('shows Key Takeaways with severity distribution and recent clustering', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'healthy', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'critical', investigationId: 'inv-3', summary: 'Issue A' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'error', investigationId: 'inv-4', summary: 'Issue B' },
+            { timestamp: '2024-01-01T04:00:00Z', verdict: 'critical', investigationId: 'inv-5', summary: 'Issue C' },
+            { timestamp: '2024-01-01T05:00:00Z', verdict: 'error', investigationId: 'inv-6', summary: 'Issue D' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Key Takeaways');
+        expect(result).toContain('2 of 4 issues are critical severity');
+        expect(result).toContain('recent runs');
+    });
+
+    it('shows compact healthy runs section with dates only', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1', summary: 'All systems normal' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'healthy', investigationId: 'inv-2', summary: 'All clear' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'warning', investigationId: 'inv-3', summary: 'Slow query' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Healthy Runs (2)');
+        // Should NOT include full summary text in healthy section
+        expect(result).not.toMatch(/Healthy Runs[\s\S]*All systems normal/);
+    });
+
+    it('shows error-only takeaway when no critical issues', () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'error', investigationId: 'inv-1', summary: 'Disk full' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'error', investigationId: 'inv-2', summary: 'OOM crash' },
+        ];
+        const result = generateExecutiveReport(schedule, entries);
+        expect(result).toContain('Key Takeaways');
+        expect(result).toContain('2 error-level issues detected');
     });
 });

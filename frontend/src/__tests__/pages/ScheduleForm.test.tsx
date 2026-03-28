@@ -2501,4 +2501,68 @@ describe('ScheduleForm additional coverage', () => {
             expect(spy).not.toHaveBeenCalled();
         });
     });
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Retention Count Override
+    // ══════════════════════════════════════════════════════════════════════
+
+    describe('Retention Count Override', () => {
+        it('types a value in the retention count input (covers onChange on line 833)', async () => {
+            const user = userEvent.setup();
+            renderScheduleForm();
+            await waitFor(() => screen.getByRole('heading', { name: 'Create Schedule' }));
+
+            const retentionInput = screen.getByPlaceholderText('Use global default') as HTMLInputElement;
+            await user.type(retentionInput, '5');
+            expect(retentionInput.value).toBe('5');
+        });
+
+        it('shows and clicks Reset to default button (covers onClick on line 839)', async () => {
+            const user = userEvent.setup();
+            renderScheduleForm();
+            await waitFor(() => screen.getByRole('heading', { name: 'Create Schedule' }));
+
+            const retentionInput = screen.getByPlaceholderText('Use global default') as HTMLInputElement;
+            await user.type(retentionInput, '5');
+
+            // Reset button should appear
+            const resetBtn = await screen.findByText('Reset to default');
+            await user.click(resetBtn);
+
+            // Input should be cleared
+            expect(retentionInput.value).toBe('');
+        });
+
+        it('clears retention count when input is emptied (undefined branch)', async () => {
+            const user = userEvent.setup();
+            renderScheduleForm();
+            await waitFor(() => screen.getByRole('heading', { name: 'Create Schedule' }));
+
+            const retentionInput = screen.getByPlaceholderText('Use global default') as HTMLInputElement;
+            await user.type(retentionInput, '5');
+            expect(retentionInput.value).toBe('5');
+            await user.clear(retentionInput);
+            expect(retentionInput.value).toBe('');
+        });
+
+        it('loads retentionCount from existing schedule in edit mode (covers line 158)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue([{
+                id: 's1',
+                name: 'Retention Test',
+                enabled: true,
+                intervalMinutes: 30,
+                target: 'stamp-01',
+                query: 'Test query',
+                timeRange: 'ago(1h)',
+                retentionCount: 7,
+            }] as any);
+
+            renderScheduleForm('s1');
+            await waitFor(() => screen.getByRole('heading', { name: 'Edit Schedule' }));
+
+            const retentionInput = screen.getByPlaceholderText('Use global default') as HTMLInputElement;
+            await waitFor(() => expect(retentionInput.value).toBe('7'));
+        });
+    });
 });

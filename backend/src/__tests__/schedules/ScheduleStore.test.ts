@@ -211,6 +211,30 @@ describe('ScheduleStore', () => {
             expect(store.getHistory('sch1')).toEqual([]);
         });
 
+        it('getHistoryCount returns 0 when no file exists', () => {
+            expect(store.getHistoryCount('missing')).toBe(0);
+        });
+
+        it('getHistoryCount returns count from disk', () => {
+            const entries: ScheduleHistoryEntry[] = [
+                { timestamp: new Date().toISOString(), verdict: 'healthy', investigationId: 'inv1' },
+                { timestamp: new Date().toISOString(), verdict: 'warning', investigationId: 'inv2' },
+            ];
+            const histDir = norm(path.join('/data', 'schedules', 'sch1'));
+            const histPath = norm(path.join(histDir, 'history.json'));
+            dirs.add(histDir);
+            files.set(histPath, JSON.stringify(entries));
+            expect(store.getHistoryCount('sch1')).toBe(2);
+        });
+
+        it('getHistoryCount returns 0 on corrupted file', () => {
+            const histDir = norm(path.join('/data', 'schedules', 'sch1'));
+            const histPath = norm(path.join(histDir, 'history.json'));
+            dirs.add(histDir);
+            files.set(histPath, 'bad json');
+            expect(store.getHistoryCount('sch1')).toBe(0);
+        });
+
         it('appendHistory creates directory and appends entry', () => {
             const entry: ScheduleHistoryEntry = {
                 timestamp: new Date().toISOString(),
@@ -278,6 +302,82 @@ describe('ScheduleStore', () => {
 
             const written = JSON.parse(files.get(histPath)!);
             expect(written).toHaveLength(1);
+        });
+
+        it('removeHistoryEntries removes matching investigation IDs', () => {
+            const histDir = norm(path.join('/data', 'schedules', 'sch1'));
+            const histPath = norm(path.join(histDir, 'history.json'));
+            dirs.add(histDir);
+            const entries = [
+                { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy' as const, investigationId: 'inv-1' },
+                { timestamp: '2024-01-02T00:00:00Z', verdict: 'critical' as const, investigationId: 'inv-2' },
+                { timestamp: '2024-01-03T00:00:00Z', verdict: 'healthy' as const, investigationId: 'inv-3' },
+            ];
+            files.set(histPath, JSON.stringify(entries));
+
+            store.removeHistoryEntries('sch1', new Set(['inv-1', 'inv-3']));
+
+            const result = JSON.parse(files.get(histPath)!);
+            expect(result).toHaveLength(1);
+            expect(result[0].investigationId).toBe('inv-2');
+        });
+
+        it('removeHistoryEntries does nothing when history file does not exist', () => {
+            // Should not throw
+            store.removeHistoryEntries('nonexistent', new Set(['inv-1']));
+        });
+
+        it('removeHistoryEntries handles corrupted file gracefully', () => {
+            const histDir = norm(path.join('/data', 'schedules', 'sch1'));
+            const histPath = norm(path.join(histDir, 'history.json'));
+            dirs.add(histDir);
+            files.set(histPath, 'bad json');
+
+            // Should not throw
+            store.removeHistoryEntries('sch1', new Set(['inv-1']));
+        });
+    });
+
+    describe('Run Reports & Executive Report', () => {
+        let store: ScheduleStore;
+
+        beforeEach(() => {
+            const schedulesDir = norm(path.join('/data', 'schedules'));
+            dirs.add(schedulesDir);
+            store = new ScheduleStore('/data');
+        });
+
+        it('writeRunReport creates reports directory and writes markdown', () => {
+            store.writeRunReport('sch1', 'inv-1', '# Report\nAll good');
+            const reportPath = norm(path.join('/data', 'schedules', 'sch1', 'reports', 'inv-1.md'));
+            expect(files.get(reportPath)).toBe('# Report\nAll good');
+        });
+
+        it('writeExecutiveReport writes executive-report.md', () => {
+            store.writeExecutiveReport('sch1', '# Executive Summary\nOverall healthy');
+            const reportPath = norm(path.join('/data', 'schedules', 'sch1', 'executive-report.md'));
+            expect(files.get(reportPath)).toBe('# Executive Summary\nOverall healthy');
+        });
+
+        it('getExecutiveReport returns file content when it exists', () => {
+            const reportPath = norm(path.join('/data', 'schedules', 'sch1', 'executive-report.md'));
+            const reportDir = norm(path.join('/data', 'schedules', 'sch1'));
+            dirs.add(reportDir);
+            files.set(reportPath, '# Executive Summary');
+            expect(store.getExecutiveReport('sch1')).toBe('# Executive Summary');
+        });
+
+        it('getExecutiveReport returns null when file does not exist', () => {
+            expect(store.getExecutiveReport('nonexistent')).toBeNull();
+        });
+
+        it('getExecutiveReport returns null on read error', () => {
+            const reportPath = norm(path.join('/data', 'schedules', 'sch1', 'executive-report.md'));
+            const reportDir = norm(path.join('/data', 'schedules', 'sch1'));
+            dirs.add(reportDir);
+            files.set(reportPath, '# Report');
+            (fs.readFileSync as any).mockImplementationOnce(() => { throw new Error('read error'); });
+            expect(store.getExecutiveReport('sch1')).toBeNull();
         });
     });
 });

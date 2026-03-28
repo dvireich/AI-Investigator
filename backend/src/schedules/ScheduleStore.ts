@@ -22,6 +22,9 @@ export interface ScheduleDefinition {
     autoEscalate: boolean;             // Auto-launch full investigation on "critical"
     escalationQuery?: string;          // Optional override query for escalated run
 
+    // Retention
+    retentionCount?: number;           // Override global scheduledInvestigationRetentionCount for this schedule
+
     // Ownership
     createdBy?: string;                // GitHub login or OS username of the schedule creator
 
@@ -123,6 +126,17 @@ export class ScheduleStore {
         }
     }
 
+    getHistoryCount(scheduleId: string): number {
+        const filePath = this.historyFilePath(scheduleId);
+        if (!fs.existsSync(filePath)) return 0;
+        try {
+            const entries: ScheduleHistoryEntry[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+            return entries.length;
+        } catch {
+            return 0;
+        }
+    }
+
     appendHistory(scheduleId: string, entry: ScheduleHistoryEntry): void {
         const filePath = this.historyFilePath(scheduleId);
         const dir = path.dirname(filePath);
@@ -140,6 +154,40 @@ export class ScheduleStore {
         entries = entries.filter(e => new Date(e.timestamp) >= cutoff);
 
         fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf-8');
+    }
+
+    removeHistoryEntries(scheduleId: string, investigationIds: Set<string>): void {
+        const filePath = this.historyFilePath(scheduleId);
+        if (!fs.existsSync(filePath)) return;
+        try {
+            let entries: ScheduleHistoryEntry[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+            entries = entries.filter(e => !investigationIds.has(e.investigationId));
+            fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf-8');
+        } catch { /* best-effort */ }
+    }
+
+    // ── Run Reports & Executive Report ────────────────────────────────────
+
+    writeRunReport(scheduleId: string, investigationId: string, content: string): void {
+        const dir = path.join(this.historyDir, scheduleId, 'reports');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, `${investigationId}.md`), content, 'utf-8');
+    }
+
+    writeExecutiveReport(scheduleId: string, content: string): void {
+        const dir = path.join(this.historyDir, scheduleId);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'executive-report.md'), content, 'utf-8');
+    }
+
+    getExecutiveReport(scheduleId: string): string | null {
+        const filePath = path.join(this.historyDir, scheduleId, 'executive-report.md');
+        if (!fs.existsSync(filePath)) return null;
+        try {
+            return fs.readFileSync(filePath, 'utf-8');
+        } catch {
+            return null;
+        }
     }
 
     // ── Persistence ───────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import type { ScheduleDefinition, ScheduleHistoryEntry } from './types/schedule';
+import type { ScheduleDefinition, ScheduleHistoryEntry, ScheduleReport } from './types/schedule';
 
 export interface SavedQuery {
     id: string;
@@ -824,6 +824,12 @@ export const api = {
         const params = maxEntries ? `?maxEntries=${maxEntries}` : '';
         const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}/history${params}`);
         if (!response.ok) throw new Error('Failed to fetch schedule history');
+        return response.json();
+    },
+
+    getScheduleReport: async (id: string): Promise<ScheduleReport> => {
+        const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}/report`);
+        if (!response.ok) throw new Error('Failed to fetch schedule report');
         return response.json();
     },
 

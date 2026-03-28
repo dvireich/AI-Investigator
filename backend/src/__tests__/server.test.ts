@@ -2972,14 +2972,14 @@ describe('server utilities and routes', () => {
             const r1 = await api().get('/api/investigations?page=1&pageSize=2');
             expect(r1.status).toBe(200);
             expect(r1.body.items).toHaveLength(2);
-            expect(r1.body.totalCount).toBe(5);
-            expect(r1.body.totalPages).toBe(3);
+            expect(r1.body.totalCount).toBe(3); // only manual investigations shown by default
+            expect(r1.body.totalPages).toBe(2);
             expect(r1.body.page).toBe(1);
             expect(r1.body.pageSize).toBe(2);
 
-            const r2 = await api().get('/api/investigations?page=3&pageSize=2');
+            const r2 = await api().get('/api/investigations?page=2&pageSize=2');
             expect(r2.body.items).toHaveLength(1);
-            expect(r2.body.page).toBe(3);
+            expect(r2.body.page).toBe(2);
         });
 
         it('filters by status', async () => {
@@ -3002,10 +3002,17 @@ describe('server utilities and routes', () => {
             expect(r.body.totalCount).toBe(2);
         });
 
+        it('excludes scheduled investigations from default list', async () => {
+            setupInvestigations();
+            const r = await api().get('/api/investigations');
+            expect(r.body.items.every((i: any) => i.source !== 'scheduled')).toBe(true);
+            expect(r.body.totalCount).toBe(3);
+        });
+
         it('filters by tagFilter', async () => {
             setupInvestigations();
             const r = await api().get('/api/investigations?tagFilter=p0');
-            expect(r.body.totalCount).toBe(2);
+            expect(r.body.totalCount).toBe(1); // only manual investigation 3000 has p0
         });
 
         it('filters by createdByFilter', async () => {
@@ -3017,9 +3024,10 @@ describe('server utilities and routes', () => {
 
         it('searches across title, target, tags, and createdBy', async () => {
             setupInvestigations();
-            const r = await api().get('/api/investigations?search=beta');
-            expect(r.body.totalCount).toBe(1);
-            expect(r.body.items[0].title).toBe('Beta failure');
+            // 'alpha' matches manual investigations (id 1000, 5000)
+            const r = await api().get('/api/investigations?search=alpha');
+            expect(r.body.totalCount).toBe(2);
+            expect(r.body.items.every((i: any) => i.title.includes('Alpha'))).toBe(true);
         });
 
         it('sorts by oldest', async () => {
@@ -3059,18 +3067,19 @@ describe('server utilities and routes', () => {
             const r = await api().get('/api/investigations');
             expect(r.body.filterMeta).toBeDefined();
             expect(r.body.filterMeta.tags).toEqual(expect.arrayContaining(['urgent', 'p0']));
-            expect(r.body.filterMeta.creators).toEqual(expect.arrayContaining(['alice', 'bob', 'charlie']));
-            expect(r.body.stats.total).toBe(5);
+            // 'charlie' only has scheduled investigations, so not in default view creators
+            expect(r.body.filterMeta.creators).toEqual(expect.arrayContaining(['alice', 'bob']));
+            expect(r.body.stats.total).toBe(3); // only manual investigations
             expect(r.body.stats.completed).toBe(3);
-            expect(r.body.stats.failed).toBe(1);
-            expect(r.body.stats.aborted).toBe(1);
+            expect(r.body.stats.failed).toBe(0); // failed one is scheduled
+            expect(r.body.stats.aborted).toBe(0); // aborted one is scheduled
             expect(r.body.stats.contestRate).toBeGreaterThan(0);
         });
 
         it('clamps page when beyond totalPages', async () => {
             setupInvestigations();
             const r = await api().get('/api/investigations?page=100&pageSize=2');
-            expect(r.body.page).toBe(3); // clamped to last page
+            expect(r.body.page).toBe(2); // clamped to last page (3 manual items / 2 per page = 2 pages)
             expect(r.body.items.length).toBeGreaterThan(0);
         });
 
@@ -4414,6 +4423,8 @@ describe('server utilities and routes', () => {
                 delete: vi.fn().mockReturnValue(true),
                 get: vi.fn().mockReturnValue({ id: 'sched-1' }),
                 getHistory: vi.fn().mockReturnValue([{ investigationId: 'hist-1', verdict: 'error' }]),
+                appendHistory: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(0),
             };
             const scheduler = new EventEmitter() as EventEmitter & Record<string, any>;
             scheduler.isRunning = vi.fn().mockReturnValue(false);
@@ -4491,6 +4502,7 @@ describe('server utilities and routes', () => {
             const scheduleStore = {
                 getAll: vi.fn().mockReturnValue(items),
                 create: vi.fn(), update: vi.fn(), delete: vi.fn(), get: vi.fn(), getHistory: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(0),
             };
             __testUtils.setScheduleStore(scheduleStore as any);
             __testUtils.setScheduler(new EventEmitter() as any);
@@ -4605,6 +4617,7 @@ describe('server utilities and routes', () => {
                 get: vi.fn().mockReturnValue(undefined),
                 delete: vi.fn().mockReturnValue(false),
                 getAll: vi.fn().mockReturnValue([]),
+                getHistoryCount: vi.fn().mockReturnValue(0),
             };
             const scheduler = {
                 isRunning: vi.fn().mockReturnValue(true),
@@ -4652,6 +4665,9 @@ describe('server utilities and routes', () => {
                 update: vi.fn(),
                 get: vi.fn().mockReturnValue({ id: 'sched-prod-delete', activeInvestigationId: 'runner-prod-delete' }),
                 delete: vi.fn().mockReturnValue(true),
+                getHistory: vi.fn().mockReturnValue([]),
+                appendHistory: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(0),
             };
             __testUtils.setScheduleStore(scheduleStore as any);
             __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
@@ -4679,12 +4695,306 @@ describe('server utilities and routes', () => {
                     { id: 'legacy-paused', enabled: true, lastVerdict: 'error', lastInvestigationId: 'paused-no-verdict' },
                 ]),
                 update,
+                getHistoryCount: vi.fn().mockReturnValue(0),
             } as any);
 
             const response = await api().get('/api/schedules');
 
             expect(response.status).toBe(200);
             expect(update).toHaveBeenCalledWith('legacy-paused', { lastVerdict: 'paused' });
+        });
+
+        it('corrects stale verdicts and backfills summaries in the history endpoint', async () => {
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([]),
+                getHistory: vi.fn().mockReturnValue([
+                    { investigationId: 'hist-corrected', verdict: 'error', timestamp: new Date().toISOString() },
+                    { investigationId: 'hist-backfill', verdict: 'healthy', timestamp: new Date().toISOString() },
+                    { investigationId: 'hist-no-inv', verdict: 'warning', timestamp: new Date().toISOString() },
+                    { investigationId: 'hist-completed', verdict: 'warning', timestamp: new Date().toISOString() },
+                    { investigationId: 'hist-failed', verdict: 'healthy', timestamp: new Date().toISOString() },
+                ]),
+                getHistoryCount: vi.fn().mockReturnValue(0),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            // hist-corrected: investigation is completed with a different verdict → should correct
+            __testUtils.getHistory().set('hist-corrected', makeState({ id: 'hist-corrected', status: 'completed', verdict: 'healthy', finalReport: 'All good report' }) as any);
+            // hist-backfill: investigation is paused with no verdict → should backfill summary from finalReport
+            __testUtils.getHistory().set('hist-backfill', makeState({ id: 'hist-backfill', status: 'paused', verdict: undefined, finalReport: 'Backfill this summary' }) as any);
+            // hist-no-inv: not in history map → no correction
+            // hist-completed: completed with no verdict → 'completed' fallback (covers ternary branch)
+            __testUtils.getHistory().set('hist-completed', makeState({ id: 'hist-completed', status: 'completed', verdict: undefined }) as any);
+            // hist-failed: failed with no verdict → 'error' fallback (covers ternary branch)
+            __testUtils.getHistory().set('hist-failed', makeState({ id: 'hist-failed', status: 'failed', verdict: undefined }) as any);
+
+            const response = await api().get('/api/schedules/sched-1/history');
+
+            expect(response.status).toBe(200);
+            // Verdict corrected from 'error' to 'healthy'
+            expect(response.body[0].verdict).toBe('healthy');
+            // Verdict corrected from 'healthy' to 'paused' (no verdict + paused status)
+            expect(response.body[1].verdict).toBe('paused');
+            // Summary backfilled
+            expect(response.body[1].summary).toBe('Backfill this summary');
+            // Uncorrected (no investigation in history map)
+            expect(response.body[2].verdict).toBe('warning');
+            // Verdict corrected: warning → completed (completed status, no verdict)
+            expect(response.body[3].verdict).toBe('completed');
+            // Verdict corrected: healthy → error (failed status, no verdict)
+            expect(response.body[4].verdict).toBe('error');
+        });
+
+        it('returns a default report for a schedule with no history', async () => {
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-empty', name: 'Empty Schedule' }]),
+                getHistory: vi.fn().mockReturnValue([]),
+                getHistoryCount: vi.fn().mockReturnValue(0),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            const response = await api().get('/api/schedules/sched-empty/report');
+
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual({
+                scheduleId: 'sched-empty',
+                scheduleName: 'Empty Schedule',
+                totalRuns: 0,
+                verdictBreakdown: {},
+                successRate: 0,
+                trend: 'stable',
+                recentSummaries: [],
+            });
+        });
+
+        it('returns 404 for a report of a missing schedule', async () => {
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([]),
+                getHistory: vi.fn().mockReturnValue([]),
+                getHistoryCount: vi.fn().mockReturnValue(0),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            const response = await api().get('/api/schedules/missing/report');
+
+            expect(response.status).toBe(404);
+        });
+
+        it('returns 500 for report when scheduler is not initialized', async () => {
+            __testUtils.setScheduleStore(null);
+
+            const response = await api().get('/api/schedules/sched-1/report');
+
+            expect(response.status).toBe(500);
+        });
+
+        it('returns a full report with verdict breakdown, trend, and executive summary', async () => {
+            const now = Date.now();
+            const entries = [
+                { investigationId: 'inv-1', verdict: 'healthy', timestamp: new Date(now - 50000).toISOString(), summary: 'Run 1 OK' },
+                { investigationId: 'inv-2', verdict: 'healthy', timestamp: new Date(now - 40000).toISOString(), summary: 'Run 2 OK' },
+                { investigationId: 'inv-3', verdict: 'warning', timestamp: new Date(now - 30000).toISOString(), summary: 'Run 3 warning' },
+                { investigationId: 'inv-4', verdict: 'critical', timestamp: new Date(now - 20000).toISOString(), summary: 'Run 4 critical' },
+                { investigationId: 'inv-5', verdict: 'healthy', timestamp: new Date(now - 10000).toISOString(), summary: 'Run 5 OK' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-report', name: 'Report Schedule', target: 'stamp', intervalMinutes: 60 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue('# Executive Summary\nAll good.'),
+                writeExecutiveReport: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(5),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            const response = await api().get('/api/schedules/sched-report/report');
+
+            expect(response.status).toBe(200);
+            expect(response.body.totalRuns).toBe(5);
+            expect(response.body.verdictBreakdown).toEqual({ healthy: 3, warning: 1, critical: 1 });
+            expect(response.body.successRate).toBe(60);
+            expect(response.body.recentSummaries).toHaveLength(5);
+            expect(response.body.firstRunAt).toBeTruthy();
+            expect(response.body.lastRunAt).toBeTruthy();
+            expect(response.body.executiveSummary).toBe('# Executive Summary\nAll good.');
+            // Should NOT call writeExecutiveReport since it was read from file
+            expect(scheduleStore.writeExecutiveReport).not.toHaveBeenCalled();
+        });
+
+        it('generates executive summary on-demand when none is cached', async () => {
+            const now = Date.now();
+            const entries = [
+                { investigationId: 'inv-1', verdict: 'healthy', timestamp: new Date(now - 20000).toISOString(), summary: 'OK' },
+                { investigationId: 'inv-2', verdict: 'warning', timestamp: new Date(now - 10000).toISOString(), summary: 'Warn' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-gen', name: 'Gen Schedule', target: 'stamp', intervalMinutes: 30 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue(null),
+                writeExecutiveReport: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(2),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            const response = await api().get('/api/schedules/sched-gen/report');
+
+            expect(response.status).toBe(200);
+            expect(response.body.executiveSummary).toBeTruthy();
+            expect(response.body.executiveSummary).toContain('Gen Schedule');
+            // Should persist the generated report
+            expect(scheduleStore.writeExecutiveReport).toHaveBeenCalledWith('sched-gen', expect.any(String));
+        });
+
+        it('tolerates writeExecutiveReport failure when generating on-demand', async () => {
+            const entries = [
+                { investigationId: 'inv-1', verdict: 'healthy', timestamp: new Date().toISOString(), summary: 'OK' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-fail-write', name: 'Fail Write', target: 'stamp', intervalMinutes: 30 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue(null),
+                writeExecutiveReport: vi.fn().mockImplementation(() => { throw new Error('disk full'); }),
+                getHistoryCount: vi.fn().mockReturnValue(1),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            const response = await api().get('/api/schedules/sched-fail-write/report');
+
+            // Should still return 200 with the generated summary
+            expect(response.status).toBe(200);
+            expect(response.body.executiveSummary).toBeTruthy();
+        });
+
+        it('computes an improving trend when recent runs are better than older ones', async () => {
+            const now = Date.now();
+            // Older runs are critical, newer runs are healthy → improving
+            const entries = [
+                { investigationId: 'old-1', verdict: 'critical', timestamp: new Date(now - 40000).toISOString(), summary: 'Bad' },
+                { investigationId: 'old-2', verdict: 'critical', timestamp: new Date(now - 30000).toISOString(), summary: 'Bad' },
+                { investigationId: 'new-1', verdict: 'healthy', timestamp: new Date(now - 20000).toISOString(), summary: 'Good' },
+                { investigationId: 'new-2', verdict: 'healthy', timestamp: new Date(now - 10000).toISOString(), summary: 'Good' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-improving', name: 'Improving', target: 'stamp', intervalMinutes: 30 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue('cached'),
+                writeExecutiveReport: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(4),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            const response = await api().get('/api/schedules/sched-improving/report');
+
+            expect(response.status).toBe(200);
+            expect(response.body.trend).toBe('improving');
+        });
+
+        it('computes a degrading trend when recent runs are worse than older ones', async () => {
+            const now = Date.now();
+            // Older runs are warning, newer runs are critical → degrading (no healthy entries → covers successCount || 0 branch)
+            const entries = [
+                { investigationId: 'old-1', verdict: 'warning', timestamp: new Date(now - 40000).toISOString(), summary: 'Meh' },
+                { investigationId: 'old-2', verdict: 'warning', timestamp: new Date(now - 30000).toISOString(), summary: 'Meh' },
+                { investigationId: 'new-1', verdict: 'critical', timestamp: new Date(now - 20000).toISOString(), summary: 'Bad' },
+                { investigationId: 'new-2', verdict: 'critical', timestamp: new Date(now - 10000).toISOString(), summary: 'Bad' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-degrading', name: 'Degrading', target: 'stamp', intervalMinutes: 30 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue('cached'),
+                writeExecutiveReport: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(4),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            const response = await api().get('/api/schedules/sched-degrading/report');
+
+            expect(response.status).toBe(200);
+            expect(response.body.trend).toBe('degrading');
+        });
+
+        it('corrects verdicts and backfills summaries in report entries', async () => {
+            const now = Date.now();
+            const entries = [
+                { investigationId: 'report-fix-1', verdict: 'error', timestamp: new Date(now - 50000).toISOString() },
+                { investigationId: 'report-fix-2', verdict: 'healthy', timestamp: new Date(now - 40000).toISOString() },
+                { investigationId: 'report-fix-3', verdict: 'warning', timestamp: new Date(now - 30000).toISOString() },
+                { investigationId: 'report-fix-4', verdict: 'warning', timestamp: new Date(now - 20000).toISOString() },
+                { investigationId: 'report-fix-5', verdict: 'error', timestamp: new Date(now - 10000).toISOString(), summary: 'Already has summary' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-fix', name: 'Fix Schedule', target: 'stamp', intervalMinutes: 30 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue('cached'),
+                writeExecutiveReport: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(5),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            // report-fix-1: completed with healthy verdict and finalReport → correct error→healthy, backfill summary
+            __testUtils.getHistory().set('report-fix-1', makeState({ id: 'report-fix-1', status: 'completed', verdict: 'healthy', finalReport: 'Fixed report content' }) as any);
+            // report-fix-2: failed with no verdict → error fallback
+            __testUtils.getHistory().set('report-fix-2', makeState({ id: 'report-fix-2', status: 'failed', verdict: undefined }) as any);
+            // report-fix-3: paused with no verdict → paused fallback (covers ternary branch)
+            __testUtils.getHistory().set('report-fix-3', makeState({ id: 'report-fix-3', status: 'paused', verdict: undefined }) as any);
+            // report-fix-4: completed with no verdict → completed fallback (covers ternary branch + successCount 'completed')
+            __testUtils.getHistory().set('report-fix-4', makeState({ id: 'report-fix-4', status: 'completed', verdict: undefined }) as any);
+            // report-fix-5: aborted with error verdict → error severity (covers severityScore 'error' branch)
+            __testUtils.getHistory().set('report-fix-5', makeState({ id: 'report-fix-5', status: 'aborted', verdict: 'error' }) as any);
+
+            const response = await api().get('/api/schedules/sched-fix/report');
+
+            expect(response.status).toBe(200);
+            // Verdict corrected: error → healthy
+            expect(response.body.verdictBreakdown.healthy).toBe(1);
+            // Verdict corrected: healthy → error (failed status, no verdict)
+            // Plus report-fix-5: error verdict keeps error
+            expect(response.body.verdictBreakdown.error).toBe(2);
+            // Verdict corrected: warning → paused (paused status, no verdict)
+            expect(response.body.verdictBreakdown.paused).toBe(1);
+            // Verdict corrected: warning → completed (completed status, no verdict)
+            expect(response.body.verdictBreakdown.completed).toBe(1);
+            // successCount includes both healthy and completed
+            expect(response.body.successRate).toBe(40); // 2/5 = 40%
+            // Summary backfilled in recentSummaries
+            const summaries = response.body.recentSummaries;
+            expect(summaries.find((s: any) => s.investigationId === 'report-fix-1').summary).toBe('Fixed report content');
+            // report-fix-5 already had summary, not overwritten
+            expect(summaries.find((s: any) => s.investigationId === 'report-fix-5').summary).toBe('Already has summary');
+        });
+
+        it('includes paused verdicts in severity scoring for trend calculation', async () => {
+            const now = Date.now();
+            const entries = [
+                { investigationId: 'p-1', verdict: 'paused', timestamp: new Date(now - 40000).toISOString(), summary: 'P1' },
+                { investigationId: 'p-2', verdict: 'paused', timestamp: new Date(now - 30000).toISOString(), summary: 'P2' },
+                { investigationId: 'p-3', verdict: 'healthy', timestamp: new Date(now - 20000).toISOString(), summary: 'P3' },
+                { investigationId: 'p-4', verdict: 'healthy', timestamp: new Date(now - 10000).toISOString(), summary: 'P4' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-paused-trend', name: 'Paused Trend', target: 'stamp', intervalMinutes: 30 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue('cached'),
+                writeExecutiveReport: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(4),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+
+            const response = await api().get('/api/schedules/sched-paused-trend/report');
+
+            expect(response.status).toBe(200);
+            // Paused (severity 1) → Healthy (severity 0) = improving
+            expect(response.body.trend).toBe('improving');
+            expect(response.body.verdictBreakdown.paused).toBe(2);
         });
 
         it('covers scheduler history initialization errors and global error string fallbacks', async () => {
@@ -4733,6 +5043,7 @@ describe('server utilities and routes', () => {
                 get: vi.fn().mockReturnValue({ id: 'sched-delete', activeInvestigationId: 'runner1' }),
                 delete: vi.fn().mockReturnValue(true),
                 getAll: vi.fn().mockReturnValue([]),
+                getHistoryCount: vi.fn().mockReturnValue(0),
             };
             __testUtils.setScheduleStore(scheduleStore as any);
 
@@ -4884,16 +5195,24 @@ describe('server utilities and routes', () => {
 
         it('auto-settles stale and terminal schedules when listing schedules', async () => {
             const update = vi.fn();
+            const appendHistory = vi.fn();
             __testUtils.getHistory().set('paused-history', makeState({ id: 'paused-history', status: 'paused', verdict: 'paused' }) as any);
-            __testUtils.getHistory().set('completed-history', makeState({ id: 'completed-history', status: 'completed', verdict: 'healthy' }) as any);
+            __testUtils.getHistory().set('completed-history', makeState({ id: 'completed-history', status: 'completed', verdict: 'healthy', finalReport: 'All settled ok' }) as any);
+            __testUtils.getHistory().set('completed-no-verdict', makeState({ id: 'completed-no-verdict', status: 'completed', verdict: undefined }) as any);
+            __testUtils.getHistory().set('failed-no-verdict', makeState({ id: 'failed-no-verdict', status: 'failed', verdict: undefined }) as any);
 
             __testUtils.setScheduleStore({
                 getAll: vi.fn().mockReturnValue([
                     { id: 'legacy', enabled: true, lastVerdict: 'error', lastInvestigationId: 'paused-history' },
                     { id: 'stale', enabled: true, activeInvestigationId: 'missing-history', lastVerdict: undefined },
                     { id: 'terminal', enabled: true, activeInvestigationId: 'completed-history', lastVerdict: undefined },
+                    { id: 'completed-stale', enabled: true, lastVerdict: 'error', lastInvestigationId: 'completed-no-verdict' },
+                    { id: 'failed-stale', enabled: true, lastVerdict: 'completed', lastInvestigationId: 'failed-no-verdict' },
                 ]),
                 update,
+                getHistory: vi.fn().mockReturnValue([]),
+                appendHistory,
+                getHistoryCount: vi.fn().mockReturnValue(0),
             } as any);
 
             const response = await api().get('/api/schedules');
@@ -4902,6 +5221,12 @@ describe('server utilities and routes', () => {
             expect(update).toHaveBeenCalledWith('legacy', { lastVerdict: 'paused' });
             expect(update).toHaveBeenCalledWith('stale', { activeInvestigationId: undefined, lastVerdict: 'error' });
             expect(update).toHaveBeenCalledWith('terminal', { activeInvestigationId: undefined, lastVerdict: 'healthy' });
+            // Auto-settle writes history with summary from finalReport
+            expect(appendHistory).toHaveBeenCalledWith('terminal', expect.objectContaining({ summary: 'All settled ok' }));
+            // Verdict correction: completed investigation without verdict → 'completed'
+            expect(update).toHaveBeenCalledWith('completed-stale', { lastVerdict: 'completed' });
+            // Verdict correction: failed investigation without verdict → 'error'
+            expect(update).toHaveBeenCalledWith('failed-stale', { lastVerdict: 'error' });
         });
 
         it('settles paused schedules from active runners with a paused verdict', async () => {
@@ -4911,6 +5236,9 @@ describe('server utilities and routes', () => {
                     { id: 'runner-paused', enabled: true, activeInvestigationId: 'runner-paused-id', lastVerdict: undefined },
                 ]),
                 update,
+                getHistory: vi.fn().mockReturnValue([]),
+                appendHistory: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(0),
             } as any);
             __testUtils.getRunners().set('runner-paused-id', makeRunner({ id: 'runner-paused-id', status: 'paused', verdict: undefined }) as any);
 
@@ -5070,6 +5398,226 @@ describe('server utilities and routes', () => {
             expect(settled.lastVerdict).toBe('unhealthy');
 
             realScheduler.stop();
+        });
+
+        it('prunes excess investigations via deleteInvestigation callback on settlement', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-prune-'));
+            __testUtils.setConfig({
+                investigationsPath: invRoot,
+                products: [],
+                activeProductId: '',
+                scheduledInvestigationRetentionCount: 2,
+            });
+            setFakeLlmProvider();
+            vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+
+            initScheduler();
+
+            const realStore = __testUtils.getScheduleStore();
+            const realScheduler = __testUtils.getScheduler() as any;
+
+            const schedule = realStore!.create({
+                name: 'Prune Test',
+                enabled: true,
+                target: 'stamp-prune',
+                query: 'Check health',
+                intervalMinutes: 15,
+                autoEscalate: false,
+            });
+
+            // Simulate 3 old scheduled investigations for this schedule (use numeric IDs like real investigations)
+            __testUtils.getHistory().set('1000', makeState({ id: '1000', status: 'completed', scheduleId: schedule.id, source: 'scheduled' }) as any);
+            __testUtils.getHistory().set('2000', makeState({ id: '2000', status: 'completed', scheduleId: schedule.id, source: 'scheduled' }) as any);
+
+            // Now run a new one that will settle
+            await realScheduler.runNow(schedule.id);
+            const activeId = realStore!.get(schedule.id)!.activeInvestigationId!;
+
+            // Move to history with completed state
+            __testUtils.getRunners().delete(activeId);
+            __testUtils.getHistory().set(activeId, makeState({ id: activeId, status: 'completed', verdict: 'healthy', scheduleId: schedule.id, source: 'scheduled' }) as any);
+
+            // Tick to settle — pruning should delete the oldest (retention=2, 3 investigations → 1 deleted)
+            await realScheduler.tick();
+
+            // The oldest investigation should be pruned
+            // IDs sorted desc: activeId (highest number), 2000, 1000 → 1000 should be deleted
+            expect(__testUtils.getHistory().has('1000')).toBe(false);
+            expect(__testUtils.getHistory().has('2000')).toBe(true);
+            expect(__testUtils.getHistory().has(activeId)).toBe(true);
+
+            realScheduler.stop();
+        });
+
+        it('listScheduleInvestigations callback returns IDs sorted newest first', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-list-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            initScheduler();
+
+            const realStore = __testUtils.getScheduleStore();
+            const schedule = realStore!.create({
+                name: 'List Test',
+                enabled: true,
+                target: 'stamp-list',
+                query: 'Check',
+                intervalMinutes: 15,
+            });
+
+            __testUtils.getHistory().set('1000', makeState({ id: '1000', status: 'completed', scheduleId: schedule.id }) as any);
+            __testUtils.getHistory().set('3000', makeState({ id: '3000', status: 'completed', scheduleId: schedule.id }) as any);
+            __testUtils.getHistory().set('2000', makeState({ id: '2000', status: 'completed', scheduleId: schedule.id }) as any);
+            // Different schedule — should not be included
+            __testUtils.getHistory().set('4000', makeState({ id: '4000', status: 'completed', scheduleId: 'other-schedule' }) as any);
+
+            const realScheduler = __testUtils.getScheduler() as any;
+            const listFn = realScheduler.listScheduleInvestigations;
+            const ids = listFn(schedule.id);
+
+            expect(ids).toEqual(['3000', '2000', '1000']); // newest first
+        });
+
+        it('deleteInvestigation callback removes investigation from history and cleans disk', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-delete-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            initScheduler();
+
+            const invId = 'todelete';
+            __testUtils.getHistory().set(invId, makeState({ id: invId, status: 'completed' }) as any);
+
+            // Create a matching dir AND a JSON file on disk
+            const safeId = invId.replace(/[^a-zA-Z0-9]/g, '');
+            const dirName = `2024-01-01_target_${safeId}`;
+            const dirPath = path.join(invRoot, dirName);
+            fs.mkdirSync(dirPath, { recursive: true });
+            fs.writeFileSync(path.join(dirPath, 'state.json'), '{}');
+            const jsonPath = path.join(invRoot, `${invId}.json`);
+            fs.writeFileSync(jsonPath, '{}');
+
+            const realScheduler = __testUtils.getScheduler() as any;
+            const deleteFn = realScheduler.deleteInvestigation;
+            await deleteFn(invId);
+
+            expect(__testUtils.getHistory().has(invId)).toBe(false);
+            expect(fs.existsSync(dirPath)).toBe(false);
+            expect(fs.existsSync(jsonPath)).toBe(false);
+        });
+
+        it('deleteInvestigation callback handles product-specific investigation paths', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-delete-product-'));
+            const productDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-product-inv-'));
+            __testUtils.setConfig({
+                investigationsPath: invRoot,
+                products: [{ id: 'prod-1', name: 'Prod 1', investigationsPath: productDir }],
+                activeProductId: '',
+            });
+
+            initScheduler();
+
+            const invId = 'product-inv-delete';
+            __testUtils.getHistory().set(invId, makeState({ id: invId, status: 'completed', productId: 'prod-1' }) as any);
+
+            // Create matching dir on disk in product path
+            const safeId = invId.replace(/[^a-zA-Z0-9]/g, '');
+            const dirName = `2024-01-01_target_${safeId}`;
+            const dirPath = path.join(productDir, dirName);
+            fs.mkdirSync(dirPath, { recursive: true });
+            fs.writeFileSync(path.join(dirPath, 'state.json'), '{}');
+
+            const realScheduler = __testUtils.getScheduler() as any;
+            await realScheduler.deleteInvestigation(invId);
+
+            expect(__testUtils.getHistory().has(invId)).toBe(false);
+            expect(fs.existsSync(dirPath)).toBe(false);
+        });
+
+        it('deleteInvestigation callback removes runner if present', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-delete-runner-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            initScheduler();
+
+            const invId = 'runner-to-delete';
+            __testUtils.getRunners().set(invId, { state: makeState({ id: invId, status: 'running' }) } as any);
+            __testUtils.getHistory().set(invId, makeState({ id: invId, status: 'running' }) as any);
+
+            const realScheduler = __testUtils.getScheduler() as any;
+            await realScheduler.deleteInvestigation(invId);
+
+            expect(__testUtils.getRunners().has(invId)).toBe(false);
+            expect(__testUtils.getHistory().has(invId)).toBe(false);
+        });
+
+        it('deleteInvestigation callback returns early if investigation not in history', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-delete-miss-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            initScheduler();
+
+            const realScheduler = __testUtils.getScheduler() as any;
+            // Should not throw
+            await realScheduler.deleteInvestigation('non-existent');
+        });
+
+        it('deleteInvestigation callback falls back to empty array when config.products is undefined', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-delete-noproducts-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, activeProductId: '' } as any);
+            // Explicitly set products to undefined to cover the || [] fallback
+            const cfg = __testUtils.getConfig() as any;
+            cfg.products = undefined;
+
+            initScheduler();
+
+            const invId = 'noproduct';
+            __testUtils.getHistory().set(invId, makeState({ id: invId, status: 'completed', productId: 'missing-prod' }) as any);
+
+            const realScheduler = __testUtils.getScheduler() as any;
+            await realScheduler.deleteInvestigation(invId);
+
+            expect(__testUtils.getHistory().has(invId)).toBe(false);
+        });
+
+        it('deleteInvestigation callback handles readdirSync failure gracefully', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-delete-readdir-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            initScheduler();
+
+            const invId = 'readdir-fail';
+            __testUtils.getHistory().set(invId, makeState({ id: invId, status: 'completed' }) as any);
+
+            // Point config to a non-existent directory AFTER scheduler init
+            // so readdirSync throws ENOENT inside the catch block
+            const nonExistentDir = path.join(os.tmpdir(), 'ai-investigator-no-such-dir-' + Date.now());
+            __testUtils.setConfig({ investigationsPath: nonExistentDir, products: [], activeProductId: '' });
+
+            const realScheduler = __testUtils.getScheduler() as any;
+            await realScheduler.deleteInvestigation(invId);
+
+            expect(__testUtils.getHistory().has(invId)).toBe(false);
+        });
+
+        it('deleteInvestigation callback handles rmSync/unlinkSync failure gracefully', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-real-scheduler-delete-rmfail-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            initScheduler();
+
+            const invId = 'rmfail';
+            __testUtils.getHistory().set(invId, makeState({ id: invId, status: 'completed' }) as any);
+
+            // Create a directory where the JSON file should be — unlinkSync will throw on a directory
+            const jsonPath = path.join(invRoot, `${invId}.json`);
+            fs.mkdirSync(jsonPath, { recursive: true });
+
+            const realScheduler = __testUtils.getScheduler() as any;
+            await realScheduler.deleteInvestigation(invId);
+
+            // Cleanup
+            if (fs.existsSync(jsonPath)) fs.rmSync(jsonPath, { recursive: true, force: true });
+
+            expect(__testUtils.getHistory().has(invId)).toBe(false);
         });
     });
 

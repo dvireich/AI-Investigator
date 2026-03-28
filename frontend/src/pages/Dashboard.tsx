@@ -155,7 +155,6 @@ export const Dashboard = () => {
     const [maxSteps, setMaxSteps] = useState<number>(0);
     const [filter, setFilter] = useState<'all' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted'>('all');
     const [productFilter, setProductFilter] = useState<string>('all');
-    const [sourceFilter, setSourceFilter] = useState<'all' | 'manual' | 'scheduled'>('all');
     const [tagFilter, setTagFilter] = useState<string>('all');
     const [createdByFilter, setCreatedByFilter] = useState<string>('all');
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -286,7 +285,6 @@ export const Dashboard = () => {
             sortOrder,
             filter,
             productFilter,
-            sourceFilter,
             tagFilter,
             createdByFilter,
             search: debouncedSearch,
@@ -323,7 +321,7 @@ export const Dashboard = () => {
         const interval = setInterval(fetchData, 3000);
         return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentPage, pageSize, sortOrder, filter, productFilter, sourceFilter, tagFilter, createdByFilter, debouncedSearch, pinnedIds]);
+    }, [currentPage, pageSize, sortOrder, filter, productFilter, tagFilter, createdByFilter, debouncedSearch, pinnedIds]);
 
     const handleAction = async (e: React.MouseEvent, invId: string, action: string) => {
         e.preventDefault();
@@ -477,7 +475,7 @@ export const Dashboard = () => {
     const uniqueCreators = filterMeta.creators;
 
     // Reset to page 1 when filters, search, or sort change
-    useEffect(() => { setCurrentPage(1); }, [filter, productFilter, sourceFilter, tagFilter, createdByFilter, debouncedSearch, sortOrder]);
+    useEffect(() => { setCurrentPage(1); }, [filter, productFilter, tagFilter, createdByFilter, debouncedSearch, sortOrder]);
 
     // Refs so the keyboard handler always sees the latest values without re-registering
     const sortedRef = useRef(pageItems);
@@ -816,25 +814,7 @@ export const Dashboard = () => {
                             }`} />
                         </div>
                     )}
-                    {/* Source filter (manual vs scheduled) */}
-                    <div className="relative">
-                        <select
-                            value={sourceFilter}
-                            onChange={(e) => setSourceFilter(e.target.value as typeof sourceFilter)}
-                            className={`appearance-none pl-6 pr-4 py-1.5 sm:pl-7 sm:pr-6 sm:py-2 border rounded-xl text-[11px] sm:text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all min-w-0 ${
-                                sourceFilter !== 'all'
-                                    ? 'bg-cyan-500/10 border-cyan-500/30 text-cyan-400'
-                                    : 'bg-slate-900/60 border-slate-700/50 text-slate-400'
-                            }`}
-                        >
-                            <option value="all">All Sources</option>
-                            <option value="manual">Manual</option>
-                            <option value="scheduled">Scheduled</option>
-                        </select>
-                        <Clock className={`absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none ${
-                            sourceFilter !== 'all' ? 'text-cyan-500' : 'text-slate-400'
-                        }`} />
-                    </div>
+
                     {uniqueTags.length > 0 && (
                         <div className="relative">
                             <select
@@ -877,9 +857,9 @@ export const Dashboard = () => {
                             }`} />
                         </div>
                     )}
-                    {(filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all' || search) && (
+                    {(filter !== 'all' || productFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all' || search) && (
                         <button
-                            onClick={() => { setFilter('all'); setProductFilter('all'); setSourceFilter('all'); setTagFilter('all'); setCreatedByFilter('all'); setSearch(''); setDebouncedSearch(''); }}
+                            onClick={() => { setFilter('all'); setProductFilter('all'); setTagFilter('all'); setCreatedByFilter('all'); setSearch(''); setDebouncedSearch(''); }}
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-bold text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all shadow-sm whitespace-nowrap"
                         >
                             <X className="w-3 h-3" />
@@ -941,7 +921,7 @@ export const Dashboard = () => {
             </div>
 
             {/* Results count */}
-            {(search || filter !== 'all' || productFilter !== 'all' || sourceFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all') && serverTotalCount > 0 && (
+            {(search || filter !== 'all' || productFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all') && serverTotalCount > 0 && (
                 <p className="text-xs text-slate-400 font-medium flex items-center gap-2">
                     <span>{serverTotalCount} {serverTotalCount === 1 ? 'investigation' : 'investigations'}</span>
                     {search && <><span>matching</span> <span className="font-bold text-slate-300">"{search}"</span></>}
@@ -957,18 +937,7 @@ export const Dashboard = () => {
                             </button>
                         </span>
                     )}
-                    {sourceFilter !== 'all' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 rounded-full font-bold">
-                            <Clock className="w-3 h-3" />
-                            {sourceFilter === 'scheduled' ? 'Scheduled' : 'Manual'}
-                            <button
-                                onClick={() => setSourceFilter('all')}
-                                className="ml-0.5 hover:text-cyan-300"
-                            >
-                                <X className="w-3 h-3" />
-                            </button>
-                        </span>
-                    )}
+
                     {tagFilter !== 'all' && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full font-bold">
                             <Tag className="w-3 h-3" />

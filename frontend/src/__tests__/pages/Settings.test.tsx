@@ -2630,11 +2630,48 @@ describe('Settings', () => {
                 await waitFor(() => screen.getByText('Retrospective Timeout'));
 
                 const sliders = screen.getAllByRole('slider');
-                // The retrospective timeout slider is sliders[3] (after max steps, max concurrent, max concurrent scheduled)
-                fireEvent.change(sliders[3], { target: { value: '20' } });
+                // The retrospective timeout slider is sliders[4] (after max steps, max concurrent, max concurrent scheduled, retention count)
+                fireEvent.change(sliders[4], { target: { value: '20' } });
 
                 await waitFor(() => {
                     expect(screen.getByText('20 min')).toBeInTheDocument();
+                });
+            });
+
+            it('changes scheduledInvestigationRetentionCount via slider (covers line 1249 onChange)', async () => {
+                const user = userEvent.setup();
+                renderSettings();
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+                await user.click(screen.getByText('Agent Behavior'));
+                await waitFor(() => screen.getByText('Scheduled Investigation Retention'));
+
+                const sliders = screen.getAllByRole('slider');
+                // The retention count slider is sliders[3]
+                fireEvent.change(sliders[3], { target: { value: '0' } });
+
+                await waitFor(() => {
+                    expect(screen.getByText('∞ Keep all')).toBeInTheDocument();
+                });
+            });
+
+            it('shows Keep all badge when scheduledInvestigationRetentionCount is 0 (covers lines 1236-1237)', async () => {
+                const { api } = await import('../../api');
+                vi.mocked(api.getSettings).mockResolvedValue({
+                    model: 'gpt-4o',
+                    maxSteps: 50,
+                    maxConcurrentInvestigations: 3,
+                    retrospectTimeoutMinutes: 10,
+                    scheduledInvestigationRetentionCount: 0,
+                } as any);
+
+                const user = userEvent.setup();
+                renderSettings();
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+                await user.click(screen.getByText('Agent Behavior'));
+                await waitFor(() => {
+                    expect(screen.getByText('∞ Keep all')).toBeInTheDocument();
                 });
             });
 
