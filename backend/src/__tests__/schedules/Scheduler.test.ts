@@ -139,6 +139,27 @@ describe('Scheduler', () => {
             expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({ lastVerdict: 'error' }));
         });
 
+        it('skips overlapping tick when previous tick is still running', async () => {
+            // Make createInv take a long time so tick doesn't finish
+            let resolveCreate: () => void;
+            const slowCreate = new Promise<{ id: string }>(r => { resolveCreate = () => r({ id: 'inv-slow' }); });
+            createInv.mockReturnValue(slowCreate);
+            store.getAll.mockReturnValue([makeSchedule()]);
+            scheduler.start();
+            // First tick is in progress (createInv hasn't resolved)
+            await vi.advanceTimersByTimeAsync(0);
+            const firstCallCount = createInv.mock.calls.length;
+
+            // Fire another tick while the first is still running
+            await vi.advanceTimersByTimeAsync(60_000);
+            // The second tick should be skipped — createInv call count unchanged
+            expect(createInv.mock.calls.length).toBe(firstCallCount);
+
+            // Let the first tick complete
+            resolveCreate!();
+            await vi.advanceTimersByTimeAsync(0);
+        });
+
         it('uses schedule-level maxSteps when set', async () => {
             store.getAll.mockReturnValue([makeSchedule({ maxSteps: 10 })]);
             scheduler.start();
@@ -184,6 +205,22 @@ describe('Scheduler', () => {
 
             expect(store.appendHistory).toHaveBeenCalled();
             expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({ lastVerdict: 'healthy' }));
+        });
+
+        it('clears activeInvestigationId even when report generation throws', async () => {
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-boom', enabled: true })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy', finalReport: 'ok' });
+            store.writeRunReport.mockImplementation(() => { throw new Error('disk full'); });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            // activeInvestigationId must still be cleared despite the report error
+            expect(store.update).toHaveBeenCalledWith('1', expect.objectContaining({
+                activeInvestigationId: undefined,
+                lastVerdict: 'healthy',
+            }));
+            store.writeRunReport.mockImplementation(() => {});
         });
 
         it('sets verdict to error on failed investigation', async () => {

@@ -128,6 +128,15 @@ export class AgentRunner extends EventEmitter {
     }
 
     /**
+     * Release resources held by this runner: disconnect MCP tool connections
+     * and clean up the ToolManager.  Called by `cleanupRunner()` in server.ts
+     * when the runner is removed from the active map.
+     */
+    dispose(): void {
+        this.toolManager.cleanup().catch(() => { /* best-effort */ });
+    }
+
+    /**
      * Sync any new entries from `thoughts`/`actions` into `fullHistory`/`fullActions`.
      * This is called before compaction (to archive what's about to be removed)
      * and before saveArtifacts (to ensure the saved state is complete).
@@ -479,6 +488,14 @@ export class AgentRunner extends EventEmitter {
         if (this.state.retrospect.analysisComplete === undefined) this.state.retrospect.analysisComplete = false;
         if (this.state.retrospect.completed === undefined) this.state.retrospect.completed = false;
         return this.state.retrospect;
+    }
+
+    /** Cap retrospect.messages at MAX_RETRO_MESSAGES to prevent unbounded growth (Fix 7). */
+    private capRetroMessages(): void {
+        const MAX_RETRO_MESSAGES = 100;
+        if (this.state.retrospect && this.state.retrospect.messages.length > MAX_RETRO_MESSAGES) {
+            this.state.retrospect.messages.splice(0, this.state.retrospect.messages.length - MAX_RETRO_MESSAGES);
+        }
     }
 
     setRetrospectCompleted(completed: boolean): RetrospectState {
@@ -1272,6 +1289,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 timeoutPromise
             ]);
             retro.messages.push({ role: 'assistant', content: responseText });
+            this.capRetroMessages();
             this.emit('retrospect', this.state.retrospect);
             await this.saveArtifacts();
         } catch (error: any) {
@@ -1280,6 +1298,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 : `Error generating response: ${error.message}`;
             this.log(`[Retrospect] ERROR: ${errMsg}`);
             retro.messages.push({ role: 'assistant', content: errMsg });
+            this.capRetroMessages();
             this.emit('retrospect', this.state.retrospect);
         } finally {
             clearTimeout(timeoutId!);
@@ -1364,6 +1383,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             retro.messages.push({ role: 'assistant', content: summaryParts.join('\n\n') });
             retro.analysisComplete = true;
             retro.analysisFailed = false;
+            this.capRetroMessages();
             this.emit('retrospect', this.state.retrospect);
             await this.saveArtifacts();
         } catch (error: any) {
@@ -1377,6 +1397,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             // Set analysisFailed so the UI shows a Retry button instead of the success badge.
             retro.analysisComplete = true;
             retro.analysisFailed = !isCancelled;
+            this.capRetroMessages();
             this.emit('retrospect', this.state.retrospect);
             await this.saveArtifacts();
         } finally {
@@ -1922,6 +1943,13 @@ ${recsText}
         const summaryTmpPath = summaryPath + '.tmp';
         fs.writeFileSync(summaryTmpPath, JSON.stringify(summaryState, null, 2));
         fs.renameSync(summaryTmpPath, summaryPath);
+
+        // Release fullHistory/fullActions from memory — they're persisted to disk.
+        // Re-syncing from thoughts will rebuild them on demand (Fix 1).
+        this.state.fullHistory = [];
+        this.state.fullActions = [];
+        this.fullHistorySyncCursor = this.state.thoughts.length;
+
         this.log(`Artifacts saved.`);
     }
 
@@ -1933,6 +1961,12 @@ ${recsText}
         this.log("Investigation paused.");
     }
     intervene(message: string) {
+        // Cap pending interventions to prevent queue flooding (Fix 20)
+        const MAX_INTERVENTIONS = 50;
+        if (this.pendingInterventions.length >= MAX_INTERVENTIONS) {
+            this.log(`Intervention rejected: queue full (${MAX_INTERVENTIONS} pending)`);
+            return;
+        }
         const formatted = `User Intervention: ${message}\n(SYSTEM NOTE: You must acknowledge this user message in your next thought and adjust your plan accordingly.)`;
         this.pendingInterventions.push({ role: 'user', content: formatted });
         this.log(`User intervention queued: ${message}`);
@@ -2018,7 +2052,13 @@ ${recsText}
 
     public log(msg: string) {
         console.log(`[Agent] ${msg}`);
-        this.state.logs.push(msg); // Keep pushing to logs for raw history/debugging if needed
+        this.state.logs.push(msg);
+
+        // Cap logs to prevent unbounded growth (Fix 7/8)
+        const MAX_LOGS = 500;
+        if (this.state.logs.length > MAX_LOGS) {
+            this.state.logs.splice(0, this.state.logs.length - MAX_LOGS);
+        }
 
         // Emit log for UI visibility, but DON'T push to thoughts array
         // This prevents log messages from inflating the LLM payload

@@ -24,7 +24,7 @@ vi.mock('puppeteer', () => ({
     },
 }));
 
-import { renderPdf, closeBrowser, resolveChromiumPath } from '../pdfRenderer';
+import { renderPdf, closeBrowser, resolveChromiumPath, __resetProcessHandlersFlag } from '../pdfRenderer';
 
 describe('pdfRenderer', () => {
     beforeEach(() => {
@@ -32,6 +32,7 @@ describe('pdfRenderer', () => {
         mockPage.pdf.mockClear();
         mockPage.close.mockClear();
         mockBrowser.newPage.mockClear();
+        __resetProcessHandlersFlag();
     });
     describe('renderPdf', () => {
         it('renders a PDF from markdown and metadata', async () => {
@@ -191,6 +192,25 @@ describe('pdfRenderer', () => {
             const exitHandler = processOnSpy.mock.calls.find(c => c[0] === 'exit')![1] as Function;
             exitHandler();
             expect(mockBrowser.close).toHaveBeenCalled();
+            processOnSpy.mockRestore();
+            mockBrowser.connected = true;
+        });
+
+        it('does not accumulate process listeners on repeated browser launches', async () => {
+            const processOnSpy = vi.spyOn(process, 'on');
+            // Force re-launch twice
+            mockBrowser.connected = false;
+            await renderPdf('test1', { id: '1', status: 'completed' });
+            const firstCount = processOnSpy.mock.calls.filter(c => c[0] === 'exit').length;
+
+            mockBrowser.connected = false;
+            await renderPdf('test2', { id: '2', status: 'completed' });
+            const secondCount = processOnSpy.mock.calls.filter(c => c[0] === 'exit').length;
+
+            // Should only register once thanks to the guard
+            expect(firstCount).toBe(1);
+            expect(secondCount).toBe(1);
+
             processOnSpy.mockRestore();
             mockBrowser.connected = true;
         });

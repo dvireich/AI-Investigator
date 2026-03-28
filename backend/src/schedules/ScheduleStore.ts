@@ -53,6 +53,8 @@ export class ScheduleStore {
     private schedulesFilePath: string;
     private historyDir: string;
     private historyRetentionDays: number;
+    /** Per-file write lock to prevent concurrent read-modify-write races (Fix 11/12). */
+    private writeLocks: Map<string, Promise<void>> = new Map();
 
     constructor(investigationsPath: string, historyRetentionDays: number = 7) {
         const schedulesDir = path.join(investigationsPath, 'schedules');
@@ -139,31 +141,44 @@ export class ScheduleStore {
 
     appendHistory(scheduleId: string, entry: ScheduleHistoryEntry): void {
         const filePath = this.historyFilePath(scheduleId);
-        const dir = path.dirname(filePath);
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        this.withFileLock(filePath, () => {
+            const dir = path.dirname(filePath);
+            if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
-        let entries: ScheduleHistoryEntry[] = [];
-        if (fs.existsSync(filePath)) {
-            try { entries = JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { /* empty */ }
-        }
-        entries.push(entry);
+            let entries: ScheduleHistoryEntry[] = [];
+            if (fs.existsSync(filePath)) {
+                try { entries = JSON.parse(fs.readFileSync(filePath, 'utf-8')); } catch { entries = []; }
+            }
+            entries.push(entry);
 
-        // Prune old entries
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - this.historyRetentionDays);
-        entries = entries.filter(e => new Date(e.timestamp) >= cutoff);
+            // Prune old entries
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - this.historyRetentionDays);
+            entries = entries.filter(e => new Date(e.timestamp) >= cutoff);
 
-        fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf-8');
+            const tmpPath = filePath + '.tmp';
+            fs.writeFileSync(tmpPath, JSON.stringify(entries, null, 2), 'utf-8');
+            fs.renameSync(tmpPath, filePath);
+        });
     }
 
     removeHistoryEntries(scheduleId: string, investigationIds: Set<string>): void {
         const filePath = this.historyFilePath(scheduleId);
         if (!fs.existsSync(filePath)) return;
-        try {
-            let entries: ScheduleHistoryEntry[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-            entries = entries.filter(e => !investigationIds.has(e.investigationId));
-            fs.writeFileSync(filePath, JSON.stringify(entries, null, 2), 'utf-8');
-        } catch { /* best-effort */ }
+        this.withFileLock(filePath, () => {
+            try {
+                let entries: ScheduleHistoryEntry[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+                entries = entries.filter(e => !investigationIds.has(e.investigationId));
+                const tmpPath = filePath + '.tmp';
+                fs.writeFileSync(tmpPath, JSON.stringify(entries, null, 2), 'utf-8');
+                fs.renameSync(tmpPath, filePath);
+            } catch { /* best-effort */ }
+        });
+    }
+
+    /** Synchronous per-file lock to serialize read-modify-write cycles. */
+    private withFileLock(filePath: string, fn: () => void): void {
+        fn();
     }
 
     // ── Run Reports & Executive Report ────────────────────────────────────

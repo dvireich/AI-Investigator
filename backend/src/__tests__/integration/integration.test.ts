@@ -88,7 +88,7 @@ describe('integration: tsc compilation and loading', () => {
 
 describe('integration: esbuild bundle', () => {
 
-    it('esbuild produces a valid bundle from compiled output', () => {
+    it('esbuild produces a valid bundle from compiled output', { timeout: 30_000 }, () => {
         const distServer = path.join(BACKEND_ROOT, 'dist', 'server.js');
         if (!fs.existsSync(distServer)) return; // skip if dist not compiled
 

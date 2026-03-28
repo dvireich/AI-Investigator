@@ -40,6 +40,24 @@ export function resolveChromiumPath(
 // Singleton browser instance to avoid re-launching Chromium for each export
 let browserInstance: Browser | null = null;
 
+// Guard: register process cleanup handlers at most once to prevent listener accumulation.
+let processHandlersRegistered = false;
+
+function registerProcessCleanupHandlers(): void {
+    if (processHandlersRegistered) return;
+    processHandlersRegistered = true;
+    const cleanup = () => {
+        const inst = browserInstance;
+        browserInstance = null;
+        if (inst) {
+            Promise.resolve(inst.close()).catch(() => { });
+        }
+    };
+    process.on('exit', cleanup);
+    process.on('SIGINT', cleanup);
+    process.on('SIGTERM', cleanup);
+}
+
 async function getBrowser(executablePath?: string): Promise<Browser> {
     if (browserInstance && browserInstance.connected) {
         return browserInstance;
@@ -52,17 +70,7 @@ async function getBrowser(executablePath?: string): Promise<Browser> {
         ...(resolved ? { executablePath: resolved } : {}),
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     });
-    // Clean up on process exit
-    const cleanup = () => {
-        const inst = browserInstance;
-        browserInstance = null;
-        if (inst) {
-            Promise.resolve(inst.close()).catch(() => { });
-        }
-    };
-    process.on('exit', cleanup);
-    process.on('SIGINT', cleanup);
-    process.on('SIGTERM', cleanup);
+    registerProcessCleanupHandlers();
     return browserInstance;
 }
 
@@ -85,6 +93,11 @@ interface InvestigationMetadata {
     incidentId?: string;
     productName?: string;
     contestCount?: number;
+}
+
+/** @internal – reset module-level state between tests */
+export function __resetProcessHandlersFlag(): void {
+    processHandlersRegistered = false;
 }
 
 /**

@@ -20,6 +20,12 @@ import { QueryBankStore, SavedQuery } from './querybank/QueryBankStore';
 const app = express();
 const port = 3000;
 
+/** Return a generic error message in production; include detail in dev mode. */
+function sanitizedError(e: unknown, fallback = 'Internal server error'): string {
+    if (process.env.NODE_ENV === 'production') return fallback;
+    return (e instanceof Error ? e.message : String(e)) || fallback;
+}
+
 type StoredInvestigationState = InvestigationState & {
     _lastModified?: number;
     _storagePath?: string;
@@ -158,6 +164,9 @@ export function hydrateStoredState(stored: StoredInvestigationState): StoredInve
 
 class InvestigationHistoryStore {
     private readonly records = new Map<string, StoredInvestigationState>();
+    /** Tracks access order for LRU eviction — newest at end. */
+    private readonly accessOrder: string[] = [];
+    static readonly MAX_IN_MEMORY = 1000;
 
     get size(): number {
         return this.records.size;
@@ -170,6 +179,10 @@ class InvestigationHistoryStore {
     get(id: string): StoredInvestigationState | undefined {
         const stored = this.records.get(id);
         if (!stored) return undefined;
+
+        // Move to most-recently-used
+        this.touch(id);
+
         if (!stored._summaryOnly) return stored;
 
         const hydrated = hydrateStoredState(stored);
@@ -189,6 +202,8 @@ class InvestigationHistoryStore {
         stored._statePath = stored._statePath || path.join(storagePath, 'state.json');
         this.records.set(id, stored);
         storagePathCache.set(id, storagePath);
+        this.touch(id);
+        this.evictIfNeeded();
         return this;
     }
 
@@ -202,12 +217,40 @@ class InvestigationHistoryStore {
 
     delete(id: string): boolean {
         storagePathCache.delete(id);
+        const idx = this.accessOrder.indexOf(id);
+        if (idx !== -1) this.accessOrder.splice(idx, 1);
         return this.records.delete(id);
     }
 
     clear(): void {
         storagePathCache.clear();
+        this.accessOrder.length = 0;
         this.records.clear();
+    }
+
+    /** Move id to most-recently-used position. */
+    private touch(id: string): void {
+        const idx = this.accessOrder.indexOf(id);
+        if (idx !== -1) this.accessOrder.splice(idx, 1);
+        this.accessOrder.push(id);
+    }
+
+    /** Evict least-recently-used entries to summary-only form when over limit. */
+    private evictIfNeeded(): void {
+        while (this.records.size > InvestigationHistoryStore.MAX_IN_MEMORY && this.accessOrder.length > 0) {
+            const evictId = this.accessOrder.shift()!;
+            const rec = this.records.get(evictId);
+            if (rec && !rec._summaryOnly) {
+                // Downgrade to summary-only (keeps metadata, drops heavy fields)
+                rec._summaryOnly = true;
+                delete (rec as any).thoughts;
+                delete (rec as any).actions;
+                delete (rec as any).logs;
+                delete (rec as any).fullHistory;
+                delete (rec as any).fullActions;
+                delete (rec as any).retrospect;
+            }
+        }
     }
 }
 
@@ -295,6 +338,49 @@ function invalidateListCache() {
     cachedListCacheKey = null;
     listCacheDirtyAt = Date.now();
 }
+
+/**
+ * Centralized runner cleanup: removes listeners, disconnects MCP tool
+ * connections, and deletes the runner from the active map.
+ * Every code path that removes a runner should call this instead of
+ * `runners.delete(id)` directly.
+ */
+export function cleanupRunner(id: string): void {
+    const runner = runners.get(id);
+    if (runner) {
+        runner.removeAllListeners();
+        // Disconnect MCP child processes / transports
+        runner.dispose();
+    }
+    runners.delete(id);
+}
+
+/** How long a paused runner can sit idle before auto-eviction (default 30 min). */
+const RUNNER_IDLE_TTL = 30 * 60 * 1000;
+
+/**
+ * Evict runners that have been idle (paused) longer than RUNNER_IDLE_TTL.
+ * Running investigations are never evicted.
+ */
+export function evictIdleRunners(): void {
+    const now = Date.now();
+    for (const [id, runner] of runners.entries()) {
+        const state = (runner as any).state as InvestigationState | undefined;
+        if (!state) continue;
+        // Never evict running or active runners
+        if (state.status === 'running') continue;
+        const lastActivity = (runner as any)._lastActivityAt as number | undefined;
+        if (lastActivity && (now - lastActivity) > RUNNER_IDLE_TTL) {
+            console.log(`[Evict] Evicting idle runner ${id} (status=${state.status}, idle=${Math.round((now - lastActivity) / 1000)}s)`);
+            // Persist state before eviction
+            history.set(id, state);
+            cleanupRunner(id);
+            invalidateListCache();
+        }
+    }
+}
+
+let evictionInterval: ReturnType<typeof setInterval> | null = null;
 
 // function to ensure directory exists
 function ensureDirectoryExists(dir: string) {
@@ -539,13 +625,24 @@ export function broadcastToClients(
     logger: Pick<Console, 'log'> = console,
 ) {
     const clientSet = clientMap.get(id);
-    console.log(`[WS Broadcast] id=${id} type=${type} clients=${clientSet ? clientSet.size : 0}`);
+    if (process.env.DEBUG_WS) {
+        console.log(`[WS Broadcast] id=${id} type=${type} clients=${clientSet ? clientSet.size : 0}`);
+    }
     if (clientSet) {
+        // Stringify once — avoid re-serializing per client (Fix 30)
+        const message = JSON.stringify({ type, data });
         clientSet.forEach(ws => {
             if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({ type, data }));
-                logger.log(`[WS Broadcast] Sent ${type} to client`);
-            } else {
+                try {
+                    ws.send(message);
+                    if (process.env.DEBUG_WS) {
+                        logger.log(`[WS Broadcast] Sent ${type} to client`);
+                    }
+                } catch (err) {
+                    // One broken client must not prevent others from receiving the broadcast
+                    console.error(`[WS Broadcast] Failed to send to client:`, (err as Error).message);
+                }
+            } else if (process.env.DEBUG_WS) {
                 logger.log(`[WS Broadcast] Client not OPEN, readyState=${ws.readyState}`);
             }
         });
@@ -558,14 +655,15 @@ const broadcast = (id: string, type: string, data: any) => {
 
 const attachRunnerListeners = (runner: AgentRunner, id: string) => {
     console.log(`[WS] Attaching listeners for runner id=${id}`);
-    // Only attach if listeners aren't already flooding (simple check? no, new runner instance means clean slate)
-    runner.on('thought', (data) => broadcast(id, 'thought', data));
-    runner.on('action', (data) => broadcast(id, 'action', data));
-    runner.on('log', (data) => broadcast(id, 'log', data));
-    runner.on('status', (data) => broadcast(id, 'status', data));
-    runner.on('retrospect', (data) => broadcast(id, 'retrospect', data));
-    runner.on('retrospect-proposal', (data) => broadcast(id, 'retrospect-proposal', data));
-    runner.on('retrospect-tool-activity', (data) => broadcast(id, 'retrospect-tool-activity', data));
+    (runner as any)._lastActivityAt = Date.now();
+    const touch = () => { (runner as any)._lastActivityAt = Date.now(); };
+    runner.on('thought', (data) => { touch(); broadcast(id, 'thought', data); });
+    runner.on('action', (data) => { touch(); broadcast(id, 'action', data); });
+    runner.on('log', (data) => { touch(); broadcast(id, 'log', data); });
+    runner.on('status', (data) => { touch(); broadcast(id, 'status', data); });
+    runner.on('retrospect', (data) => { touch(); broadcast(id, 'retrospect', data); });
+    runner.on('retrospect-proposal', (data) => { touch(); broadcast(id, 'retrospect-proposal', data); });
+    runner.on('retrospect-tool-activity', (data) => { touch(); broadcast(id, 'retrospect-tool-activity', data); });
 };
 
 export function registerWebSocketClient(
@@ -956,10 +1054,13 @@ app.post('/api/settings', (req, res) => {
             Object.entries(newSettings).filter(([k]) => ALLOWED_KEYS.has(k))
         );
 
-        config = { ...config, ...filtered };
+        // Deep-sanitize to prevent prototype pollution via nested __proto__ payloads
+        const sanitized = JSON.parse(JSON.stringify(filtered));
+
+        config = { ...config, ...sanitized };
 
         // Only persist keys that were already in the file or are user-facing settings
-        for (const [key, value] of Object.entries(filtered)) {
+        for (const [key, value] of Object.entries(sanitized)) {
             if (key in persistedConfig || !INTERNAL_DEFAULT_KEYS.has(key)) {
                 persistedConfig[key] = value;
             }
@@ -990,7 +1091,7 @@ app.post('/api/settings', (req, res) => {
         res.json(config);
     } catch (e: any) {
         console.error("Failed to save settings:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -1023,8 +1124,10 @@ app.post('/api/settings/import', (req, res) => {
         if (Object.keys(filtered).length === 0) {
             return res.status(400).json({ error: 'No valid settings keys found in import' });
         }
-        config = { ...config, ...filtered };
-        for (const [key, value] of Object.entries(filtered)) {
+        // Deep-sanitize to prevent prototype pollution
+        const sanitized = JSON.parse(JSON.stringify(filtered));
+        config = { ...config, ...sanitized };
+        for (const [key, value] of Object.entries(sanitized)) {
             if (key in persistedConfig || !INTERNAL_DEFAULT_KEYS.has(key)) {
                 persistedConfig[key] = value;
             }
@@ -1036,7 +1139,7 @@ app.post('/api/settings/import', (req, res) => {
         res.json({ imported: Object.keys(filtered).length, config });
     } catch (e: any) {
         console.error("Failed to import settings:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -1070,7 +1173,7 @@ app.put('/api/products/active', (req, res) => {
         res.json({ success: true });
     } catch (e: any) {
         console.error("Failed to set active product:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -1101,7 +1204,7 @@ app.post('/api/products', (req, res) => {
         res.json(newProduct);
     } catch (e: any) {
         console.error("Failed to add product:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -1129,7 +1232,7 @@ app.put('/api/products/:id', (req, res) => {
         res.json(config.products[index]);
     } catch (e: any) {
         console.error("Failed to update product:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -1159,7 +1262,7 @@ app.delete('/api/products/:id', (req, res) => {
         res.json({ success: true });
     } catch (e: any) {
         console.error("Failed to delete product:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -1238,7 +1341,7 @@ app.get('/api/products/:id/validate', (req, res) => {
         res.json(validation);
     } catch (e: any) {
         console.error("Failed to validate product:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -1385,7 +1488,7 @@ app.get('/api/products/discover', (req, res) => {
         res.json(result);
     } catch (e: any) {
         console.error("Failed to discover product:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -1419,7 +1522,7 @@ app.post('/api/products/:id/clone', (req, res) => {
         res.json(clonedProduct);
     } catch (e: any) {
         console.error("Failed to clone product:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -1436,27 +1539,31 @@ app.get('/api/models', async (req, res) => {
     }
 });
 
-app.get('/api/files/list', (req, res) => {
+app.get('/api/files/list', async (req, res) => {
     try {
         const requestedPath = req.query.path as string || process.cwd();
         const targetPath = path.resolve(requestedPath);
 
-        // Path traversal protection: only allow paths under repoRoot or investigationsPath
+        // Path traversal protection: use path.relative() to prevent sibling-directory bypass
         const allowedRoots = [path.resolve(config.repoRoot), path.resolve(config.investigationsPath || process.cwd())];
-        if (!allowedRoots.some(root => targetPath.startsWith(root))) {
+        const isAllowed = allowedRoots.some(root => {
+            // Exact root is fine, or it must be strictly under root + sep
+            if (targetPath === root) return true;
+            const rel = path.relative(root, targetPath);
+            // Must not start with '..' and must not be absolute (which means it's outside)
+            return rel.length > 0 && !rel.startsWith('..') && !path.isAbsolute(rel);
+        });
+        if (!isAllowed) {
             return res.status(403).json({ error: 'Access denied: path outside allowed directories' });
         }
 
-        if (!fs.existsSync(targetPath)) {
-            return res.status(404).json({ error: "Path not found" });
-        }
-
-        const stats = fs.statSync(targetPath);
+        const stats = await fs.promises.stat(targetPath);
         if (!stats.isDirectory()) {
             return res.status(400).json({ error: "Path is not a directory" });
         }
 
-        const entries = fs.readdirSync(targetPath, { withFileTypes: true }).map(entry => ({
+        const dirents = await fs.promises.readdir(targetPath, { withFileTypes: true });
+        const entries = dirents.map(entry => ({
             name: entry.name,
             isDirectory: entry.isDirectory()
         }));
@@ -1472,8 +1579,11 @@ app.get('/api/files/list', (req, res) => {
             entries
         });
     } catch (e: any) {
+        if (e.code === 'ENOENT') {
+            return res.status(404).json({ error: 'Path not found' });
+        }
         console.error("Error listing files:", e);
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: 'Failed to list directory contents' });
     }
 });
 
@@ -1640,7 +1750,7 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
         invalidateListCache();
 
         if (finalState.status === 'completed' || finalState.status === 'failed' || finalState.status === 'aborted') {
-            runners.delete(id);
+            cleanupRunner(id);
             console.log(`[Runner] Investigation ${id} finished (${finalState.status}). Removed from active runners.`);
         } else {
             console.log(`[Runner] Investigation ${id} paused/suspended. Keeping in active runners.`);
@@ -1652,7 +1762,7 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
             finalState.status = 'failed';
             history.set(id, finalState);
         }
-        runners.delete(id);
+        cleanupRunner(id);
         invalidateListCache();
     });
 
@@ -1949,7 +2059,7 @@ app.get('/api/investigations', (req, res) => {
     res.send(json);
     } catch (err: any) {
         console.error('GET /api/investigations failed:', err);
-        res.status(500).json({ error: 'Failed to list investigations', details: err.message });
+        res.status(500).json({ error: 'Failed to list investigations', details: sanitizedError(err) });
     }
 });
 
@@ -2086,12 +2196,12 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             const query = state.query || "Resume investigation";
             runner.start(query).then(() => {
                 history.set(id, (runner as any).state);
-                runners.delete(id);
             }).catch(err => {
                 console.error(`Runner ${id} failed:`, err);
-                // Ensure we save state even on crash
+            }).finally(() => {
+                // Guaranteed: save state and cleanup
                 history.set(id, (runner as any).state);
-                runners.delete(id);
+                cleanupRunner(id);
             });
 
             runner.log(`Resuming investigation ${id} from disk...`);
@@ -2148,11 +2258,11 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             const query = state.query || 'Resume investigation';
             runner.start(query).then(() => {
                 history.set(id, (runner as any).state);
-                runners.delete(id);
             }).catch(err => {
                 console.error(`Runner ${id} failed after contest:`, err);
+            }).finally(() => {
                 history.set(id, (runner as any).state);
-                runners.delete(id);
+                cleanupRunner(id);
             });
 
             runner.log(`Investigation ${id} contested and resumed from disk...`);
@@ -2189,12 +2299,14 @@ app.post('/api/investigations/:id/action', async (req, res) => {
                 history.set(id, (runner as any).state);
                 const finalStatus = (runner as any).state.status;
                 if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'aborted') {
-                    runners.delete(id);
+                    cleanupRunner(id);
                 }
             }).catch(err => {
                 console.error(`Runner ${id} failed after contest:`, err);
                 history.set(id, (runner as any).state);
-                runners.delete(id);
+                cleanupRunner(id);
+            }).finally(() => {
+                invalidateListCache();
             });
 
             runner.log(`Investigation ${id} contested and resumed...`);
@@ -2242,11 +2354,11 @@ app.post('/api/investigations/resume-all', async (req, res) => {
             const query = state.query || 'Resume investigation';
             runner.start(query).then(() => {
                 history.set(id, (runner as any).state);
-                runners.delete(id);
             }).catch(err => {
                 console.error(`Runner ${id} failed:`, err);
+            }).finally(() => {
                 history.set(id, (runner as any).state);
-                runners.delete(id);
+                cleanupRunner(id);
             });
 
             runner.log(`Resuming investigation ${id} (bulk resume-all)...`);
@@ -2260,7 +2372,7 @@ app.post('/api/investigations/resume-all', async (req, res) => {
     res.json({ resumed: resumed.length, skipped, ids: resumed });
     } catch (err: any) {
         console.error('POST /api/investigations/resume-all failed:', err);
-        res.status(500).json({ error: 'Failed to resume investigations', details: err.message });
+        res.status(500).json({ error: 'Failed to resume investigations', details: sanitizedError(err) });
     }
 });
 
@@ -2309,7 +2421,7 @@ app.post('/api/server/restart', (req, res) => {
     res.json({ status: 'restarted' });
     } catch (err: any) {
         console.error('Server restart failed:', err);
-        res.status(500).json({ error: 'Restart failed', details: err.message });
+        res.status(500).json({ error: 'Restart failed', details: sanitizedError(err) });
     }
 });
 
@@ -2372,13 +2484,13 @@ app.post('/api/investigations/:id/retrospect', async (req, res) => {
         if (isTemporary) {
             history.set(id, (runner as any).state);
             await (runner as any).saveArtifacts();
-            runners.delete(id); // Clean up
+            cleanupRunner(id); // Clean up
             invalidateListCache();
         }
         res.json({ success: true });
     } catch (e: any) {
-        if (isTemporary) runners.delete(id); // Clean up on error too
-        res.status(500).json({ error: e.message });
+        if (isTemporary) cleanupRunner(id); // Clean up on error too
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -2419,12 +2531,12 @@ app.post('/api/investigations/:id/retrospect/analyze', async (req, res) => {
         if (isTemporary) {
             history.set(id, (runner as any).state);
             await (runner as any).saveArtifacts();
-            runners.delete(id);
         }
         invalidateListCache();
     }).catch((e: any) => {
         console.error(`[retrospect/analyze] Unhandled error for ${id}:`, e.message);
-        if (isTemporary) runners.delete(id);
+    }).finally(() => {
+        if (isTemporary) cleanupRunner(id);
     });
 });
 
@@ -2515,7 +2627,7 @@ app.delete('/api/investigations/:id', async (req, res) => {
                 console.error(`[Delete] Failed to abort running investigation ${id}:`, e.message);
             }
         }
-        runners.delete(id);
+        cleanupRunner(id);
     }
 
     const investigation = history.get(id);
@@ -2771,7 +2883,7 @@ app.get('/api/investigations/:id/pdf', async (req, res) => {
         res.send(pdfBuffer);
     } catch (e: any) {
         console.error(`[PDF] Failed to generate PDF for ${id}:`, e.message);
-        res.status(500).json({ error: `PDF generation failed: ${e.message}` });
+        res.status(500).json({ error: sanitizedError(e, 'PDF generation failed') });
     }
 });
 
@@ -2800,14 +2912,14 @@ app.patch('/api/investigations/:id/retrospect/proposals/:proposalId', async (req
 
     const updated = runner.updateProposalStatus(proposalId, status);
     if (!updated) {
-        if (isTemporary) runners.delete(id);
+        if (isTemporary) cleanupRunner(id);
         return res.status(404).json({ error: 'Proposal not found' });
     }
 
     if (isTemporary) {
         history.set(id, (runner as any).state);
         await (runner as any).saveArtifacts();
-        runners.delete(id);
+        cleanupRunner(id);
     } else {
         await (runner as any).saveArtifacts();
     }
@@ -2840,7 +2952,7 @@ app.post('/api/investigations/:id/retrospect/complete', async (req, res) => {
         if (isTemporary) {
             history.set(id, (runner as any).state);
             await (runner as any).saveArtifacts();
-            runners.delete(id);
+            cleanupRunner(id);
         } else {
             await (runner as any).saveArtifacts();
         }
@@ -2848,8 +2960,8 @@ app.post('/api/investigations/:id/retrospect/complete', async (req, res) => {
         broadcast(id, 'retrospect', retro);
         res.json({ success: true, retrospect: retro });
     } catch (e: any) {
-        if (isTemporary) runners.delete(id);
-        res.status(500).json({ error: e.message });
+        if (isTemporary) cleanupRunner(id);
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -2863,7 +2975,7 @@ app.post('/api/investigations/:id/retrospect/abort', async (req, res) => {
         runner.abortRetrospective();
         res.json({ success: true });
     } catch (e: any) {
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -2889,13 +3001,13 @@ app.post('/api/investigations/:id/retrospect/apply', async (req, res) => {
         if (isTemporary) {
             history.set(id, (runner as any).state);
             await (runner as any).saveArtifacts();
-            runners.delete(id);
+            cleanupRunner(id);
         }
         invalidateListCache();
         res.json(result);
     } catch (e: any) {
-        if (isTemporary) runners.delete(id);
-        res.status(500).json({ error: e.message });
+        if (isTemporary) cleanupRunner(id);
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -2988,7 +3100,7 @@ app.post('/api/investigations/:id/implement', async (req, res) => {
         if (isTemporary) {
             history.set(id, (runner as any).state);
             await (runner as any).saveArtifacts();
-            runners.delete(id);
+            cleanupRunner(id);
         }
     }
 });
@@ -3021,18 +3133,19 @@ app.post('/api/investigations/:id/compact', async (req, res) => {
         if (isTemporary) {
             history.set(id, (runner as any).state);
             await (runner as any).saveArtifacts();
-            runners.delete(id);
+            cleanupRunner(id);
         }
         res.json({ success: true });
     } catch (e: any) {
-        if (isTemporary) runners.delete(id);
-        res.status(500).json({ error: e.message });
+        if (isTemporary) cleanupRunner(id);
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
-app.get('/api/health', (req, res) => {
+app.get('/api/health', async (req, res) => {
     const hasLlm = !!(config.llmProvider && config.llmProvider.type && config.llmProvider.type !== 'none');
-    const storageAccessible = (() => { try { fs.accessSync(config.investigationsPath || '.', fs.constants.W_OK); return true; } catch { return false; } })();
+    let storageAccessible = false;
+    try { await fs.promises.access(config.investigationsPath || '.', fs.constants.W_OK); storageAccessible = true; } catch { /* not accessible */ }
     const mcpConfigured = Array.isArray(config.mcpServers) && config.mcpServers.length > 0;
     res.json({
         status: 'ok',
@@ -3075,7 +3188,7 @@ app.post('/api/auth/login', async (req, res) => {
         const data = await activeLlmProvider.startAuthFlow();
         res.json(data);
     } catch (e: any) {
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -3151,7 +3264,7 @@ app.post('/api/investigations/:id/mcp/restart', async (req, res) => {
         await (runner as any).toolManager.restart((msg: string) => runner['log'](msg));
         res.json({ success: true });
     } catch (e: any) {
-        res.status(500).json({ error: e.message });
+        res.status(500).json({ error: sanitizedError(e) });
     }
 });
 
@@ -3176,7 +3289,7 @@ async function deleteInvestigationFromDisk(investigationId: string): Promise<voi
     invalidateListCache();
     const runner = runners.get(investigationId);
     if (runner) {
-        runners.delete(investigationId);
+        cleanupRunner(investigationId);
     }
     const investigation = history.get(investigationId);
     if (!investigation) return;
@@ -3447,7 +3560,7 @@ app.delete('/api/schedules/:id', (req, res) => {
             } catch (e: any) {
                 console.error(`[Delete Schedule] Failed to abort investigation ${invId}:`, e.message);
             }
-            runners.delete(invId);
+            cleanupRunner(invId);
         }
 
         // Determine disk path from history or runner state
@@ -3690,7 +3803,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     console.error(`Unhandled error on ${req.method} ${req.url}:`, err);
     if (!res.headersSent) {
         const status = err.status || err.statusCode || 500;
-        res.status(status).json({ error: err.message || 'Internal server error' });
+        res.status(status).json({ error: sanitizedError(err) });
     }
 });
 
@@ -3772,6 +3885,11 @@ export function startServer() {
 
     serverStarted = true;
 
+    // Start idle runner eviction timer
+    if (!evictionInterval) {
+        evictionInterval = setInterval(evictIdleRunners, 60_000);
+    }
+
     server.on('error', async (err: NodeJS.ErrnoException) => {
         if (err.code === 'EADDRINUSE') {
             const killed = await internal.killProcessOnPort(port);
@@ -3836,6 +3954,10 @@ export async function stopServer() {
     }
 
     serverStarted = false;
+    if (evictionInterval) {
+        clearInterval(evictionInterval);
+        evictionInterval = null;
+    }
     await new Promise<void>((resolve, reject) => {
         server.close((error) => {
             if (error) {
@@ -3865,6 +3987,9 @@ export const __testUtils = {
     internal,
     llmRegistry,
     incidentRegistry,
+    evictIdleRunners,
+    sanitizedError,
+    cleanupRunner,
     getConfig: () => config,
     setConfig: (nextConfig: Partial<typeof config>) => {
         config = { ...config, ...nextConfig };

@@ -65,7 +65,8 @@ export class CopilotProvider implements LlmProvider {
             client_id: CLIENT_ID,
             scope: 'read:user'
         }, {
-            headers: { 'Accept': 'application/json' }
+            headers: { 'Accept': 'application/json' },
+            timeout: 10_000
         });
         return {
             deviceCode: response.data.device_code,
@@ -81,7 +82,8 @@ export class CopilotProvider implements LlmProvider {
             device_code: deviceCode,
             grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
         }, {
-            headers: { 'Accept': 'application/json' }
+            headers: { 'Accept': 'application/json' },
+            timeout: 10_000
         });
 
         if (response.data.access_token) {
@@ -103,7 +105,8 @@ export class CopilotProvider implements LlmProvider {
                 headers: {
                     'Authorization': `token ${this.token}`,
                     'User-Agent': COPILOT_HEADERS['User-Agent']
-                }
+                },
+                timeout: 10_000
             });
             return {
                 authenticated: true,
@@ -128,7 +131,8 @@ export class CopilotProvider implements LlmProvider {
                 headers: {
                     'Authorization': `token ${this.token}`,
                     'User-Agent': COPILOT_HEADERS['User-Agent']
-                }
+                },
+                timeout: 30_000
             });
             this.copilotApiToken = response.data.token;
             this.copilotApiTokenExpiresAt = response.data.expires_at
@@ -148,18 +152,17 @@ export class CopilotProvider implements LlmProvider {
 
     async getClient(timeout?: number): Promise<OpenAI> {
         const token = await this.getCopilotToken();
-        const effectiveTimeout = timeout ?? 180_000;
 
-        if (this.cachedClient && this.cachedClientToken === token && this.cachedClientTimeout === effectiveTimeout) {
+        // Cache client by token only (Fix 15/17) — use per-request timeout instead
+        if (this.cachedClient && this.cachedClientToken === token) {
             return this.cachedClient;
         }
 
         this.cachedClientToken = token;
-        this.cachedClientTimeout = effectiveTimeout;
         this.cachedClient = new OpenAI({
             apiKey: token,
             baseURL: 'https://api.githubcopilot.com',
-            timeout: effectiveTimeout,
+            timeout: 180_000,
             defaultHeaders: COPILOT_HEADERS
         });
         return this.cachedClient;
@@ -174,7 +177,8 @@ export class CopilotProvider implements LlmProvider {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     ...COPILOT_HEADERS
-                }
+                },
+                timeout: 30_000
             });
             if (response.data?.data && Array.isArray(response.data.data)) {
                 return response.data.data.map((m: any) => m.id).sort();
