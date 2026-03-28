@@ -12,6 +12,7 @@ export interface ScheduleDefinition {
     category?: string;
     autoEscalate: boolean;
     escalationQuery?: string;
+    retentionCount?: number;
     createdBy?: string;
     createdAt: string;
     lastRunAt?: string;
@@ -21,6 +22,7 @@ export interface ScheduleDefinition {
     activeInvestigationId?: string;
     activeEscalationId?: string;
     consecutiveCriticalCount?: number;
+    historyCount?: number;
 }
 
 export interface ScheduleHistoryEntry {
@@ -28,4 +30,22 @@ export interface ScheduleHistoryEntry {
     verdict: 'healthy' | 'warning' | 'critical' | 'error' | 'paused' | 'completed' | 'unknown';
     investigationId: string;
     summary?: string;
+}
+
+export interface ScheduleReport {
+    scheduleId: string;
+    scheduleName: string;
+    totalRuns: number;
+    verdictBreakdown: Record<string, number>;
+    successRate: number;
+    trend: 'improving' | 'degrading' | 'stable';
+    firstRunAt?: string;
+    lastRunAt?: string;
+    recentSummaries: {
+        timestamp: string;
+        verdict: string;
+        investigationId: string;
+        summary?: string;
+    }[];
+    executiveSummary?: string;
 }

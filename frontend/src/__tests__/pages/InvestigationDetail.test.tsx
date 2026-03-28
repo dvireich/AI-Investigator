@@ -1530,7 +1530,7 @@ describe('InvestigationDetail', () => {
     // ════════════════════════════════════════════════════════════════════════════
 
     describe('Error States', () => {
-        it('redirects to home when investigation not found', async () => {
+        it('shows not-available message when investigation not found', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getInvestigation).mockRejectedValue(new Error('Not found'));
             
@@ -1538,8 +1538,32 @@ describe('InvestigationDetail', () => {
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
             
             await waitFor(() => {
-                expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
+                expect(screen.getByText('Investigation Not Available')).toBeInTheDocument();
             });
+        });
+
+        it('navigates to dashboard when Go to Dashboard button is clicked (covers line 953)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockRejectedValue(new Error('Not found'));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Investigation Not Available'));
+
+            await userEvent.click(screen.getByText('Go to Dashboard'));
+            expect(mockNavigate).toHaveBeenCalledWith('/');
+        });
+
+        it('navigates to schedules when View Schedules button is clicked (covers line 959)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockRejectedValue(new Error('Not found'));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getByText('Investigation Not Available'));
+
+            await userEvent.click(screen.getByText('View Schedules'));
+            expect(mockNavigate).toHaveBeenCalledWith('/schedules');
         });
 
         it('handles API errors gracefully on action', async () => {
@@ -6169,7 +6193,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
         });
 
         describe('Not found / 404 error via status code (L655)', () => {
-            it('navigates to home when investigation returns 404 status (not message)', async () => {
+            it('shows not-available message when investigation returns 404 status (not message)', async () => {
                 const { api } = await import('../../api');
                 // Use a DIFFERENT message (not 'Not found') but status 404
                 // This covers the second condition: || err.status === 404
@@ -6178,7 +6202,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
                 await waitFor(() => {
-                    expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
+                    expect(screen.getByText('Investigation Not Available')).toBeInTheDocument();
                 });
             });
         });

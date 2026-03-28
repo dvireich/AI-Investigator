@@ -29,9 +29,20 @@ export type GetInvestigationResultFn = (investigationId: string) => {
     finalReport?: string;
 } | undefined;
 
+/**
+ * Callback to delete a single investigation by ID (reuses server delete logic).
+ */
+export type DeleteInvestigationFn = (investigationId: string) => void;
+
+/**
+ * Callback to list all investigation IDs for a given scheduleId, sorted newest-first.
+ */
+export type ListScheduleInvestigationsFn = (scheduleId: string) => string[];
+
 export interface SchedulerConfig {
     maxConcurrentScheduledInvestigations: number;
     scheduledInvestigationMaxSteps: number;
+    scheduledInvestigationRetentionCount: number;
     globalMaxSteps: number;        // from settings.maxSteps — 0 means unlimited
     defaultTimeRange: string;
 }
@@ -39,6 +50,7 @@ export interface SchedulerConfig {
 const DEFAULT_CONFIG: SchedulerConfig = {
     maxConcurrentScheduledInvestigations: 2,
     scheduledInvestigationMaxSteps: 20,
+    scheduledInvestigationRetentionCount: 10,
     globalMaxSteps: 50,
     defaultTimeRange: 'ago(1h)',
 };
@@ -58,6 +70,8 @@ export class Scheduler extends EventEmitter {
     private masterTimer: ReturnType<typeof setInterval> | null = null;
     private createInvestigation: CreateInvestigationFn;
     private getInvestigationResult: GetInvestigationResultFn;
+    private deleteInvestigation: DeleteInvestigationFn;
+    private listScheduleInvestigations: ListScheduleInvestigationsFn;
     private running: boolean = false;
 
     // Track how many scheduled investigations are currently active
@@ -67,12 +81,16 @@ export class Scheduler extends EventEmitter {
         store: ScheduleStore,
         createInvestigation: CreateInvestigationFn,
         getInvestigationResult: GetInvestigationResultFn,
+        deleteInvestigation: DeleteInvestigationFn,
+        listScheduleInvestigations: ListScheduleInvestigationsFn,
         config?: Partial<SchedulerConfig>,
     ) {
         super();
         this.store = store;
         this.createInvestigation = createInvestigation;
         this.getInvestigationResult = getInvestigationResult;
+        this.deleteInvestigation = deleteInvestigation;
+        this.listScheduleInvestigations = listScheduleInvestigations;
         this.config = { ...DEFAULT_CONFIG, ...config };
     }
 
@@ -242,9 +260,13 @@ export class Scheduler extends EventEmitter {
             timestamp: new Date().toISOString(),
             verdict,
             investigationId: schedule.activeInvestigationId,
-            summary: result.finalReport?.substring(0, 500),
+            summary: result.finalReport?.substring(0, 2000),
         };
         this.store.appendHistory(schedule.id, historyEntry);
+
+        // Write per-run report file & regenerate aggregate executive report
+        this.writeRunReport(schedule, verdict, result, historyEntry);
+        this.regenerateExecutiveReport(schedule);
 
         // Update schedule
         const consecutiveCritical = verdict === 'critical'
@@ -259,6 +281,9 @@ export class Scheduler extends EventEmitter {
 
         this.log(`[Schedule ${schedule.name}] Investigation settled: verdict="${verdict}"`);
         this.emitUpdate(schedule.id);
+
+        // Prune old investigations per retention policy
+        this.pruneScheduleInvestigations(schedule);
 
         // Auto-escalate on critical
         if (verdict === 'critical' && schedule.autoEscalate && !schedule.activeEscalationId) {
@@ -344,6 +369,37 @@ export class Scheduler extends EventEmitter {
         return 'unknown';
     }
 
+    private async pruneScheduleInvestigations(schedule: ScheduleDefinition): Promise<void> {
+        const retentionCount = schedule.retentionCount ?? this.config.scheduledInvestigationRetentionCount;
+        if (retentionCount <= 0) return; // 0 means keep all
+
+        try {
+            const investigationIds = this.listScheduleInvestigations(schedule.id);
+            if (investigationIds.length <= retentionCount) return;
+
+            // investigationIds are sorted newest-first; delete the excess oldest
+            const toDelete = investigationIds.slice(retentionCount);
+            const deletedIds: string[] = [];
+            for (const id of toDelete) {
+                try {
+                    await this.deleteInvestigation(id);
+                    deletedIds.push(id);
+                    this.log(`[Schedule ${schedule.name}] Pruned old investigation ${id} (retention=${retentionCount})`);
+                } catch (err: any) {
+                    this.log(`[Schedule ${schedule.name}] Failed to prune investigation ${id}: ${err.message}`);
+                }
+            }
+
+            // Remove pruned entries from history and regenerate report
+            if (deletedIds.length > 0) {
+                this.store.removeHistoryEntries(schedule.id, new Set(deletedIds));
+                this.regenerateExecutiveReport(schedule);
+            }
+        } catch (err: any) {
+            this.log(`[Schedule ${schedule.name}] Failed to list investigations for pruning: ${err.message}`);
+        }
+    }
+
     private emitUpdate(scheduleId: string): void {
         const schedule = this.store.get(scheduleId);
         if (schedule) {
@@ -351,8 +407,310 @@ export class Scheduler extends EventEmitter {
         }
     }
 
+    /** Write a per-run markdown report for a settled investigation. */
+    private writeRunReport(
+        schedule: ScheduleDefinition,
+        verdict: string,
+        result: { status: string; verdict?: string; finalReport?: string },
+        entry: ScheduleHistoryEntry,
+    ): void {
+        const lines = [
+            `# Investigation Report`,
+            ``,
+            `| Field | Value |`,
+            `|-------|-------|`,
+            `| **Schedule** | ${schedule.name} |`,
+            `| **Target** | ${schedule.target} |`,
+            `| **Date** | ${new Date(entry.timestamp).toLocaleString()} |`,
+            `| **Verdict** | ${verdict} |`,
+            `| **Investigation ID** | ${entry.investigationId} |`,
+            ``,
+            `## Summary`,
+            ``,
+            entry.summary || '_No summary available._',
+            ``,
+            `## Full Report`,
+            ``,
+            result.finalReport || '_No report generated._',
+        ];
+        try {
+            this.store.writeRunReport(schedule.id, entry.investigationId, lines.join('\n'));
+        } catch (err: any) {
+            this.log(`[Schedule ${schedule.name}] Failed to write run report: ${err.message}`);
+        }
+    }
+
+    /** Regenerate the aggregate executive report for a schedule. */
+    private regenerateExecutiveReport(schedule: ScheduleDefinition): void {
+        try {
+            const entries = this.store.getHistory(schedule.id);
+            const content = generateExecutiveReport(schedule, entries);
+            this.store.writeExecutiveReport(schedule.id, content);
+        } catch (err: any) {
+            this.log(`[Schedule ${schedule.name}] Failed to write executive report: ${err.message}`);
+        }
+    }
+
     private log(message: string): void {
         console.log(`[Scheduler] ${message}`);
         this.emit('log', message);
     }
+}
+
+// ── Executive Report Generator ─────────────────────────────────────────────
+
+/**
+ * Generate a markdown executive report from schedule definition + history entries.
+ * Pure function — no LLM needed. Used by both Scheduler (file persistence)
+ * and the API (on-demand generation for old schedules).
+ */
+export function generateExecutiveReport(
+    schedule: Pick<ScheduleDefinition, 'name' | 'target' | 'query' | 'intervalMinutes'>,
+    entries: ScheduleHistoryEntry[],
+): string {
+    if (entries.length === 0) {
+        return `# Executive Summary: ${schedule.name}\n\n_No completed runs yet._`;
+    }
+
+    const sorted = [...entries].sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
+
+    // ── Stats ──
+    const verdictBreakdown: Record<string, number> = {};
+    for (const e of sorted) {
+        verdictBreakdown[e.verdict] = (verdictBreakdown[e.verdict] || 0) + 1;
+    }
+
+    const successCount = (verdictBreakdown['healthy'] || 0) + (verdictBreakdown['completed'] || 0);
+    const successRate = Math.round((successCount / sorted.length) * 1000) / 10;
+
+    const severityScore = (v: string) => {
+        if (v === 'critical') return 4;
+        if (v === 'error') return 3;
+        if (v === 'warning') return 2;
+        if (v === 'paused') return 1;
+        return 0;
+    };
+
+    let trend: 'Improving' | 'Degrading' | 'Stable' = 'Stable';
+    if (sorted.length >= 4) {
+        const mid = Math.floor(sorted.length / 2);
+        const olderHalf = sorted.slice(0, mid);
+        const newerHalf = sorted.slice(mid);
+        const avgOlder = olderHalf.reduce((s, e) => s + severityScore(e.verdict), 0) / olderHalf.length;
+        const avgNewer = newerHalf.reduce((s, e) => s + severityScore(e.verdict), 0) / newerHalf.length;
+        if (avgNewer < avgOlder - 0.3) trend = 'Improving';
+        else if (avgNewer > avgOlder + 0.3) trend = 'Degrading';
+    }
+
+    const firstRunAt = sorted[0].timestamp;
+    const lastRunAt = sorted[sorted.length - 1].timestamp;
+    const lastVerdict = sorted[sorted.length - 1].verdict;
+
+    // Count consecutive recent same-verdicts
+    let consecutiveLast = 0;
+    for (let i = sorted.length - 1; i >= 0; i--) {
+        if (sorted[i].verdict === lastVerdict) consecutiveLast++;
+        else break;
+    }
+
+    // ── Verdict emoji helper ──
+    const verdictEmoji = (v: string) => {
+        if (v === 'healthy' || v === 'completed') return '✅';
+        if (v === 'warning') return '⚠️';
+        if (v === 'error') return '❌';
+        if (v === 'critical') return '🔴';
+        if (v === 'paused') return '⏸️';
+        return '❓';
+    };
+
+    // ── Breach category label ──
+    const breachCategoryLabel: Record<string, string> = {
+        critical: '🔴 Critical Breaches',
+        error: '❌ Error Breaches',
+        warning: '⚠️ Warning Breaches',
+        paused: '⏸️ Paused Runs',
+        unknown: '❓ Unknown Issues',
+    };
+
+    // ── Extract structured fields from summary ──
+    const parseSummary = (summary: string | undefined) => {
+        if (!summary) return { title: 'No details available', body: '', impact: '', rootCause: '' };
+        const lines = summary.split('\n').map(l => l.trim()).filter(Boolean);
+        const title = lines[0]?.replace(/^#+\s*/, '').substring(0, 120) || 'Investigation finding';
+
+        // Try to extract Impact and Root Cause from structured text
+        const impactMatch = summary.match(/impact[:\s]*([^\n]+)/i);
+        const causeMatch = summary.match(/(?:root\s*cause|cause|reason)[:\s]*([^\n]+)/i);
+        const impact = impactMatch ? impactMatch[1].trim() : '';
+        const rootCause = causeMatch ? causeMatch[1].trim() : '';
+
+        // Build readable body: skip title, strip markdown noise, exclude impact/cause lines
+        const impactLine = impactMatch ? impactMatch[0].trim() : '';
+        const causeLine = causeMatch ? causeMatch[0].trim() : '';
+        const bodyLines = lines.slice(1)
+            .map(l => l.replace(/^#+\s*/, '').replace(/^[-*]\s+/, ''))
+            .filter(l => l.length > 0 && l !== impactLine && l !== causeLine);
+        const body = bodyLines.join(' ');
+
+        return { title, body, impact, rootCause };
+    };
+
+    // ── Status line ──
+    let statusLine: string;
+    if (successRate >= 90) {
+        statusLine = `✅ **Healthy** — ${successRate}% success rate across ${sorted.length} runs`;
+    } else if (successRate >= 70) {
+        statusLine = `⚠️ **Mostly Healthy** — ${successRate}% success rate across ${sorted.length} runs`;
+    } else if (successRate >= 50) {
+        statusLine = `❌ **Needs Attention** — ${successRate}% success rate across ${sorted.length} runs`;
+    } else {
+        statusLine = `🔴 **Critical** — only ${successRate}% success rate across ${sorted.length} runs`;
+    }
+
+    // ── Trend line ──
+    let trendLine = `- **Trend:** Stable`;
+    if (trend === 'Improving') {
+        trendLine = `- **Trend:** 📈 Improving — recent runs are healthier than earlier ones`;
+    } else if (trend === 'Degrading') {
+        trendLine = `- **Trend:** 📉 Degrading — recent runs show more issues than earlier ones`;
+    }
+
+    // ── Alert lines ──
+    const alertLines: string[] = [];
+    if (consecutiveLast >= 3 && lastVerdict === 'critical') {
+        alertLines.push(`> 🔴 **${consecutiveLast} consecutive CRITICAL runs** — immediate investigation recommended`);
+    } else if (consecutiveLast >= 3 && lastVerdict === 'error') {
+        alertLines.push(`> ❌ **${consecutiveLast} consecutive ERROR runs** — review monitoring config or target availability`);
+    }
+
+    // ── Verdict breakdown bullets ──
+    const verdictOrder = ['healthy', 'completed', 'warning', 'paused', 'error', 'critical', 'unknown'];
+    const activeVerdicts = verdictOrder.filter(v => (verdictBreakdown[v] || 0) > 0);
+    const verdictBullets = activeVerdicts.map(v => {
+        const count = verdictBreakdown[v];
+        const pct = Math.round((count / sorted.length) * 100);
+        const label = v.charAt(0).toUpperCase() + v.slice(1);
+        return `- ${verdictEmoji(v)} **${label}:** ${count} runs (${pct}%)`;
+    });
+
+    // ── Group non-healthy entries by verdict as breach categories ──
+    const breachVerdicts = ['critical', 'error', 'warning', 'paused', 'unknown'] as const;
+    const breachSections: string[] = [];
+    const allBreachEntries: { verdict: string; entry: ScheduleHistoryEntry; parsed: ReturnType<typeof parseSummary> }[] = [];
+    for (const bv of breachVerdicts) {
+        const breaches = sorted.filter(e => e.verdict === bv);
+        if (breaches.length === 0) continue;
+        breachSections.push(`### ${breachCategoryLabel[bv]}`);
+        breachSections.push('');
+        breaches.forEach((entry) => {
+            const parsed = parseSummary(entry.summary);
+            allBreachEntries.push({ verdict: bv, entry, parsed });
+            const dateStr = new Date(entry.timestamp).toLocaleString();
+
+            breachSections.push(`---`);
+            breachSections.push('');
+            breachSections.push(`#### ${parsed.title}`);
+            breachSections.push('');
+            breachSections.push(`🕐 ${dateStr}`);
+            breachSections.push('');
+            if (parsed.body) {
+                breachSections.push(parsed.body);
+                breachSections.push('');
+            }
+            if (parsed.impact) {
+                breachSections.push(`**Impact:** ${parsed.impact}`);
+                breachSections.push('');
+            }
+            if (parsed.rootCause) {
+                breachSections.push(`**Root cause:** ${parsed.rootCause}`);
+                breachSections.push('');
+            }
+        });
+    }
+
+    // ── Key Takeaways: identify patterns across breaches ──
+    const takeaways: string[] = [];
+    if (allBreachEntries.length > 0) {
+        // Count recurring title patterns (first 60 chars)
+        const titleFreq: Record<string, number> = {};
+        for (const b of allBreachEntries) {
+            const key = b.parsed.title.substring(0, 60);
+            titleFreq[key] = (titleFreq[key] || 0) + 1;
+        }
+        const repeating = Object.entries(titleFreq).filter(([, c]) => c > 1).sort((a, b) => b[1] - a[1]);
+        for (const [pattern, count] of repeating) {
+            takeaways.push(`- **Recurring (×${count}):** ${pattern}`);
+        }
+
+        // Verdict distribution insight
+        const critCount = allBreachEntries.filter(b => b.verdict === 'critical').length;
+        const errCount = allBreachEntries.filter(b => b.verdict === 'error').length;
+        if (critCount > 0 && critCount === allBreachEntries.length) {
+            takeaways.push(`- All ${critCount} issues are **critical severity** — systemic problem likely`);
+        } else if (critCount > 0) {
+            takeaways.push(`- ${critCount} of ${allBreachEntries.length} issues are critical severity`);
+        }
+        if (errCount > 0 && critCount === 0) {
+            takeaways.push(`- ${errCount} error-level issues detected`);
+        }
+
+        // Time clustering: check if breaches cluster in recent runs
+        if (sorted.length >= 4) {
+            const mid = Math.floor(sorted.length / 2);
+            const recentBreaches = allBreachEntries.filter(b => sorted.indexOf(b.entry) >= mid).length;
+            if (recentBreaches > allBreachEntries.length / 2) {
+                takeaways.push(`- Issues are concentrated in **recent runs** — problem may be getting worse`);
+            }
+        }
+    }
+
+    // ── Healthy / completed runs summary (compact) ──
+    const healthyEntries = sorted.filter(e => e.verdict === 'healthy' || e.verdict === 'completed');
+    const healthySection: string[] = [];
+    if (healthyEntries.length > 0) {
+        healthySection.push(`### ✅ Healthy Runs (${healthyEntries.length})`);
+        healthySection.push('');
+        // Show only timestamps for healthy runs — keep focus on issues
+        const healthyDates = healthyEntries.map(e => new Date(e.timestamp).toLocaleString());
+        healthySection.push(healthyDates.join(', '));
+        healthySection.push('');
+    }
+
+    // ── Assemble ──
+    const lines: string[] = [
+        `# ${schedule.name}`,
+        ``,
+        statusLine,
+        ``,
+        ...alertLines,
+        ...(alertLines.length > 0 ? [''] : []),
+        `## At a Glance`,
+        ``,
+        `- **Target:** ${schedule.target}`,
+        `- **Total Runs:** ${sorted.length}`,
+        `- **Period:** ${new Date(firstRunAt).toLocaleString()} → ${new Date(lastRunAt).toLocaleString()}`,
+        `- **Last Result:** ${verdictEmoji(lastVerdict)} ${lastVerdict.charAt(0).toUpperCase() + lastVerdict.slice(1)}`,
+        trendLine,
+        ``,
+        `## Findings Breakdown`,
+        ``,
+        ...verdictBullets,
+        ``,
+        ...(takeaways.length > 0 ? [
+            `## Key Takeaways`,
+            ``,
+            ...takeaways,
+            ``,
+        ] : []),
+        `## Detailed Findings`,
+        ``,
+        ...(breachSections.length > 0 ? breachSections : ['_No breaches detected — all runs healthy._', '']),
+        ...healthySection,
+        `---`,
+        `_Report generated at ${new Date().toLocaleString()}_`,
+    ];
+
+    return lines.join('\n');
 }

@@ -14,7 +14,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { appRoot, isPackaged, resolveFromRoot } from './utils/appRoot';
 import { ScheduleStore, ScheduleDefinition } from './schedules/ScheduleStore';
-import { Scheduler, SchedulerConfig } from './schedules/Scheduler';
+import { Scheduler, SchedulerConfig, generateExecutiveReport } from './schedules/Scheduler';
 import { QueryBankStore, SavedQuery } from './querybank/QueryBankStore';
 
 const app = express();
@@ -712,6 +712,7 @@ let config: {
     // Scheduled investigation settings
     maxConcurrentScheduledInvestigations: number;
     scheduledInvestigationMaxSteps: number;
+    scheduledInvestigationRetentionCount: number;
     // UI preferences
     defaultView: 'grid' | 'list';
     defaultSortOrder: 'newest' | 'oldest' | 'steps' | 'modified';
@@ -739,6 +740,7 @@ let config: {
     activeProductId: '',
     maxConcurrentScheduledInvestigations: 2,
     scheduledInvestigationMaxSteps: 20,
+    scheduledInvestigationRetentionCount: 10,
     defaultView: 'grid',
     defaultSortOrder: 'newest',
 };
@@ -943,6 +945,7 @@ app.post('/api/settings', (req, res) => {
             'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
             'maxConcurrentInvestigations', 'maxConcurrentScheduledInvestigations',
+            'scheduledInvestigationRetentionCount',
             'autoRefreshInterval', 'workingDirectory',
             'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
             'investigationsPath', 'products', 'activeProductId',
@@ -1007,6 +1010,7 @@ app.post('/api/settings/import', (req, res) => {
             'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
             'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
             'maxConcurrentInvestigations', 'maxConcurrentScheduledInvestigations',
+            'scheduledInvestigationRetentionCount',
             'autoRefreshInterval', 'workingDirectory',
             'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
             'investigationsPath', 'products', 'activeProductId',
@@ -1805,6 +1809,8 @@ app.get('/api/investigations', (req, res) => {
     }
 
     // ── Collect filter metadata from ALL summaries (before filtering) ──
+    // Exclude scheduled investigations from stats — they are only visible via Schedules tab
+    const manualSummaries = summaries.filter(s => s.source !== 'scheduled');
     const productsSet = new Map<string, string>();
     const tagsSet = new Set<string>();
     const creatorsSet = new Set<string>();
@@ -1821,7 +1827,7 @@ app.get('/api/investigations', (req, res) => {
     const lastWeekStart = weekStart - 7 * dayMs;
     let thisWeekCount = 0, lastWeekCount = 0;
 
-    for (const s of summaries) {
+    for (const s of manualSummaries) {
         if (s.productId && s.productName) productsSet.set(s.productId, s.productName);
         for (const t of s.tags) tagsSet.add(t);
         if (s.createdBy) creatorsSet.add(s.createdBy);
@@ -1856,7 +1862,7 @@ app.get('/api/investigations', (req, res) => {
     };
 
     const stats = {
-        total: summaries.length,
+        total: manualSummaries.length,
         ...statusCounts,
         successRate: resolvedCount > 0 ? Math.round((completedKpi / resolvedCount) * 100) : 0,
         resolvedCount,
@@ -1870,9 +1876,15 @@ app.get('/api/investigations', (req, res) => {
 
     // ── Apply server-side filters ───────────────────────────────────
     let filtered = summaries;
+    // By default, exclude scheduled investigations from the dashboard list.
+    // They are only visible via the Schedules tab. Pass sourceFilter=scheduled to see them.
+    if (filterSource === 'all') {
+        filtered = filtered.filter(s => s.source !== 'scheduled');
+    } else if (filterSource !== 'all') {
+        filtered = filtered.filter(s => s.source === filterSource);
+    }
     if (filterStatus !== 'all') filtered = filtered.filter(s => s.status === filterStatus);
     if (filterProduct !== 'all') filtered = filtered.filter(s => s.productId === filterProduct);
-    if (filterSource !== 'all') filtered = filtered.filter(s => s.source === filterSource);
     if (filterTag !== 'all') filtered = filtered.filter(s => s.tags.includes(filterTag));
     if (filterCreatedBy !== 'all') filtered = filtered.filter(s => s.createdBy === filterCreatedBy);
     if (searchQuery) {
@@ -3159,6 +3171,49 @@ let scheduleStore: ScheduleStore | null = null;
 let scheduler: Scheduler | null = null;
 let queryBankStore: QueryBankStore | null = null;
 
+/** Extracted so v8 coverage tracks branch-level data reliably across worker merges. */
+async function deleteInvestigationFromDisk(investigationId: string): Promise<void> {
+    invalidateListCache();
+    const runner = runners.get(investigationId);
+    if (runner) {
+        runners.delete(investigationId);
+    }
+    const investigation = history.get(investigationId);
+    if (!investigation) return;
+
+    let investigationsDir = getGlobalInvestigationsDir();
+    if (investigation.productId) {
+        const product = (config.products || []).find((p: Product) => p.id === investigation.productId);
+        if (product && product.investigationsPath) {
+            investigationsDir = product.investigationsPath;
+        }
+    }
+
+    history.delete(investigationId);
+
+    const safeId = investigationId.replace(/[^a-zA-Z0-9]/g, '');
+    let dirPath: string | null = null;
+    try {
+        const entries = fs.readdirSync(investigationsDir);
+        const match = entries.find(e => e.endsWith(`_${safeId}`));
+        if (match) {
+            dirPath = path.join(investigationsDir, match);
+        }
+    } catch (_e) { /* directory may not exist */ }
+
+    const jsonPath = path.join(investigationsDir, `${investigationId}.json`);
+    try {
+        if (dirPath && fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
+            fs.rmSync(dirPath, { recursive: true, force: true });
+        }
+        if (fs.existsSync(jsonPath)) {
+            fs.unlinkSync(jsonPath);
+        }
+    } catch (_e) { /* best-effort cleanup */ }
+
+    broadcast(investigationId, 'status', { status: 'deleted' });
+}
+
 export function initScheduler(): void {
     const invPath = getScheduleInvestigationsPath();
     ensureDirectoryExists(invPath);
@@ -3187,9 +3242,24 @@ export function initScheduler(): void {
                 finalReport: state.finalReport,
             };
         },
+        // deleteInvestigation adapter for Scheduler pruning
+        deleteInvestigationFromDisk,
+        // listScheduleInvestigations: return IDs for a given scheduleId, newest first
+        (scheduleId: string) => {
+            const ids: string[] = [];
+            for (const [id, state] of history.entries()) {
+                if (state.scheduleId === scheduleId) {
+                    ids.push(id);
+                }
+            }
+            // IDs are Date.now() timestamps — sort descending (newest first)
+            ids.sort((a, b) => Number(b) - Number(a));
+            return ids;
+        },
         {
             maxConcurrentScheduledInvestigations: config.maxConcurrentScheduledInvestigations,
             scheduledInvestigationMaxSteps: config.scheduledInvestigationMaxSteps,
+            scheduledInvestigationRetentionCount: config.scheduledInvestigationRetentionCount,
             globalMaxSteps: config.maxSteps,
             defaultTimeRange: config.defaultTimeRange,
         },
@@ -3226,13 +3296,15 @@ app.get('/api/schedules', (req, res) => {
     // Auto-settle any schedules with stale activeInvestigationId
     const schedules = scheduleStore.getAll();
     for (const sched of schedules) {
-        // ── Fix already-settled verdicts that were incorrectly set to 'error' ──
-        // Before the 'paused' verdict was introduced, paused investigations were
-        // mapped to 'error'. Correct them by checking the actual investigation.
-        if (!sched.activeInvestigationId && sched.lastVerdict === 'error' && sched.lastInvestigationId) {
+        // ── Fix already-settled verdicts that became stale ──
+        // e.g. 'error' → 'paused' (legacy), or 'paused' → 'completed' (investigation resumed)
+        if (!sched.activeInvestigationId && sched.lastInvestigationId) {
             const inv = history.get(sched.lastInvestigationId);
-            if (inv && inv.status === 'paused') {
-                scheduleStore.update(sched.id, { lastVerdict: inv.verdict || 'paused' });
+            if (inv && ['paused', 'completed', 'failed', 'aborted'].includes(inv.status)) {
+                const actualVerdict = inv.verdict || (inv.status === 'paused' ? 'paused' : inv.status === 'completed' ? 'completed' : 'error');
+                if (actualVerdict !== sched.lastVerdict) {
+                    scheduleStore.update(sched.id, { lastVerdict: actualVerdict });
+                }
             }
             continue;
         }
@@ -3258,6 +3330,18 @@ app.get('/api/schedules', (req, res) => {
             const verdict = state.status === 'paused'
                 ? (state.verdict || 'paused')   // hit max steps — not an error
                 : (state.verdict || 'error');
+
+            // Also write history entry if the Scheduler missed settlement
+            const existingHistory = scheduleStore.getHistory(sched.id);
+            if (!existingHistory.some(e => e.investigationId === sched.activeInvestigationId)) {
+                scheduleStore.appendHistory(sched.id, {
+                    timestamp: new Date().toISOString(),
+                    verdict,
+                    investigationId: sched.activeInvestigationId,
+                    summary: state.finalReport?.substring(0, 2000),
+                });
+            }
+
             scheduleStore.update(sched.id, {
                 activeInvestigationId: undefined,
                 lastVerdict: verdict,
@@ -3270,7 +3354,10 @@ app.get('/api/schedules', (req, res) => {
     const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
     const clampedPage = Math.min(page, totalPages);
     const startIdx = (clampedPage - 1) * pageSize;
-    const items = allSchedules.slice(startIdx, startIdx + pageSize);
+    const items = allSchedules.slice(startIdx, startIdx + pageSize).map(s => ({
+        ...s,
+        historyCount: scheduleStore!.getHistoryCount(s.id),
+    }));
 
     res.json({ items, totalCount, page: clampedPage, pageSize, totalPages });
 });
@@ -3436,17 +3523,121 @@ app.get('/api/schedules/:id/history', (req, res) => {
     const maxEntries = req.query.maxEntries ? parseInt(req.query.maxEntries as string, 10) : undefined;
     const entries = scheduleStore.getHistory(req.params.id, maxEntries);
 
-    // Correct legacy 'error' verdicts that were actually 'paused' investigations
+    // Correct stale verdicts by checking actual investigation state
+    // e.g. 'error' → 'paused' (legacy), or 'paused' → 'completed' (investigation resumed)
     for (const entry of entries) {
-        if (entry.verdict === 'error' && entry.investigationId) {
+        if (entry.investigationId) {
             const inv = history.get(entry.investigationId);
-            if (inv && inv.status === 'paused') {
-                entry.verdict = inv.verdict || 'paused';
+            if (inv && ['paused', 'completed', 'failed', 'aborted'].includes(inv.status)) {
+                const actualVerdict = inv.verdict || (inv.status === 'paused' ? 'paused' : inv.status === 'completed' ? 'completed' : 'error');
+                if (actualVerdict !== entry.verdict) {
+                    entry.verdict = actualVerdict;
+                }
+            }
+            // Backfill missing summary from actual investigation state
+            if (!entry.summary && inv?.finalReport) {
+                entry.summary = inv.finalReport.substring(0, 2000);
             }
         }
     }
 
     res.json(entries);
+});
+
+app.get('/api/schedules/:id/report', (req, res) => {
+    if (!scheduleStore) return res.status(500).json({ error: 'Scheduler not initialized' });
+    const sched = scheduleStore.getAll().find((s: any) => s.id === req.params.id);
+    if (!sched) return res.status(404).json({ error: 'Schedule not found' });
+
+    const entries = scheduleStore.getHistory(req.params.id);
+    if (entries.length === 0) {
+        return res.json({
+            scheduleId: req.params.id,
+            scheduleName: sched.name,
+            totalRuns: 0,
+            verdictBreakdown: {},
+            successRate: 0,
+            trend: 'stable' as const,
+            recentSummaries: [],
+        });
+    }
+
+    // Correct verdicts & backfill summaries (same logic as history endpoint)
+    for (const entry of entries) {
+        if (entry.investigationId) {
+            const inv = history.get(entry.investigationId);
+            if (inv && ['paused', 'completed', 'failed', 'aborted'].includes(inv.status)) {
+                const actualVerdict = inv.verdict || (inv.status === 'paused' ? 'paused' : inv.status === 'completed' ? 'completed' : 'error');
+                if (actualVerdict !== entry.verdict) entry.verdict = actualVerdict;
+            }
+            if (!entry.summary && inv?.finalReport) {
+                entry.summary = inv.finalReport.substring(0, 2000);
+            }
+        }
+    }
+
+    // Verdict breakdown
+    const verdictBreakdown: Record<string, number> = {};
+    for (const e of entries) {
+        verdictBreakdown[e.verdict] = (verdictBreakdown[e.verdict] || 0) + 1;
+    }
+
+    // Success rate: healthy + completed = success
+    const successCount = (verdictBreakdown['healthy'] || 0) + (verdictBreakdown['completed'] || 0);
+    const successRate = Math.round((successCount / entries.length) * 1000) / 10;
+
+    // Trend: compare last 5 vs previous 5 using severity score
+    const severityScore = (v: string) => {
+        if (v === 'critical') return 4;
+        if (v === 'error') return 3;
+        if (v === 'warning') return 2;
+        if (v === 'paused') return 1;
+        return 0; // healthy, completed, unknown
+    };
+    const sorted = [...entries].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    let trend: 'improving' | 'degrading' | 'stable' = 'stable';
+    if (sorted.length >= 4) {
+        const mid = Math.floor(sorted.length / 2);
+        const olderHalf = sorted.slice(0, mid);
+        const newerHalf = sorted.slice(mid);
+        const avgOlder = olderHalf.reduce((s, e) => s + severityScore(e.verdict), 0) / olderHalf.length;
+        const avgNewer = newerHalf.reduce((s, e) => s + severityScore(e.verdict), 0) / newerHalf.length;
+        if (avgNewer < avgOlder - 0.3) trend = 'improving';
+        else if (avgNewer > avgOlder + 0.3) trend = 'degrading';
+    }
+
+    // Recent summaries (last 10, newest first)
+    const recentSummaries = sorted.slice(-10).reverse().map(e => ({
+        timestamp: e.timestamp,
+        verdict: e.verdict,
+        investigationId: e.investigationId,
+        summary: e.summary || undefined,
+    }));
+
+    // Time range
+    const firstRunAt = sorted[0].timestamp;
+    const lastRunAt = sorted[sorted.length - 1].timestamp;
+
+    // Executive summary: read from file or generate on-demand for older schedules
+    let executiveSummary = scheduleStore.getExecutiveReport(req.params.id);
+    if (!executiveSummary) {
+        executiveSummary = generateExecutiveReport(sched, entries);
+        // Persist so subsequent reads are fast
+        try { scheduleStore.writeExecutiveReport(req.params.id, executiveSummary); } catch { /* best-effort */ }
+    }
+
+    res.json({
+        scheduleId: req.params.id,
+        scheduleName: sched.name,
+        totalRuns: entries.length,
+        verdictBreakdown,
+        successRate,
+        trend,
+        firstRunAt,
+        lastRunAt,
+        recentSummaries,
+        executiveSummary,
+    });
 });
 
 app.post('/api/scheduler/start', (_req, res) => {

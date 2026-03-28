@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback, useDeferredVa
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code, Trash2 } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { useNotification } from '../hooks/useNotification';
@@ -551,6 +551,7 @@ export const InvestigationDetail = () => {
     const prevStatusRef = useRef<string | null>(null);
     const [justCompleted, setJustCompleted] = useState(false);
     const [maxSteps, setMaxSteps] = useState<number>(0);
+    const [notFound, setNotFound] = useState(false);
 
     // Memoized thought filtering to avoid re-filtering on every render
     const filteredThoughts = useMemo(() => {
@@ -637,10 +638,10 @@ export const InvestigationDetail = () => {
             }
         } catch (err: any) {
             console.error(err);
-            // If investigation not found, redirect to home page
+            // If investigation not found, show friendly message
             if (err.message === 'Not found' || err.status === 404) {
-                console.log('Investigation not found, redirecting to home...');
-                navigate('/', { replace: true });
+                console.log('Investigation not found (may have been cleaned up by retention policy)');
+                setNotFound(true);
             }
         }
     };
@@ -938,6 +939,32 @@ export const InvestigationDetail = () => {
             }
         }
     };
+
+    if (notFound) return (
+        <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 flex items-center justify-center px-4">
+            <div className="text-center space-y-4 max-w-md">
+                <div className="inline-flex p-4 bg-slate-800/60 rounded-2xl border border-slate-700/40 mb-2">
+                    <Trash2 className="w-10 h-10 text-slate-500" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-300">Investigation Not Available</h2>
+                <p className="text-sm text-slate-400">This investigation may have been automatically cleaned up by the retention policy, or it was deleted.</p>
+                <div className="flex items-center justify-center gap-3 pt-2">
+                    <button
+                        onClick={() => navigate('/')}
+                        className="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-sm font-bold transition-colors"
+                    >
+                        Go to Dashboard
+                    </button>
+                    <button
+                        onClick={() => navigate('/schedules')}
+                        className="px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-300 text-sm font-bold transition-colors"
+                    >
+                        View Schedules
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
 
     if (!investigation) return (
         <div className="fixed top-14 sm:top-16 inset-x-0 bottom-0 px-3 sm:px-6 md:px-8 pt-2 sm:pt-4 pb-2 z-0">

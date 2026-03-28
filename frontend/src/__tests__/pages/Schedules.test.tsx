@@ -35,6 +35,7 @@ vi.mock('../../api', () => ({
         listModels: vi.fn().mockResolvedValue(['gpt-4o', 'claude-3-opus']),
         getSettings: vi.fn().mockResolvedValue({ model: 'gpt-4o', scheduledInvestigationMaxSteps: 50 }),
         getScheduleHistory: vi.fn().mockResolvedValue([]),
+        getScheduleReport: vi.fn().mockResolvedValue({ totalRuns: 0, verdictBreakdown: {}, successRate: 0, trend: 'stable', recentSummaries: [] }),
         deleteSchedule: vi.fn().mockResolvedValue({}),
         enableSchedule: vi.fn().mockResolvedValue({}),
         disableSchedule: vi.fn().mockResolvedValue({}),
@@ -105,6 +106,7 @@ describe('Schedules', () => {
         vi.mocked(api.listModels).mockResolvedValue(['gpt-4o', 'claude-3-opus']);
         vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', scheduledInvestigationMaxSteps: 50 } as any);
         vi.mocked(api.getScheduleHistory).mockResolvedValue([]);
+        vi.mocked(api.getScheduleReport).mockResolvedValue({ totalRuns: 0, verdictBreakdown: {}, successRate: 0, trend: 'stable', recentSummaries: [] } as any);
         vi.mocked(api.deleteSchedule).mockResolvedValue({});
         vi.mocked(api.enableSchedule).mockResolvedValue({});
         vi.mocked(api.disableSchedule).mockResolvedValue({});
@@ -165,7 +167,7 @@ describe('Schedules', () => {
             renderSchedules();
             await waitFor(() => {
                 expect(screen.getByText(/no schedules yet/i)).toBeInTheDocument();
-                expect(screen.getByText(/create a schedule to periodically run/i)).toBeInTheDocument();
+                expect(screen.getByText(/create your first schedule/i)).toBeInTheDocument();
             });
         });
 
@@ -242,50 +244,50 @@ describe('Schedules', () => {
     // ══════════════════════════════════════════════════════════════════════
 
     describe('Scheduler Toggle', () => {
-        it('shows Stop Scheduler button when scheduler is running', async () => {
+        it('shows Stop button when scheduler is running', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSchedulerStatus).mockResolvedValue({ running: true });
 
             renderSchedules();
             await waitFor(() => {
-                expect(screen.getByRole('button', { name: /stop scheduler/i })).toBeInTheDocument();
+                expect(screen.getByRole('button', { name: /stop$/i })).toBeInTheDocument();
             });
         });
 
-        it('shows Start Scheduler button when scheduler is stopped', async () => {
+        it('shows Start button when scheduler is stopped', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSchedulerStatus).mockResolvedValue({ running: false });
 
             renderSchedules();
             await waitFor(() => {
-                expect(screen.getByRole('button', { name: /start scheduler/i })).toBeInTheDocument();
+                expect(screen.getByRole('button', { name: /start$/i })).toBeInTheDocument();
             });
         });
 
-        it('calls stopScheduler when clicking Stop Scheduler', async () => {
+        it('calls stopScheduler when clicking Stop', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSchedulerStatus).mockResolvedValue({ running: true });
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
-            await waitFor(() => screen.getByRole('button', { name: /stop scheduler/i }));
+            await waitFor(() => screen.getByRole('button', { name: /stop$/i }));
 
-            await user.click(screen.getByRole('button', { name: /stop scheduler/i }));
+            await user.click(screen.getByRole('button', { name: /stop$/i }));
 
             await waitFor(() => {
                 expect(api.stopScheduler).toHaveBeenCalled();
             });
         });
 
-        it('calls startScheduler when clicking Start Scheduler', async () => {
+        it('calls startScheduler when clicking Start', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSchedulerStatus).mockResolvedValue({ running: false });
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
-            await waitFor(() => screen.getByRole('button', { name: /start scheduler/i }));
+            await waitFor(() => screen.getByRole('button', { name: /start$/i }));
 
-            await user.click(screen.getByRole('button', { name: /start scheduler/i }));
+            await user.click(screen.getByRole('button', { name: /start$/i }));
 
             await waitFor(() => {
                 expect(api.startScheduler).toHaveBeenCalled();
@@ -298,10 +300,10 @@ describe('Schedules', () => {
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderSchedules();
-            await waitFor(() => screen.getByRole('button', { name: /stop scheduler/i }));
+            await waitFor(() => screen.getByRole('button', { name: /stop$/i }));
 
             vi.mocked(api.getSchedules).mockClear();
-            await user.click(screen.getByRole('button', { name: /stop scheduler/i }));
+            await user.click(screen.getByRole('button', { name: /stop$/i }));
 
             await waitFor(() => {
                 expect(api.getSchedules).toHaveBeenCalled();
@@ -344,13 +346,13 @@ describe('Schedules', () => {
             });
         });
 
-        it('displays DISABLED badge for disabled schedules', async () => {
+        it('displays Disabled badge for disabled schedules', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ enabled: false })]));
 
             renderSchedules();
             await waitFor(() => {
-                expect(screen.getByText('DISABLED')).toBeInTheDocument();
+                expect(screen.getByText('Disabled')).toBeInTheDocument();
             });
         });
 
@@ -407,7 +409,7 @@ describe('Schedules', () => {
             await waitFor(() => {
                 // Find the verdict badge specifically (has both icon and label)
                 const badges = screen.getAllByText('Warning');
-                const verdictBadge = badges.find(el => el.closest('div[class*="rounded-lg"]')?.querySelector('svg'));
+                const verdictBadge = badges.find(el => el.closest('div[class*="rounded-"]')?.querySelector('svg'));
                 expect(verdictBadge).toBeInTheDocument();
             });
         });
@@ -430,7 +432,7 @@ describe('Schedules', () => {
             await waitFor(() => {
                 // Find the verdict badge specifically (has both icon and label)
                 const errorElements = screen.getAllByText('Error');
-                const verdictBadge = errorElements.find(el => el.closest('div[class*="rounded-lg"]')?.querySelector('svg'));
+                const verdictBadge = errorElements.find(el => el.closest('div[class*="rounded-"]')?.querySelector('svg'));
                 expect(verdictBadge).toBeInTheDocument();
             });
         });
@@ -483,8 +485,8 @@ describe('Schedules', () => {
 
             renderSchedules();
             await waitFor(() => {
-                // Find the schedule card with critical styling - it has the animate-flicker-red class
-                const scheduleContainer = document.querySelector('.animate-flicker-red');
+                // Find the schedule card with critical styling — uses border-l-red-500 from verdictConfig
+                const scheduleContainer = document.querySelector('.border-l-red-500');
                 expect(scheduleContainer).toBeInTheDocument();
             });
         });
@@ -1391,7 +1393,7 @@ describe('Schedules', () => {
             await user.click(screen.getByText('Daily Check'));
 
             await waitFor(() => {
-                const link = screen.getByText(/view latest investigation/i);
+                const link = screen.getByText(/view latest investigation/i).closest('a');
                 expect(link).toHaveAttribute('href', '/investigation/inv-latest-123');
             });
         });
@@ -1458,7 +1460,7 @@ describe('Schedules', () => {
 
             renderSchedules();
             await waitFor(() => {
-                expect(screen.getByText(/last:.*30m ago/i)).toBeInTheDocument();
+                expect(screen.getByText(/30m ago/i)).toBeInTheDocument();
             });
         });
 
@@ -1470,7 +1472,7 @@ describe('Schedules', () => {
 
             renderSchedules();
             await waitFor(() => {
-                expect(screen.getByText(/last:.*never/i)).toBeInTheDocument();
+                expect(screen.getByText(/never/i)).toBeInTheDocument();
             });
         });
 
@@ -1512,7 +1514,7 @@ describe('Schedules', () => {
 
             renderSchedules();
             await waitFor(() => {
-                expect(screen.getByText(/last:.*2d ago/i)).toBeInTheDocument();
+                expect(screen.getByText(/2d ago/i)).toBeInTheDocument();
             });
         });
     });
@@ -1600,6 +1602,255 @@ describe('Schedules', () => {
                 expect(amberDots.length).toBeGreaterThan(0);
                 expect(redDots.length).toBeGreaterThan(0);
             });
+        });
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Executive Summary
+    // ══════════════════════════════════════════════════════════════════════
+
+    describe('Executive Summary', () => {
+        it('shows Executive Summary button when report has executiveSummary', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+            vi.mocked(api.getScheduleReport).mockResolvedValue({
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                verdictBreakdown: { healthy: 2, warning: 1 }, successRate: 66.7, trend: 'stable',
+                recentSummaries: [],
+                executiveSummary: '# Executive Summary\n\nAll healthy.',
+            });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            await user.click(screen.getByText('Daily Check'));
+
+            await waitFor(() => {
+                expect(screen.getByText('Executive Summary')).toBeInTheDocument();
+            });
+        });
+
+        it('opens executive summary in a modal when clicked', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+            vi.mocked(api.getScheduleReport).mockResolvedValue({
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                verdictBreakdown: { healthy: 2, warning: 1 }, successRate: 66.7, trend: 'stable',
+                recentSummaries: [],
+                executiveSummary: '# Executive Summary\n\nTarget is operating normally.',
+            });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            await user.click(screen.getByText('Daily Check'));
+
+            await waitFor(() => {
+                expect(screen.getByText('Executive Summary')).toBeInTheDocument();
+            });
+
+            // Click to open modal
+            await user.click(screen.getByText('Executive Summary'));
+
+            await waitFor(() => {
+                expect(screen.getByRole('dialog')).toBeInTheDocument();
+                expect(screen.getByText(/operating normally/i)).toBeInTheDocument();
+            });
+        });
+
+        it('closes executive summary modal when X button is clicked', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+            vi.mocked(api.getScheduleReport).mockResolvedValue({
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                verdictBreakdown: { healthy: 2, warning: 1 }, successRate: 66.7, trend: 'stable',
+                recentSummaries: [],
+                executiveSummary: '# Executive Summary\n\nModal close test.',
+            });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('Executive Summary'));
+            await user.click(screen.getByText('Executive Summary'));
+
+            await waitFor(() => {
+                expect(screen.getByRole('dialog')).toBeInTheDocument();
+            });
+
+            // Close the modal via the X button inside the dialog
+            const dialog = screen.getByRole('dialog');
+            const closeBtn = dialog.querySelector('button');
+            expect(closeBtn).toBeTruthy();
+            await user.click(closeBtn!);
+
+            await waitFor(() => {
+                expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+            });
+        });
+
+        it('closes executive summary modal when backdrop is clicked', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+            vi.mocked(api.getScheduleReport).mockResolvedValue({
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                verdictBreakdown: { healthy: 2, warning: 1 }, successRate: 66.7, trend: 'stable',
+                recentSummaries: [],
+                executiveSummary: '# Executive Summary\n\nBackdrop test.',
+            });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('Executive Summary'));
+            await user.click(screen.getByText('Executive Summary'));
+
+            await waitFor(() => {
+                expect(screen.getByRole('dialog')).toBeInTheDocument();
+            });
+
+            // Click the backdrop (the dialog overlay itself)
+            await user.click(screen.getByRole('dialog'));
+
+            await waitFor(() => {
+                expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+            });
+        });
+
+        it('does not show executive summary when report has no executiveSummary', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+            vi.mocked(api.getScheduleReport).mockResolvedValue({
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 0,
+                verdictBreakdown: {}, successRate: 0, trend: 'stable',
+                recentSummaries: [],
+            });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            await user.click(screen.getByText('Daily Check'));
+
+            // Wait for card to expand, then verify no executive summary
+            await waitFor(() => {
+                expect(screen.getByText('History')).toBeInTheDocument();
+            });
+            expect(screen.queryByText('Executive Summary')).not.toBeInTheDocument();
+        });
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Report section rendering — trends, breakdowns, recent findings
+    // ══════════════════════════════════════════════════════════════════════
+
+    describe('Report section rendering', () => {
+        it('renders improving trend and verdict breakdown', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+            vi.mocked(api.getScheduleReport).mockResolvedValue({
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 5,
+                verdictBreakdown: { healthy: 4, warning: 1 }, successRate: 80, trend: 'improving',
+                firstRunAt: '2024-01-01T00:00:00Z', lastRunAt: '2024-01-05T00:00:00Z',
+                recentSummaries: [
+                    { timestamp: '2024-01-05T00:00:00Z', verdict: 'healthy', investigationId: 'inv-5', summary: 'Service looks great' },
+                    { timestamp: '2024-01-04T00:00:00Z', verdict: 'blah' as any, investigationId: 'inv-4', summary: 'Unknown verdict test' },
+                ],
+            });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            await user.click(screen.getByText('Daily Check'));
+
+            // Verify improving trend is rendered
+            await waitFor(() => {
+                expect(screen.getByText('Improving')).toBeInTheDocument();
+            });
+        });
+
+        it('renders degrading trend', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+            vi.mocked(api.getScheduleReport).mockResolvedValue({
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 4,
+                verdictBreakdown: { healthy: 1, critical: 3 }, successRate: 25, trend: 'degrading',
+                recentSummaries: [],
+            });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            await user.click(screen.getByText('Daily Check'));
+
+            await waitFor(() => {
+                expect(screen.getByText('Degrading')).toBeInTheDocument();
+            });
+        });
+
+        it('auto-refreshes history and report on the 15-second interval', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+            vi.mocked(api.getScheduleReport).mockResolvedValue({
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 0,
+                verdictBreakdown: {}, successRate: 0, trend: 'stable',
+                recentSummaries: [],
+            });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            await user.click(screen.getByText('Daily Check'));
+
+            // Wait for the initial load
+            await waitFor(() => {
+                expect(api.getScheduleHistory).toHaveBeenCalledWith('s1', 100);
+                expect(api.getScheduleReport).toHaveBeenCalledWith('s1');
+            });
+
+            const historyCallCount = vi.mocked(api.getScheduleHistory).mock.calls.length;
+            const reportCallCount = vi.mocked(api.getScheduleReport).mock.calls.length;
+
+            // Advance by 15 seconds to trigger the interval
+            await vi.advanceTimersByTimeAsync(15_000);
+
+            await waitFor(() => {
+                expect(vi.mocked(api.getScheduleHistory).mock.calls.length).toBeGreaterThan(historyCallCount);
+                expect(vi.mocked(api.getScheduleReport).mock.calls.length).toBeGreaterThan(reportCallCount);
+            });
+        });
+
+        it('displays singular run count when historyCount is 1', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
+                createSchedule({ id: 's1', historyCount: 1 }),
+            ]));
+
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            expect(screen.getByText('1 run')).toBeInTheDocument();
+        });
+
+        it('displays plural run count when historyCount is more than 1', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
+                createSchedule({ id: 's1', historyCount: 5 }),
+            ]));
+
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            expect(screen.getByText('5 runs')).toBeInTheDocument();
         });
     });
 });
@@ -2024,7 +2275,7 @@ describe('Schedules additional coverage', () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule()]));
             renderSchedules();
-            await waitFor(() => expect(screen.getByPlaceholderText('Search schedules...')).toBeInTheDocument());
+            await waitFor(() => expect(screen.getByPlaceholderText('Search by name, stamp, or query...')).toBeInTheDocument());
         });
 
         it('filters schedules by name', async () => {
@@ -2037,7 +2288,7 @@ describe('Schedules additional coverage', () => {
             await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
             expect(screen.getByText('Weekly Report')).toBeInTheDocument();
 
-            const searchInput = screen.getByPlaceholderText('Search schedules...');
+            const searchInput = screen.getByPlaceholderText('Search by name, stamp, or query...');
             await userEvent.type(searchInput, 'Weekly');
 
             expect(screen.queryByText('Daily Check')).not.toBeInTheDocument();
@@ -2053,7 +2304,7 @@ describe('Schedules additional coverage', () => {
             renderSchedules();
             await waitFor(() => expect(screen.getByText('Schedule A')).toBeInTheDocument());
 
-            const searchInput = screen.getByPlaceholderText('Search schedules...');
+            const searchInput = screen.getByPlaceholderText('Search by name, stamp, or query...');
             await userEvent.type(searchInput, 'beta');
 
             expect(screen.queryByText('Schedule A')).not.toBeInTheDocument();
@@ -2069,7 +2320,7 @@ describe('Schedules additional coverage', () => {
             renderSchedules();
             await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
 
-            const searchInput = screen.getByPlaceholderText('Search schedules...');
+            const searchInput = screen.getByPlaceholderText('Search by name, stamp, or query...');
             await userEvent.type(searchInput, 'Weekly');
             expect(screen.queryByText('Daily Check')).not.toBeInTheDocument();
 
@@ -2118,6 +2369,156 @@ describe('Schedules additional coverage', () => {
 
             await waitFor(() => expect(consoleSpy).toHaveBeenCalledWith('Failed to clone schedule:', expect.any(Error)));
             consoleSpy.mockRestore();
+        });
+    });
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Expanded-state branch coverage
+    // ══════════════════════════════════════════════════════════════════════
+
+    describe('Expanded-state branch coverage', () => {
+        it('catches loadReport error silently (covers catch on line 146)', async () => {
+            const { api } = await import('../../api');
+            const sched = createSchedule({ id: 's1' });
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([sched]));
+            vi.mocked(api.getScheduleReport).mockRejectedValue(new Error('report fail'));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            // Expand to trigger loadReport which will fail silently
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('History'));
+            // No error thrown — component still renders
+            expect(screen.getByText('Daily Check')).toBeInTheDocument();
+        });
+
+        it('resets expandedId when deleting the currently expanded card (line 178)', async () => {
+            const { api } = await import('../../api');
+            const sched = createSchedule({ id: 's1' });
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([sched]));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            // Expand card first
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('History'));
+
+            // Delete the same expanded card
+            await user.click(screen.getByTitle('Delete'));
+            await waitFor(() => screen.getByText('Delete Schedule'));
+            const deleteButtons = screen.getAllByRole('button', { name: /delete/i });
+            const confirmBtn = deleteButtons.find(btn => btn.textContent?.toLowerCase() === 'delete');
+            await user.click(confirmBtn!);
+
+            await waitFor(() => expect(api.deleteSchedule).toHaveBeenCalledWith('s1'));
+        });
+
+        it('reloads history for different expanded card after delete (line 180)', async () => {
+            const { api } = await import('../../api');
+            const schedA = createSchedule({ id: 'sA', name: 'Schedule A' });
+            const schedB = createSchedule({ id: 'sB', name: 'Schedule B' });
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([schedA, schedB]));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Schedule A'));
+
+            // Expand schedule A
+            await user.click(screen.getByText('Schedule A'));
+            await waitFor(() => expect(api.getScheduleHistory).toHaveBeenCalledWith('sA', 100));
+
+            vi.mocked(api.getScheduleHistory).mockClear();
+
+            // Delete schedule B (while A is expanded) — triggers loadHistory(expandedId=sA)
+            const deleteButtons = screen.getAllByTitle('Delete');
+            // Click the second schedule's delete button
+            await user.click(deleteButtons[1]);
+            await waitFor(() => screen.getByText('Delete Schedule'));
+            const confirmBtns = screen.getAllByRole('button', { name: /delete/i });
+            const confirmBtn = confirmBtns.find(btn => btn.textContent?.toLowerCase() === 'delete');
+            await user.click(confirmBtn!);
+
+            await waitFor(() => {
+                expect(api.deleteSchedule).toHaveBeenCalledWith('sB');
+                expect(api.getScheduleHistory).toHaveBeenCalledWith('sA', 100);
+            });
+        });
+
+        it('reloads history after toggle-enable while expanded (line 190)', async () => {
+            const { api } = await import('../../api');
+            const sched = createSchedule({ id: 's1', enabled: true });
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([sched]));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            // Expand card
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('History'));
+
+            vi.mocked(api.getScheduleHistory).mockClear();
+
+            // Disable while expanded
+            await user.click(screen.getByTitle('Disable'));
+
+            await waitFor(() => {
+                expect(api.disableSchedule).toHaveBeenCalledWith('s1');
+                expect(api.getScheduleHistory).toHaveBeenCalledWith('s1', 100);
+            });
+        });
+
+        it('reloads history after run-now while expanded (line 196)', async () => {
+            const { api } = await import('../../api');
+            const sched = createSchedule({ id: 's1' });
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([sched]));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            // Expand card
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('History'));
+
+            vi.mocked(api.getScheduleHistory).mockClear();
+
+            // Run now while expanded
+            await user.click(screen.getByTitle('Run now'));
+
+            await waitFor(() => {
+                expect(api.runScheduleNow).toHaveBeenCalledWith('s1');
+                expect(api.getScheduleHistory).toHaveBeenCalledWith('s1', 100);
+            });
+        });
+
+        it('reloads history after toggling scheduler while expanded (line 229)', async () => {
+            const { api } = await import('../../api');
+            const sched = createSchedule({ id: 's1' });
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([sched]));
+            vi.mocked(api.getSchedulerStatus).mockResolvedValue({ running: true });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+
+            // Expand card
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('History'));
+
+            vi.mocked(api.getScheduleHistory).mockClear();
+
+            // Stop scheduler while expanded
+            await user.click(screen.getByRole('button', { name: /stop$/i }));
+
+            await waitFor(() => {
+                expect(api.stopScheduler).toHaveBeenCalled();
+                expect(api.getScheduleHistory).toHaveBeenCalledWith('s1', 100);
+            });
         });
     });
 });

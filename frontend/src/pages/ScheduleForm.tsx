@@ -72,6 +72,7 @@ export const ScheduleForm = () => {
     const [query, setQuery] = useState('');
     const [intervalMinutes, setIntervalMinutes] = useState(15);
     const [category, setCategory] = useState('');
+    const [retentionCount, setRetentionCount] = useState<number | undefined>(undefined);
 
     // Time range
     const [timeMode, setTimeMode] = useState<'preset' | 'custom'>('preset');
@@ -154,6 +155,7 @@ export const ScheduleForm = () => {
                         setProductId(sched.productId || '');
                         setCategory(sched.category || '');
                         if (sched.model) setSelectedModel(sched.model);
+                        if (sched.retentionCount !== undefined) setRetentionCount(sched.retentionCount);
 
                         // Determine if the stored timeRange is a preset or custom
                         const isPreset = TIME_PRESETS.some(p => p.value === sched.timeRange);
@@ -249,6 +251,7 @@ export const ScheduleForm = () => {
                 model: selectedModel || undefined,
                 timeRange: getTimeRange(),
                 category: category || undefined,
+                retentionCount,
             };
             if (isEdit) {
                 await api.updateSchedule(id!, data);
@@ -812,6 +815,35 @@ export const ScheduleForm = () => {
                                     </button>
                                 ))}
                             </div>
+                        </div>
+
+                        {/* Retention Count Override */}
+                        <div className="space-y-2 group/input">
+                            <label htmlFor="sched-retention" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-emerald-500 transition-colors">
+                                <Trash2 className="w-3 h-3" /> Investigation Retention
+                            </label>
+                            <div className="flex items-center gap-3">
+                                <input
+                                    id="sched-retention"
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    placeholder="Use global default"
+                                    value={retentionCount ?? ''}
+                                    onChange={(e) => setRetentionCount(e.target.value ? parseInt(e.target.value) : undefined)}
+                                    className="w-40 px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all outline-none shadow-sm text-sm placeholder:text-slate-500"
+                                />
+                                {retentionCount !== undefined && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setRetentionCount(undefined)}
+                                        className="text-xs text-slate-400 hover:text-slate-300 transition-colors"
+                                    >
+                                        Reset to default
+                                    </button>
+                                )}
+                            </div>
+                            <p className="text-[11px] text-slate-500">Override the global retention setting for this schedule. Leave blank to use the global default. Set to 0 to keep all.</p>
                         </div>
 
 

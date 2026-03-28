@@ -1229,6 +1229,31 @@ export const Settings = () => {
                                     <p className="text-xs text-slate-500">Maximum number of scheduled investigations that can run at the same time. Set to <strong className="text-slate-400">∞</strong> for unlimited. Default: 2.</p>
                                 </div>
 
+                                {/* Scheduled Investigation Retention */}
+                                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <label htmlFor="settings-scheduled-retention" className="text-sm font-bold text-slate-300 block">Scheduled Investigation Retention</label>
+                                        <span className={`text-xs font-mono px-2 py-1 rounded ${(config.scheduledInvestigationRetentionCount ?? 10) === 0 ? 'bg-brand-500/20 text-brand-400' : 'bg-slate-700 text-slate-300'}`}>
+                                            {(config.scheduledInvestigationRetentionCount ?? 10) === 0 ? '∞ Keep all' : config.scheduledInvestigationRetentionCount ?? 10}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
+                                        <input
+                                            id="settings-scheduled-retention"
+                                            type="range"
+                                            min="0"
+                                            max="50"
+                                            step="1"
+                                            value={config.scheduledInvestigationRetentionCount ?? 10}
+                                            onChange={(e) => handleChange('scheduledInvestigationRetentionCount', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500"
+                                        />
+                                        <span className="text-[10px] text-slate-500 font-bold w-4">50</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500">Maximum number of completed investigations to keep per schedule. Oldest are automatically deleted when the limit is exceeded. Set to <strong className="text-slate-400">∞</strong> to keep all. Default: 10.</p>
+                                </div>
+
                                 {/* Retrospective Timeout */}
                                 <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
                                     <div className="flex justify-between items-center">

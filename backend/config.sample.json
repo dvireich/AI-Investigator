@@ -6,6 +6,7 @@
   "maxConcurrentInvestigations": 3,
   "maxConcurrentScheduledInvestigations": 2,
   "scheduledInvestigationMaxSteps": 20,
+  "scheduledInvestigationRetentionCount": 10,
   "autoRefreshInterval": 30,
   "notifications": true,
   "defaultView": "grid",

@@ -374,6 +374,13 @@ describe('api', () => {
             const result = await api.getScheduleHistory('s1');
             expect(result).toHaveLength(1);
         });
+
+        it('getScheduleReport returns report object', async () => {
+            const report = { scheduleId: 's1', totalRuns: 5, verdictBreakdown: {}, successRate: 80, trend: 'stable', recentSummaries: [] };
+            mockFetch.mockResolvedValue(mockResponse(report));
+            const result = await api.getScheduleReport('s1');
+            expect(result.totalRuns).toBe(5);
+        });
     });
 
     describe('products', () => {
@@ -1237,6 +1244,11 @@ describe('api', () => {
         it('getScheduleHistory throws on error', async () => {
             mockFetch.mockResolvedValue(mockResponse({}, { status: 500 }));
             await expect(api.getScheduleHistory('s1')).rejects.toThrow('Failed to fetch schedule history');
+        });
+
+        it('getScheduleReport throws on error', async () => {
+            mockFetch.mockResolvedValue(mockResponse({}, { status: 500 }));
+            await expect(api.getScheduleReport('s1')).rejects.toThrow('Failed to fetch schedule report');
         });
     });
 
