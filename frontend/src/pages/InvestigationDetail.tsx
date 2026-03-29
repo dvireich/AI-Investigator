@@ -423,7 +423,7 @@ const InterventionInput = ({ onSend, status }: { onSend: (msg: string) => void, 
 };
 
 /** Extracted contest form — isolates keystroke re-renders from the heavy parent component */
-const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedback: string) => Promise<void>; actingAction: string | null }) => {
+const ContestForm = React.memo(({ onContest, actingAction, disabled }: { onContest: (feedback: string) => Promise<void>; actingAction: string | null; disabled?: boolean }) => {
     const [showForm, setShowForm] = useState(false);
     const [feedback, setFeedback] = useState('');
 
@@ -437,7 +437,9 @@ const ContestForm = React.memo(({ onContest, actingAction }: { onContest: (feedb
         return (
             <button
                 onClick={() => setShowForm(true)}
-                className="group relative flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 overflow-hidden text-amber-200/90 hover:text-amber-100"
+                disabled={disabled}
+                title={disabled ? 'Cannot contest while implementation is running' : undefined}
+                className="group relative flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 overflow-hidden text-amber-200/90 hover:text-amber-100 disabled:opacity-40 disabled:cursor-not-allowed"
             >
                 {/* Animated gradient border */}
                 <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-amber-500/25 via-orange-500/25 to-amber-500/25 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
@@ -545,6 +547,7 @@ export const InvestigationDetail = () => {
     const [implSelected, setImplSelected] = useState<Set<string>>(new Set());
     const [implLoading, setImplLoading] = useState(false);
     const [implRunning, setImplRunning] = useState(false);
+    const implStartedAtRef = useRef<number>(0);
     const [thoughtSearch, setThoughtSearch] = useState('');
     const deferredThoughtSearch = useDeferredValue(thoughtSearch);
     const { notify: browserNotify } = useNotification();
@@ -658,7 +661,12 @@ export const InvestigationDetail = () => {
 
     // Pre-load recommendations when investigation completes (already extracted by backend)
     useEffect(() => {
-        if (!investigation || investigation.status !== 'completed' || !id) return;
+        if (!investigation || !id) return;
+        if (investigation.status !== 'completed') {
+            // Clear stale recommendations when investigation is no longer completed (e.g. after contest)
+            if (implRecommendations.length > 0) setImplRecommendations([]);
+            return;
+        }
         if (implRecommendations.length > 0) return; // already loaded
         api.getRecommendations(id).then(recs => {
             if (recs.length > 0) setImplRecommendations(recs);
@@ -860,9 +868,13 @@ export const InvestigationDetail = () => {
     useEffect(() => {
         if (investigation?.implementationRunning && !implRunning) {
             setImplRunning(true);
+            implStartedAtRef.current = Date.now();
         } else if (investigation && !investigation.implementationRunning && implRunning) {
-            // Server says done but local state is still running — clear it
-            setImplRunning(false);
+            // Grace period: don't clear within 5s of starting (avoids race with stale fetch)
+            const elapsed = Date.now() - implStartedAtRef.current;
+            if (elapsed > 5000) {
+                setImplRunning(false);
+            }
         }
     }, [investigation?.implementationRunning]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -915,6 +927,7 @@ export const InvestigationDetail = () => {
     const handleStartImplementation = useCallback(async () => {
         setShowImplModal(false);
         setImplRunning(true);
+        implStartedAtRef.current = Date.now();
         try {
             await api.implementRecommendations(investigation!.id, Array.from(implSelected));
             toast('success', 'Implementation agent started. Proposals will appear as they are generated.');
@@ -1768,7 +1781,9 @@ export const InvestigationDetail = () => {
                                     {/* Proposed Code Changes Section */}
                                     {(() => {
                                         const implProposals = (investigation.retrospect?.proposals || []).filter(p => p.source === 'implementation');
-                                        if (implProposals.length === 0 && !implRunning) return null;
+                                        const implMessages = (investigation.retrospect?.messages || []).filter(m => m.role === 'user' && m.content.includes('[Implementation]'));
+                                        const implCompleted = !implRunning && implMessages.length > 0;
+                                        if (implProposals.length === 0 && !implRunning && !implCompleted) return null;
                                         const implApprovedCount = implProposals.filter(p => p.status === 'approved').length;
                                         return (
                                             <div className="relative border-b border-white/[0.06]">
@@ -1842,6 +1857,12 @@ export const InvestigationDetail = () => {
                                                             Analyzing codebase and generating proposals...
                                                         </div>
                                                     )}
+                                                    {!implRunning && implCompleted && implProposals.length === 0 && (
+                                                        <div className="flex items-center gap-2.5 px-3.5 py-3 text-xs text-slate-400">
+                                                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500/70 shrink-0" />
+                                                            Implementation completed — no code changes were proposed. The agent may need more context or the recommendation requires manual implementation.
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
                                         );
@@ -1849,7 +1870,7 @@ export const InvestigationDetail = () => {
 
                                     {/* Action Buttons Bar */}
                                     <div className="relative px-5 py-4 flex flex-wrap items-center justify-between gap-3">
-                                        <ContestForm onContest={handleContest} actingAction={actingAction} />
+                                        <ContestForm onContest={handleContest} actingAction={actingAction} disabled={implRunning} />
                                         <button
                                             onClick={handleOpenImplModal}
                                             disabled={implRunning}

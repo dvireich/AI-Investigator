@@ -2319,6 +2319,10 @@ app.post('/api/investigations/:id/action', async (req, res) => {
         runner.intervene(message);
     }
     if (action === 'contest' && message) {
+        // Block contest while implementation is running to avoid state corruption
+        if ((runner as any).state?.implementationRunning) {
+            return res.status(409).json({ error: 'Cannot contest while implementation is running. Wait for implementation to finish or cancel it first.' });
+        }
         try {
             runner.contestReport(message);
 
@@ -3129,6 +3133,10 @@ app.post('/api/investigations/:id/implement', async (req, res) => {
     }
 
     if (!runner) return res.status(404).json({ error: 'Investigation not found' });
+
+    // Set implementationRunning BEFORE responding so the first client fetch sees it
+    (runner as any).state.implementationRunning = true;
+    if (isTemporary) history.set(id, (runner as any).state);
 
     // Return immediately — the agent runs asynchronously
     res.json({ started: true, recommendations: recommendations.length });

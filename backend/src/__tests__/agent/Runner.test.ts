@@ -1271,6 +1271,28 @@ describe('AgentRunner', () => {
             const result = (runner as any).localListDir('nonexistent-dir-xyz');
             expect(result).toContain('Directory not found');
         });
+
+        it('localReadFile returns line range when startLine and endLine are provided', () => {
+            const filePath = n(require('path').resolve('/repo', 'range-test.txt'));
+            mockFsState.set(filePath, 'line1\nline2\nline3\nline4\nline5');
+            const runner = new AgentRunner(makeConfig(), provider, { status: 'completed' });
+            const result = (runner as any).localReadFile('range-test.txt', 2, 4);
+            expect(result).toContain('[Lines 2-4 of 5]');
+            expect(result).toContain('line2');
+            expect(result).toContain('line4');
+            expect(result).not.toContain('line1');
+            expect(result).not.toContain('line5');
+        });
+
+        it('localReadFile reads from startLine to end when endLine is omitted', () => {
+            const filePath = n(require('path').resolve('/repo', 'range-noend.txt'));
+            mockFsState.set(filePath, 'a\nb\nc\nd\ne');
+            const runner = new AgentRunner(makeConfig(), provider, { status: 'completed' });
+            const result = (runner as any).localReadFile('range-noend.txt', 3);
+            expect(result).toContain('[Lines 3-5 of 5]');
+            expect(result).toContain('c');
+            expect(result).toContain('e');
+        });
     });
 
     describe('start edge cases', () => {
@@ -2000,6 +2022,59 @@ describe('AgentRunner', () => {
 
             // callTool should only be called once for the file — second is dedup
             expect(mockToolManager.callTool).toHaveBeenCalledTimes(1);
+        });
+
+        it('allows range reads (startLine/endLine) and skips dedup for them', async () => {
+            let callCount = 0;
+            mockOpenAI.chat.completions.create.mockImplementation(async () => {
+                callCount++;
+                if (callCount === 1) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc1',
+                                    function: { name: 'read_file', arguments: '{"path":"large.txt"}' },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                if (callCount === 2) {
+                    return {
+                        choices: [{
+                            message: {
+                                content: null,
+                                tool_calls: [{
+                                    id: 'tc2',
+                                    function: { name: 'read_file', arguments: '{"path":"large.txt","startLine":10}' },
+                                }],
+                            },
+                        }],
+                    };
+                }
+                return { choices: [{ message: { content: 'Done.', tool_calls: null } }] };
+            });
+
+            mockToolManager.callTool.mockResolvedValue('file content');
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                thoughts: ['step1'],
+                actions: [null],
+            });
+            (runner as any).initRetrospect();
+
+            const messages = [
+                { role: 'system', content: 'prompt' },
+                { role: 'user', content: 'Analyze' },
+            ];
+            const tools = (runner as any).getRetrospectTools();
+            await (runner as any).runRetrospectToolLoop(messages, tools);
+
+            // Both calls should go through — range read bypasses dedup
+            expect(mockToolManager.callTool).toHaveBeenCalledTimes(2);
         });
 
         it('handles propose_change tool calls', async () => {

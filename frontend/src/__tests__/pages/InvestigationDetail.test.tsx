@@ -6508,7 +6508,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
         });
 
-        it('does not re-fetch recommendations when they are already loaded (implRecommendations guard)', async () => {
+        it('re-fetches recommendations after status cycles through non-completed (e.g. contest)', async () => {
             const { api } = await import('../../api');
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
@@ -6517,7 +6517,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             // Recommendations auto-loaded for completed investigation
             await waitFor(() => expect(api.getRecommendations).toHaveBeenCalledTimes(1));
 
-            // Simulate status cycling: completed → running → completed via WS
+            // Simulate status cycling: completed → running → completed via WS (e.g. contest)
             vi.mocked(api.getInvestigation).mockResolvedValueOnce(createMockInvestigation({ status: 'running', finalReport: null }));
             await act(async () => {
                 mockWsInstance?.simulateMessage({ type: 'status' });
@@ -6525,7 +6525,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            // Now return completed again – recommendations are already in state
+            // Now return completed again – stale recs were cleared, so re-fetch happens
             vi.mocked(api.getInvestigation).mockResolvedValueOnce(createMockInvestigation());
             vi.mocked(api.getRecommendations).mockClear();
             await act(async () => {
@@ -6534,8 +6534,8 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            // Guard prevents second fetch
-            expect(api.getRecommendations).not.toHaveBeenCalled();
+            // Recommendations re-fetched after contest/status cycling
+            expect(api.getRecommendations).toHaveBeenCalledTimes(1);
         });
 
         it('auto-selects P0 recommendations in the modal', async () => {

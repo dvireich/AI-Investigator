@@ -118,7 +118,7 @@ export class ToolManager {
      */
     async callTool(name: string, args: any): Promise<any> {
         // Built-in tools
-        if (name === 'read_file') return this.readFile(args.path);
+        if (name === 'read_file') return this.readFile(args.path, args.startLine, args.endLine);
         if (name === 'list_dir') return this.listDir(args.path);
         if (name === 'finish') return 'Investigation marked as finished.';
 
@@ -176,16 +176,26 @@ export class ToolManager {
         return repoPath;
     }
 
-    private readFile(filePath: string): string {
+    private readFile(filePath: string, startLine?: number, endLine?: number): string {
         try {
             const resolvedPath = this.resolvePath(filePath);
             if (!fs.existsSync(resolvedPath)) return `File not found: ${filePath}`;
 
             const MAX_FILE_CHARS = 50_000;
             const content = fs.readFileSync(resolvedPath, 'utf-8');
+
+            if (startLine != null && startLine > 0) {
+                const lines = content.split('\n');
+                const start = startLine - 1;
+                const end = endLine != null ? Math.min(endLine, lines.length) : lines.length;
+                const totalLines = lines.length;
+                const slice = lines.slice(start, end);
+                return `[Lines ${startLine}-${Math.min(end, totalLines)} of ${totalLines}]\n` + slice.join('\n');
+            }
+
             if (content.length > MAX_FILE_CHARS) {
                 return content.substring(0, MAX_FILE_CHARS) +
-                    `\n\n... [truncated — file is ${content.length.toLocaleString()} chars, limit ${MAX_FILE_CHARS.toLocaleString()}]`;
+                    `\n\n... [truncated \u2014 file is ${content.length.toLocaleString()} chars, limit ${MAX_FILE_CHARS.toLocaleString()}. Use startLine/endLine to read specific sections.]`;
             }
             return content;
         } catch (e: any) {

@@ -3580,6 +3580,16 @@ describe('server utilities and routes', () => {
             expect(runner.abort).toHaveBeenCalled();
         });
 
+        it('returns 409 when contesting while implementation is running', async () => {
+            const runner = makeRunner({ id: 'active-impl', status: 'running' });
+            (runner as any).state.implementationRunning = true;
+            __testUtils.getRunners().set('active-impl', runner as any);
+
+            const response = await api().post('/api/investigations/active-impl/action').send({ action: 'contest', message: 'Retry' });
+            expect(response.status).toBe(409);
+            expect(response.body.error).toContain('implementation is running');
+        });
+
         it('returns 400 when active contest handling throws', async () => {
             const runner = makeRunner({ id: 'active-contest', status: 'running' }, {
                 contestReport: vi.fn(() => {

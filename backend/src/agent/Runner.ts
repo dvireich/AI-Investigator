@@ -803,11 +803,13 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 type: 'function',
                 function: {
                     name: 'read_file',
-                    description: 'Read a file from the repository to inspect its current content.',
+                    description: 'Read a file from the repository. For large files, use startLine/endLine to read specific sections.',
                     parameters: {
                         type: 'object',
                         properties: {
-                            path: { type: 'string', description: 'File path relative to repo root (e.g., docs/investigations/README.md)' }
+                            path: { type: 'string', description: 'File path relative to repo root (e.g., docs/investigations/README.md)' },
+                            startLine: { type: 'number', description: 'Optional 1-based start line. Use with endLine to read a section of a large file.' },
+                            endLine: { type: 'number', description: 'Optional 1-based end line (inclusive). Use with startLine to read a section of a large file.' }
                         },
                         required: ['path']
                     }
@@ -1098,22 +1100,23 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
                 try {
                     if (fnName === 'read_file') {
-                        // Dedup: if we already read this file, return a short notice instead of re-reading
+                        // Dedup: if we already read this file in full, return a short notice instead of re-reading
                         const normalizedPath = (args.path || '').replace(/\\/g, '/').toLowerCase();
-                        if (filesRead.has(normalizedPath)) {
+                        const isRangeRead = args.startLine != null && args.startLine > 0;
+                        if (filesRead.has(normalizedPath) && !isRangeRead) {
                             result = `[Already read] You have already read "${args.path}" earlier in this session. Use the content from before. Do not re-read files — focus on proposing changes with propose_change.`;
                             this.log(`[Retrospect] read_file DEDUP: ${args.path} (already read)`);
                         } else {
                             result = this.toolManager.isConnected()
                                 ? await this.toolManager.callTool('read_file', args)
-                                : this.localReadFile(args.path);
+                                : this.localReadFile(args.path, args.startLine, args.endLine);
                             // Cap file content to avoid blowing up context
                             if (result.length > MAX_READ_FILE_CHARS) {
-                                result = result.substring(0, MAX_READ_FILE_CHARS) + `\n... [File truncated. Original: ${result.length} chars. Showing first ${MAX_READ_FILE_CHARS} chars.]`;
+                                result = result.substring(0, MAX_READ_FILE_CHARS) + `\n... [File truncated. Original: ${result.length} chars. Showing first ${MAX_READ_FILE_CHARS} chars. Use startLine/endLine to read specific sections.]`;
                             }
-                            filesRead.add(normalizedPath);
+                            if (!isRangeRead) filesRead.add(normalizedPath);
                             totalReadCalls++;
-                            this.log(`[Retrospect] read_file: ${args.path} (${result.length} chars, total reads: ${totalReadCalls})`);
+                            this.log(`[Retrospect] read_file: ${args.path}${isRangeRead ? ` [${args.startLine}-${args.endLine || 'end'}]` : ''} (${result.length} chars, total reads: ${totalReadCalls})`);
                         }
                     } else if (fnName === 'list_dir') {
                         result = this.toolManager.isConnected()
@@ -1190,7 +1193,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         return "Analysis complete (tool iteration limit reached).";
     }
 
-    private localReadFile(filePath: string): string {
+    private localReadFile(filePath: string, startLine?: number, endLine?: number): string {
         const repoRoot = path.resolve(this.getRepoRoot());
         
         const candidates = [
@@ -1202,7 +1205,16 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             // Security: only allow reading files within the repo root
             if (!p.startsWith(repoRoot)) continue;
             if (fs.existsSync(p)) {
-                return fs.readFileSync(p, 'utf-8');
+                const content = fs.readFileSync(p, 'utf-8');
+                if (startLine != null && startLine > 0) {
+                    const lines = content.split('\n');
+                    const start = startLine - 1; // Convert to 0-based
+                    const end = endLine != null ? Math.min(endLine, lines.length) : lines.length;
+                    const totalLines = lines.length;
+                    const slice = lines.slice(start, end);
+                    return `[Lines ${startLine}-${Math.min(end, totalLines)} of ${totalLines}]\n` + slice.join('\n');
+                }
+                return content;
             }
         }
         return `File not found: ${filePath}`;

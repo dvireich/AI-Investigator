@@ -195,6 +195,25 @@ describe('ToolManager', () => {
             expect(result).toContain('Access denied');
         });
 
+        it('reads file range with startLine and endLine', async () => {
+            const filePath = norm(path.join(repoRoot, 'ranged.txt'));
+            files.set(filePath, 'a\nb\nc\nd\ne');
+            const result = await manager.callTool('read_file', { path: 'ranged.txt', startLine: 2, endLine: 4 });
+            expect(result).toContain('[Lines 2-4 of 5]');
+            expect(result).toContain('b');
+            expect(result).toContain('d');
+            expect(result).not.toContain('a\n');
+        });
+
+        it('reads file range with only startLine (no endLine)', async () => {
+            const filePath = norm(path.join(repoRoot, 'ranged2.txt'));
+            files.set(filePath, 'a\nb\nc\nd\ne');
+            const result = await manager.callTool('read_file', { path: 'ranged2.txt', startLine: 3 });
+            expect(result).toContain('[Lines 3-5 of 5]');
+            expect(result).toContain('c');
+            expect(result).toContain('e');
+        });
+
         it('handles list_dir', async () => {
             const dirPath = norm(path.join(repoRoot, 'src'));
             dirs.add(dirPath);
