@@ -6508,6 +6508,36 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
         });
 
+        it('does not re-fetch recommendations when they are already loaded (implRecommendations guard)', async () => {
+            const { api } = await import('../../api');
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            // Recommendations auto-loaded for completed investigation
+            await waitFor(() => expect(api.getRecommendations).toHaveBeenCalledTimes(1));
+
+            // Simulate status cycling: completed → running → completed via WS
+            vi.mocked(api.getInvestigation).mockResolvedValueOnce(createMockInvestigation({ status: 'running', finalReport: null }));
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'status' });
+                await vi.advanceTimersByTimeAsync(500);
+            });
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            // Now return completed again – recommendations are already in state
+            vi.mocked(api.getInvestigation).mockResolvedValueOnce(createMockInvestigation());
+            vi.mocked(api.getRecommendations).mockClear();
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'status' });
+                await vi.advanceTimersByTimeAsync(500);
+            });
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            // Guard prevents second fetch
+            expect(api.getRecommendations).not.toHaveBeenCalled();
+        });
+
         it('auto-selects P0 recommendations in the modal', async () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
@@ -6762,7 +6792,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
 
         it('shows error toast when getRecommendations fails', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getRecommendations).mockRejectedValueOnce(new Error('Recommendations unavailable'));
+            vi.mocked(api.getRecommendations).mockRejectedValue(new Error('Recommendations unavailable'));
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });

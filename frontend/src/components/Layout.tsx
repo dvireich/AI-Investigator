@@ -22,6 +22,7 @@ export const Layout = () => {
     const [showLoginModal, setShowLoginModal] = useState(false);
     const [loginData, setLoginData] = useState<any>(null);
     const loginPollerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const providerDisplayNameRef = useRef('');
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [appVersion, setAppVersion] = useState<string | null>(null);
 
@@ -79,7 +80,7 @@ export const Layout = () => {
                         setAuthenticated(true);
                         // Fetch user info after successful login
                         checkAuth();
-                        toast('success', `Connected to ${providerDisplayName}!`);
+                        toast('success', `Connected to ${providerDisplayNameRef.current}!`);
                     }
                 } catch (e: any) {
                     const errMsg = e?.response?.data?.error || e?.message || '';
@@ -106,6 +107,7 @@ export const Layout = () => {
         : providerType === 'ollama' ? 'Ollama'
         : providerType === 'none' ? 'Not Configured'
         : providerType.charAt(0).toUpperCase() + providerType.slice(1);
+    providerDisplayNameRef.current = providerDisplayName;
 
     const connectLabel = providerType === 'none' || !providerType
         ? 'Configure LLM'

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts';
 import type { Investigation } from '../../api';
 
@@ -14,17 +15,27 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export const TargetActivity = ({ investigations }: Props) => {
-    // Group by stamp, count per status
-    const stampMap = new Map<string, Record<string, number>>();
-
-    for (const inv of investigations) {
-        const stamp = inv.target?.trim() || 'Unknown';
-        if (!stampMap.has(stamp)) {
-            stampMap.set(stamp, { completed: 0, failed: 0, running: 0, paused: 0, aborted: 0 });
+    const { stampMap, sorted } = useMemo(() => {
+        const stampMap = new Map<string, Record<string, number>>();
+        for (const inv of investigations) {
+            const stamp = inv.target?.trim() || 'Unknown';
+            if (!stampMap.has(stamp)) {
+                stampMap.set(stamp, { completed: 0, failed: 0, running: 0, paused: 0, aborted: 0 });
+            }
+            const counts = stampMap.get(stamp)!;
+            counts[inv.status] = (counts[inv.status] || 0) + 1;
         }
-        const counts = stampMap.get(stamp)!;
-        counts[inv.status] = (counts[inv.status] || 0) + 1;
-    }
+        const sorted = Array.from(stampMap.entries())
+            .map(([stamp, counts]) => ({
+                stamp: stamp.length > 20 ? stamp.slice(0, 18) + '…' : stamp,
+                fullStamp: stamp,
+                ...counts,
+                total: Object.values(counts).reduce((s, v) => s + v, 0),
+            }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 8);
+        return { stampMap, sorted };
+    }, [investigations]);
 
     if (stampMap.size === 0) {
         return (
@@ -33,17 +44,6 @@ export const TargetActivity = ({ investigations }: Props) => {
             </div>
         );
     }
-
-    // Sort by total count descending, take top 8
-    const sorted = Array.from(stampMap.entries())
-        .map(([stamp, counts]) => ({
-            stamp: stamp.length > 20 ? stamp.slice(0, 18) + '…' : stamp,
-            fullStamp: stamp,
-            ...counts,
-            total: Object.values(counts).reduce((s, v) => s + v, 0),
-        }))
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 8);
 
     return (
         <ResponsiveContainer width="100%" height="100%">

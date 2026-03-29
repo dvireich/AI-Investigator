@@ -23,6 +23,7 @@ export class OllamaProvider implements LlmProvider {
     configure(config: LlmProviderConfig): void {
         if (config.baseUrl) this.baseUrl = config.baseUrl;
         this.cachedClient = null;
+        this.cachedTimeout = null;
     }
 
     async getAuthStatus(): Promise<AuthStatus> {

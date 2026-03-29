@@ -35,10 +35,12 @@ function OnboardingRedirect({ children }: { children: React.ReactNode }) {
   const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     fetch('/api/onboarding/status')
       .then(r => r.ok ? r.json() : null)
-      .then(data => setNeedsOnboarding(data && !data.complete))
-      .catch(() => setNeedsOnboarding(false));
+      .then(data => { if (!cancelled) setNeedsOnboarding(data && !data.complete); })
+      .catch(() => { if (!cancelled) setNeedsOnboarding(false); });
+    return () => { cancelled = true; };
   }, []);
 
   if (needsOnboarding === null) return null; // loading

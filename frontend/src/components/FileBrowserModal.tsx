@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Folder, File, ChevronUp, Check, X, Loader2, HardDrive, AlertCircle } from 'lucide-react'; // HardDrive icon is good for root/drives
 import { api } from '../api';
 
@@ -22,15 +22,15 @@ export const FileBrowserModal = ({ isOpen, onClose, onSelect, initialPath, mode 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedEntry, setSelectedEntry] = useState<string | null>(null);
+    const cancelledRef = useRef(false);
 
     // Initialize path
     useEffect(() => {
         if (isOpen) {
-            // If initialized with a path, try to use it. Defaults to empty (which backend treats as CWD)
-            // If initialPath is empty string, we might want to start at backend CWD.
-            // But let's start with initialPath if provided.
+            cancelledRef.current = false;
             loadDirectory(initialPath || '');
         }
+        return () => { cancelledRef.current = true; };
     }, [isOpen, initialPath]);
 
     const loadDirectory = async (path: string, isRetry = false) => {
@@ -38,10 +38,12 @@ export const FileBrowserModal = ({ isOpen, onClose, onSelect, initialPath, mode 
         setError(null);
         try {
             const data = await api.listFiles(path);
+            if (cancelledRef.current) return;
             setCurrentPath(data.path);
             setEntries(data.entries);
             setSelectedEntry(null); // Clear selection on navigate
         } catch (err: any) {
+            if (cancelledRef.current) return;
             console.error("Failed to load directory:", path, err);
             // If this was a failed load, try to fallback to CWD (empty string)
             // Only retry once to avoid infinite loops, and only if we aren't already at root/empty

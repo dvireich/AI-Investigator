@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface TrendData {
@@ -21,30 +22,33 @@ const CHART_COLORS = {
 };
 
 export const InvestigationTrend = ({ investigations }: Props) => {
-    // Build daily counts for last 14 days
-    const now = Date.now();
-    const days = 14;
-    const dayMs = 86400000;
-    const data: TrendData[] = [];
+    const { data, hasData } = useMemo(() => {
+        const now = Date.now();
+        const days = 14;
+        const dayMs = 86400000;
+        const data: TrendData[] = [];
 
-    for (let i = days - 1; i >= 0; i--) {
-        const dayStart = new Date(now - i * dayMs);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(dayStart.getTime() + dayMs);
+        for (let i = days - 1; i >= 0; i--) {
+            const dayStart = new Date(now - i * dayMs);
+            dayStart.setHours(0, 0, 0, 0);
+            const dayEnd = new Date(dayStart.getTime() + dayMs);
 
-        const dayInvs = investigations.filter(inv => {
-            const ts = Number(inv.id);
-            return !isNaN(ts) && ts >= dayStart.getTime() && ts < dayEnd.getTime();
-        });
+            const dayInvs = investigations.filter(inv => {
+                const ts = Number(inv.id);
+                return !isNaN(ts) && ts >= dayStart.getTime() && ts < dayEnd.getTime();
+            });
 
-        data.push({
-            date: dayStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
-            completed: dayInvs.filter(i => i.status === 'completed').length,
-            failed: dayInvs.filter(i => i.status === 'failed').length,
-        });
-    }
+            data.push({
+                date: dayStart.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }),
+                completed: dayInvs.filter(i => i.status === 'completed').length,
+                failed: dayInvs.filter(i => i.status === 'failed').length,
+            });
+        }
 
-    const hasData = data.some(d => d.completed > 0 || d.failed > 0);
+        const hasData = data.some(d => d.completed > 0 || d.failed > 0);
+        return { data, hasData };
+    }, [investigations]);
+
     if (!hasData) {
         return (
             <div className="flex items-center justify-center h-full text-slate-600 text-xs">

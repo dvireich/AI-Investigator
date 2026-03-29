@@ -92,6 +92,17 @@ vi.mock('fs', () => {
     return { ...fns, default: { ...fns } };
 });
 
+vi.mock('fs/promises', () => ({
+    writeFile: vi.fn(async (p: string, content: string) => writeFileSyncImpl(p, content)),
+    rename: vi.fn(async (old: string, nu: string) => renameSyncImpl(old, nu)),
+    mkdir: vi.fn(async (p: string) => mkdirSyncImpl(p)),
+    default: {
+        writeFile: vi.fn(async (p: string, content: string) => writeFileSyncImpl(p, content)),
+        rename: vi.fn(async (old: string, nu: string) => renameSyncImpl(old, nu)),
+        mkdir: vi.fn(async (p: string) => mkdirSyncImpl(p)),
+    },
+}));
+
 // Also spy on the REAL fs module for require('fs') paths in Runner.ts.
 // vi.mock('fs') only intercepts ESM imports; dynamic require() gets the real module.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1597,6 +1608,19 @@ describe('AgentRunner', () => {
             const runner = new AgentRunner(makeConfig({ knowledgeBasePath: 'docs' }), provider);
             const result = (runner as any).discoverKnowledgeBase();
             expect(typeof result).toBe('string');
+        });
+
+        it('stops scanning after MAX_FILES files', () => {
+            mockDirs.add('/repo/docs');
+            // Generate 210 files — exceeds MAX_FILES=200
+            const fileNames = Array.from({ length: 210 }, (_, i) => `file${String(i).padStart(3, '0')}.md`);
+            mockDirEntries.set('docs', fileNames);
+
+            const runner = new AgentRunner(makeConfig({ knowledgeBasePath: 'docs' }), provider);
+            const result = (runner as any).discoverKnowledgeBase();
+            // Should contain at most 200 file entries (backtick-wrapped lines)
+            const fileLines = result.split('\n').filter((l: string) => l.includes('`'));
+            expect(fileLines.length).toBeLessThanOrEqual(200);
         });
     });
 

@@ -169,8 +169,8 @@ export function hydrateStoredState(stored: StoredInvestigationState): StoredInve
 
 class InvestigationHistoryStore {
     private readonly records = new Map<string, StoredInvestigationState>();
-    /** Tracks access order for LRU eviction — newest at end. */
-    private readonly accessOrder: string[] = [];
+    /** Tracks access order for LRU eviction — Map maintains insertion order; re-insert = move to end. */
+    private readonly accessOrder = new Map<string, true>();
     static readonly MAX_IN_MEMORY = 1000;
 
     get size(): number {
@@ -222,28 +222,27 @@ class InvestigationHistoryStore {
 
     delete(id: string): boolean {
         storagePathCache.delete(id);
-        const idx = this.accessOrder.indexOf(id);
-        if (idx !== -1) this.accessOrder.splice(idx, 1);
+        this.accessOrder.delete(id);
         return this.records.delete(id);
     }
 
     clear(): void {
         storagePathCache.clear();
-        this.accessOrder.length = 0;
+        this.accessOrder.clear();
         this.records.clear();
     }
 
-    /** Move id to most-recently-used position. */
+    /** Move id to most-recently-used position (O(1) via Map re-insert). */
     private touch(id: string): void {
-        const idx = this.accessOrder.indexOf(id);
-        if (idx !== -1) this.accessOrder.splice(idx, 1);
-        this.accessOrder.push(id);
+        this.accessOrder.delete(id);
+        this.accessOrder.set(id, true);
     }
 
     /** Evict least-recently-used entries to summary-only form when over limit. */
     private evictIfNeeded(): void {
-        while (this.records.size > InvestigationHistoryStore.MAX_IN_MEMORY && this.accessOrder.length > 0) {
-            const evictId = this.accessOrder.shift()!;
+        while (this.records.size > InvestigationHistoryStore.MAX_IN_MEMORY && this.accessOrder.size > 0) {
+            const evictId = this.accessOrder.keys().next().value!;
+            this.accessOrder.delete(evictId);
             const rec = this.records.get(evictId);
             if (rec && !rec._summaryOnly) {
                 // Downgrade to summary-only (keeps metadata, drops heavy fields)
@@ -697,6 +696,10 @@ export function registerWebSocketClient(
                     clientMap.delete(investigationId);
                 }
             }
+        });
+
+        ws.on('error', () => {
+            ws.terminate();
         });
     }
 }
@@ -1629,9 +1632,12 @@ app.post('/api/incidents/:incidentId/read', async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
+    let clientDisconnected = false;
+    req.on('close', () => { clientDisconnected = true; });
+
     try {
         const incident = await activeIncidentProvider.fetchIncident(incidentId, (event) => {
-            res.write(`data: ${JSON.stringify(event)}\n\n`);
+            if (!clientDisconnected) res.write(`data: ${JSON.stringify(event)}\n\n`);
         });
 
         // Send final result event
@@ -1646,13 +1652,17 @@ app.post('/api/incidents/:incidentId/read', async (req, res) => {
             summary: (incident.content || '').substring(0, 500).trim(),
             raw: incident.content || '',
         };
-        res.write(`data: ${JSON.stringify(result)}\n\n`);
-        res.end();
+        if (!clientDisconnected) {
+            res.write(`data: ${JSON.stringify(result)}\n\n`);
+            res.end();
+        }
     } catch (err: any) {
         console.error(`[Incidents] Failed to read incident ${incidentId}:`, err);
-        const errorEvent = { type: 'error', message: err.message || 'Failed to read incident' };
-        res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
-        res.end();
+        if (!clientDisconnected) {
+            const errorEvent = { type: 'error', message: err.message || 'Failed to read incident' };
+            res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
+            res.end();
+        }
     }
 });
 // --- End Incident Provider Endpoints -------------------------------------
@@ -1863,9 +1873,85 @@ app.get('/api/investigations', (req, res) => {
     const productMap = new Map<string, string>();
     (config.products || []).forEach((p: Product) => productMap.set(p.id, p.name));
 
-    // Build lightweight summaries for list view, not full thoughts/actions
-    const summaries: any[] = [];
+    // ── Collect filter metadata and stats from raw data (lightweight) ──
+    const productsSet = new Map<string, string>();
+    const tagsSet = new Set<string>();
+    const creatorsSet = new Set<string>();
+    const statusCounts: Record<string, number> = { running: 0, paused: 0, completed: 0, failed: 0, aborted: 0 };
+    let resolvedCount = 0, completedKpi = 0, contestedCount = 0, contestableCount = 0;
+    const durations: number[] = [];
+    const now = Date.now();
+    const dayMs = 86400000;
+    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
+    const dayOfWeek = todayStart.getDay();
+    const weekStart = todayStart.getTime() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) * dayMs;
+    const lastWeekStart = weekStart - 7 * dayMs;
+    let thisWeekCount = 0, lastWeekCount = 0;
+
     for (const s of all) {
+        if (!s || !s.id) continue;
+        const source = s.source || 'manual';
+        if (source === 'scheduled') continue; // exclude scheduled from stats
+        const pName = s.productId ? productMap.get(s.productId) || 'Unknown' : '';
+        if (s.productId && pName) productsSet.set(s.productId, pName);
+        for (const t of (s.tags || [])) tagsSet.add(t);
+        if (s.createdBy) creatorsSet.add(s.createdBy);
+        if (s.status in statusCounts) statusCounts[s.status]++;
+        const isActive = runners.has(s.id);
+        const lastMod = isActive ? now : ((s as any)._lastModified || Number(s.id) || now);
+        if (s.status === 'completed' || s.status === 'failed' || s.status === 'aborted') {
+            resolvedCount++;
+            if (s.status === 'completed') completedKpi++;
+        }
+        if ((s.status === 'completed' || s.status === 'failed') && lastMod && !isNaN(Number(s.id))) {
+            const d = lastMod - Number(s.id);
+            if (d > 0 && d < dayMs) durations.push(d);
+        }
+        if (s.status === 'completed' || s.status === 'failed') {
+            contestableCount++;
+            if ((s.contestCount ?? 0) > 0) contestedCount++;
+        }
+        const ts = Number(s.id);
+        if (!isNaN(ts)) {
+            if (ts >= weekStart) thisWeekCount++;
+            else if (ts >= lastWeekStart) lastWeekCount++;
+        }
+    }
+
+    const filterMeta = {
+        products: Array.from(productsSet.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+        tags: Array.from(tagsSet).sort(),
+        creators: Array.from(creatorsSet).sort(),
+    };
+
+    const stats = {
+        total: all.filter(s => (s.source || 'manual') !== 'scheduled').length,
+        ...statusCounts,
+        successRate: resolvedCount > 0 ? Math.round((completedKpi / resolvedCount) * 100) : 0,
+        resolvedCount,
+        avgDurationMs: durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0,
+        durationSamples: durations.length,
+        thisWeekCount,
+        lastWeekCount,
+        contestRate: contestableCount > 0 ? Math.round((contestedCount / contestableCount) * 100) : 0,
+        contestableCount,
+    };
+
+    // ── Pre-filter raw data before building summaries ──
+    let preFiltered: typeof all = all;
+    if (filterSource === 'all') {
+        preFiltered = preFiltered.filter(s => (s.source || 'manual') !== 'scheduled');
+    } else {
+        preFiltered = preFiltered.filter(s => (s.source || 'manual') === filterSource);
+    }
+    if (filterStatus !== 'all') preFiltered = preFiltered.filter(s => s.status === filterStatus);
+    if (filterProduct !== 'all') preFiltered = preFiltered.filter(s => s.productId === filterProduct);
+    if (filterTag !== 'all') preFiltered = preFiltered.filter(s => (s.tags || []).includes(filterTag));
+    if (filterCreatedBy !== 'all') preFiltered = preFiltered.filter(s => (s.createdBy || '') === filterCreatedBy);
+
+    // Build lightweight summaries only for items passing non-search filters
+    const summaries: any[] = [];
+    for (const s of preFiltered) {
         try {
         if (!s || !s.id) continue; // skip invalid entries
         // For active runners, lastModified is now; for history, use file mtime or fall back to creation time
@@ -1928,85 +2014,8 @@ app.get('/api/investigations', (req, res) => {
         }
     }
 
-    // ── Collect filter metadata from ALL summaries (before filtering) ──
-    // Exclude scheduled investigations from stats — they are only visible via Schedules tab
-    const manualSummaries = summaries.filter(s => s.source !== 'scheduled');
-    const productsSet = new Map<string, string>();
-    const tagsSet = new Set<string>();
-    const creatorsSet = new Set<string>();
-    // Status counts across all summaries (unfiltered) for filter tabs
-    const statusCounts: Record<string, number> = { running: 0, paused: 0, completed: 0, failed: 0, aborted: 0 };
-    // KPI aggregation
-    let resolvedCount = 0, completedKpi = 0, contestedCount = 0, contestableCount = 0;
-    const durations: number[] = [];
-    const now = Date.now();
-    const dayMs = 86400000;
-    const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
-    const dayOfWeek = todayStart.getDay();
-    const weekStart = todayStart.getTime() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) * dayMs;
-    const lastWeekStart = weekStart - 7 * dayMs;
-    let thisWeekCount = 0, lastWeekCount = 0;
-
-    for (const s of manualSummaries) {
-        if (s.productId && s.productName) productsSet.set(s.productId, s.productName);
-        for (const t of s.tags) tagsSet.add(t);
-        if (s.createdBy) creatorsSet.add(s.createdBy);
-        if (s.status in statusCounts) statusCounts[s.status]++;
-
-        // KPI: success rate & avg duration
-        if (s.status === 'completed' || s.status === 'failed' || s.status === 'aborted') {
-            resolvedCount++;
-            if (s.status === 'completed') completedKpi++;
-        }
-        if ((s.status === 'completed' || s.status === 'failed') && s.lastModified && !isNaN(Number(s.id))) {
-            const d = s.lastModified - Number(s.id);
-            if (d > 0 && d < dayMs) durations.push(d);
-        }
-        // KPI: contest rate
-        if (s.status === 'completed' || s.status === 'failed') {
-            contestableCount++;
-            if (s.contestCount > 0) contestedCount++;
-        }
-        // KPI: this week / last week
-        const ts = Number(s.id);
-        if (!isNaN(ts)) {
-            if (ts >= weekStart) thisWeekCount++;
-            else if (ts >= lastWeekStart) lastWeekCount++;
-        }
-    }
-
-    const filterMeta = {
-        products: Array.from(productsSet.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
-        tags: Array.from(tagsSet).sort(),
-        creators: Array.from(creatorsSet).sort(),
-    };
-
-    const stats = {
-        total: manualSummaries.length,
-        ...statusCounts,
-        successRate: resolvedCount > 0 ? Math.round((completedKpi / resolvedCount) * 100) : 0,
-        resolvedCount,
-        avgDurationMs: durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0,
-        durationSamples: durations.length,
-        thisWeekCount,
-        lastWeekCount,
-        contestRate: contestableCount > 0 ? Math.round((contestedCount / contestableCount) * 100) : 0,
-        contestableCount,
-    };
-
-    // ── Apply server-side filters ───────────────────────────────────
+    // ── Apply search filter on summaries (other filters already pre-applied) ──
     let filtered = summaries;
-    // By default, exclude scheduled investigations from the dashboard list.
-    // They are only visible via the Schedules tab. Pass sourceFilter=scheduled to see them.
-    if (filterSource === 'all') {
-        filtered = filtered.filter(s => s.source !== 'scheduled');
-    } else if (filterSource !== 'all') {
-        filtered = filtered.filter(s => s.source === filterSource);
-    }
-    if (filterStatus !== 'all') filtered = filtered.filter(s => s.status === filterStatus);
-    if (filterProduct !== 'all') filtered = filtered.filter(s => s.productId === filterProduct);
-    if (filterTag !== 'all') filtered = filtered.filter(s => s.tags.includes(filterTag));
-    if (filterCreatedBy !== 'all') filtered = filtered.filter(s => s.createdBy === filterCreatedBy);
     if (searchQuery) {
         filtered = filtered.filter(s => {
             return (
@@ -2398,7 +2407,7 @@ app.post('/api/server/restart', (req, res) => {
     console.log('Server restart requested via API. Performing in-process restart...');
     invalidateListCache();
 
-    // 1. Pause all running investigations and save state
+    // 1. Pause all running investigations, save state, and dispose resources
     for (const [id, runner] of runners.entries()) {
         try {
             runner.pause();
@@ -2408,7 +2417,9 @@ app.post('/api/server/restart', (req, res) => {
             console.error(`  Failed to pause runner ${id}:`, e.message);
         }
     }
-    runners.clear();
+    for (const id of [...runners.keys()]) {
+        cleanupRunner(id);
+    }
     storagePathCache.clear();
 
     // 2. Reload config from disk
@@ -4066,7 +4077,9 @@ export const __testUtils = {
         listCacheDirtyAt = value;
     },
     resetRuntimeState: () => {
-        runners.clear();
+        for (const id of [...runners.keys()]) {
+            cleanupRunner(id);
+        }
         history.clear();
         clients.clear();
         scheduleStore = null;

@@ -8,6 +8,7 @@ import {
     ALL_NOTIF_EVENTS, DEFAULT_NOTIF_EVENTS,
     NOTIF_ENABLED_KEY, NOTIF_SOUND_KEY, NOTIF_EVENTS_KEY,
     playChime,
+    _resetSharedAudioCtx,
 } from '../../hooks/useNotification';
 
 // We need to test the non-exported playChime indirectly via notify
@@ -27,6 +28,7 @@ describe('useNotification', () => {
 
     afterEach(() => {
         globalThis.Notification = originalNotification;
+        _resetSharedAudioCtx();
     });
 
     describe('localStorage helpers', () => {
@@ -170,6 +172,22 @@ describe('useNotification', () => {
 
             const { result } = renderHook(() => useNotification());
             act(() => result.current.notify('Title', 'Body', 'completed'));
+            expect(mockOsc.start).toHaveBeenCalled();
+            vi.unstubAllGlobals();
+        });
+
+        it('resumes suspended AudioContext before playing chime', () => {
+            setNotifEnabled(true);
+            setNotifEvents(['completed']);
+            setNotifSound(true);
+            const mockOsc = { connect: vi.fn(), type: '', frequency: { setValueAtTime: vi.fn() }, start: vi.fn(), stop: vi.fn() };
+            const mockGain = { connect: vi.fn(), gain: { setValueAtTime: vi.fn(), exponentialRampToValueAtTime: vi.fn() } };
+            const mockCtx = { state: 'suspended', resume: vi.fn(), createOscillator: () => mockOsc, createGain: () => mockGain, destination: {}, currentTime: 0 };
+            vi.stubGlobal('AudioContext', vi.fn(() => mockCtx));
+
+            const { result } = renderHook(() => useNotification());
+            act(() => result.current.notify('Title', 'Body', 'completed'));
+            expect(mockCtx.resume).toHaveBeenCalled();
             expect(mockOsc.start).toHaveBeenCalled();
             vi.unstubAllGlobals();
         });

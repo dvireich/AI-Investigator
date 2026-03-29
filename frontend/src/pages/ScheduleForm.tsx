@@ -8,48 +8,12 @@ import type { SavedQuery } from '../api';
 import type { ScheduleDefinition } from '../types/schedule';
 import type { Product } from '../types/product';
 import { TIME_PRESETS, SCHEDULE_INTERVAL_PRESETS } from '../constants';
+import { parseFlexibleTimestamp, toDateTimeLocalValue } from '../utils/timestamp';
 import {
     Clock, Command, AlertTriangle, ArrowRight, ArrowLeft, Sparkles, Zap,
     Target, CheckCircle2, AlertCircle, Calendar, Timer, Settings, Loader2, Package,
     BookOpen, Save, Trash2, ChevronDown, X, Check, Pencil
 } from 'lucide-react';
-
-// ── Flexible timestamp parser (shared with NewInvestigation) ─────────
-
-function parseFlexibleTimestamp(input: string): Date | null {
-    const trimmed = input.trim();
-
-    const parsed = new Date(trimmed);
-    if (!isNaN(parsed.getTime())) return parsed;
-
-    // Format: "03/15/2024 2:30 PM" or "3/15/2024 14:30"
-    const usFormatMatch = trimmed.match(
-        /^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i,
-    );
-    if (usFormatMatch) {
-        const [, month, day, year, hour, min, sec, ampm] = usFormatMatch;
-        let h = parseInt(hour);
-        if (ampm) {
-            if (ampm.toUpperCase() === 'PM' && h !== 12) h += 12;
-            if (ampm.toUpperCase() === 'AM' && h === 12) h = 0;
-        }
-        const usParsed = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec || '0'));
-        if (!isNaN(usParsed.getTime())) return usParsed;
-    }
-
-    if (/^\d{10,13}$/.test(trimmed)) {
-        const ts = parseInt(trimmed);
-        const tsParsed = new Date(ts < 1e12 ? ts * 1000 : ts);
-        if (!isNaN(tsParsed.getTime())) return tsParsed;
-    }
-
-    return null;
-}
-
-function toDateTimeLocalValue(date: Date): string {
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
 
 function formatDateDisplay(date: Date): string {
     return date.toLocaleString(undefined, {

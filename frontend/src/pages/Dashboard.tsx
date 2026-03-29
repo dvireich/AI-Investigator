@@ -53,31 +53,7 @@ const DurationTimer = ({ startTime, pausedAt, totalPausedTime }: { startTime: nu
     return <span className="font-mono">{duration}</span>;
 };
 
-/** Animated count-up from 0 to target - plays once on first non-zero value */
-const useCountUp = (target: number, duration = 700) => {
-    const [display, setDisplay] = useState(0);
-    const seenNonZero = useRef(false);
-    const rafRef = useRef<number | undefined>(undefined);
-    useEffect(() => {
-        if (seenNonZero.current) {
-            // Post-animation: schedule update via rAF to avoid synchronous setState in effect
-            rafRef.current = requestAnimationFrame(() => setDisplay(target));
-            return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current); };
-        }
-        if (target === 0) return;
-        seenNonZero.current = true;
-        let start: number | null = null;
-        const step = (ts: number) => {
-            if (start === null) start = ts;
-            const p = Math.min((ts - start) / duration, 1);
-            setDisplay(Math.round(p * target));
-            if (p < 1) rafRef.current = requestAnimationFrame(step);
-        };
-        rafRef.current = requestAnimationFrame(step);
-        return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current); };
-    }, [target, duration]);
-    return display;
-};
+import { useCountUp } from '../hooks/useCountUp';
 
 /** Shorten a timeRange string for compact display */
 const formatTimeRange = (tr: string): string => {
@@ -201,6 +177,9 @@ export const Dashboard = () => {
     const [restarting, setRestarting] = useState(false);
     const [importing, setImporting] = useState(false);
     const importFileRef = useRef<HTMLInputElement>(null);
+    const restartTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const toastTimersRef = useRef(new Set<ReturnType<typeof setTimeout>>());
     const [dragOver, setDragOver] = useState(false);
     const [showAnalytics, setShowAnalytics] = useState<boolean>(
         () => localStorage.getItem('inv-analytics') !== 'false'
@@ -214,6 +193,13 @@ export const Dashboard = () => {
         const timer = setTimeout(() => setDebouncedSearch(search), 300);
         return () => clearTimeout(timer);
     }, [search]);
+
+    // Cleanup fire-and-forget timers on unmount
+    useEffect(() => () => {
+        clearTimeout(restartTimerRef.current);
+        clearTimeout(copiedTimerRef.current);
+        toastTimersRef.current.forEach(t => clearTimeout(t));
+    }, []);
 
     const toggleAnalytics = () => {
         setShowAnalytics(prev => {
@@ -268,7 +254,7 @@ export const Dashboard = () => {
             // Connection may drop if server truly exits
         }
         // Brief delay then refresh data
-        setTimeout(() => {
+        restartTimerRef.current = setTimeout(() => {
             setRestarting(false);
         }, 1500);
     };
@@ -278,10 +264,12 @@ export const Dashboard = () => {
     const addToast = (inv: Investigation, type: Toast['type']) => {
         const t: Toast = { key: ++_toastKey, invId: inv.id, invTitle: inv.title || inv.query || `#${inv.id}`, type };
         setToasts(prev => [...prev.slice(-4), t]); // keep at most 5
-        setTimeout(() => dismissToast(t.key), 7000);
+        const tid = setTimeout(() => { dismissToast(t.key); toastTimersRef.current.delete(tid); }, 7000);
+        toastTimersRef.current.add(tid);
     };
 
     useEffect(() => {
+        const ac = new AbortController();
         const fetchData = () => api.listInvestigations({
             page: currentPage,
             pageSize,
@@ -292,7 +280,7 @@ export const Dashboard = () => {
             createdByFilter,
             search: debouncedSearch,
             pinnedIds: [...pinnedIds],
-        }).then(data => {
+        }, ac.signal).then(data => {
             const prev = prevStatusRef.current;
             const lta  = lastThoughtActivityRef.current;
             data.items.forEach(inv => {
@@ -318,8 +306,13 @@ export const Dashboard = () => {
             setCurrentPage(data.page);
             setFilterMeta(data.filterMeta);
             setStats(data.stats);
+            // Prune stale entries from _thoughtActivity for investigations no longer active
+            const activeIds = new Set(data.items.filter(i => i.status === 'running' || i.status === 'paused').map(i => i.id));
+            for (const id of Object.keys(lta)) {
+                if (!activeIds.has(id)) delete lta[id];
+            }
             setLoading(false);
-        }).catch(console.error);
+        }).catch(e => { if (e.name !== 'AbortError') console.error(e); });
         fetchData();
         const interval = setInterval(fetchData, 10_000);
         // Pause polling when tab is hidden to save resources (Fix 19/33)
@@ -327,7 +320,7 @@ export const Dashboard = () => {
             if (document.visibilityState === 'visible') fetchData();
         };
         document.addEventListener('visibilitychange', handleVisibility);
-        return () => { clearInterval(interval); document.removeEventListener('visibilitychange', handleVisibility); };
+        return () => { ac.abort(); clearInterval(interval); document.removeEventListener('visibilitychange', handleVisibility); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentPage, pageSize, sortOrder, filter, productFilter, tagFilter, createdByFilter, debouncedSearch, pinnedIds]);
 
@@ -351,7 +344,8 @@ export const Dashboard = () => {
         try {
             await navigator.clipboard.writeText(trackingId);
             setCopiedCorrelationId(trackingId);
-            setTimeout(() => setCopiedCorrelationId(null), 2000);
+            clearTimeout(copiedTimerRef.current);
+            copiedTimerRef.current = setTimeout(() => setCopiedCorrelationId(null), 2000);
         } catch { /* clipboard unavailable */ }
     };
 

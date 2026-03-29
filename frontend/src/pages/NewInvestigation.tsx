@@ -6,48 +6,7 @@ import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
 import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, X, Check, Pencil } from 'lucide-react';
 import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../constants';
-
-/**
- * Try to parse a flexible timestamp string into a Date object.
- * Supports: ISO 8601, various date/time formats, Unix timestamps, etc.
- * Returns null if parsing fails.
- */
-function parseFlexibleTimestamp(input: string): Date | null {
-    const trimmed = input.trim();
-    
-    // Try direct Date parse first (handles ISO 8601, various formats)
-    const parsed = new Date(trimmed);
-    if (!isNaN(parsed.getTime())) return parsed;
-    
-    // Format: "03/15/2024 2:30 PM" or "3/15/2024 14:30"
-    const usFormatMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)?$/i);
-    if (usFormatMatch) {
-        let [, month, day, year, hour, min, sec, ampm] = usFormatMatch;
-        let h = parseInt(hour);
-        if (ampm) {
-            if (ampm.toUpperCase() === 'PM' && h !== 12) h += 12;
-            if (ampm.toUpperCase() === 'AM' && h === 12) h = 0;
-        }
-        const usParsed = new Date(parseInt(year), parseInt(month) - 1, parseInt(day), h, parseInt(min), parseInt(sec || '0'));
-        if (!isNaN(usParsed.getTime())) return usParsed;
-    }
-    
-    // Unix timestamp (seconds or milliseconds)
-    if (/^\d{10,13}$/.test(trimmed)) {
-        const ts = parseInt(trimmed);
-        const tsParsed = new Date(ts < 1e12 ? ts * 1000 : ts);
-        if (!isNaN(tsParsed.getTime())) return tsParsed;
-    }
-    
-    // Format: "Mar 15, 2024 14:30" or "March 15 2024 2:30 PM"
-    return null;
-}
-
-/** Format Date to datetime-local input value */
-function toDateTimeLocalValue(date: Date): string {
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
+import { parseFlexibleTimestamp, toDateTimeLocalValue } from '../utils/timestamp';
 
 /** Format Date to display string */
 function formatDateDisplay(date: Date): string {
@@ -120,6 +79,8 @@ export const NewInvestigation = () => {
     const [endTimeValid, setEndTimeValid] = useState<boolean | null>(null);
     const startPickerRef = useRef<HTMLInputElement>(null);
     const endPickerRef = useRef<HTMLInputElement>(null);
+    const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    useEffect(() => () => { clearTimeout(saveSuccessTimerRef.current); }, []);
 
     // Validate and sync time text with customStart/customEnd
     const handleStartTimeChange = (text: string) => {
@@ -432,7 +393,7 @@ export const NewInvestigation = () => {
             setSaveSuccess(saved.name);
             setShowSaveDialog(false);
             setSaveQueryName('');
-            setTimeout(() => setSaveSuccess(null), 2500);
+            saveSuccessTimerRef.current = setTimeout(() => setSaveSuccess(null), 2500);
         } catch (err) {
             console.error('Failed to save query:', err);
             toast('error', 'Failed to save query to bank');

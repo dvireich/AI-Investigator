@@ -20,7 +20,9 @@ export const OnboardingWizard = () => {
     const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        api.getAuthProviders().then(setProviders).catch(() => {});
+        let cancelled = false;
+        api.getAuthProviders().then(data => { if (!cancelled) setProviders(data); }).catch(() => {});
+        return () => { cancelled = true; };
     }, []);
 
     const stepIndex = STEPS.indexOf(step);

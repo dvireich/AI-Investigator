@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import type { Investigation } from '../../api';
 
@@ -22,8 +23,19 @@ const VERDICT_LABELS: Record<string, string> = {
 };
 
 export const VerdictBreakdown = ({ investigations }: Props) => {
-    // Only consider scheduled investigations with a verdict
-    const scheduled = investigations.filter(i => i.source === 'scheduled' && i.verdict);
+    const { scheduled, data, total, healthyPct } = useMemo(() => {
+        const scheduled = investigations.filter(i => i.source === 'scheduled' && i.verdict);
+        const counts = new Map<string, number>();
+        for (const inv of scheduled) {
+            counts.set(inv.verdict!, (counts.get(inv.verdict!) || 0) + 1);
+        }
+        const data = Array.from(counts.entries())
+            .map(([name, value]) => ({ name: VERDICT_LABELS[name] || name, key: name, value }))
+            .sort((a, b) => b.value - a.value);
+        const total = scheduled.length;
+        const healthyPct = total > 0 ? Math.round(((counts.get('healthy') || 0) / total) * 100) : 0;
+        return { scheduled, data, total, healthyPct };
+    }, [investigations]);
 
     if (scheduled.length === 0) {
         return (
@@ -32,18 +44,6 @@ export const VerdictBreakdown = ({ investigations }: Props) => {
             </div>
         );
     }
-
-    const counts = new Map<string, number>();
-    for (const inv of scheduled) {
-        counts.set(inv.verdict!, (counts.get(inv.verdict!) || 0) + 1);
-    }
-
-    const data = Array.from(counts.entries())
-        .map(([name, value]) => ({ name: VERDICT_LABELS[name] || name, key: name, value }))
-        .sort((a, b) => b.value - a.value);
-
-    const total = scheduled.length;
-    const healthyPct = Math.round(((counts.get('healthy') || 0) / total) * 100);
 
     return (
         <div className="relative w-full h-full">

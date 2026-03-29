@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 
 interface Props {
@@ -13,9 +14,29 @@ const BUCKETS = [
 ];
 
 export const DurationDistribution = ({ investigations }: Props) => {
-    const finished = investigations.filter(
-        i => (i.status === 'completed' || i.status === 'failed') && !isNaN(Number(i.id))
-    );
+    const { finished, data } = useMemo(() => {
+        const finished = investigations.filter(
+            i => (i.status === 'completed' || i.status === 'failed') && !isNaN(Number(i.id))
+        );
+        const data = BUCKETS.map(bucket => ({ name: bucket.label, count: 0, color: bucket.color }));
+        finished.forEach(inv => {
+            const startTs = Number(inv.id);
+            let duration: number;
+            if (inv.lastModified && inv.lastModified > startTs) {
+                duration = inv.lastModified - startTs;
+            } else {
+                const stepCount = inv.thoughtCount ?? inv.thoughts?.length ?? 0;
+                duration = stepCount * 15000;
+            }
+            for (let i = 0; i < BUCKETS.length; i++) {
+                if (duration < BUCKETS[i].max) {
+                    data[i].count++;
+                    break;
+                }
+            }
+        });
+        return { finished, data };
+    }, [investigations]);
 
     if (finished.length === 0) {
         return (
@@ -24,29 +45,6 @@ export const DurationDistribution = ({ investigations }: Props) => {
             </div>
         );
     }
-
-    // Use real duration: lastModified - id timestamp, with step-based fallback
-    const data = BUCKETS.map(bucket => ({ name: bucket.label, count: 0, color: bucket.color }));
-
-    finished.forEach(inv => {
-        const startTs = Number(inv.id);
-        let duration: number;
-
-        if (inv.lastModified && inv.lastModified > startTs) {
-            duration = inv.lastModified - startTs;
-        } else {
-            // Fallback: estimate from step count
-            const stepCount = inv.thoughtCount ?? inv.thoughts?.length ?? 0;
-            duration = stepCount * 15000;
-        }
-        
-        for (let i = 0; i < BUCKETS.length; i++) {
-            if (duration < BUCKETS[i].max) {
-                data[i].count++;
-                break;
-            }
-        }
-    });
 
     return (
         <ResponsiveContainer width="100%" height="100%">

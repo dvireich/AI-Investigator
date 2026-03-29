@@ -1,4 +1,4 @@
-import type { ComponentType } from 'react';
+import { createElement, type ComponentType } from 'react';
 import type { Investigation } from '../../api';
 
 export interface WidgetDefinition {
@@ -24,7 +24,7 @@ const SuccessRateWrapper = ({ investigations }: { investigations: Investigation[
     const completed = investigations.filter(i => i.status === 'completed').length;
     const failed = investigations.filter(i => i.status === 'failed').length;
     const aborted = investigations.filter(i => i.status === 'aborted').length;
-    return SuccessRateDonut({ completed, failed, aborted });
+    return createElement(SuccessRateDonut, { completed, failed, aborted });
 };
 
 export const WIDGET_REGISTRY: WidgetDefinition[] = [
