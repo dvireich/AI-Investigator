@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { Scheduler, SchedulerConfig, CreateInvestigationFn, GetInvestigationResultFn, DeleteInvestigationFn, ListScheduleInvestigationsFn, generateExecutiveReport } from '../../schedules/Scheduler';
+import { Scheduler, SchedulerConfig, CreateInvestigationFn, GetInvestigationResultFn, DeleteInvestigationFn, ListScheduleInvestigationsFn, generateExecutiveReport, generateAIExecutiveReport } from '../../schedules/Scheduler';
 import { ScheduleStore, ScheduleDefinition, ScheduleHistoryEntry } from '../../schedules/ScheduleStore';
 
 // Minimal schedule definition
@@ -716,6 +716,46 @@ describe('Scheduler', () => {
             expect(reportContent).toContain('warning');
             expect(reportContent).toContain('Some issues found');
         });
+
+        it('uses AI executive report when llmProvider is set', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({
+                choices: [{ message: { content: '# AI Report\n\nAll good.' } }],
+            });
+            const llmProvider = {
+                getClient: vi.fn().mockResolvedValue({ chat: { completions: { create: mockCreate } } }),
+            } as any;
+            scheduler.setLlmProvider(llmProvider);
+
+            store.getHistory.mockReturnValue([
+                { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+            ]);
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy', finalReport: 'ok' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            expect(store.writeExecutiveReport).toHaveBeenCalledWith('1', expect.stringContaining('AI Report'));
+        });
+
+        it('falls back to template when AI report fails', async () => {
+            const llmProvider = {
+                getClient: vi.fn().mockRejectedValue(new Error('LLM unavailable')),
+            } as any;
+            scheduler.setLlmProvider(llmProvider);
+
+            store.getHistory.mockReturnValue([
+                { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+            ]);
+            store.getAll.mockReturnValue([makeSchedule({ activeInvestigationId: 'inv-1' })]);
+            getResult.mockReturnValue({ status: 'completed', verdict: 'healthy', finalReport: 'ok' });
+
+            scheduler.start();
+            await vi.advanceTimersByTimeAsync(0);
+
+            // Should fall back to template report
+            expect(store.writeExecutiveReport).toHaveBeenCalledWith('1', expect.stringContaining('Findings Breakdown'));
+        });
     });
 });
 
@@ -979,5 +1019,156 @@ describe('generateExecutiveReport', () => {
         const result = generateExecutiveReport(schedule, entries);
         expect(result).toContain('Key Takeaways');
         expect(result).toContain('2 error-level issues detected');
+    });
+});
+
+describe('generateAIExecutiveReport', () => {
+    const schedule = { name: 'AI Test', target: 'svc', query: 'q', intervalMinutes: 10 };
+
+    function makeMockLlm(content: string | null) {
+        return {
+            getClient: vi.fn().mockResolvedValue({
+                chat: {
+                    completions: {
+                        create: vi.fn().mockResolvedValue({
+                            choices: [{ message: { content } }],
+                        }),
+                    },
+                },
+            }),
+        } as any;
+    }
+
+    it('returns early message for empty entries', async () => {
+        const result = await generateAIExecutiveReport(schedule, [], makeMockLlm('ignored'));
+        expect(result).toContain('No completed runs yet');
+    });
+
+    it('returns LLM content with schedule name prefix when missing heading', async () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1', summary: 'ok' },
+        ];
+        const result = await generateAIExecutiveReport(schedule, entries, makeMockLlm('Everything looks good.'));
+        expect(result).toContain('# AI Test');
+        expect(result).toContain('Everything looks good.');
+        expect(result).toContain('AI-generated report');
+    });
+
+    it('preserves LLM heading when response starts with #', async () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+        ];
+        const result = await generateAIExecutiveReport(schedule, entries, makeMockLlm('# Custom Title\n\nBody'));
+        expect(result.startsWith('# Custom Title')).toBe(true);
+        expect(result).not.toContain('# AI Test');
+    });
+
+    it('throws on empty LLM response', async () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+        ];
+        await expect(generateAIExecutiveReport(schedule, entries, makeMockLlm(null)))
+            .rejects.toThrow('LLM returned empty response');
+    });
+
+    it('includes older-runs-omitted note when entries exceed 20', async () => {
+        const entries: ScheduleHistoryEntry[] = Array.from({ length: 25 }, (_, i) => ({
+            timestamp: `2024-01-01T${String(i).padStart(2, '0')}:00:00Z`,
+            verdict: 'healthy' as const,
+            investigationId: `inv-${i}`,
+        }));
+        const llm = makeMockLlm('# Report\n\nAll fine.');
+        const mockCreate = (await llm.getClient()).chat.completions.create;
+        // Reset so the actual test call gets the mock
+        llm.getClient.mockResolvedValue({ chat: { completions: { create: mockCreate } } });
+
+        await generateAIExecutiveReport(schedule, entries, llm);
+
+        const prompt = mockCreate.mock.calls[0][0].messages[1].content as string;
+        expect(prompt).toContain('5 older run(s) omitted');
+    });
+
+    it('uses provided model parameter', async () => {
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+        ];
+        const llm = makeMockLlm('# Report');
+        const mockCreate = (await llm.getClient()).chat.completions.create;
+        llm.getClient.mockResolvedValue({ chat: { completions: { create: mockCreate } } });
+
+        await generateAIExecutiveReport(schedule, entries, llm, 'gpt-4o');
+        expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-4o' }));
+    });
+
+    it('includes paused verdict in severity scoring and detects improving trend', async () => {
+        // paused(1) paused(1) healthy(0) healthy(0) → improving trend
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'paused', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'paused', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'healthy', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'healthy', investigationId: 'inv-4' },
+        ];
+        const llm = makeMockLlm('# Report');
+        const mockCreate = (await llm.getClient()).chat.completions.create;
+        llm.getClient.mockResolvedValue({ chat: { completions: { create: mockCreate } } });
+
+        await generateAIExecutiveReport(schedule, entries, llm);
+        const prompt = mockCreate.mock.calls[0][0].messages[1].content as string;
+        expect(prompt).toContain('Improving');
+    });
+
+    it('detects degrading trend in prompt', async () => {
+        // healthy(0) healthy(0) critical(4) critical(4) → degrading
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'healthy', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'healthy', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'critical', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'critical', investigationId: 'inv-4' },
+        ];
+        const llm = makeMockLlm('# Report');
+        const mockCreate = (await llm.getClient()).chat.completions.create;
+        llm.getClient.mockResolvedValue({ chat: { completions: { create: mockCreate } } });
+
+        await generateAIExecutiveReport(schedule, entries, llm);
+        const prompt = mockCreate.mock.calls[0][0].messages[1].content as string;
+        expect(prompt).toContain('Degrading');
+    });
+
+    it('scores error and warning verdicts in trend calculation', async () => {
+        // warning(2) error(3) healthy(0) healthy(0) → improving
+        const entries: ScheduleHistoryEntry[] = [
+            { timestamp: '2024-01-01T00:00:00Z', verdict: 'warning', investigationId: 'inv-1' },
+            { timestamp: '2024-01-01T01:00:00Z', verdict: 'error', investigationId: 'inv-2' },
+            { timestamp: '2024-01-01T02:00:00Z', verdict: 'healthy', investigationId: 'inv-3' },
+            { timestamp: '2024-01-01T03:00:00Z', verdict: 'healthy', investigationId: 'inv-4' },
+        ];
+        const llm = makeMockLlm('# Report');
+        const mockCreate = (await llm.getClient()).chat.completions.create;
+        llm.getClient.mockResolvedValue({ chat: { completions: { create: mockCreate } } });
+
+        await generateAIExecutiveReport(schedule, entries, llm);
+        const prompt = mockCreate.mock.calls[0][0].messages[1].content as string;
+        expect(prompt).toContain('Improving');
+    });
+
+    it('truncates older entry summaries beyond 300 chars in prompt', async () => {
+        const longSummary = 'A'.repeat(400);
+        // 25 entries total. Last 20 are included in prompt. Of those 20, the first 15 are "older" (condensed).
+        // Place the long summary on entry index 6 (which becomes the 2nd entry of the 20 in the prompt).
+        const entries: ScheduleHistoryEntry[] = Array.from({ length: 25 }, (_, i) => ({
+            timestamp: `2024-01-01T${String(i).padStart(2, '0')}:00:00Z`,
+            verdict: 'healthy' as const,
+            investigationId: `inv-${i}`,
+            summary: i === 6 ? longSummary : 'ok',
+        }));
+        const llm = makeMockLlm('# Report');
+        const mockCreate = (await llm.getClient()).chat.completions.create;
+        llm.getClient.mockResolvedValue({ chat: { completions: { create: mockCreate } } });
+
+        await generateAIExecutiveReport(schedule, entries, llm);
+        const prompt = mockCreate.mock.calls[0][0].messages[1].content as string;
+        // Older entry summary should be truncated (first 300 chars + '...')
+        expect(prompt).not.toContain(longSummary);
+        expect(prompt).toContain('A'.repeat(300) + '...');
     });
 });

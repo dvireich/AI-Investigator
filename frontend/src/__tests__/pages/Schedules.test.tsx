@@ -1682,9 +1682,10 @@ describe('Schedules', () => {
                 expect(screen.getByRole('dialog')).toBeInTheDocument();
             });
 
-            // Close the modal via the X button inside the dialog
+            // Close the modal via the X button inside the dialog header
             const dialog = screen.getByRole('dialog');
-            const closeBtn = dialog.querySelector('button');
+            const headerBar = dialog.querySelector('.border-b');
+            const closeBtn = headerBar?.querySelectorAll('button')?.[1]; // Second button is X (first is Regenerate)
             expect(closeBtn).toBeTruthy();
             await user.click(closeBtn!);
 
@@ -1743,6 +1744,157 @@ describe('Schedules', () => {
                 expect(screen.getByText('History')).toBeInTheDocument();
             });
             expect(screen.queryByText('Executive Summary')).not.toBeInTheDocument();
+        });
+
+        it('regenerates report when Regenerate button is clicked', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+
+            let resolveRegenerate!: (value: any) => void;
+            const reportData = {
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                verdictBreakdown: { healthy: 2, warning: 1 }, successRate: 66.7, trend: 'stable',
+                recentSummaries: [],
+                executiveSummary: '# Original Summary',
+            };
+            vi.mocked(api.getScheduleReport)
+                .mockResolvedValueOnce(reportData)   // 1st: auto-load on card expand
+                .mockResolvedValueOnce(reportData)   // 2nd: Executive Summary button click (refresh)
+                .mockImplementationOnce(() => new Promise(resolve => { resolveRegenerate = resolve; })); // 3rd: Regenerate button click
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('Executive Summary'));
+            await user.click(screen.getByText('Executive Summary'));
+
+            // Wait for the modal to appear AND the Executive Summary button's refresh to complete
+            await waitFor(() => {
+                expect(screen.getByRole('dialog')).toBeInTheDocument();
+                expect(screen.queryByText('Generating AI report...')).not.toBeInTheDocument();
+            });
+
+            // Click Regenerate button (first button in modal header bar)
+            const dialog = screen.getByRole('dialog');
+            const headerBar = dialog.querySelector('.border-b');
+            const regenerateBtn = headerBar?.querySelectorAll('button')?.[0];
+            expect(regenerateBtn).toBeTruthy();
+            await user.click(regenerateBtn!);
+
+            // Spinner should appear while regenerating
+            await waitFor(() => {
+                expect(screen.getByText('Generating AI report...')).toBeInTheDocument();
+            });
+
+            // Resolve the regenerate call
+            await act(async () => {
+                resolveRegenerate({
+                    ...reportData,
+                    executiveSummary: '# Regenerated Summary',
+                });
+            });
+
+            await waitFor(() => {
+                expect(api.getScheduleReport).toHaveBeenCalledTimes(3);
+                expect(api.getScheduleReport).toHaveBeenLastCalledWith('s1', true);
+            });
+        });
+
+        it('shows fallback when executive summary is null after open', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+
+            vi.mocked(api.getScheduleReport)
+                .mockResolvedValueOnce({
+                    scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                    verdictBreakdown: { healthy: 3 }, successRate: 100, trend: 'stable',
+                    recentSummaries: [],
+                    executiveSummary: '# Original',
+                })
+                // Fresh fetch returns no executive summary
+                .mockResolvedValueOnce({
+                    scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                    verdictBreakdown: { healthy: 3 }, successRate: 100, trend: 'stable',
+                    recentSummaries: [],
+                });
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('Executive Summary'));
+            await user.click(screen.getByText('Executive Summary'));
+
+            await waitFor(() => {
+                expect(screen.getByText('No executive summary available.')).toBeInTheDocument();
+            });
+        });
+
+        it('handles refresh failure when opening Executive Summary (line 699 catch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+
+            vi.mocked(api.getScheduleReport)
+                .mockResolvedValueOnce({
+                    scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                    verdictBreakdown: { healthy: 3 }, successRate: 100, trend: 'stable',
+                    recentSummaries: [],
+                    executiveSummary: '# Original',
+                })
+                .mockRejectedValueOnce(new Error('network error')); // refresh fails
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('Executive Summary'));
+            await user.click(screen.getByText('Executive Summary'));
+
+            // Modal should still open, showing original content from reportMap
+            await waitFor(() => {
+                expect(screen.getByRole('dialog')).toBeInTheDocument();
+            });
+        });
+
+        it('handles regenerate failure in modal (line 883 catch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+
+            const reportData = {
+                scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                verdictBreakdown: { healthy: 3 }, successRate: 100, trend: 'stable',
+                recentSummaries: [],
+                executiveSummary: '# Summary',
+            };
+            vi.mocked(api.getScheduleReport)
+                .mockResolvedValueOnce(reportData)  // auto-load
+                .mockResolvedValueOnce(reportData)  // Executive Summary button refresh
+                .mockRejectedValueOnce(new Error('regen failed')); // Regenerate button
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('Executive Summary'));
+            await user.click(screen.getByText('Executive Summary'));
+
+            // Wait for modal to open and refresh to complete
+            await waitFor(() => {
+                expect(screen.getByRole('dialog')).toBeInTheDocument();
+                expect(screen.queryByText('Generating AI report...')).not.toBeInTheDocument();
+            });
+
+            // Click Regenerate button
+            const dialog = screen.getByRole('dialog');
+            const headerBar = dialog.querySelector('.border-b');
+            const regenerateBtn = headerBar?.querySelectorAll('button')?.[0];
+            await user.click(regenerateBtn!);
+
+            // Should show spinner then recover after error
+            await waitFor(() => {
+                expect(screen.queryByText('Generating AI report...')).not.toBeInTheDocument();
+            });
         });
     });
 

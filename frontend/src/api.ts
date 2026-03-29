@@ -827,8 +827,9 @@ export const api = {
         return response.json();
     },
 
-    getScheduleReport: async (id: string): Promise<ScheduleReport> => {
-        const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}/report`);
+    getScheduleReport: async (id: string, refresh?: boolean): Promise<ScheduleReport> => {
+        const qs = refresh ? '?refresh=true' : '';
+        const response = await fetch(`${API_URL}/schedules/${encodeURIComponent(id)}/report${qs}`);
         if (!response.ok) throw new Error('Failed to fetch schedule report');
         return response.json();
     },

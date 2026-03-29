@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2 } from 'lucide-react';
+import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2, Calendar } from 'lucide-react';
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult } from '../api';
 import { useToast } from '../components/Toast';
@@ -352,6 +352,15 @@ export const Settings = () => {
                     cwd: s.cwd || '',
                 })));
             }
+            // Sync analytics widget selection from server config to localStorage
+            if (Array.isArray(settings.analyticsWidgets) && settings.analyticsWidgets.length === 3) {
+                setSelectedWidgetIds(settings.analyticsWidgets);
+                setSelectedWidgets(settings.analyticsWidgets);
+            }
+            // Sync analytics visibility from server config to localStorage
+            if (typeof settings.analyticsVisible === 'boolean') {
+                localStorage.setItem('inv-analytics', String(settings.analyticsVisible));
+            }
         } catch (err) {
             console.error("Failed to load settings:", err);
             setError("Failed to load settings from server.");
@@ -378,6 +387,7 @@ export const Settings = () => {
                 notifEnabled,
                 notifSound: notifSoundOn,
                 notifEvents,
+                analyticsWidgets: selectedWidgets,
             });
             setSaveSuccess(true);
             setDirty(false);
@@ -463,8 +473,13 @@ export const Settings = () => {
         });
     };
 
-    const handleSaveWidgets = () => {
+    const handleSaveWidgets = async () => {
         setSelectedWidgetIds(selectedWidgets);
+        try {
+            await api.saveSettings({ analyticsWidgets: selectedWidgets });
+        } catch {
+            // localStorage save succeeded; server sync is best-effort
+        }
         setWidgetSaveSuccess(true);
         setTimeout(() => setWidgetSaveSuccess(false), 3000);
     };
@@ -477,6 +492,7 @@ export const Settings = () => {
         { id: 'products', label: 'Products', icon: <Package size={18} /> },
         { id: 'connections', label: 'Connections', icon: <Plug size={18} /> },
         { id: 'agent', label: 'Agent Behavior', icon: <Cpu size={18} /> },
+        { id: 'schedules', label: 'Schedules', icon: <Calendar size={18} /> },
         { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
         { id: 'appearance', label: 'Appearance', icon: <Layout size={18} /> },
         { id: 'system', label: 'System', icon: <Monitor size={18} /> },
@@ -1204,56 +1220,6 @@ export const Settings = () => {
                                     <p className="text-xs text-slate-500">Maximum number of investigations that can run simultaneously. Set to <strong className="text-slate-400">∞</strong> for unlimited. New investigations will be rejected if a numeric limit is reached. Default: 3.</p>
                                 </div>
 
-                                {/* Max Concurrent Scheduled Investigations */}
-                                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
-                                    <div className="flex justify-between items-center">
-                                        <label htmlFor="settings-max-concurrent-scheduled" className="text-sm font-bold text-slate-300 block">Max Concurrent Scheduled Investigations</label>
-                                        <span className={`text-xs font-mono px-2 py-1 rounded ${(config.maxConcurrentScheduledInvestigations ?? 2) === 0 ? 'bg-brand-500/20 text-brand-400' : 'bg-slate-700 text-slate-300'}`}>
-                                            {(config.maxConcurrentScheduledInvestigations ?? 2) === 0 ? '∞ Unlimited' : config.maxConcurrentScheduledInvestigations ?? 2}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
-                                        <input
-                                            id="settings-max-concurrent-scheduled"
-                                            type="range"
-                                            min="0"
-                                            max="10"
-                                            step="1"
-                                            value={config.maxConcurrentScheduledInvestigations ?? 2}
-                                            onChange={(e) => handleChange('maxConcurrentScheduledInvestigations', parseInt(e.target.value))}
-                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500"
-                                        />
-                                        <span className="text-[10px] text-slate-500 font-bold w-4">10</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500">Maximum number of scheduled investigations that can run at the same time. Set to <strong className="text-slate-400">∞</strong> for unlimited. Default: 2.</p>
-                                </div>
-
-                                {/* Scheduled Investigation Retention */}
-                                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
-                                    <div className="flex justify-between items-center">
-                                        <label htmlFor="settings-scheduled-retention" className="text-sm font-bold text-slate-300 block">Scheduled Investigation Retention</label>
-                                        <span className={`text-xs font-mono px-2 py-1 rounded ${(config.scheduledInvestigationRetentionCount ?? 10) === 0 ? 'bg-brand-500/20 text-brand-400' : 'bg-slate-700 text-slate-300'}`}>
-                                            {(config.scheduledInvestigationRetentionCount ?? 10) === 0 ? '∞ Keep all' : config.scheduledInvestigationRetentionCount ?? 10}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-4">
-                                        <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
-                                        <input
-                                            id="settings-scheduled-retention"
-                                            type="range"
-                                            min="0"
-                                            max="50"
-                                            step="1"
-                                            value={config.scheduledInvestigationRetentionCount ?? 10}
-                                            onChange={(e) => handleChange('scheduledInvestigationRetentionCount', parseInt(e.target.value))}
-                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500"
-                                        />
-                                        <span className="text-[10px] text-slate-500 font-bold w-4">50</span>
-                                    </div>
-                                    <p className="text-xs text-slate-500">Maximum number of completed investigations to keep per schedule. Oldest are automatically deleted when the limit is exceeded. Set to <strong className="text-slate-400">∞</strong> to keep all. Default: 10.</p>
-                                </div>
-
                                 {/* Retrospective Timeout */}
                                 <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
                                     <div className="flex justify-between items-center">
@@ -1295,6 +1261,26 @@ export const Settings = () => {
                                         )}
                                     </select>
                                     <p className="text-xs text-slate-500">Select the LLM model to drive the investigation agent. Available models are fetched from the configured provider.</p>
+                                </div>
+
+                                {/* Recommendation Extraction Model */}
+                                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
+                                    <label htmlFor="settings-recommendation-model" className="text-sm font-bold text-slate-300 block">Recommendation Extraction Model</label>
+                                    <select
+                                        id="settings-recommendation-model"
+                                        value={(config as any).recommendationModel || 'gpt-4o-mini'}
+                                        onChange={(e) => handleChange('recommendationModel', e.target.value)}
+                                        className="w-full px-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                                    >
+                                        {availableModels.length > 0 ? (
+                                            availableModels.map(m => (
+                                                <option key={m} value={m}>{m}</option>
+                                            ))
+                                        ) : (
+                                            <option value="gpt-4o-mini">Loading models...</option>
+                                        )}
+                                    </select>
+                                    <p className="text-xs text-slate-500">LLM model used to extract and classify recommendations from investigation reports. A smaller model works well for this structured extraction task. Default: <strong className="text-slate-400">gpt-4o-mini</strong>.</p>
                                 </div>
                             </div>
                         </div>
@@ -1441,6 +1427,89 @@ export const Settings = () => {
                                         </div>
                                     </div>
                                 )}
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'schedules' && (
+                        <div className="space-y-8 animate-fade-in">
+                            <div>
+                                <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+                                    <Calendar className="text-brand-400" /> Schedules
+                                </h2>
+                                <p className="text-slate-400">Configure limits, retention, and AI reporting for scheduled investigations.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-8">
+                                {/* Max Concurrent Scheduled Investigations */}
+                                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <label htmlFor="settings-max-concurrent-scheduled" className="text-sm font-bold text-slate-300 block">Max Concurrent Scheduled Investigations</label>
+                                        <span className={`text-xs font-mono px-2 py-1 rounded ${(config.maxConcurrentScheduledInvestigations ?? 2) === 0 ? 'bg-brand-500/20 text-brand-400' : 'bg-slate-700 text-slate-300'}`}>
+                                            {(config.maxConcurrentScheduledInvestigations ?? 2) === 0 ? '∞ Unlimited' : config.maxConcurrentScheduledInvestigations ?? 2}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
+                                        <input
+                                            id="settings-max-concurrent-scheduled"
+                                            type="range"
+                                            min="0"
+                                            max="10"
+                                            step="1"
+                                            value={config.maxConcurrentScheduledInvestigations ?? 2}
+                                            onChange={(e) => handleChange('maxConcurrentScheduledInvestigations', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500"
+                                        />
+                                        <span className="text-[10px] text-slate-500 font-bold w-4">10</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500">Maximum number of scheduled investigations that can run at the same time. Set to <strong className="text-slate-400">∞</strong> for unlimited. Default: 2.</p>
+                                </div>
+
+                                {/* Scheduled Investigation Retention */}
+                                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
+                                    <div className="flex justify-between items-center">
+                                        <label htmlFor="settings-scheduled-retention" className="text-sm font-bold text-slate-300 block">Scheduled Investigation Retention</label>
+                                        <span className={`text-xs font-mono px-2 py-1 rounded ${(config.scheduledInvestigationRetentionCount ?? 10) === 0 ? 'bg-brand-500/20 text-brand-400' : 'bg-slate-700 text-slate-300'}`}>
+                                            {(config.scheduledInvestigationRetentionCount ?? 10) === 0 ? '∞ Keep all' : config.scheduledInvestigationRetentionCount ?? 10}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <span className="text-[10px] text-slate-500 font-bold w-6">∞</span>
+                                        <input
+                                            id="settings-scheduled-retention"
+                                            type="range"
+                                            min="0"
+                                            max="50"
+                                            step="1"
+                                            value={config.scheduledInvestigationRetentionCount ?? 10}
+                                            onChange={(e) => handleChange('scheduledInvestigationRetentionCount', parseInt(e.target.value))}
+                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-brand-500"
+                                        />
+                                        <span className="text-[10px] text-slate-500 font-bold w-4">50</span>
+                                    </div>
+                                    <p className="text-xs text-slate-500">Maximum number of completed investigations to keep per schedule. Oldest are automatically deleted when the limit is exceeded. Set to <strong className="text-slate-400">∞</strong> to keep all. Default: 10.</p>
+                                </div>
+
+                                {/* Scheduled Report Model */}
+                                <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm space-y-4">
+                                    <label htmlFor="settings-scheduled-report-model" className="text-sm font-bold text-slate-300 block">Scheduled Report Model</label>
+                                    <select
+                                        id="settings-scheduled-report-model"
+                                        value={config.scheduledReportModel || 'gpt-4o-mini'}
+                                        onChange={(e) => handleChange('scheduledReportModel', e.target.value)}
+                                        className="w-full px-4 py-3 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all"
+                                    >
+                                        {availableModels.length > 0 ? (
+                                            availableModels.map(m => (
+                                                <option key={m} value={m}>{m}</option>
+                                            ))
+                                        ) : (
+                                            <option value="gpt-4o-mini">Loading models...</option>
+                                        )}
+                                    </select>
+                                    <p className="text-xs text-slate-500">LLM model used for AI-generated executive reports on scheduled investigations. A smaller, faster model is recommended since this is a synthesis task. Default: <strong className="text-slate-400">gpt-4o-mini</strong>.</p>
+                                </div>
                             </div>
                         </div>
                     )}

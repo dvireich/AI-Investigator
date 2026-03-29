@@ -46,7 +46,19 @@ export class IcmProvider implements IncidentProvider {
             let metadata: any = {};
             let content = '';
             let stderr = '';
+            let settled = false;
             const MAX_STDERR = 100 * 1024; // 100 KB cap (Fix 18)
+            const MAX_STDOUT = 1_000_000;  // 1 MB cap on content data
+            const PROCESS_TIMEOUT = 5 * 60 * 1000; // 5 minute timeout
+
+            // Kill hung child processes to prevent indefinite resource hold
+            const timeout = setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    try { child.kill('SIGKILL'); } catch { /* best-effort */ }
+                    reject(new Error(`IcM script timed out after 5 minutes for incident ${id}`));
+                }
+            }, PROCESS_TIMEOUT);
 
             child.stdout.on('data', (data: Buffer) => {
                 const lines = data.toString().split('\n');
@@ -63,7 +75,12 @@ export class IcmProvider implements IncidentProvider {
                         try {
                             const event = JSON.parse(trimmed.substring('[DATA] '.length));
                             if (event.key === 'metadata') metadata = event.value;
-                            if (event.key === 'content') content = event.value;
+                            if (event.key === 'content') {
+                                const val = typeof event.value === 'string' ? event.value : JSON.stringify(event.value);
+                                content = val.length > MAX_STDOUT
+                                    ? val.substring(0, MAX_STDOUT) + '\n... [content truncated]'
+                                    : val;
+                            }
                             onProgress?.({ type: 'data', key: event.key, value: event.value });
                         } catch { /* ignore malformed data */ }
                     }
@@ -77,6 +94,10 @@ export class IcmProvider implements IncidentProvider {
             });
 
             child.on('close', (code) => {
+                clearTimeout(timeout);
+                if (settled) return;
+                settled = true;
+
                 if (code !== 0 && !metadata.title) {
                     reject(new Error(`IcM script failed (exit ${code}): ${stderr}`));
                     return;
@@ -113,6 +134,9 @@ export class IcmProvider implements IncidentProvider {
             });
 
             child.on('error', (err) => {
+                clearTimeout(timeout);
+                if (settled) return;
+                settled = true;
                 reject(new Error(`Failed to spawn IcM script: ${err.message}`));
             });
         });

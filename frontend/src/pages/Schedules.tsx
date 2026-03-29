@@ -10,7 +10,7 @@ import {
     Clock, Play, Pause, Plus, Trash2, Pencil, CheckCircle2, AlertTriangle,
     XCircle, Activity, RefreshCw, ChevronDown, ChevronRight, ChevronLeft, Server, Timer,
     ExternalLink, Eye, EyeOff, Loader2, Check, X, Cpu, Calendar, Search, Copy,
-    Zap, Shield, TrendingUp, TrendingDown, Minus, Sparkles, BarChart3, FileText
+    Zap, Shield, TrendingUp, TrendingDown, Minus, Sparkles, BarChart3, FileText, Power
 } from 'lucide-react';
 import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
 import ReactMarkdown from 'react-markdown';
@@ -75,6 +75,7 @@ export const Schedules = () => {
     const [historyMap, setHistoryMap] = useState<Record<string, ScheduleHistoryEntry[]>>({});
     const [reportMap, setReportMap] = useState<Record<string, ScheduleReport>>({});
     const [executiveModalId, setExecutiveModalId] = useState<string | null>(null);
+    const [regeneratingReport, setRegeneratingReport] = useState(false);
     const [models, setModels] = useState<string[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editFields, setEditFields] = useState<{ model?: string; target?: string; timeRange?: string; category?: string }>({});
@@ -484,8 +485,8 @@ export const Schedules = () => {
                                             <button onClick={() => handleRunNow(sched.id)} title="Run now" className="p-1.5 rounded-lg text-slate-500 hover:text-brand-400 hover:bg-brand-500/10 transition-all">
                                                 <Play className="w-3.5 h-3.5" />
                                             </button>
-                                            <button onClick={() => handleToggleEnabled(sched)} title={sched.enabled ? 'Disable' : 'Enable'} className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/5 transition-all">
-                                                {sched.enabled ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                                            <button onClick={() => handleToggleEnabled(sched)} title={sched.enabled ? 'Disable' : 'Enable'} className={`p-1.5 rounded-lg transition-all ${sched.enabled ? 'text-emerald-400 hover:text-red-400 hover:bg-red-500/10' : 'text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10'}`}>
+                                                <Power className="w-3.5 h-3.5" />
                                             </button>
                                             <button onClick={() => navigate(`/schedules/${sched.id}/edit`)} title="Edit" className="p-1.5 rounded-lg text-slate-500 hover:text-white hover:bg-white/5 transition-all">
                                                 <Pencil className="w-3.5 h-3.5" />
@@ -687,6 +688,29 @@ export const Schedules = () => {
 
                                             return (
                                                 <div>
+                                                    {/* Executive Summary — prominent CTA */}
+                                                    <button
+                                                        onClick={async () => {
+                                                            setExecutiveModalId(sched.id);
+                                                            setRegeneratingReport(true);
+                                                            try {
+                                                                const freshReport = await api.getScheduleReport(sched.id, true);
+                                                                setReportMap(prev => ({ ...prev, [sched.id]: freshReport }));
+                                                            } catch { /* ignore */ }
+                                                            setRegeneratingReport(false);
+                                                        }}
+                                                        className="w-full mb-3 group/exec flex items-center gap-3 px-4 py-3 rounded-xl bg-gradient-to-r from-brand-500/10 to-brand-400/5 border border-brand-500/20 hover:border-brand-500/40 hover:from-brand-500/15 hover:to-brand-400/10 transition-all"
+                                                    >
+                                                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-brand-500/15 text-brand-400 group-hover/exec:bg-brand-500/25 transition-colors">
+                                                            <Sparkles className="w-4 h-4" />
+                                                        </div>
+                                                        <div className="flex-1 text-left">
+                                                            <div className="text-xs font-bold text-slate-200 group-hover/exec:text-white transition-colors">Executive Summary</div>
+                                                            <div className="text-[10px] text-slate-500">AI-generated insights &amp; recommendations</div>
+                                                        </div>
+                                                        <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover/exec:text-brand-400 transition-colors" />
+                                                    </button>
+
                                                     <div className="flex items-center gap-2 mb-2.5">
                                                         <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                                                             <BarChart3 className="w-3 h-3" /> Report
@@ -754,23 +778,6 @@ export const Schedules = () => {
                                                         </div>
                                                     )}
                                                 </div>
-                                            );
-                                        })()}
-
-                                        {/* Executive Summary — open in modal */}
-                                        {(() => {
-                                            const report = reportMap[sched.id];
-                                            if (!report?.executiveSummary) return null;
-                                            return (
-                                                <button
-                                                    onClick={() => setExecutiveModalId(sched.id)}
-                                                    className="flex items-center gap-2 mb-2.5 w-full group/exec hover:bg-slate-800/30 rounded-lg px-2 py-1.5 -mx-2 transition-colors"
-                                                >
-                                                    <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5 group-hover/exec:text-slate-400 transition-colors">
-                                                        <FileText className="w-3 h-3" /> Executive Summary
-                                                    </div>
-                                                    <ExternalLink className="w-3 h-3 text-slate-600 opacity-0 group-hover/exec:opacity-100 transition-opacity ml-auto" />
-                                                </button>
                                             );
                                         })()}
 
@@ -848,10 +855,10 @@ export const Schedules = () => {
             )}
 
             {/* Executive Summary Modal */}
-            {executiveModalId && reportMap[executiveModalId]?.executiveSummary && createPortal(
+            {executiveModalId && createPortal(
                 <div
                     className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-                    onClick={() => setExecutiveModalId(null)}
+                    onClick={() => { setExecutiveModalId(null); setRegeneratingReport(false); }}
                     role="dialog"
                     aria-modal="true"
                     aria-label="Executive Summary"
@@ -865,12 +872,30 @@ export const Schedules = () => {
                                 <FileText className="w-4 h-4 text-slate-400" />
                                 Executive Summary
                             </div>
-                            <button
-                                onClick={() => setExecutiveModalId(null)}
-                                className="text-slate-500 hover:text-slate-300 transition-colors p-1 rounded-lg hover:bg-slate-800/50"
-                            >
-                                <X className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={async () => {
+                                        setRegeneratingReport(true);
+                                        try {
+                                            const report = await api.getScheduleReport(executiveModalId!, true);
+                                            setReportMap(prev => ({ ...prev, [executiveModalId!]: report }));
+                                        } catch { /* ignore */ }
+                                        setRegeneratingReport(false);
+                                    }}
+                                    disabled={regeneratingReport}
+                                    className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors px-2.5 py-1.5 rounded-lg hover:bg-slate-800/50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    title="Regenerate report using AI"
+                                >
+                                    <Sparkles className="w-3.5 h-3.5" />
+                                    Regenerate
+                                </button>
+                                <button
+                                    onClick={() => { setExecutiveModalId(null); setRegeneratingReport(false); }}
+                                    className="text-slate-500 hover:text-slate-300 transition-colors p-1 rounded-lg hover:bg-slate-800/50"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
                         <div className="flex-1 overflow-y-auto px-6 py-5 prose prose-sm prose-invert max-w-none
                             prose-headings:text-slate-200 prose-headings:font-bold prose-headings:mt-4 prose-headings:mb-2
@@ -884,9 +909,20 @@ export const Schedules = () => {
                             prose-em:text-slate-500
                             scrollbar-hidden"
                         >
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {reportMap[executiveModalId]!.executiveSummary!}
-                            </ReactMarkdown>
+                            {regeneratingReport ? (
+                                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                                    <Loader2 className="w-6 h-6 animate-spin text-slate-500" />
+                                    <p className="text-sm text-slate-500">Generating AI report...</p>
+                                </div>
+                            ) : reportMap[executiveModalId]?.executiveSummary ? (
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {reportMap[executiveModalId]!.executiveSummary!}
+                                </ReactMarkdown>
+                            ) : (
+                                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                                    <p className="text-sm text-slate-500">No executive summary available.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>,

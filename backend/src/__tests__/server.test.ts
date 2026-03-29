@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as pdfRenderer from '../pdfRenderer';
+import * as SchedulerModule from '../schedules/Scheduler';
 import { EventEmitter } from 'events';
 import { AgentRunner, type InvestigationState } from '../agent/Runner';
 import {
@@ -5027,6 +5028,81 @@ describe('server utilities and routes', () => {
             expect(response.body.executiveSummary).toBeTruthy();
         });
 
+        it('uses AI-generated executive report when LLM provider is active', async () => {
+            const entries = [
+                { investigationId: 'inv-1', verdict: 'healthy', timestamp: new Date().toISOString(), summary: 'OK' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-ai', name: 'AI Schedule', target: 'stamp', intervalMinutes: 60 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue(null),
+                writeExecutiveReport: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(1),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+            setFakeLlmProvider();
+
+            const spy = vi.spyOn(SchedulerModule, 'generateAIExecutiveReport').mockResolvedValue('# AI Executive Report');
+
+            const response = await api().get('/api/schedules/sched-ai/report?refresh=true');
+
+            expect(response.status).toBe(200);
+            expect(response.body.executiveSummary).toBe('# AI Executive Report');
+            expect(scheduleStore.writeExecutiveReport).toHaveBeenCalledWith('sched-ai', '# AI Executive Report');
+            spy.mockRestore();
+        });
+
+        it('falls back to template when AI executive report generation fails', async () => {
+            const entries = [
+                { investigationId: 'inv-1', verdict: 'healthy', timestamp: new Date().toISOString(), summary: 'OK' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-ai-fail', name: 'AI Fail Schedule', target: 'stamp', intervalMinutes: 60 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue(null),
+                writeExecutiveReport: vi.fn(),
+                getHistoryCount: vi.fn().mockReturnValue(1),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+            setFakeLlmProvider();
+
+            const spy = vi.spyOn(SchedulerModule, 'generateAIExecutiveReport').mockRejectedValue(new Error('LLM timeout'));
+
+            const response = await api().get('/api/schedules/sched-ai-fail/report');
+
+            expect(response.status).toBe(200);
+            // Falls back to template-generated summary
+            expect(response.body.executiveSummary).toBeTruthy();
+            expect(response.body.executiveSummary).toContain('AI Fail Schedule');
+            spy.mockRestore();
+        });
+
+        it('tolerates writeExecutiveReport failure during AI report generation', async () => {
+            const entries = [
+                { investigationId: 'inv-1', verdict: 'healthy', timestamp: new Date().toISOString(), summary: 'OK' },
+            ];
+            const scheduleStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'sched-ai-wf', name: 'AI Write Fail', target: 'stamp', intervalMinutes: 60 }]),
+                getHistory: vi.fn().mockReturnValue(entries),
+                getExecutiveReport: vi.fn().mockReturnValue(null),
+                writeExecutiveReport: vi.fn().mockImplementation(() => { throw new Error('disk full'); }),
+                getHistoryCount: vi.fn().mockReturnValue(1),
+            };
+            __testUtils.setScheduleStore(scheduleStore as any);
+            __testUtils.setScheduler({ isRunning: vi.fn().mockReturnValue(false) } as any);
+            setFakeLlmProvider();
+
+            const spy = vi.spyOn(SchedulerModule, 'generateAIExecutiveReport').mockResolvedValue('# AI Report');
+
+            const response = await api().get('/api/schedules/sched-ai-wf/report');
+
+            expect(response.status).toBe(200);
+            expect(response.body.executiveSummary).toBe('# AI Report');
+            spy.mockRestore();
+        });
+
         it('computes an improving trend when recent runs are better than older ones', async () => {
             const now = Date.now();
             // Older runs are critical, newer runs are healthy → improving
@@ -5803,7 +5879,7 @@ describe('server utilities and routes', () => {
             expect(response.body).toEqual(cached);
         });
 
-        it('lazy classifies when no cached recommendations', async () => {
+        it('lazy extracts when no cached recommendations', async () => {
             const state = makeState({
                 id: 'lazy-recs',
                 status: 'completed',
@@ -5812,10 +5888,7 @@ describe('server utilities and routes', () => {
             __testUtils.getHistory().set('lazy-recs', state);
             setFakeLlmProvider();
 
-            vi.spyOn(AgentRunner.prototype, 'parseRecommendations').mockReturnValue([
-                { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'code' },
-            ]);
-            vi.spyOn(AgentRunner.prototype, 'classifyRecommendations').mockResolvedValue([
+            vi.spyOn(AgentRunner.prototype, 'extractRecommendations').mockResolvedValue([
                 { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'code' },
             ]);
 
@@ -5837,6 +5910,22 @@ describe('server utilities and routes', () => {
             const response = await api().get('/api/investigations/no-recs/recommendations');
             expect(response.status).toBe(200);
             expect(response.body).toEqual([]);
+        });
+
+        it('returns 500 when extractRecommendations throws', async () => {
+            const state = makeState({
+                id: 'extract-fail',
+                status: 'completed',
+                finalReport: '## Recommendations\n\n1. **Fix it**: broken\n',
+            }) as any;
+            __testUtils.getHistory().set('extract-fail', state);
+            setFakeLlmProvider();
+
+            vi.spyOn(AgentRunner.prototype, 'extractRecommendations').mockRejectedValue(new Error('extraction boom'));
+
+            const response = await api().get('/api/investigations/extract-fail/recommendations');
+            expect(response.status).toBe(500);
+            expect(response.body.error).toContain('Failed to extract');
         });
 
         it('returns recommendations from active runner state', async () => {
@@ -5864,7 +5953,7 @@ describe('server utilities and routes', () => {
             expect(response.body).toEqual([]);
         });
 
-        it('reclassifies recommendations from final report', async () => {
+        it('re-extracts recommendations from final report', async () => {
             const state = makeState({
                 id: 'reclassify-inv',
                 status: 'completed',
@@ -5873,10 +5962,7 @@ describe('server utilities and routes', () => {
             __testUtils.getHistory().set('reclassify-inv', state);
             setFakeLlmProvider();
 
-            vi.spyOn(AgentRunner.prototype, 'parseRecommendations').mockReturnValue([
-                { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'code' },
-            ]);
-            vi.spyOn(AgentRunner.prototype, 'classifyRecommendations').mockResolvedValue([
+            vi.spyOn(AgentRunner.prototype, 'extractRecommendations').mockResolvedValue([
                 { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'operational' },
             ]);
 
@@ -5887,7 +5973,7 @@ describe('server utilities and routes', () => {
             expect(state.recommendations[0].category).toBe('operational');
         });
 
-        it('reclassifies using active runner state', async () => {
+        it('re-extracts using active runner state', async () => {
             const runner = makeRunner({
                 id: 'active-reclassify',
                 status: 'completed',
@@ -5896,16 +5982,29 @@ describe('server utilities and routes', () => {
             __testUtils.getRunners().set('active-reclassify', runner);
             setFakeLlmProvider();
 
-            vi.spyOn(AgentRunner.prototype, 'parseRecommendations').mockReturnValue([
-                { id: 'r1', priority: 'P0', title: 'Fix', description: 'broken', category: 'code' },
-            ]);
-            vi.spyOn(AgentRunner.prototype, 'classifyRecommendations').mockResolvedValue([
+            vi.spyOn(AgentRunner.prototype, 'extractRecommendations').mockResolvedValue([
                 { id: 'r1', priority: 'P0', title: 'Fix', description: 'broken', category: 'operational' },
             ]);
 
             const response = await api().post('/api/investigations/active-reclassify/recommendations/reclassify');
             expect(response.status).toBe(200);
             expect(response.body[0].category).toBe('operational');
+        });
+
+        it('returns 500 when reclassify extractRecommendations throws', async () => {
+            const state = makeState({
+                id: 'reclassify-fail',
+                status: 'completed',
+                finalReport: '## Recommendations\n\n1. **Fix**: broken\n',
+            }) as any;
+            __testUtils.getHistory().set('reclassify-fail', state);
+            setFakeLlmProvider();
+
+            vi.spyOn(AgentRunner.prototype, 'extractRecommendations').mockRejectedValue(new Error('reclassify boom'));
+
+            const response = await api().post('/api/investigations/reclassify-fail/recommendations/reclassify');
+            expect(response.status).toBe(500);
+            expect(response.body.error).toContain('Failed to extract');
         });
     });
 
