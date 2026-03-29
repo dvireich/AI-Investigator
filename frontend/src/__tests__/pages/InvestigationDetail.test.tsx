@@ -7197,6 +7197,51 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 expect(screen.queryByText(/Analyzing codebase and generating proposals/i)).not.toBeInTheDocument();
             });
         });
+
+        it('shows "no code changes proposed" when implementation completes with zero proposals', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: false,
+                retrospect: {
+                    messages: [
+                        { role: 'user', content: '[Implementation] Implement recommendation: Fix the bug' },
+                        { role: 'assistant', content: 'Done. Nothing was changed in the codebase.' },
+                    ],
+                    proposals: [],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            await waitFor(() => {
+                expect(screen.getByText(/no code changes were proposed/i)).toBeInTheDocument();
+            });
+        });
+
+        it('clears stale recommendations when investigation status leaves completed', async () => {
+            const { api } = await import('../../api');
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            // Recommendations should have been auto-loaded for the completed investigation
+            await waitFor(() => expect(api.getRecommendations).toHaveBeenCalledTimes(1));
+
+            // Simulate investigation going to running (e.g. contest)
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ status: 'running', finalReport: null }));
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'status' });
+                await vi.advanceTimersByTimeAsync(500);
+            });
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            // The Implement Recommendations button should no longer be visible (running, no report)
+            expect(screen.queryByText(/Implement Recommendations/i)).not.toBeInTheDocument();
+        });
     });
 
     describe('Tab Focus Reconnection', () => {
