@@ -133,6 +133,8 @@ export class AgentRunner extends EventEmitter {
      * when the runner is removed from the active map.
      */
     dispose(): void {
+        this.removeAllListeners();
+        this.openaiClient = null;
         this.toolManager.cleanup().catch(() => { /* best-effort */ });
     }
 
@@ -381,18 +383,13 @@ export class AgentRunner extends EventEmitter {
                         this.state.finalReport = report;
                         this.state.thoughts.push(`Observation: Report Generated.`);
 
-                        // Parse and classify recommendations from the report
+                        // Extract and classify recommendations from the report using LLM
                         try {
-                            const recs = this.parseRecommendations(report);
-                            if (recs.length > 0) {
-                                this.state.recommendations = await this.classifyRecommendations(recs);
-                                this.log(`Classified ${this.state.recommendations.length} recommendations.`);
-                            } else {
-                                this.state.recommendations = [];
-                            }
+                            this.state.recommendations = await this.extractRecommendations(report);
+                            this.log(`Extracted ${this.state.recommendations.length} recommendations.`);
                         } catch (err: any) {
-                            this.log(`Warning: recommendation classification failed: ${err.message}`);
-                            this.state.recommendations = this.parseRecommendations(report);
+                            this.log(`Warning: recommendation extraction failed: ${err.message}`);
+                            this.state.recommendations = [];
                         }
 
                         // Update last action result (the finish action, before pushing null alignment entry)
@@ -1468,73 +1465,68 @@ Be thorough but focused. Only propose changes that would directly improve the ou
      * Parse recommendations from a markdown investigation report.
      * Looks for a ## Recommendations section and extracts structured items.
      */
-    parseRecommendations(markdown?: string): Recommendation[] {
+    /**
+     * Use the LLM to extract and classify recommendations from the final report
+     * in a single pass. Falls back to an empty array on LLM failure.
+     */
+    async extractRecommendations(markdown?: string): Promise<Recommendation[]> {
         const text = markdown || this.state.finalReport || '';
-        const recommendations: Recommendation[] = [];
+        if (!text) return [];
 
-        // Find the Recommendations section (handles variants like "Recommended Actions", "RECOMMENDATIONS", etc.)
-        const recsMatch = text.match(/^##\s+Recommend(?:ations|ed\b)[^\n]*/im);
-        if (!recsMatch) return recommendations;
+        try {
+            const openai = await this.llmProvider.getClient(30_000);
+            const model = (this.config as any).recommendationModel || 'gpt-4o-mini';
 
-        const recsStart = recsMatch.index! + recsMatch[0].length;
-        // End at next ## heading or end of document
-        const nextH2 = text.slice(recsStart).match(/^##\s+/m);
-        const recsSection = nextH2
-            ? text.slice(recsStart, recsStart + nextH2.index!)
-            : text.slice(recsStart);
+            const completion = await openai.chat.completions.create({
+                model,
+                messages: [
+                    {
+                        role: 'system',
+                        content: `You extract actionable recommendations from investigation reports.
 
-        // Match priority group headings like:
-        //   ### Immediate (P0)
-        //   ### Short-Term (P1)
-        //   **Immediate (P0)**
-        const groupPattern = /(?:^###\s+(.+?)\s*$|^\*\*(.+?)\*\*\s*$)/gm;
-        let groupMatch: RegExpExecArray | null;
-        const groups: { priority: string; label: string; start: number }[] = [];
+Given a markdown investigation report, find ALL recommendations, suggested actions, or proposed changes and return them as a structured JSON array.
 
-        while ((groupMatch = groupPattern.exec(recsSection)) !== null) {
-            const heading = groupMatch[1] || groupMatch[2];
-            // Extract priority code like P0, P1, P2, P3
-            const pMatch = heading.match(/P(\d)/);
-            const priority = pMatch ? `P${pMatch[1]}` : 'P2'; // default to P2 if unclear
-            groups.push({ priority, label: heading, start: groupMatch.index + groupMatch[0].length });
-        }
+For each recommendation determine:
+- **priority**: "P0" (immediate/critical), "P1" (short-term/high), "P2" (medium-term), or "P3" (long-term/low). Infer from context, headings, urgency language, or explicit priority labels.
+- **title**: A concise title for the recommendation (strip numbering like "ACTION 1:", "1.", etc.)
+- **description**: The full description including rationale and impact.
+- **category**: "code" if it can be implemented by modifying source code (adding logic, fixing bugs, refactoring, adding metrics/logging, changing config constants in code, implementing patterns, etc.). "operational" if it requires human action outside the codebase (contacting teams, monitoring dashboards, scaling infra, running perf tests, filing tickets, manual purges, etc.)
 
-        // If no groups found, treat the entire section as P0
-        if (groups.length === 0) {
-            groups.push({ priority: 'P0', label: 'Recommendations', start: 0 });
-        }
+Respond with ONLY a JSON array. Example:
+[
+  {"priority":"P0","title":"Add retry backoff","description":"Implement exponential backoff...","category":"code"},
+  {"priority":"P1","title":"Contact platform team","description":"Engage SRE to investigate...","category":"operational"}
+]
 
-        for (let g = 0; g < groups.length; g++) {
-            const groupStart = groups[g].start;
-            const groupEnd = g + 1 < groups.length ? groups[g + 1].start - (groups[g + 1].label.length + 10) : recsSection.length;
-            const groupText = recsSection.slice(groupStart, groupEnd);
+If the report contains no recommendations, return an empty array: []`
+                    },
+                    {
+                        role: 'user',
+                        content: text
+                    }
+                ],
+            });
 
-            // Match numbered items or bullet items (first bold text is the title)
-            // Patterns: "1. **Title**: Description" or "- **Title**: Description" or "1. Title: Description"
-            const itemPattern = /(?:^|\n)\s*(?:\d+\.\s+|\-\s+)(?:\*\*(.+?)\*\*[:\s]*(.*)|(.*?):\s+(.*))/g;
-            let itemMatch: RegExpExecArray | null;
-
-            while ((itemMatch = itemPattern.exec(groupText)) !== null) {
-                const title = (itemMatch[1] || itemMatch[3] || '').trim();
-                const desc = (itemMatch[2] || itemMatch[4] || '').trim();
-                if (!title) continue;
-
-                // Collect continuation lines (non-item lines that follow)
-                const afterItem = groupText.slice(itemMatch.index + itemMatch[0].length);
-                const continuationMatch = afterItem.match(/^((?:\n\s{2,}.*|\n\s+\-\s+.*)*)/)!;
-                const fullDesc = desc + continuationMatch[1].replace(/\n\s{2,}/g, ' ').trim();
-
-                recommendations.push({
-                    id: `rec_${groups[g].priority}_${recommendations.length}`,
-                    priority: groups[g].priority,
-                    title,
-                    description: fullDesc,
-                    category: 'code'  // default; refined by classifyRecommendations()
-                });
+            const raw = completion.choices[0].message.content?.trim() || '';
+            const jsonMatch = raw.match(/\[[\s\S]*\]/);
+            if (jsonMatch) {
+                const parsed: Array<{ priority?: string; title?: string; description?: string; category?: string }> = JSON.parse(jsonMatch[0]);
+                return parsed
+                    .filter(r => r.title)
+                    .map((r, i) => ({
+                        id: `rec_${r.priority || 'P2'}_${i}`,
+                        priority: r.priority || 'P2',
+                        title: r.title!,
+                        description: r.description || '',
+                        category: (r.category === 'operational' ? 'operational' : 'code') as 'code' | 'operational',
+                    }));
             }
+            this.log('Warning: LLM extraction response did not contain a valid JSON array');
+        } catch (err: any) {
+            this.log(`Warning: LLM recommendation extraction failed (${err.message})`);
         }
 
-        return recommendations;
+        return [];
     }
 
     async classifyRecommendations(recs: Recommendation[]): Promise<Recommendation[]> {
@@ -1544,7 +1536,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
         try {
             const openai = await this.llmProvider.getClient(30_000);
-            const model = this.state.model || this.config.model || 'gpt-4o';
+            const model = (this.config as any).recommendationModel || 'gpt-4o-mini';
 
             const completion = await openai.chat.completions.create({
                 model,
@@ -1753,7 +1745,7 @@ ${recsText}
             throw new Error('Cannot run implementation while retrospect analysis is in progress.');
         }
 
-        const allRecs = this.parseRecommendations();
+        const allRecs = this.state.recommendations || [];
         const selectedRecs = allRecs.filter(r => selectedRecommendationIds.includes(r.id));
 
         if (selectedRecs.length === 0) {

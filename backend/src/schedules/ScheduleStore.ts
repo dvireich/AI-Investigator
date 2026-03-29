@@ -132,8 +132,31 @@ export class ScheduleStore {
         const filePath = this.historyFilePath(scheduleId);
         if (!fs.existsSync(filePath)) return 0;
         try {
-            const entries: ScheduleHistoryEntry[] = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-            return entries.length;
+            // Count top-level JSON array elements without fully parsing the file.
+            // The file is a JSON array of objects — count occurrences of the opening
+            // delimiter pattern to avoid allocating the full parsed array.
+            const raw = fs.readFileSync(filePath, 'utf-8');
+            // Fast path: count opening braces that start array entries.
+            // Each ScheduleHistoryEntry is an object, so count top-level '{'.
+            let count = 0;
+            let depth = 0;
+            for (let i = 0; i < raw.length; i++) {
+                const ch = raw[i];
+                if (ch === '[' || ch === '{') {
+                    depth++;
+                    if (depth === 2 && ch === '{') count++; // top-level array element
+                } else if (ch === ']' || ch === '}') {
+                    depth--;
+                } else if (ch === '"') {
+                    // Skip string content to avoid counting braces inside strings
+                    i++;
+                    while (i < raw.length && raw[i] !== '"') {
+                        if (raw[i] === '\\') i++; // skip escaped chars
+                        i++;
+                    }
+                }
+            }
+            return count;
         } catch {
             return 0;
         }

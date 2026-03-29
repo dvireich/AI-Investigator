@@ -253,7 +253,7 @@ describe('AgentRunner', () => {
             expect(state.verdict).toBe('healthy');
         });
 
-        it('classifies recommendations when finish tool report has them', async () => {
+        it('extracts recommendations when finish tool report has them', async () => {
             const reportWithRecs = '## Final Report\nDetails here.\n\n## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the parser**: The parser fails on edge cases.\n';
             // First call: return content with finish tool as function_call
             mockOpenAI.chat.completions.create
@@ -268,9 +268,9 @@ describe('AgentRunner', () => {
                         },
                     }],
                 })
-                // Second call: for classifyRecommendations LLM call
+                // Second call: for extractRecommendations LLM call
                 .mockResolvedValueOnce({
-                    choices: [{ message: { content: '["code"]' } }],
+                    choices: [{ message: { content: '[{"priority":"P0","title":"Fix the parser","description":"The parser fails on edge cases.","category":"code"}]' } }],
                 });
 
             const runner = new AgentRunner(makeConfig(), provider);
@@ -283,7 +283,7 @@ describe('AgentRunner', () => {
             expect(state.recommendations![0].category).toBe('code');
         });
 
-        it('falls back to unclassified recommendations when classification throws', async () => {
+        it('falls back to empty recommendations when extraction throws', async () => {
             const reportWithRecs = '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crashes\n';
             mockOpenAI.chat.completions.create
                 .mockResolvedValueOnce({
@@ -304,40 +304,9 @@ describe('AgentRunner', () => {
 
             const state = (runner as any).state as InvestigationState;
             expect(state.status).toBe('completed');
-            // Falls back to parseRecommendations without classification
+            // extractRecommendations catches errors internally and returns []
             expect(state.recommendations).toBeDefined();
-            expect(state.recommendations!.length).toBe(1);
-            expect(state.recommendations![0].category).toBe('code'); // default from parseRecommendations
-        });
-
-        it('recovers when parseRecommendations throws in the try block', async () => {
-            const reportWithRecs = '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix bug**: details\n';
-            mockOpenAI.chat.completions.create
-                .mockResolvedValueOnce({
-                    choices: [{
-                        message: {
-                            content: 'Done.',
-                            tool_calls: [{
-                                id: 'tc1',
-                                function: { name: 'finish', arguments: JSON.stringify({ report: reportWithRecs }) },
-                            }],
-                        },
-                    }],
-                });
-
-            const runner = new AgentRunner(makeConfig(), provider);
-            // Make parseRecommendations throw on first call, succeed on second (in catch block)
-            const parseSpy = vi.spyOn(runner as any, 'parseRecommendations')
-                .mockImplementationOnce(() => { throw new Error('parse explosion'); })
-                .mockReturnValueOnce([{ id: 'rec_P0_0', priority: 'P0', title: 'Fallback', description: 'x', category: 'code' }]);
-
-            await runner.start('Investigate');
-
-            const state = (runner as any).state as InvestigationState;
-            expect(state.status).toBe('completed');
-            expect(state.recommendations).toHaveLength(1);
-            expect(state.recommendations![0].title).toBe('Fallback');
-            expect(parseSpy).toHaveBeenCalledTimes(2);
+            expect(state.recommendations!.length).toBe(0);
         });
 
         it('executes tool actions and feeds results back', async () => {
@@ -4766,139 +4735,109 @@ describe('AgentRunner', () => {
         });
     });
 
-    describe('parseRecommendations', () => {
-        it('extracts recommendations from markdown with priority groups', () => {
-            const markdown = `# Investigation Report
+    describe('extractRecommendations', () => {
+        it('extracts recommendations via LLM from markdown', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '[{"priority":"P0","title":"Fix the bug","description":"The service crashes on null input.","category":"code"},{"priority":"P0","title":"Add retry logic","description":"Messages are lost when the queue is unavailable.","category":"code"},{"priority":"P1","title":"Add logging","description":"More telemetry is needed for debugging.","category":"operational"},{"priority":"P2","title":"Refactor processor","description":"The class is too large and complex.","category":"code"}]' } }],
+            });
 
-## Summary
-Some summary text.
-
-## Recommendations
-
-### Immediate (P0)
-
-1. **Fix the bug**: The service crashes on null input.
-2. **Add retry logic**: Messages are lost when the queue is unavailable.
-
-### Short-Term (P1)
-
-1. **Add logging**: More telemetry is needed for debugging.
-
-### Medium-Term (P2)
-
-- **Refactor processor**: The class is too large and complex.
-
-## Appendix
-Some appendix.
-`;
             const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
+            const recs = await runner.extractRecommendations('## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crashes\n');
             expect(recs.length).toBe(4);
             expect(recs[0]).toMatchObject({ priority: 'P0', title: 'Fix the bug' });
-            expect(recs[1]).toMatchObject({ priority: 'P0', title: 'Add retry logic' });
-            expect(recs[2]).toMatchObject({ priority: 'P1', title: 'Add logging' });
-            expect(recs[3]).toMatchObject({ priority: 'P2', title: 'Refactor processor' });
+            expect(recs[2]).toMatchObject({ priority: 'P1', title: 'Add logging', category: 'operational' });
             // Each should have a unique id
             const ids = recs.map(r => r.id);
             expect(new Set(ids).size).toBe(4);
         });
 
-        it('returns empty array when no Recommendations section exists', () => {
+        it('returns empty array when text is empty', async () => {
             const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations('# Report\n\n## Summary\nNo recs here.');
+            const recs = await runner.extractRecommendations('');
             expect(recs).toEqual([]);
+            expect(mockOpenAI.chat.completions.create).not.toHaveBeenCalled();
         });
 
-        it('uses finalReport from state when no markdown is passed', () => {
+        it('uses finalReport from state when no markdown is passed', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '[{"priority":"P0","title":"Do the thing","description":"desc","category":"code"}]' } }],
+            });
             const runner = new AgentRunner(makeConfig(), provider, {
                 status: 'completed',
                 finalReport: '## Recommendations\n\n### Critical (P0)\n\n1. **Do the thing**: desc\n',
                 thoughts: [],
                 actions: [],
             });
-            const recs = runner.parseRecommendations();
+            const recs = await runner.extractRecommendations();
             expect(recs.length).toBe(1);
-            expect(recs[0].priority).toBe('P0');
             expect(recs[0].title).toBe('Do the thing');
         });
 
-        it('handles bold heading format (**Heading (P1)**)', () => {
-            const markdown = `## Recommendations\n\n**Short-Term (P1)**\n\n1. **Improve caching**: Add TTL to cache entries.\n`;
+        it('returns empty array when LLM returns no JSON array', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: 'I cannot find any recommendations.' } }],
+            });
             const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            expect(recs.length).toBe(1);
-            expect(recs[0].priority).toBe('P1');
+            const recs = await runner.extractRecommendations('Some report text');
+            expect(recs).toEqual([]);
         });
 
-        it('defaults to P2 when no priority code is specified', () => {
-            const markdown = `## Recommendations\n\n### General Improvements\n\n1. **Clean up code**: Remove dead code.\n`;
+        it('returns empty array when LLM call throws', async () => {
+            mockOpenAI.chat.completions.create.mockRejectedValueOnce(new Error('API down'));
             const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
+            const recs = await runner.extractRecommendations('Some report text');
+            expect(recs).toEqual([]);
+        });
+
+        it('filters out items without titles', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '[{"priority":"P0","title":"Valid","description":"desc","category":"code"},{"priority":"P1","title":"","description":"no title","category":"code"}]' } }],
+            });
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = await runner.extractRecommendations('Some report');
             expect(recs.length).toBe(1);
+            expect(recs[0].title).toBe('Valid');
+        });
+
+        it('defaults missing priority to P2 and missing category to code', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '[{"title":"Fix it","description":"broken"}]' } }],
+            });
+            const runner = new AgentRunner(makeConfig(), provider);
+            const recs = await runner.extractRecommendations('Some report');
             expect(recs[0].priority).toBe('P2');
+            expect(recs[0].category).toBe('code');
         });
 
-        it('matches "## Recommended Actions" heading', () => {
-            const markdown = `## Recommended Actions\n\n### Critical (P0)\n\n1. **Fix crash**: The service crashes.\n`;
-            const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            expect(recs.length).toBe(1);
-            expect(recs[0].title).toBe('Fix crash');
+        it('uses recommendationModel from config', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '[]' } }],
+            });
+            const runner = new AgentRunner(makeConfig({ recommendationModel: 'custom-model' } as any), provider);
+            await runner.extractRecommendations('Some report');
+            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+                expect.objectContaining({ model: 'custom-model' })
+            );
         });
 
-        it('matches "## RECOMMENDATIONS" heading (case-insensitive)', () => {
-            const markdown = `## RECOMMENDATIONS\n\n### Immediate (P0)\n\n1. **Scale out**: Add more instances.\n`;
+        it('falls back to gpt-4o-mini when no recommendationModel is set', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '[]' } }],
+            });
             const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            expect(recs.length).toBe(1);
-            expect(recs[0].title).toBe('Scale out');
+            await runner.extractRecommendations('Some report');
+            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+                expect.objectContaining({ model: 'gpt-4o-mini' })
+            );
         });
 
-        it('matches "## Recommendations (Ordered by Impact)" heading with suffix', () => {
-            const markdown = `## Recommendations (Ordered by Impact)\n\n### High (P0)\n\n1. **Increase timeout**: Prevent timeouts.\n`;
+        it('handles null message content', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: null } }],
+            });
             const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            expect(recs.length).toBe(1);
-            expect(recs[0].title).toBe('Increase timeout');
-        });
-
-        it('matches "## Recommended Fixes" heading', () => {
-            const markdown = `## Recommended Fixes\n\n### Short-Term (P1)\n\n1. **Patch config**: Update the config file.\n`;
-            const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            expect(recs.length).toBe(1);
-            expect(recs[0].title).toBe('Patch config');
-        });
-
-        it('treats entire section as P0 when no group headings exist', () => {
-            const markdown = `## Recommendations\n\n1. **Restart service**: The service needs a restart.\n2. **Clear cache**: Stale entries found.\n`;
-            const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            expect(recs.length).toBe(2);
-            expect(recs[0].priority).toBe('P0');
-            expect(recs[1].priority).toBe('P0');
-            expect(recs[0].title).toBe('Restart service');
-            expect(recs[1].title).toBe('Clear cache');
-        });
-
-        it('falls back to empty title and desc when both non-bold capture groups are empty', () => {
-            // Input ": description" — colon-format where title (group 3) captures empty string
-            // and description captures the text. The item is then skipped due to !title.
-            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. : some description here\n`;
-            const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            // Empty title → item is skipped
-            expect(recs).toHaveLength(0);
-        });
-
-        it('falls back to empty desc when bold title has no description text', () => {
-            // "1. **Title**:" with empty text after colon — group 2 captures ""
-            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Empty desc item**:\n`;
-            const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            expect(recs).toHaveLength(1);
-            expect(recs[0].title).toBe('Empty desc item');
-            expect(recs[0].description).toBe('');
+            const recs = await runner.extractRecommendations('Some report');
+            expect(recs).toEqual([]);
         });
 
         it('classifies code recommendations correctly', async () => {
@@ -4977,32 +4916,6 @@ Some appendix.
             expect(mockOpenAI.chat.completions.create).not.toHaveBeenCalled();
         });
 
-        it('parses non-bold title format (Title: Description)', () => {
-            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. Fix the crash: Service restarts frequently.\n`;
-            const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            expect(recs.length).toBe(1);
-            expect(recs[0].title).toBe('Fix the crash');
-            expect(recs[0].description).toContain('Service restarts');
-        });
-
-        it('skips items with empty titles', () => {
-            // A numbered item that doesn't match a title pattern
-            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Valid**: Do things.\n2. ** **: Empty bold.\n`;
-            const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            // The second item has empty bold text, should be skipped
-            expect(recs.every(r => r.title.length > 0)).toBe(true);
-        });
-
-        it('returns empty string for continuation when no indent follows', () => {
-            const markdown = `## Recommendations\n\n### Immediate (P0)\n\n1. **Short item**: No continuation lines follow this.\n\n## Next Section\nOther content.\n`;
-            const runner = new AgentRunner(makeConfig(), provider);
-            const recs = runner.parseRecommendations(markdown);
-            expect(recs.length).toBe(1);
-            expect(recs[0].description).toBe('No continuation lines follow this.');
-        });
-
         it('falls back to defaults when LLM returns non-JSON response', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValueOnce({
                 choices: [{ message: { content: 'I cannot classify these.' } }]
@@ -5015,41 +4928,38 @@ Some appendix.
             expect(classified[0].category).toBe('code'); // returns unchanged
         });
 
-        it('uses config model when state model is undefined', async () => {
+        it('uses recommendationModel from config for classification', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValueOnce({
                 choices: [{ message: { content: '["code"]' } }]
             });
             const recs: Recommendation[] = [
                 { id: 'r0', priority: 'P0', title: 'Fix', description: 'D.', category: 'code' },
             ];
-            // makeConfig sets model to 'test-model' but state has no model
+            const runner = new AgentRunner(makeConfig({ recommendationModel: 'custom-classify-model' } as any), provider);
+            await runner.classifyRecommendations(recs);
+            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
+                expect.objectContaining({ model: 'custom-classify-model' })
+            );
+        });
+
+        it('falls back to gpt-4o-mini when no recommendationModel is set', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{ message: { content: '["code"]' } }]
+            });
+            const recs: Recommendation[] = [
+                { id: 'r0', priority: 'P0', title: 'Fix', description: 'D.', category: 'code' },
+            ];
             const runner = new AgentRunner(makeConfig(), provider);
-            (runner as any).state.model = undefined;
             await runner.classifyRecommendations(recs);
             expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
-                expect.objectContaining({ model: 'test-model' })
+                expect.objectContaining({ model: 'gpt-4o-mini' })
             );
         });
 
-        it('falls back to gpt-4o when both state.model and config.model are undefined', async () => {
-            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
-                choices: [{ message: { content: '["code"]' } }]
-            });
-            const recs: Recommendation[] = [
-                { id: 'r0', priority: 'P0', title: 'Fix', description: 'D.', category: 'code' },
-            ];
-            const runner = new AgentRunner(makeConfig({ model: undefined as any }), provider);
-            (runner as any).state.model = undefined;
-            await runner.classifyRecommendations(recs);
-            expect(mockOpenAI.chat.completions.create).toHaveBeenCalledWith(
-                expect.objectContaining({ model: 'gpt-4o' })
-            );
-        });
-
-        it('returns markdown absent from state as empty recommendations', () => {
+        it('returns empty for undefined state finalReport', async () => {
             const runner = new AgentRunner(makeConfig(), provider);
             (runner as any).state.finalReport = undefined;
-            const recs = runner.parseRecommendations(undefined);
+            const recs = await runner.extractRecommendations(undefined);
             expect(recs).toEqual([]);
         });
 
@@ -5329,6 +5239,7 @@ Some appendix.
                 finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: The service crashes.\n',
                 thoughts: ['step1'],
                 actions: [null],
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes.', category: 'code' }],
             });
 
             await (runner as any).runImplementationAnalysis(['rec_P0_0']);
@@ -5348,6 +5259,7 @@ Some appendix.
                 finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
                 thoughts: ['step1'],
                 actions: [null],
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
             });
             (runner as any).isImplementationRunning = true;
             // Should not throw, just silently return
@@ -5410,6 +5322,7 @@ Some appendix.
                 finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: The service crashes.\n',
                 thoughts: ['step1'],
                 actions: [null],
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'The service crashes.', category: 'code' }],
             });
 
             // Pre-inject a proposal so the proposalCount > 0 branch is hit
@@ -5437,6 +5350,7 @@ Some appendix.
                 finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
                 thoughts: ['step1'],
                 actions: [null],
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
             });
 
             vi.spyOn(runner as any, 'runRetrospectToolLoop').mockImplementation(async () => {
@@ -5463,6 +5377,7 @@ Some appendix.
                 finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
                 thoughts: ['step1'],
                 actions: [null],
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
             });
 
             vi.spyOn(runner as any, 'runRetrospectToolLoop').mockRejectedValue(new Error('LLM connection lost'));
@@ -5481,6 +5396,7 @@ Some appendix.
                 finalReport: '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix the bug**: crash\n',
                 thoughts: ['step1'],
                 actions: [null],
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
             });
 
             const abortError = new Error('Aborted');
@@ -5500,11 +5416,8 @@ Some appendix.
                 status: 'completed',
                 thoughts: ['step1'],
                 actions: [null],
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix', description: 'Fix it', category: 'code' }],
             });
-            // Mock parseRecommendations to return recs even without a finalReport
-            vi.spyOn(runner as any, 'parseRecommendations').mockReturnValue([
-                { id: 'rec_P0_0', priority: 'P0', title: 'Fix', description: 'Fix it', category: 'code' },
-            ]);
             vi.spyOn(runner as any, 'runRetrospectToolLoop').mockResolvedValue('Done.');
 
             await (runner as any).runImplementationAnalysis(['rec_P0_0']);

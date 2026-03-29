@@ -14,7 +14,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { appRoot, isPackaged, resolveFromRoot } from './utils/appRoot';
 import { ScheduleStore, ScheduleDefinition } from './schedules/ScheduleStore';
-import { Scheduler, SchedulerConfig, generateExecutiveReport } from './schedules/Scheduler';
+import { Scheduler, SchedulerConfig, generateExecutiveReport, generateAIExecutiveReport } from './schedules/Scheduler';
 import { QueryBankStore, SavedQuery } from './querybank/QueryBankStore';
 
 const app = express();
@@ -155,6 +155,11 @@ export function hydrateStoredState(stored: StoredInvestigationState): StoredInve
         normalized._storagePath = stored._storagePath || getInvestigationStoragePath(normalized);
         normalized._statePath = stored._statePath;
         normalized._thoughtCount = undefined;
+        // Strip fullHistory/fullActions from the cached record to reduce memory.
+        // These are only needed transiently (detail/step endpoints, runner creation)
+        // and can be re-read from disk on demand via state.json.
+        delete (normalized as any).fullHistory;
+        delete (normalized as any).fullActions;
         return normalized;
     } catch (error) {
         console.error(`Failed to hydrate investigation ${stored.id} from ${stored._statePath}:`, error);
@@ -337,6 +342,7 @@ function invalidateListCache() {
     cachedListEtag = null;
     cachedListCacheKey = null;
     listCacheDirtyAt = Date.now();
+    storagePathCache.clear();
 }
 
 /**
@@ -811,9 +817,15 @@ let config: {
     maxConcurrentScheduledInvestigations: number;
     scheduledInvestigationMaxSteps: number;
     scheduledInvestigationRetentionCount: number;
+    scheduledReportModel: string;
+    recommendationModel: string;
     // UI preferences
     defaultView: 'grid' | 'list';
     defaultSortOrder: 'newest' | 'oldest' | 'steps' | 'modified';
+    defaultPageSize: number;
+    // Analytics preferences
+    analyticsWidgets: string[];
+    analyticsVisible: boolean;
 } = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
@@ -839,8 +851,13 @@ let config: {
     maxConcurrentScheduledInvestigations: 2,
     scheduledInvestigationMaxSteps: 20,
     scheduledInvestigationRetentionCount: 10,
+    scheduledReportModel: 'gpt-4o-mini',
+    recommendationModel: 'gpt-4o-mini',
     defaultView: 'grid',
     defaultSortOrder: 'newest',
+    defaultPageSize: 12,
+    analyticsWidgets: ['trend', 'targetActivity', 'successRate'],
+    analyticsVisible: true,
 };
 
 // Track what's persisted on disk — prevents internal defaults from leaking into the config file.
@@ -852,6 +869,21 @@ let persistedConfig: Record<string, any> = {};
 const INTERNAL_DEFAULT_KEYS = new Set([
     'repoRoot', 'workingDirectory', 'systemPromptPath', 'knowledgeBasePath',
     'investigationsPath',
+]);
+
+// Whitelist of config keys accepted via POST /api/settings and POST /api/settings/import.
+// Defined once and shared by both routes to prevent drift.
+const SETTINGS_ALLOWED_KEYS = new Set([
+    'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
+    'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
+    'maxConcurrentInvestigations', 'maxConcurrentScheduledInvestigations',
+    'scheduledInvestigationMaxSteps', 'scheduledInvestigationRetentionCount', 'scheduledReportModel', 'recommendationModel',
+    'autoRefreshInterval', 'workingDirectory',
+    'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
+    'investigationsPath', 'products', 'activeProductId',
+    'llmProvider', 'incidentProvider',
+    'defaultView', 'defaultSortOrder', 'defaultPageSize',
+    'analyticsWidgets', 'analyticsVisible',
 ]);
 
 function saveConfigToDisk() {
@@ -1031,7 +1063,7 @@ app.post('/api/settings', (req, res) => {
             }
         }
         // Validate string fields exist if specified
-        const stringFields = ['repoRoot', 'model', 'workingDirectory'] as const;
+        const stringFields = ['repoRoot', 'model', 'workingDirectory', 'scheduledReportModel', 'recommendationModel'] as const;
         for (const field of stringFields) {
             if (field in newSettings && typeof newSettings[field] !== 'string') {
                 return res.status(400).json({ error: `${field} must be a string` });
@@ -1039,19 +1071,8 @@ app.post('/api/settings', (req, res) => {
         }
 
         // Whitelist allowed config keys to prevent arbitrary key injection
-        const ALLOWED_KEYS = new Set([
-            'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
-            'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
-            'maxConcurrentInvestigations', 'maxConcurrentScheduledInvestigations',
-            'scheduledInvestigationRetentionCount',
-            'autoRefreshInterval', 'workingDirectory',
-            'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
-            'investigationsPath', 'products', 'activeProductId',
-            'llmProvider', 'incidentProvider',
-            'defaultView', 'defaultSortOrder', 'defaultPageSize'
-        ]);
         const filtered = Object.fromEntries(
-            Object.entries(newSettings).filter(([k]) => ALLOWED_KEYS.has(k))
+            Object.entries(newSettings).filter(([k]) => SETTINGS_ALLOWED_KEYS.has(k))
         );
 
         // Deep-sanitize to prevent prototype pollution via nested __proto__ payloads
@@ -1107,19 +1128,8 @@ app.post('/api/settings/import', (req, res) => {
             return res.status(400).json({ error: 'Request body must be a JSON object' });
         }
         // Whitelist the same keys as POST /api/settings
-        const ALLOWED_KEYS = new Set([
-            'repoRoot', 'systemPromptPath', 'knowledgeBasePath',
-            'mcpServers', 'maxSteps', 'retrospectTimeoutMinutes', 'model', 'defaultTimeRange',
-            'maxConcurrentInvestigations', 'maxConcurrentScheduledInvestigations',
-            'scheduledInvestigationRetentionCount',
-            'autoRefreshInterval', 'workingDirectory',
-            'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
-            'investigationsPath', 'products', 'activeProductId',
-            'llmProvider', 'incidentProvider',
-            'defaultView', 'defaultSortOrder', 'defaultPageSize'
-        ]);
         const filtered = Object.fromEntries(
-            Object.entries(imported).filter(([k]) => ALLOWED_KEYS.has(k))
+            Object.entries(imported).filter(([k]) => SETTINGS_ALLOWED_KEYS.has(k))
         );
         if (Object.keys(filtered).length === 0) {
             return res.status(400).json({ error: 'No valid settings keys found in import' });
@@ -2210,22 +2220,26 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             state.status = 'paused';
             history.set(id, state);
             // Persist to disk
+            const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
             try {
-                const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
                 await (tempRunner as any).saveArtifacts();
             } catch (e: any) {
                 console.error(`Failed to persist pause for ${id}:`, e.message);
+            } finally {
+                tempRunner.dispose();
             }
             return res.json({ status: 'ok' });
         } else if (action === 'abort') {
             state.status = 'aborted';
             history.set(id, state);
             // Persist to disk
+            const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
             try {
-                const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
                 await (tempRunner as any).saveArtifacts();
             } catch (e: any) {
                 console.error(`Failed to persist abort for ${id}:`, e.message);
+            } finally {
+                tempRunner.dispose();
             }
             return res.json({ status: 'ok' });
         } else if (action === 'intervene' && message) {
@@ -2233,11 +2247,13 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             state.thoughts.push({ role: 'user', content: `User Intervention: ${message}\n(SYSTEM NOTE: You must acknowledge this user message in your next thought and adjust your plan accordingly.)` });
             history.set(id, state);
             // Persist to disk
+            const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
             try {
-                const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
                 await (tempRunner as any).saveArtifacts();
             } catch (e: any) {
                 console.error(`Failed to persist intervention for ${id}:`, e.message);
+            } finally {
+                tempRunner.dispose();
             }
             return res.json({ status: 'ok' });
         } else if (action === 'contest' && message) {
@@ -3027,19 +3043,21 @@ app.get('/api/investigations/:id/recommendations', async (req, res) => {
     const finalReport = state.finalReport;
     if (!finalReport) return res.json([]);
 
-    // Lazy classification for older investigations without cached recommendations
+    // Use LLM to extract and classify recommendations in one pass
     const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
-    const recommendations = tempRunner.parseRecommendations(finalReport);
-    if (recommendations.length > 0) {
-        const classified = await tempRunner.classifyRecommendations(recommendations);
+    try {
+        const recommendations = await tempRunner.extractRecommendations(finalReport);
         // Cache in state for next load
-        state.recommendations = classified;
-        return res.json(classified);
+        state.recommendations = recommendations;
+        res.json(recommendations);
+    } catch (e: any) {
+        res.status(500).json({ error: 'Failed to extract recommendations' });
+    } finally {
+        tempRunner.dispose();
     }
-    res.json([]);
 });
 
-// --- Force re-classify recommendations ---
+// --- Force re-extract and re-classify recommendations ---
 app.post('/api/investigations/:id/recommendations/reclassify', async (req, res) => {
     const id = req.params.id;
     const runner = runners.get(id);
@@ -3048,11 +3066,17 @@ app.post('/api/investigations/:id/recommendations/reclassify', async (req, res) 
     if (!state) return res.status(404).json({ error: 'Investigation not found' });
     if (!state.finalReport) return res.json([]);
 
+    // Re-extract from scratch (ignores cache)
     const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
-    const recommendations = tempRunner.parseRecommendations(state.finalReport);
-    const classified = await tempRunner.classifyRecommendations(recommendations);
-    state.recommendations = classified;
-    res.json(classified);
+    try {
+        const recommendations = await tempRunner.extractRecommendations(state.finalReport);
+        state.recommendations = recommendations;
+        res.json(recommendations);
+    } catch (e: any) {
+        res.status(500).json({ error: 'Failed to extract recommendations' });
+    } finally {
+        tempRunner.dispose();
+    }
 });
 
 // --- Run implementation agent for selected recommendations ---
@@ -3375,6 +3399,7 @@ export function initScheduler(): void {
             scheduledInvestigationRetentionCount: config.scheduledInvestigationRetentionCount,
             globalMaxSteps: config.maxSteps,
             defaultTimeRange: config.defaultTimeRange,
+            scheduledReportModel: config.scheduledReportModel,
         },
     );
 
@@ -3390,6 +3415,11 @@ export function initScheduler(): void {
             });
         }
     });
+
+    // Wire LLM provider for AI-enhanced executive reports
+    if (activeLlmProvider) {
+        scheduler.setLlmProvider(activeLlmProvider);
+    }
 
     // Auto-start if any schedules are enabled
     const enabledCount = scheduleStore.getAll().filter(s => s.enabled).length;
@@ -3657,7 +3687,7 @@ app.get('/api/schedules/:id/history', (req, res) => {
     res.json(entries);
 });
 
-app.get('/api/schedules/:id/report', (req, res) => {
+app.get('/api/schedules/:id/report', async (req, res) => {
     if (!scheduleStore) return res.status(500).json({ error: 'Scheduler not initialized' });
     const sched = scheduleStore.getAll().find((s: any) => s.id === req.params.id);
     if (!sched) return res.status(404).json({ error: 'Schedule not found' });
@@ -3731,12 +3761,25 @@ app.get('/api/schedules/:id/report', (req, res) => {
     const firstRunAt = sorted[0].timestamp;
     const lastRunAt = sorted[sorted.length - 1].timestamp;
 
-    // Executive summary: read from file or generate on-demand for older schedules
-    let executiveSummary = scheduleStore.getExecutiveReport(req.params.id);
+    // Executive summary: read from file, or generate (AI or template) on-demand
+    const refresh = req.query.refresh === 'true';
+    let executiveSummary = refresh ? null : scheduleStore.getExecutiveReport(req.params.id);
+
     if (!executiveSummary) {
-        executiveSummary = generateExecutiveReport(sched, entries);
-        // Persist so subsequent reads are fast
-        try { scheduleStore.writeExecutiveReport(req.params.id, executiveSummary); } catch { /* best-effort */ }
+        // Try AI-enhanced generation first
+        if (activeLlmProvider) {
+            try {
+                executiveSummary = await generateAIExecutiveReport(sched, entries, activeLlmProvider, sched.model || config.scheduledReportModel);
+                try { scheduleStore.writeExecutiveReport(req.params.id, executiveSummary); } catch { /* best-effort */ }
+            } catch (err: any) {
+                console.log(`[Report] AI generation failed for ${sched.name}: ${err.message}, falling back to template`);
+            }
+        }
+        // Template fallback
+        if (!executiveSummary) {
+            executiveSummary = generateExecutiveReport(sched, entries);
+            try { scheduleStore.writeExecutiveReport(req.params.id, executiveSummary); } catch { /* best-effort */ }
+        }
     }
 
     res.json({
@@ -3987,6 +4030,7 @@ export const __testUtils = {
     internal,
     llmRegistry,
     incidentRegistry,
+    SETTINGS_ALLOWED_KEYS,
     evictIdleRunners,
     sanitizedError,
     cleanupRunner,

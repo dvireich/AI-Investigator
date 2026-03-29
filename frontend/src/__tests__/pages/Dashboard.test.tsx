@@ -160,6 +160,7 @@ vi.mock('../../api', () => ({
     api: {
         listInvestigations: vi.fn().mockResolvedValue(paginatedResponse([])),
         getSettings: vi.fn().mockResolvedValue({ maxSteps: 50 }),
+        saveSettings: vi.fn().mockResolvedValue({}),
         sendAction: vi.fn().mockResolvedValue({ success: true }),
         deleteInvestigation: vi.fn().mockResolvedValue({}),
         updateTitle: vi.fn().mockResolvedValue({}),

@@ -5803,7 +5803,7 @@ describe('server utilities and routes', () => {
             expect(response.body).toEqual(cached);
         });
 
-        it('lazy classifies when no cached recommendations', async () => {
+        it('lazy extracts when no cached recommendations', async () => {
             const state = makeState({
                 id: 'lazy-recs',
                 status: 'completed',
@@ -5812,10 +5812,7 @@ describe('server utilities and routes', () => {
             __testUtils.getHistory().set('lazy-recs', state);
             setFakeLlmProvider();
 
-            vi.spyOn(AgentRunner.prototype, 'parseRecommendations').mockReturnValue([
-                { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'code' },
-            ]);
-            vi.spyOn(AgentRunner.prototype, 'classifyRecommendations').mockResolvedValue([
+            vi.spyOn(AgentRunner.prototype, 'extractRecommendations').mockResolvedValue([
                 { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'code' },
             ]);
 
@@ -5864,7 +5861,7 @@ describe('server utilities and routes', () => {
             expect(response.body).toEqual([]);
         });
 
-        it('reclassifies recommendations from final report', async () => {
+        it('re-extracts recommendations from final report', async () => {
             const state = makeState({
                 id: 'reclassify-inv',
                 status: 'completed',
@@ -5873,10 +5870,7 @@ describe('server utilities and routes', () => {
             __testUtils.getHistory().set('reclassify-inv', state);
             setFakeLlmProvider();
 
-            vi.spyOn(AgentRunner.prototype, 'parseRecommendations').mockReturnValue([
-                { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'code' },
-            ]);
-            vi.spyOn(AgentRunner.prototype, 'classifyRecommendations').mockResolvedValue([
+            vi.spyOn(AgentRunner.prototype, 'extractRecommendations').mockResolvedValue([
                 { id: 'r1', priority: 'P0', title: 'Fix it', description: 'broken', category: 'operational' },
             ]);
 
@@ -5887,7 +5881,7 @@ describe('server utilities and routes', () => {
             expect(state.recommendations[0].category).toBe('operational');
         });
 
-        it('reclassifies using active runner state', async () => {
+        it('re-extracts using active runner state', async () => {
             const runner = makeRunner({
                 id: 'active-reclassify',
                 status: 'completed',
@@ -5896,10 +5890,7 @@ describe('server utilities and routes', () => {
             __testUtils.getRunners().set('active-reclassify', runner);
             setFakeLlmProvider();
 
-            vi.spyOn(AgentRunner.prototype, 'parseRecommendations').mockReturnValue([
-                { id: 'r1', priority: 'P0', title: 'Fix', description: 'broken', category: 'code' },
-            ]);
-            vi.spyOn(AgentRunner.prototype, 'classifyRecommendations').mockResolvedValue([
+            vi.spyOn(AgentRunner.prototype, 'extractRecommendations').mockResolvedValue([
                 { id: 'r1', priority: 'P0', title: 'Fix', description: 'broken', category: 'operational' },
             ]);
 

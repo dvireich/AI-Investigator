@@ -1254,7 +1254,7 @@ describe('Settings', () => {
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => {
                 expect(screen.getByText('Model Selection')).toBeInTheDocument();
-                expect(screen.getByRole('combobox')).toBeInTheDocument();
+                expect(screen.getByLabelText('Model Selection')).toBeInTheDocument();
             });
         });
 
@@ -1265,7 +1265,7 @@ describe('Settings', () => {
 
             await user.click(screen.getByText('Agent Behavior'));
             await waitFor(() => {
-                const select = screen.getByRole('combobox');
+                const select = screen.getByLabelText('Model Selection');
                 expect(within(select).getByText('gpt-4o')).toBeInTheDocument();
             });
         });
@@ -2590,12 +2590,12 @@ describe('Settings', () => {
                 renderSettings();
                 await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
-                await user.click(screen.getByText('Agent Behavior'));
+                await user.click(screen.getByText('Schedules'));
                 await waitFor(() => screen.getByText('Max Concurrent Scheduled Investigations'));
 
                 const sliders = screen.getAllByRole('slider');
-                // The max concurrent scheduled slider is sliders[2] (after max steps and max concurrent)
-                fireEvent.change(sliders[2], { target: { value: '4' } });
+                // The max concurrent scheduled slider is sliders[0] on the Schedules tab
+                fireEvent.change(sliders[0], { target: { value: '4' } });
 
                 await waitFor(() => {
                     expect(screen.getByText('4')).toBeInTheDocument();
@@ -2615,7 +2615,7 @@ describe('Settings', () => {
                 renderSettings();
                 await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
-                await user.click(screen.getByText('Agent Behavior'));
+                await user.click(screen.getByText('Schedules'));
                 await waitFor(() => {
                     expect(screen.getAllByText('∞ Unlimited').length).toBeGreaterThanOrEqual(1);
                 });
@@ -2630,8 +2630,8 @@ describe('Settings', () => {
                 await waitFor(() => screen.getByText('Retrospective Timeout'));
 
                 const sliders = screen.getAllByRole('slider');
-                // The retrospective timeout slider is sliders[4] (after max steps, max concurrent, max concurrent scheduled, retention count)
-                fireEvent.change(sliders[4], { target: { value: '20' } });
+                // The retrospective timeout slider is sliders[2] (after max steps and max concurrent)
+                fireEvent.change(sliders[2], { target: { value: '20' } });
 
                 await waitFor(() => {
                     expect(screen.getByText('20 min')).toBeInTheDocument();
@@ -2643,12 +2643,12 @@ describe('Settings', () => {
                 renderSettings();
                 await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
-                await user.click(screen.getByText('Agent Behavior'));
+                await user.click(screen.getByText('Schedules'));
                 await waitFor(() => screen.getByText('Scheduled Investigation Retention'));
 
                 const sliders = screen.getAllByRole('slider');
-                // The retention count slider is sliders[3]
-                fireEvent.change(sliders[3], { target: { value: '0' } });
+                // The retention count slider is sliders[1] on the Schedules tab
+                fireEvent.change(sliders[1], { target: { value: '0' } });
 
                 await waitFor(() => {
                     expect(screen.getByText('∞ Keep all')).toBeInTheDocument();
@@ -2669,7 +2669,7 @@ describe('Settings', () => {
                 renderSettings();
                 await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
-                await user.click(screen.getByText('Agent Behavior'));
+                await user.click(screen.getByText('Schedules'));
                 await waitFor(() => {
                     expect(screen.getByText('∞ Keep all')).toBeInTheDocument();
                 });
@@ -2681,9 +2681,9 @@ describe('Settings', () => {
                 await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByText('Agent Behavior'));
-                await waitFor(() => screen.getByRole('combobox'));
+                await waitFor(() => screen.getByLabelText('Model Selection'));
 
-                const select = screen.getByRole('combobox');
+                const select = screen.getByLabelText('Model Selection');
                 await user.selectOptions(select, 'gpt-4-turbo');
                 expect(select).toHaveValue('gpt-4-turbo');
             });
@@ -2698,7 +2698,7 @@ describe('Settings', () => {
                 await user.click(screen.getByText('Agent Behavior'));
                 // With empty models, the fallback "Loading models..." option shows
                 await waitFor(() => {
-                    expect(screen.getByRole('combobox')).toBeInTheDocument();
+                    expect(screen.getByLabelText('Model Selection')).toBeInTheDocument();
                 });
             });
         });
@@ -2748,7 +2748,7 @@ describe('Settings', () => {
 
                 await user.click(screen.getByText('Agent Behavior'));
                 await waitFor(() => {
-                    const select = screen.getByRole('combobox');
+                    const select = screen.getByLabelText('Model Selection');
                     expect(select).toBeInTheDocument();
                 });
             });

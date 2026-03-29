@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { ScheduleStore, ScheduleDefinition, ScheduleHistoryEntry } from './ScheduleStore';
+import { LlmProvider } from '../agent/llm/LlmProvider';
 
 /**
  * Callback the Scheduler uses to create an investigation.
@@ -45,6 +46,7 @@ export interface SchedulerConfig {
     scheduledInvestigationRetentionCount: number;
     globalMaxSteps: number;        // from settings.maxSteps — 0 means unlimited
     defaultTimeRange: string;
+    scheduledReportModel: string;  // LLM model for AI-enhanced executive reports
 }
 
 const DEFAULT_CONFIG: SchedulerConfig = {
@@ -53,6 +55,7 @@ const DEFAULT_CONFIG: SchedulerConfig = {
     scheduledInvestigationRetentionCount: 10,
     globalMaxSteps: 50,
     defaultTimeRange: 'ago(1h)',
+    scheduledReportModel: 'gpt-4o-mini',
 };
 
 /**
@@ -73,6 +76,7 @@ export class Scheduler extends EventEmitter {
     private deleteInvestigation: DeleteInvestigationFn;
     private listScheduleInvestigations: ListScheduleInvestigationsFn;
     private running: boolean = false;
+    private llmProvider: LlmProvider | null = null;
 
     // Track how many scheduled investigations are currently active
     private activeCount: number = 0;
@@ -95,6 +99,11 @@ export class Scheduler extends EventEmitter {
         this.deleteInvestigation = deleteInvestigation;
         this.listScheduleInvestigations = listScheduleInvestigations;
         this.config = { ...DEFAULT_CONFIG, ...config };
+    }
+
+    /** Set the LLM provider for AI-enhanced report generation. */
+    setLlmProvider(provider: LlmProvider): void {
+        this.llmProvider = provider;
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
@@ -277,7 +286,7 @@ export class Scheduler extends EventEmitter {
         // Write per-run report file & regenerate aggregate executive report
         // Both methods handle their own errors internally (non-blocking)
         this.writeRunReport(schedule, verdict, result, historyEntry);
-        this.regenerateExecutiveReport(schedule);
+        this.regenerateExecutiveReport(schedule).catch(() => {/* errors logged internally */});
 
         // Update schedule
         const consecutiveCritical = verdict === 'critical'
@@ -404,7 +413,7 @@ export class Scheduler extends EventEmitter {
             // Remove pruned entries from history and regenerate report
             if (deletedIds.length > 0) {
                 this.store.removeHistoryEntries(schedule.id, new Set(deletedIds));
-                this.regenerateExecutiveReport(schedule);
+                this.regenerateExecutiveReport(schedule).catch(() => {/* errors logged internally */});
             }
         } catch (err: any) {
             this.log(`[Schedule ${schedule.name}] Failed to list investigations for pruning: ${err.message}`);
@@ -452,9 +461,23 @@ export class Scheduler extends EventEmitter {
     }
 
     /** Regenerate the aggregate executive report for a schedule. */
-    private regenerateExecutiveReport(schedule: ScheduleDefinition): void {
+    private async regenerateExecutiveReport(schedule: ScheduleDefinition): Promise<void> {
+        const entries = this.store.getHistory(schedule.id);
+
+        // Try AI-enhanced report first, fall back to template
+        if (this.llmProvider) {
+            try {
+                const content = await generateAIExecutiveReport(schedule, entries, this.llmProvider, schedule.model || this.config.scheduledReportModel);
+                this.store.writeExecutiveReport(schedule.id, content);
+                this.log(`[Schedule ${schedule.name}] AI executive report generated.`);
+                return;
+            } catch (err: any) {
+                this.log(`[Schedule ${schedule.name}] AI report failed (${err.message}), falling back to template.`);
+            }
+        }
+
+        // Template-based fallback
         try {
-            const entries = this.store.getHistory(schedule.id);
             const content = generateExecutiveReport(schedule, entries);
             this.store.writeExecutiveReport(schedule.id, content);
         } catch (err: any) {
@@ -724,4 +747,149 @@ export function generateExecutiveReport(
     ];
 
     return lines.join('\n');
+}
+
+// ── AI-Enhanced Executive Report Generator ──────────────────────────────────
+
+const AI_REPORT_SYSTEM_PROMPT = `You are an expert SRE analyst. Given structured data about a scheduled monitoring investigation, produce a clear, readable executive report in Markdown.
+
+Your report MUST include these sections in order:
+
+## Executive Summary
+Write 2-4 sentences in plain language summarizing the overall health status, key concerns, and whether the situation is improving or degrading. Be specific about what was monitored and what was found. Do not use jargon unnecessarily.
+
+## Key Insights
+Identify the most important cross-run patterns:
+- Are the same issues recurring? What's the common theme?
+- Is there a clear root cause that connects multiple findings?
+- Are issues getting worse, stabilizing, or resolving?
+- What time patterns exist (e.g., issues cluster at certain times)?
+Write each insight as a concise bullet point with a bold label.
+
+## Detailed Findings
+Group findings by severity (Critical first, then Error, Warning, etc.). For each finding:
+- Write a clear, human-readable title
+- Explain what happened in 1-2 sentences (not a raw data dump)
+- Note the impact and root cause if identifiable
+- Include the timestamp
+Skip healthy/completed runs — focus only on issues. If there are no issues, write "_All runs completed successfully with no issues detected._"
+
+## Recommended Actions
+List 2-5 prioritized, actionable next steps based on the findings. Each should be specific and practical (not generic advice like "monitor more").
+
+Rules:
+- Do NOT invent data. Only reference information provided in the input.
+- Do NOT include raw JSON or data dumps.
+- Keep the entire report under 800 words.
+- Use emoji sparingly and only for verdict indicators (✅ ⚠️ 🔴 ❌).
+- Write for a technical audience that needs to quickly understand the situation.`;
+
+/**
+ * Generate an AI-synthesized executive report using an LLM.
+ * Falls back to the template-based report on any failure.
+ */
+export async function generateAIExecutiveReport(
+    schedule: Pick<ScheduleDefinition, 'name' | 'target' | 'query' | 'intervalMinutes'>,
+    entries: ScheduleHistoryEntry[],
+    llmProvider: LlmProvider,
+    model?: string,
+): Promise<string> {
+    if (entries.length === 0) {
+        return `# Executive Summary: ${schedule.name}\n\n_No completed runs yet._`;
+    }
+
+    const sorted = [...entries].sort((a, b) =>
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+    );
+
+    // ── Compute stats for prompt context ──
+    const verdictBreakdown: Record<string, number> = {};
+    for (const e of sorted) {
+        verdictBreakdown[e.verdict] = (verdictBreakdown[e.verdict] || 0) + 1;
+    }
+    const successCount = (verdictBreakdown['healthy'] || 0) + (verdictBreakdown['completed'] || 0);
+    const successRate = Math.round((successCount / sorted.length) * 1000) / 10;
+
+    const severityScore = (v: string) => {
+        if (v === 'critical') return 4;
+        if (v === 'error') return 3;
+        if (v === 'warning') return 2;
+        if (v === 'paused') return 1;
+        return 0;
+    };
+    let trend: 'Improving' | 'Degrading' | 'Stable' = 'Stable';
+    if (sorted.length >= 4) {
+        const mid = Math.floor(sorted.length / 2);
+        const avgOlder = sorted.slice(0, mid).reduce((s, e) => s + severityScore(e.verdict), 0) / Math.floor(sorted.length / 2);
+        const avgNewer = sorted.slice(mid).reduce((s, e) => s + severityScore(e.verdict), 0) / (sorted.length - mid);
+        if (avgNewer < avgOlder - 0.3) trend = 'Improving';
+        else if (avgNewer > avgOlder + 0.3) trend = 'Degrading';
+    }
+
+    // ── Build run summaries for prompt: full for recent, condensed for older ──
+    const RECENT_FULL_COUNT = 5;
+    const MAX_RUNS_IN_PROMPT = 20;
+    const runsForPrompt = sorted.slice(-MAX_RUNS_IN_PROMPT);
+    const recentCutoff = runsForPrompt.length - RECENT_FULL_COUNT;
+
+    const runDescriptions = runsForPrompt.map((entry, idx) => {
+        const isRecent = idx >= recentCutoff;
+        const summary = entry.summary
+            ? (isRecent ? entry.summary : entry.summary.substring(0, 300) + (entry.summary.length > 300 ? '...' : ''))
+            : 'No summary available';
+        return `### Run ${idx + 1} — ${new Date(entry.timestamp).toLocaleString()}
+- **Verdict:** ${entry.verdict}
+- **Summary:** ${summary}`;
+    }).join('\n\n');
+
+    const olderRunCount = sorted.length - runsForPrompt.length;
+    const olderNote = olderRunCount > 0
+        ? `\n\n_Note: ${olderRunCount} older run(s) omitted. Their verdicts are included in the breakdown above._`
+        : '';
+
+    // ── Assemble user message ──
+    const userMessage = `# Schedule: ${schedule.name}
+
+## Metadata
+- **Target:** ${schedule.target}
+- **Query:** ${schedule.query}
+- **Interval:** Every ${schedule.intervalMinutes} minutes
+- **Total Runs:** ${sorted.length}
+- **Period:** ${new Date(sorted[0].timestamp).toLocaleString()} → ${new Date(sorted[sorted.length - 1].timestamp).toLocaleString()}
+
+## Verdict Breakdown
+${Object.entries(verdictBreakdown).map(([v, c]) => `- ${v}: ${c} (${Math.round((c / sorted.length) * 100)}%)`).join('\n')}
+
+## Computed Stats
+- **Success Rate:** ${successRate}%
+- **Trend:** ${trend}
+
+## Investigation Run Details
+${runDescriptions}${olderNote}`;
+
+    // ── Call LLM ──
+    const openai = await llmProvider.getClient(30_000);
+    const effectiveModel = model || 'gpt-4o-mini'; // ultimate fallback if no config provided
+
+    const completion = await openai.chat.completions.create({
+        model: effectiveModel,
+        messages: [
+            { role: 'system', content: AI_REPORT_SYSTEM_PROMPT },
+            { role: 'user', content: userMessage },
+        ],
+        temperature: 0.3,
+        max_tokens: 2000,
+    });
+
+    const content = completion.choices[0]?.message?.content?.trim();
+    if (!content) {
+        throw new Error('LLM returned empty response');
+    }
+
+    // Prepend schedule name as H1 if the LLM didn't include it
+    const report = content.startsWith('# ')
+        ? content
+        : `# ${schedule.name}\n\n${content}`;
+
+    return report + `\n\n---\n_AI-generated report at ${new Date().toLocaleString()}_`;
 }

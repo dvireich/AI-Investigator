@@ -1682,9 +1682,10 @@ describe('Schedules', () => {
                 expect(screen.getByRole('dialog')).toBeInTheDocument();
             });
 
-            // Close the modal via the X button inside the dialog
+            // Close the modal via the X button inside the dialog header
             const dialog = screen.getByRole('dialog');
-            const closeBtn = dialog.querySelector('button');
+            const headerBar = dialog.querySelector('.border-b');
+            const closeBtn = headerBar?.querySelectorAll('button')?.[1]; // Second button is X (first is Regenerate)
             expect(closeBtn).toBeTruthy();
             await user.click(closeBtn!);
 

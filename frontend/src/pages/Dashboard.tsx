@@ -217,8 +217,11 @@ export const Dashboard = () => {
 
     const toggleAnalytics = () => {
         setShowAnalytics(prev => {
-            localStorage.setItem('inv-analytics', String(!prev));
-            return !prev;
+            const next = !prev;
+            localStorage.setItem('inv-analytics', String(next));
+            // Best-effort server sync so the preference persists in config
+            api.saveSettings({ analyticsVisible: next }).catch(() => {});
+            return next;
         });
     };
 
