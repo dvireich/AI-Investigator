@@ -27,6 +27,11 @@ export class IcmProvider implements IncidentProvider {
     async fetchIncident(id: string, onProgress?: (event: IncidentProgressEvent) => void): Promise<IncidentData> {
         if (!this.scriptsPath) throw new Error('IcM scripts path not configured.');
 
+        // Validate incident ID format to prevent unexpected input to child process (Fix 23)
+        if (!/^[a-zA-Z0-9\-_]+$/.test(id)) {
+            throw new Error('Invalid incident ID format');
+        }
+
         const scriptFile = path.join(this.scriptsPath, 'icm-full-read.js');
         if (!fs.existsSync(scriptFile)) {
             throw new Error(`IcM script not found: ${scriptFile}`);
@@ -41,6 +46,7 @@ export class IcmProvider implements IncidentProvider {
             let metadata: any = {};
             let content = '';
             let stderr = '';
+            const MAX_STDERR = 100 * 1024; // 100 KB cap (Fix 18)
 
             child.stdout.on('data', (data: Buffer) => {
                 const lines = data.toString().split('\n');
@@ -64,7 +70,11 @@ export class IcmProvider implements IncidentProvider {
                 }
             });
 
-            child.stderr.on('data', (data: Buffer) => { stderr += data.toString(); });
+            child.stderr.on('data', (data: Buffer) => {
+                if (stderr.length < MAX_STDERR) {
+                    stderr += data.toString().substring(0, MAX_STDERR - stderr.length);
+                }
+            });
 
             child.on('close', (code) => {
                 if (code !== 0 && !metadata.title) {

@@ -1499,7 +1499,7 @@ describe('Dashboard', () => {
             await waitFor(() => screen.getByText('Toast Test Investigation'));
 
             // Advance timer to trigger next poll
-            vi.advanceTimersByTime(3500);
+            vi.advanceTimersByTime(10500);
 
             await waitFor(() => {
                 // Toast should appear showing completion
@@ -1705,7 +1705,7 @@ describe('Dashboard', () => {
             });
 
             // Advance time to trigger next poll
-            vi.advanceTimersByTime(3500);
+            vi.advanceTimersByTime(10500);
 
             await waitFor(() => {
                 expect(api.listInvestigations).toHaveBeenCalledTimes(2);
@@ -2264,7 +2264,7 @@ describe('Dashboard', () => {
             await waitFor(() => screen.getByText('Toast Nav Test'));
 
             // Trigger poll to show completion toast
-            vi.advanceTimersByTime(3500);
+            vi.advanceTimersByTime(10500);
 
             await waitFor(() => {
                 expect(screen.getByText(/Investigation complete/i)).toBeInTheDocument();
@@ -2297,7 +2297,7 @@ describe('Dashboard', () => {
             await waitFor(() => screen.getByText('Dismiss Test'));
 
             // Trigger poll to show failure toast
-            vi.advanceTimersByTime(3500);
+            vi.advanceTimersByTime(10500);
 
             await waitFor(() => {
                 expect(screen.getByText(/Investigation failed/i)).toBeInTheDocument();
@@ -2887,7 +2887,7 @@ describe('Dashboard', () => {
 
             vi.advanceTimersByTime(301000);
             vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([staleInv]));
-            vi.advanceTimersByTime(3000);
+            vi.advanceTimersByTime(10000);
 
             await waitFor(() => {
                 const staleElements = screen.getAllByText('Stale');
@@ -4085,8 +4085,28 @@ describe('Dashboard additional coverage', () => {
             await waitFor(() => screen.getByText(noTitleId));
             // Advance timer 3000ms to trigger second poll → status change detected → addToast called
             // addToast: invTitle = '' || '' || `#${noTitleId}` → covers the || `#${id}` branch
-            await vi.advanceTimersByTimeAsync(3001);
+            await vi.advanceTimersByTimeAsync(10001);
             await waitFor(() => screen.getAllByText(noTitleId).length > 0);
+        });
+    });
+
+    describe('visibility change polling', () => {
+        it('refetches data when tab becomes visible (Fix 19/33)', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([]));
+
+            renderDashboard();
+            await waitFor(() => expect(api.listInvestigations).toHaveBeenCalled());
+
+            const callsBefore = vi.mocked(api.listInvestigations).mock.calls.length;
+
+            // Simulate tab becoming visible
+            Object.defineProperty(document, 'visibilityState', { value: 'visible', writable: true, configurable: true });
+            document.dispatchEvent(new Event('visibilitychange'));
+
+            await waitFor(() => {
+                expect(vi.mocked(api.listInvestigations).mock.calls.length).toBeGreaterThan(callsBefore);
+            });
         });
     });
 
@@ -4314,7 +4334,7 @@ describe('Dashboard additional coverage', () => {
 
             // Simulate items being removed — shrink to 6 items, page 3 no longer exists
             returnSmallSet = true;
-            vi.advanceTimersByTime(3000);
+            vi.advanceTimersByTime(10000);
 
             await waitFor(() => screen.getByText('1–6 of 6 investigations'));
         });
@@ -4433,7 +4453,7 @@ describe('Dashboard additional coverage', () => {
                 ]));
             renderDashboard();
             await waitFor(() => screen.getByText('Pause Notify Test'));
-            await vi.advanceTimersByTimeAsync(3001);
+            await vi.advanceTimersByTimeAsync(10001);
             await waitFor(() => screen.getByText('Pause Notify Test'));
         });
 
@@ -4449,7 +4469,7 @@ describe('Dashboard additional coverage', () => {
                 ]));
             renderDashboard();
             await waitFor(() => screen.getByText('my paused query'));
-            vi.advanceTimersByTime(3500);
+            vi.advanceTimersByTime(10500);
             await waitFor(() => screen.getByText('my paused query'));
         });
 
@@ -4465,7 +4485,7 @@ describe('Dashboard additional coverage', () => {
                 ]));
             renderDashboard();
             await waitFor(() => screen.getAllByText(/Investigation/)[0]);
-            vi.advanceTimersByTime(3500);
+            vi.advanceTimersByTime(10500);
             await waitFor(() => expect(screen.getByText(/Investigation failed/i)).toBeInTheDocument());
         });
 
@@ -4481,7 +4501,7 @@ describe('Dashboard additional coverage', () => {
                 ]));
             renderDashboard();
             await waitFor(() => screen.getAllByText(/Investigation/)[0]);
-            vi.advanceTimersByTime(3500);
+            vi.advanceTimersByTime(10500);
             await waitFor(() => screen.getAllByText(/Investigation/)[0]);
         });
 

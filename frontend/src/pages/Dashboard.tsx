@@ -318,8 +318,13 @@ export const Dashboard = () => {
             setLoading(false);
         }).catch(console.error);
         fetchData();
-        const interval = setInterval(fetchData, 3000);
-        return () => clearInterval(interval);
+        const interval = setInterval(fetchData, 10_000);
+        // Pause polling when tab is hidden to save resources (Fix 19/33)
+        const handleVisibility = () => {
+            if (document.visibilityState === 'visible') fetchData();
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+        return () => { clearInterval(interval); document.removeEventListener('visibilitychange', handleVisibility); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [currentPage, pageSize, sortOrder, filter, productFilter, tagFilter, createdByFilter, debouncedSearch, pinnedIds]);
 

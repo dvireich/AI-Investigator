@@ -63,6 +63,12 @@ describe('IcmProvider', () => {
             await expect(provider.fetchIncident('123')).rejects.toThrow('IcM scripts path not configured');
         });
 
+        it('throws for invalid incident ID format (Fix 23)', async () => {
+            provider.configure({ type: 'icm', scriptsPath: '/scripts' });
+            await expect(provider.fetchIncident('../../etc/passwd')).rejects.toThrow('Invalid incident ID format');
+            await expect(provider.fetchIncident('id with spaces')).rejects.toThrow('Invalid incident ID format');
+        });
+
         it('throws when script file not found', async () => {
             provider.configure({ type: 'icm', scriptsPath: '/scripts' });
             (fs.existsSync as any).mockReturnValue(false);

@@ -220,7 +220,8 @@ describe('CopilotProvider', () => {
 
             const first = await provider.getClient(5000);
             const second = await provider.getClient(10000);
-            expect(first).not.toBe(second);
+            // Client is now cached by token only (Fix 15/17) — same token → same client
+            expect(first).toBe(second);
         });
     });
 

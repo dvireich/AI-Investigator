@@ -12,6 +12,7 @@ import {
     applyStaticServing,
     applySpaFallback,
     autoDiscoverProduct,
+    cleanupRunner,
     createInvestigation,
     createSummaryState,
     getDefaultRepoRoot,
@@ -110,6 +111,7 @@ function makeRunner(
     emitter.applyApprovedProposals = vi.fn().mockResolvedValue({ applied: 1 });
     emitter.summarize = vi.fn().mockResolvedValue(undefined);
     emitter.saveArtifacts = vi.fn().mockResolvedValue(undefined);
+    emitter.dispose = vi.fn();
     emitter.toolManager = {
         isConnected: vi.fn().mockReturnValue(true),
         restart: vi.fn().mockResolvedValue(undefined),
@@ -1404,6 +1406,161 @@ describe('server utilities and routes', () => {
             const investigationsDir = getGlobalInvestigationsDir();
             expect(path.basename(investigationsDir)).toBe('investigations');
             expect(path.isAbsolute(investigationsDir)).toBe(true);
+        });
+    });
+
+    describe('cleanupRunner', () => {
+        it('removes runner from map, removes listeners, and calls dispose', () => {
+            const runners = __testUtils.getRunners();
+            const runner = makeRunner({ id: 'cleanup-1', status: 'completed' });
+            runner.dispose = vi.fn();
+            runners.set('cleanup-1', runner as any);
+
+            // Attach some listeners so we can verify they are removed
+            runner.on('thought', () => {});
+            runner.on('action', () => {});
+            expect(runner.listenerCount('thought')).toBe(1);
+
+            cleanupRunner('cleanup-1');
+
+            expect(runners.has('cleanup-1')).toBe(false);
+            expect(runner.listenerCount('thought')).toBe(0);
+            expect(runner.listenerCount('action')).toBe(0);
+            expect(runner.dispose).toHaveBeenCalled();
+        });
+
+        it('is safe to call with an id not in the map', () => {
+            expect(() => cleanupRunner('nonexistent')).not.toThrow();
+        });
+    });
+
+    describe('sanitizedError', () => {
+        it('returns fallback message in production mode', () => {
+            const origEnv = process.env.NODE_ENV;
+            process.env.NODE_ENV = 'production';
+            try {
+                expect(__testUtils.sanitizedError(new Error('secret details'))).toBe('Internal server error');
+                expect(__testUtils.sanitizedError(new Error('oops'), 'Custom fallback')).toBe('Custom fallback');
+            } finally {
+                process.env.NODE_ENV = origEnv;
+            }
+        });
+
+        it('falls back when error message is empty', () => {
+            expect(__testUtils.sanitizedError(new Error(''))).toBe('Internal server error');
+            expect(__testUtils.sanitizedError(new Error(''), 'Custom')).toBe('Custom');
+        });
+    });
+
+    describe('broadcastToClients resilience', () => {
+        it('continues delivering to remaining clients when one throws on send', () => {
+            const clientMap = new Map<string, Set<any>>();
+            const brokenClient = { readyState: 1, send: vi.fn(() => { throw new Error('buffer full'); }) };
+            const goodClient = { readyState: 1, send: vi.fn() };
+            clientMap.set('inv-x', new Set([brokenClient as any, goodClient as any]));
+
+            const logger = { log: vi.fn() };
+            __testUtils.broadcastToClients(clientMap as any, 'inv-x', 'thought', { text: 'hi' }, logger as any);
+
+            // The good client should still receive the message despite the broken one
+            expect(goodClient.send).toHaveBeenCalledWith(JSON.stringify({ type: 'thought', data: { text: 'hi' } }));
+        });
+
+        it('logs debug info when DEBUG_WS is set', () => {
+            const origDebug = process.env.DEBUG_WS;
+            process.env.DEBUG_WS = '1';
+            try {
+                const clientMap = new Map<string, Set<any>>();
+                const openClient = { readyState: 1, send: vi.fn() };
+                const closedClient = { readyState: 3, send: vi.fn() };
+                clientMap.set('inv-d', new Set([openClient as any, closedClient as any]));
+
+                const logger = { log: vi.fn() };
+                __testUtils.broadcastToClients(clientMap as any, 'inv-d', 'status', { ok: true }, logger as any);
+
+                expect(openClient.send).toHaveBeenCalled();
+                expect(closedClient.send).not.toHaveBeenCalled();
+                // Logger should be invoked for DEBUG_WS branches
+                expect(logger.log).toHaveBeenCalled();
+
+                // Also test the top-level DEBUG_WS branch with no matching client set
+                const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+                __testUtils.broadcastToClients(clientMap as any, 'no-such-id', 'status', {}, logger as any);
+                expect(spy).toHaveBeenCalledWith(expect.stringContaining('[WS Broadcast]'));
+                spy.mockRestore();
+            } finally {
+                if (origDebug === undefined) delete process.env.DEBUG_WS;
+                else process.env.DEBUG_WS = origDebug;
+            }
+        });
+    });
+
+    describe('LRU history store eviction', () => {
+        it('evicts oldest entries to summary-only when exceeding MAX_IN_MEMORY', () => {
+            const hist = __testUtils.getHistory();
+            hist.clear();
+            // Add more than MAX_IN_MEMORY entries (MAX is 1000)
+            const overflow = 5;
+            for (let i = 0; i < 1000 + overflow; i++) {
+                hist.set(`lru-${i}`, makeState({ id: `lru-${i}`, target: `t-${i}` }) as any);
+            }
+            expect(hist.size).toBe(1000 + overflow);
+            // The oldest should be downgraded to summary-only
+            const oldest = hist.get(`lru-0`) as any;
+            expect(oldest._summaryOnly).toBe(true);
+            // The newest should still have full data
+            const newest = hist.get(`lru-${1000 + overflow - 1}`) as any;
+            // Summary-only records have _summaryOnly=true (not necessarily set for newest)
+            expect(newest.id).toBe(`lru-${1000 + overflow - 1}`);
+            hist.clear();
+        });
+    });
+
+    describe('evictIdleRunners', () => {
+        it('evicts paused runners that have been idle longer than TTL', () => {
+            const runners = __testUtils.getRunners();
+            const hist = __testUtils.getHistory();
+            runners.clear();
+            hist.clear();
+
+            const mockRunner = makeRunner({ id: 'idle-test', status: 'paused' });
+            (mockRunner as any)._lastActivityAt = Date.now() - (31 * 60 * 1000); // 31 min ago
+            runners.set('idle-test', mockRunner as any);
+
+            __testUtils.evictIdleRunners();
+
+            // Runner should have been evicted
+            expect(runners.has('idle-test')).toBe(false);
+            // State should be persisted in history
+            expect(hist.has('idle-test')).toBe(true);
+            hist.clear();
+        });
+
+        it('does not evict running investigations', () => {
+            const runners = __testUtils.getRunners();
+            runners.clear();
+
+            const mockRunner = makeRunner({ id: 'active-test', status: 'running' });
+            (mockRunner as any)._lastActivityAt = Date.now() - (60 * 60 * 1000); // 1 hour ago
+            runners.set('active-test', mockRunner as any);
+
+            __testUtils.evictIdleRunners();
+
+            expect(runners.has('active-test')).toBe(true);
+            runners.clear();
+        });
+
+        it('skips runners with no state object', () => {
+            const runners = __testUtils.getRunners();
+            runners.clear();
+
+            const noStateRunner = { state: undefined } as any;
+            runners.set('no-state', noStateRunner);
+
+            // Should not throw
+            __testUtils.evictIdleRunners();
+            expect(runners.has('no-state')).toBe(true);
+            runners.clear();
         });
     });
 
@@ -4026,7 +4183,7 @@ describe('server utilities and routes', () => {
             const response = await api().get('/api/investigations/1700000000201/pdf');
 
             expect(response.status).toBe(500);
-            expect(response.body.error).toBe('PDF generation failed: pdf failed');
+            expect(response.body.error).toBe('pdf failed');
         });
 
         it('runs active retrospective, proposal, and compact actions', async () => {
@@ -5013,7 +5170,7 @@ describe('server utilities and routes', () => {
             const json = vi.fn();
             errorLayer.handle('plain failure', { method: 'GET', url: '/plain-failure' }, { headersSent: false, status, json }, vi.fn());
             expect(status).toHaveBeenCalledWith(500);
-            expect(json).toHaveBeenCalledWith({ error: 'Internal server error' });
+            expect(json).toHaveBeenCalledWith({ error: 'plain failure' });
         });
 
         it('deletes schedules even when their tracked investigation state is missing entirely', async () => {
@@ -5539,7 +5696,9 @@ describe('server utilities and routes', () => {
             initScheduler();
 
             const invId = 'runner-to-delete';
-            __testUtils.getRunners().set(invId, { state: makeState({ id: invId, status: 'running' }) } as any);
+            const fakeRunner = makeRunner({ id: invId, status: 'running' });
+            fakeRunner.dispose = vi.fn();
+            __testUtils.getRunners().set(invId, fakeRunner as any);
             __testUtils.getHistory().set(invId, makeState({ id: invId, status: 'running' }) as any);
 
             const realScheduler = __testUtils.getScheduler() as any;

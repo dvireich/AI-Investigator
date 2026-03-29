@@ -77,6 +77,9 @@ export class Scheduler extends EventEmitter {
     // Track how many scheduled investigations are currently active
     private activeCount: number = 0;
 
+    // Guard against overlapping tick() invocations (Fix 8)
+    private tickInProgress: boolean = false;
+
     constructor(
         store: ScheduleStore,
         createInvestigation: CreateInvestigationFn,
@@ -136,6 +139,10 @@ export class Scheduler extends EventEmitter {
     // ── Core tick ─────────────────────────────────────────────────────────
 
     private async tick(): Promise<void> {
+        // Prevent overlapping ticks (e.g., when a tick takes longer than 60s)
+        if (this.tickInProgress) return;
+        this.tickInProgress = true;
+        try {
         const schedules = this.store.getAll().filter(s => s.enabled);
         const now = Date.now();
 
@@ -162,6 +169,9 @@ export class Scheduler extends EventEmitter {
             }
 
             await this.executeSchedule(schedule);
+        }
+        } finally {
+            this.tickInProgress = false;
         }
     }
 
@@ -265,6 +275,7 @@ export class Scheduler extends EventEmitter {
         this.store.appendHistory(schedule.id, historyEntry);
 
         // Write per-run report file & regenerate aggregate executive report
+        // Both methods handle their own errors internally (non-blocking)
         this.writeRunReport(schedule, verdict, result, historyEntry);
         this.regenerateExecutiveReport(schedule);
 

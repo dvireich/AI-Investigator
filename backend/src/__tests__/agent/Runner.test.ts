@@ -10,6 +10,7 @@ const mockToolManager = {
     callTool: vi.fn(async () => 'tool result'),
     getMcpStatus: vi.fn(() => [{ connected: true, toolCount: 3 }]),
     initError: null as string | null,
+    cleanup: vi.fn(async () => {}),
 };
 
 vi.mock('../../agent/tools/ToolManager', () => ({
@@ -583,6 +584,21 @@ describe('AgentRunner', () => {
         });
     });
 
+    describe('dispose', () => {
+        it('calls toolManager.cleanup()', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const cleanupSpy = vi.spyOn((runner as any).toolManager, 'cleanup').mockResolvedValue(undefined);
+            runner.dispose();
+            expect(cleanupSpy).toHaveBeenCalled();
+        });
+
+        it('does not throw if cleanup rejects', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn((runner as any).toolManager, 'cleanup').mockRejectedValue(new Error('fail'));
+            expect(() => runner.dispose()).not.toThrow();
+        });
+    });
+
     describe('intervene', () => {
         it('queues user intervention', () => {
             const runner = new AgentRunner(makeConfig(), provider);
@@ -590,6 +606,18 @@ describe('AgentRunner', () => {
             const pending = (runner as any).pendingInterventions;
             expect(pending).toHaveLength(1);
             expect(pending[0].content).toContain('Please check X first');
+        });
+
+        it('rejects intervention when queue is full (Fix 20)', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            for (let i = 0; i < 50; i++) {
+                runner.intervene(`msg-${i}`);
+            }
+            expect((runner as any).pendingInterventions).toHaveLength(50);
+            runner.intervene('overflow');
+            // Queue should still be 50, the 51st is rejected
+            expect((runner as any).pendingInterventions).toHaveLength(50);
+            expect((runner as any).state.logs.some((l: string) => l.includes('queue full'))).toBe(true);
         });
     });
 
@@ -665,6 +693,16 @@ describe('AgentRunner', () => {
 
             expect((runner as any).state.logs).toContain('test message');
             expect(events[0]).toEqual(expect.objectContaining({ content: 'test message' }));
+        });
+
+        it('caps logs at 500 entries (Fix 7/8)', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            for (let i = 0; i < 510; i++) {
+                (runner as any).log(`log-${i}`);
+            }
+            expect((runner as any).state.logs.length).toBe(500);
+            // Oldest logs should have been trimmed; newest should still be present
+            expect((runner as any).state.logs[(runner as any).state.logs.length - 1]).toBe('log-509');
         });
     });
 
@@ -742,6 +780,19 @@ describe('AgentRunner', () => {
             (runner as any).retrospectAbortController = ctrl;
             runner.abortRetrospective();
             expect(ctrl.signal.aborted).toBe(true);
+        });
+
+        it('caps retrospect.messages at 100 entries (Fix 7)', () => {
+            const runner = new AgentRunner(makeConfig(), provider, { status: 'completed' });
+            const retro = (runner as any).initRetrospect();
+            for (let i = 0; i < 110; i++) {
+                retro.messages.push({ role: 'assistant', content: `msg-${i}` });
+            }
+            expect(retro.messages.length).toBe(110);
+            (runner as any).capRetroMessages();
+            expect(retro.messages.length).toBe(100);
+            // Newest should remain
+            expect(retro.messages[retro.messages.length - 1].content).toBe('msg-109');
         });
     });
 
