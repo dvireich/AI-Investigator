@@ -7281,6 +7281,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             // The Implement Recommendations button should no longer be visible (running, no report)
             expect(screen.queryByText(/Implement Recommendations/i)).not.toBeInTheDocument();
         });
+
     });
 
     describe('Tab Focus Reconnection', () => {

@@ -667,7 +667,6 @@ export const InvestigationDetail = () => {
             if (implRecommendations.length > 0) setImplRecommendations([]);
             return;
         }
-        if (implRecommendations.length > 0) return; // already loaded
         api.getRecommendations(id).then(recs => {
             if (recs.length > 0) setImplRecommendations(recs);
         }).catch(() => {}); // best-effort
