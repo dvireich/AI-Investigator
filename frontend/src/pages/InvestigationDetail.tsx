@@ -550,6 +550,8 @@ export const InvestigationDetail = () => {
     const { notify: browserNotify } = useNotification();
     const prevStatusRef = useRef<string | null>(null);
     const [justCompleted, setJustCompleted] = useState(false);
+    const completedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
     const [maxSteps, setMaxSteps] = useState<number>(0);
     const [notFound, setNotFound] = useState(false);
 
@@ -578,12 +580,13 @@ export const InvestigationDetail = () => {
             if (investigation.status === 'completed') {
                 browserNotify('Investigation Completed', `${name} finished successfully.`, 'completed');
                 setJustCompleted(true);
-                setTimeout(() => setJustCompleted(false), 1500);
+                completedTimerRef.current = setTimeout(() => setJustCompleted(false), 1500);
             }
             if (investigation.status === 'failed') browserNotify('Investigation Failed', `${name} encountered an error.`, 'failed');
             if (investigation.status === 'paused') browserNotify('Investigation Paused', `${name} has been paused.`, 'paused');
         }
         prevStatusRef.current = investigation.status;
+        return () => { clearTimeout(completedTimerRef.current); };
     }, [investigation?.status, investigation?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
@@ -653,6 +656,15 @@ export const InvestigationDetail = () => {
         }).catch(() => {});
     }, [id, navigate]);
 
+    // Pre-load recommendations when investigation completes (already extracted by backend)
+    useEffect(() => {
+        if (!investigation || investigation.status !== 'completed' || !id) return;
+        if (implRecommendations.length > 0) return; // already loaded
+        api.getRecommendations(id).then(recs => {
+            if (recs.length > 0) setImplRecommendations(recs);
+        }).catch(() => {}); // best-effort
+    }, [investigation?.status, id]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // WebSocket logic with auto-reconnect
     useEffect(() => {
         let ws: WebSocket | null = null;
@@ -675,7 +687,7 @@ export const InvestigationDetail = () => {
                 // Show brief "reconnected" overlay if this was a reconnect
                 if (hadDisconnectRef.current) {
                     setWsJustReconnected(true);
-                    setTimeout(() => setWsJustReconnected(false), 2000);
+                    reconnectTimerRef.current = setTimeout(() => setWsJustReconnected(false), 2000);
                     hadDisconnectRef.current = false;
                 }
                 // Fetch latest state on connection to ensure we didn't miss anything
@@ -735,6 +747,7 @@ export const InvestigationDetail = () => {
             }
             if (reconnectTimeout) clearTimeout(reconnectTimeout);
             if (fetchDebounceRef.current) clearTimeout(fetchDebounceRef.current);
+            clearTimeout(reconnectTimerRef.current);
         };
     }, [id]);
 
@@ -870,8 +883,13 @@ export const InvestigationDetail = () => {
     }, [investigation?.id]);
 
     const handleOpenImplModal = useCallback(async () => {
-        setImplLoading(true);
         setShowImplModal(true);
+        // Use pre-loaded recommendations if available, otherwise fetch
+        if (implRecommendations.length > 0) {
+            setImplSelected(new Set(implRecommendations.filter(r => r.priority === 'P0' && r.category !== 'operational').map(r => r.id)));
+            return;
+        }
+        setImplLoading(true);
         try {
             const recs = await api.getRecommendations(investigation!.id);
             setImplRecommendations(recs);
@@ -882,7 +900,7 @@ export const InvestigationDetail = () => {
         } finally {
             setImplLoading(false);
         }
-    }, [investigation?.id]);
+    }, [investigation?.id, implRecommendations]);
 
     const handleStartImplementation = useCallback(async () => {
         setShowImplModal(false);

@@ -53,8 +53,7 @@ export class ScheduleStore {
     private schedulesFilePath: string;
     private historyDir: string;
     private historyRetentionDays: number;
-    /** Per-file write lock to prevent concurrent read-modify-write races (Fix 11/12). */
-    private writeLocks: Map<string, Promise<void>> = new Map();
+    private historyCountCache: Map<string, number> = new Map();
 
     constructor(investigationsPath: string, historyRetentionDays: number = 7) {
         const schedulesDir = path.join(investigationsPath, 'schedules');
@@ -129,6 +128,8 @@ export class ScheduleStore {
     }
 
     getHistoryCount(scheduleId: string): number {
+        const cached = this.historyCountCache.get(scheduleId);
+        if (cached !== undefined) return cached;
         const filePath = this.historyFilePath(scheduleId);
         if (!fs.existsSync(filePath)) return 0;
         try {
@@ -156,6 +157,7 @@ export class ScheduleStore {
                     }
                 }
             }
+            this.historyCountCache.set(scheduleId, count);
             return count;
         } catch {
             return 0;
@@ -163,6 +165,7 @@ export class ScheduleStore {
     }
 
     appendHistory(scheduleId: string, entry: ScheduleHistoryEntry): void {
+        this.historyCountCache.delete(scheduleId);
         const filePath = this.historyFilePath(scheduleId);
         this.withFileLock(filePath, () => {
             const dir = path.dirname(filePath);
@@ -186,6 +189,7 @@ export class ScheduleStore {
     }
 
     removeHistoryEntries(scheduleId: string, investigationIds: Set<string>): void {
+        this.historyCountCache.delete(scheduleId);
         const filePath = this.historyFilePath(scheduleId);
         if (!fs.existsSync(filePath)) return;
         this.withFileLock(filePath, () => {

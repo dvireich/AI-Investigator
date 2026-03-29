@@ -6762,7 +6762,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
 
         it('shows error toast when getRecommendations fails', async () => {
             const { api } = await import('../../api');
-            vi.mocked(api.getRecommendations).mockRejectedValueOnce(new Error('Recommendations unavailable'));
+            vi.mocked(api.getRecommendations).mockRejectedValue(new Error('Recommendations unavailable'));
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });

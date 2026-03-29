@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2, Calendar } from 'lucide-react';
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult } from '../api';
@@ -12,11 +12,14 @@ import { useNotification, getNotifEnabled, setNotifEnabled, getNotifSound, setNo
 // Path config item component
 const PathItem = ({ icon: Icon, label, value, color, validation }: { icon: any; label: string; value: string; color: string; validation?: PathValidationResult | null }) => {
     const [copied, setCopied] = useState(false);
+    const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    useEffect(() => () => { clearTimeout(copiedTimerRef.current); }, []);
     const copyToClipboard = () => {
         if (value) {
             navigator.clipboard.writeText(value);
             setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            clearTimeout(copiedTimerRef.current);
+            copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
         }
     };
 
@@ -69,6 +72,14 @@ export const Settings = () => {
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [saveSuccess, setSaveSuccess] = useState(false);
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const providerTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    const widgetTimerRef = useRef<ReturnType<typeof setTimeout>>();
+    useEffect(() => () => {
+        clearTimeout(saveTimerRef.current);
+        clearTimeout(providerTimerRef.current);
+        clearTimeout(widgetTimerRef.current);
+    }, []);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
     const [defaultView, setDefaultView] = useState<'grid' | 'list'>(
         () => (localStorage.getItem('inv-view') as 'grid' | 'list') ?? 'grid'
@@ -391,7 +402,7 @@ export const Settings = () => {
             });
             setSaveSuccess(true);
             setDirty(false);
-            setTimeout(() => setSaveSuccess(false), 3000);
+            saveTimerRef.current = setTimeout(() => setSaveSuccess(false), 3000);
         } catch (err: any) {
             console.error("Failed to save settings:", err);
             setError(err.message || "Failed to save settings.");
@@ -451,7 +462,7 @@ export const Settings = () => {
             await loadModels();
 
             setProviderSaveSuccess(true);
-            setTimeout(() => setProviderSaveSuccess(false), 3000);
+            providerTimerRef.current = setTimeout(() => setProviderSaveSuccess(false), 3000);
         } catch (err: any) {
             setProviderError(err.message || 'Failed to save provider configuration');
         } finally {
@@ -481,7 +492,7 @@ export const Settings = () => {
             // localStorage save succeeded; server sync is best-effort
         }
         setWidgetSaveSuccess(true);
-        setTimeout(() => setWidgetSaveSuccess(false), 3000);
+        widgetTimerRef.current = setTimeout(() => setWidgetSaveSuccess(false), 3000);
     };
 
     const handleResetWidgets = () => {
@@ -1640,7 +1651,7 @@ export const Settings = () => {
                                                     setConfig(result.config);
                                                     setDirty(false);
                                                     setSaveSuccess(true);
-                                                    setTimeout(() => setSaveSuccess(false), 3000);
+                                                    saveTimerRef.current = setTimeout(() => setSaveSuccess(false), 3000);
                                                 } catch (err: any) {
                                                     setError(err.message || 'Failed to import settings');
                                                 }

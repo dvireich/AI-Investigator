@@ -37,10 +37,16 @@ export function setNotifEvents(events: NotifEvent[]): void {
     localStorage.setItem(NOTIF_EVENTS_KEY, JSON.stringify(events));
 }
 
+/** Shared AudioContext singleton — avoids browser limit of ~6 instances. */
+let sharedAudioCtx: AudioContext | null = null;
+
 /** Play a short synthesized chime using Web Audio API */
 function playChime(): void {
     try {
-        const ctx = new AudioContext();
+        if (!sharedAudioCtx) sharedAudioCtx = new AudioContext();
+        const ctx = sharedAudioCtx;
+        // Resume if suspended (browsers auto-suspend after inactivity)
+        if (ctx.state === 'suspended') ctx.resume();
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.connect(gain);
@@ -82,11 +88,13 @@ export function useNotification(): UseNotificationReturn {
         if (now - lastNotifRef.current < 2000) return;
         lastNotifRef.current = now;
 
-        new Notification(title, {
+        const n = new Notification(title, {
             body,
             icon: '/favicon.ico',
             tag: `ai-inv-${event}-${now}`,
         });
+        // Auto-close after 10s to avoid accumulation in system tray
+        setTimeout(() => n.close(), 10_000);
 
         if (getNotifSound()) {
             playChime();

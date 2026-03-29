@@ -93,6 +93,7 @@ export class Scheduler extends EventEmitter {
         config?: Partial<SchedulerConfig>,
     ) {
         super();
+        this.setMaxListeners(20);
         this.store = store;
         this.createInvestigation = createInvestigation;
         this.getInvestigationResult = getInvestigationResult;
@@ -154,6 +155,9 @@ export class Scheduler extends EventEmitter {
         try {
         const schedules = this.store.getAll().filter(s => s.enabled);
         const now = Date.now();
+
+        // Recalculate activeCount from actual schedule state to prevent drift (M-2)
+        this.activeCount = schedules.filter(s => !!s.activeInvestigationId).length;
 
         for (const schedule of schedules) {
             // Check if a previous investigation is still running — settle it first

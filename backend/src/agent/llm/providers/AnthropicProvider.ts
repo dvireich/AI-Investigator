@@ -26,6 +26,7 @@ export class AnthropicProvider implements LlmProvider {
         if (config.apiKey) this.apiKey = config.apiKey;
         if (config.baseUrl) this.baseUrl = config.baseUrl;
         this.cachedClient = null;
+        this.cachedTimeout = null;
     }
 
     async getAuthStatus(): Promise<AuthStatus> {

@@ -219,7 +219,7 @@ export const api = {
     _listCache: null as PaginatedInvestigations | null,
     _listCacheKey: null as string | null,
 
-    listInvestigations: async (params?: InvestigationListParams): Promise<PaginatedInvestigations> => {
+    listInvestigations: async (params?: InvestigationListParams, signal?: AbortSignal): Promise<PaginatedInvestigations> => {
         const qp = new URLSearchParams();
         if (params?.page) qp.set('page', String(params.page));
         if (params?.pageSize) qp.set('pageSize', String(params.pageSize));
@@ -239,7 +239,7 @@ export const api = {
             headers['If-None-Match'] = api._listEtag;
         }
         const url = qs ? `${API_URL}/investigations?${qs}` : `${API_URL}/investigations`;
-        const response = await fetch(url, { headers });
+        const response = await fetch(url, { headers, signal });
         if (response.status === 304 && api._listCache && api._listCacheKey === cacheKey) {
             return api._listCache;
         }
@@ -252,8 +252,8 @@ export const api = {
         return data;
     },
 
-    getInvestigation: async (id: string) => {
-        const response = await fetch(`${API_URL}/investigations/${id}`);
+    getInvestigation: async (id: string, signal?: AbortSignal) => {
+        const response = await fetch(`${API_URL}/investigations/${id}`, { signal });
         if (!response.ok) throw new Error('Not found');
         return response.json();
     },
@@ -390,8 +390,8 @@ export const api = {
     },
 
     // Settings
-    getSettings: async () => {
-        const response = await fetch(`${API_URL}/settings`);
+    getSettings: async (signal?: AbortSignal) => {
+        const response = await fetch(`${API_URL}/settings`, { signal });
         if (!response.ok) throw new Error('Failed to get settings');
         return response.json();
     },

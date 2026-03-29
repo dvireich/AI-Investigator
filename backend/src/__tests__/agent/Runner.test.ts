@@ -92,6 +92,17 @@ vi.mock('fs', () => {
     return { ...fns, default: { ...fns } };
 });
 
+vi.mock('fs/promises', () => ({
+    writeFile: vi.fn(async (p: string, content: string) => writeFileSyncImpl(p, content)),
+    rename: vi.fn(async (old: string, nu: string) => renameSyncImpl(old, nu)),
+    mkdir: vi.fn(async (p: string) => mkdirSyncImpl(p)),
+    default: {
+        writeFile: vi.fn(async (p: string, content: string) => writeFileSyncImpl(p, content)),
+        rename: vi.fn(async (old: string, nu: string) => renameSyncImpl(old, nu)),
+        mkdir: vi.fn(async (p: string) => mkdirSyncImpl(p)),
+    },
+}));
+
 // Also spy on the REAL fs module for require('fs') paths in Runner.ts.
 // vi.mock('fs') only intercepts ESM imports; dynamic require() gets the real module.
 // eslint-disable-next-line @typescript-eslint/no-require-imports

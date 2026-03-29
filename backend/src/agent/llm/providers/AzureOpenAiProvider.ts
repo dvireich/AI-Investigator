@@ -25,6 +25,7 @@ export class AzureOpenAiProvider implements LlmProvider {
         if (config.baseUrl) this.baseUrl = config.baseUrl;
         if (config.apiVersion) this.apiVersion = config.apiVersion;
         this.cachedClient = null;
+        this.cachedTimeout = null;
     }
 
     async getAuthStatus(): Promise<AuthStatus> {

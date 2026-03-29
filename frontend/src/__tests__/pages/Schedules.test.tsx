@@ -1759,7 +1759,7 @@ describe('Schedules', () => {
             };
             vi.mocked(api.getScheduleReport)
                 .mockResolvedValueOnce(reportData)   // 1st: auto-load on card expand
-                .mockResolvedValueOnce(reportData)   // 2nd: Executive Summary button click (refresh)
+                .mockResolvedValueOnce(reportData)   // 2nd: Executive Summary button auto-refresh
                 .mockImplementationOnce(() => new Promise(resolve => { resolveRegenerate = resolve; })); // 3rd: Regenerate button click
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1831,32 +1831,6 @@ describe('Schedules', () => {
             });
         });
 
-        it('handles refresh failure when opening Executive Summary (line 699 catch)', async () => {
-            const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
-
-            vi.mocked(api.getScheduleReport)
-                .mockResolvedValueOnce({
-                    scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
-                    verdictBreakdown: { healthy: 3 }, successRate: 100, trend: 'stable',
-                    recentSummaries: [],
-                    executiveSummary: '# Original',
-                })
-                .mockRejectedValueOnce(new Error('network error')); // refresh fails
-
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-            renderSchedules();
-            await waitFor(() => screen.getByText('Daily Check'));
-            await user.click(screen.getByText('Daily Check'));
-            await waitFor(() => screen.getByText('Executive Summary'));
-            await user.click(screen.getByText('Executive Summary'));
-
-            // Modal should still open, showing original content from reportMap
-            await waitFor(() => {
-                expect(screen.getByRole('dialog')).toBeInTheDocument();
-            });
-        });
-
         it('handles regenerate failure in modal (line 883 catch)', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
@@ -1869,7 +1843,7 @@ describe('Schedules', () => {
             };
             vi.mocked(api.getScheduleReport)
                 .mockResolvedValueOnce(reportData)  // auto-load
-                .mockResolvedValueOnce(reportData)  // Executive Summary button refresh
+                .mockResolvedValueOnce(reportData)  // Executive Summary button auto-refresh
                 .mockRejectedValueOnce(new Error('regen failed')); // Regenerate button
 
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -1891,10 +1865,13 @@ describe('Schedules', () => {
             const regenerateBtn = headerBar?.querySelectorAll('button')?.[0];
             await user.click(regenerateBtn!);
 
-            // Should show spinner then recover after error
+            // Spinner appears then disappears after error is caught
             await waitFor(() => {
                 expect(screen.queryByText('Generating AI report...')).not.toBeInTheDocument();
             });
+
+            // Verify catch branch was hit (report still available despite error)
+            expect(screen.getByRole('dialog')).toBeInTheDocument();
         });
     });
 

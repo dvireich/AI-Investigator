@@ -13,34 +13,9 @@ import {
     Zap, Shield, TrendingUp, TrendingDown, Minus, Sparkles, BarChart3, FileText, Power
 } from 'lucide-react';
 import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
+import { useCountUp } from '../hooks/useCountUp';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-
-// ── Animated count-up hook ───────────────────────────────────────────────
-
-const useCountUp = (target: number, duration = 600) => {
-    const [display, setDisplay] = useState(0);
-    const seenNonZero = useRef(false);
-    const rafRef = useRef<number | undefined>(undefined);
-    useEffect(() => {
-        if (seenNonZero.current) {
-            rafRef.current = requestAnimationFrame(() => setDisplay(target));
-            return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current); };
-        }
-        if (target === 0) return;
-        seenNonZero.current = true;
-        let start: number | null = null;
-        const step = (ts: number) => {
-            if (start === null) start = ts;
-            const p = Math.min((ts - start) / duration, 1);
-            setDisplay(Math.round(p * target));
-            if (p < 1) rafRef.current = requestAnimationFrame(step);
-        };
-        rafRef.current = requestAnimationFrame(step);
-        return () => { if (rafRef.current !== undefined) cancelAnimationFrame(rafRef.current); };
-    }, [target, duration]);
-    return display;
-};
 
 // ── Verdict helpers ──────────────────────────────────────────────────────
 

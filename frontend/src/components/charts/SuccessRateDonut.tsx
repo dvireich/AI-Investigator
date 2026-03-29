@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 interface Props {
@@ -13,7 +14,17 @@ const COLORS = {
 };
 
 export const SuccessRateDonut = ({ completed, failed, aborted }: Props) => {
-    const total = completed + failed + aborted;
+    const { total, rate, data } = useMemo(() => {
+        const total = completed + failed + aborted;
+        const rate = total > 0 ? Math.round((completed / total) * 100) : 0;
+        const data = [
+            { name: 'Completed', value: completed },
+            { name: 'Failed', value: failed },
+            { name: 'Aborted', value: aborted },
+        ].filter(d => d.value > 0);
+        return { total, rate, data };
+    }, [completed, failed, aborted]);
+
     if (total === 0) {
         return (
             <div className="flex items-center justify-center h-full text-slate-600 text-xs">
@@ -21,13 +32,6 @@ export const SuccessRateDonut = ({ completed, failed, aborted }: Props) => {
             </div>
         );
     }
-
-    const rate = Math.round((completed / total) * 100);
-    const data = [
-        { name: 'Completed', value: completed },
-        { name: 'Failed', value: failed },
-        { name: 'Aborted', value: aborted },
-    ].filter(d => d.value > 0);
 
     const colorMap: Record<string, string> = {
         Completed: COLORS.completed,

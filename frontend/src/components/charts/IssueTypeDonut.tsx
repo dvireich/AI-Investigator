@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import type { Investigation } from '../../api';
 
@@ -19,12 +20,32 @@ const PALETTE = [
 const UNKNOWN_COLOR = '#64748b'; // slate-500
 
 export const CategoryDonut = ({ investigations }: Props) => {
-    // Count investigations by category
-    const counts = new Map<string, number>();
-    for (const inv of investigations) {
-        const type = inv.category?.trim() || 'Unknown';
-        counts.set(type, (counts.get(type) || 0) + 1);
-    }
+    const { counts, data, colorMap, total } = useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const inv of investigations) {
+            const type = inv.category?.trim() || 'Unknown';
+            counts.set(type, (counts.get(type) || 0) + 1);
+        }
+        const data = Array.from(counts.entries())
+            .sort((a, b) => {
+                if (a[0] === 'Unknown') return 1;
+                if (b[0] === 'Unknown') return -1;
+                return b[1] - a[1];
+            })
+            .map(([name, value]) => ({ name, value }));
+        const colorMap = new Map<string, string>();
+        let paletteIdx = 0;
+        for (const d of data) {
+            if (d.name === 'Unknown') {
+                colorMap.set(d.name, UNKNOWN_COLOR);
+            } else {
+                colorMap.set(d.name, PALETTE[paletteIdx % PALETTE.length]);
+                paletteIdx++;
+            }
+        }
+        const total = investigations.length;
+        return { counts, data, colorMap, total };
+    }, [investigations]);
 
     if (counts.size === 0) {
         return (
@@ -33,29 +54,6 @@ export const CategoryDonut = ({ investigations }: Props) => {
             </div>
         );
     }
-
-    // Sort descending by count, but keep "Unknown" last
-    const data = Array.from(counts.entries())
-        .sort((a, b) => {
-            if (a[0] === 'Unknown') return 1;
-            if (b[0] === 'Unknown') return -1;
-            return b[1] - a[1];
-        })
-        .map(([name, value]) => ({ name, value }));
-
-    // Assign colors: named types get palette colors, Unknown gets slate
-    const colorMap = new Map<string, string>();
-    let paletteIdx = 0;
-    for (const d of data) {
-        if (d.name === 'Unknown') {
-            colorMap.set(d.name, UNKNOWN_COLOR);
-        } else {
-            colorMap.set(d.name, PALETTE[paletteIdx % PALETTE.length]);
-            paletteIdx++;
-        }
-    }
-
-    const total = investigations.length;
 
     return (
         <div className="relative w-full h-full">

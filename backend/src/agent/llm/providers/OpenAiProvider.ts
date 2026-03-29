@@ -25,6 +25,7 @@ export class OpenAiProvider implements LlmProvider {
         if (config.apiKey) this.apiKey = config.apiKey;
         if (config.baseUrl) this.baseUrl = config.baseUrl;
         this.cachedClient = null; // invalidate
+        this.cachedTimeout = null;
     }
 
     async getAuthStatus(): Promise<AuthStatus> {

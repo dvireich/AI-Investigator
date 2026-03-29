@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 import type { Investigation } from '../../api';
 
@@ -11,9 +12,19 @@ const COLORS = {
 };
 
 export const ContestRate = ({ investigations }: Props) => {
-    const resolved = investigations.filter(
-        i => i.status === 'completed' || i.status === 'failed'
-    );
+    const { resolved, rate, data } = useMemo(() => {
+        const resolved = investigations.filter(
+            i => i.status === 'completed' || i.status === 'failed'
+        );
+        const contested = resolved.filter(i => (i.contestCount ?? 0) > 0).length;
+        const uncontested = resolved.length - contested;
+        const rate = resolved.length > 0 ? Math.round((contested / resolved.length) * 100) : 0;
+        const data = [
+            { name: 'Contested', value: contested },
+            { name: 'Uncontested', value: uncontested },
+        ].filter(d => d.value > 0);
+        return { resolved, rate, data };
+    }, [investigations]);
 
     if (resolved.length === 0) {
         return (
@@ -22,15 +33,6 @@ export const ContestRate = ({ investigations }: Props) => {
             </div>
         );
     }
-
-    const contested = resolved.filter(i => (i.contestCount ?? 0) > 0).length;
-    const uncontested = resolved.length - contested;
-    const rate = Math.round((contested / resolved.length) * 100);
-
-    const data = [
-        { name: 'Contested', value: contested },
-        { name: 'Uncontested', value: uncontested },
-    ].filter(d => d.value > 0);
 
     const colorMap: Record<string, string> = {
         Contested: COLORS.contested,

@@ -1,3 +1,4 @@
+import { useMemo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import type { Investigation } from '../../api';
 
@@ -17,11 +18,23 @@ const PALETTE = [
 ];
 
 export const ModelUsage = ({ investigations }: Props) => {
-    const counts = new Map<string, number>();
-    for (const inv of investigations) {
-        const model = inv.model?.trim() || 'Unknown';
-        counts.set(model, (counts.get(model) || 0) + 1);
-    }
+    const { counts, data } = useMemo(() => {
+        const counts = new Map<string, number>();
+        for (const inv of investigations) {
+            const model = inv.model?.trim() || 'Unknown';
+            counts.set(model, (counts.get(model) || 0) + 1);
+        }
+        const data = Array.from(counts.entries())
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 8)
+            .map(([name, value], i) => ({
+                model: name.length > 22 ? name.slice(0, 20) + '…' : name,
+                fullModel: name,
+                count: value,
+                color: PALETTE[i % PALETTE.length],
+            }));
+        return { counts, data };
+    }, [investigations]);
 
     if (counts.size === 0) {
         return (
@@ -30,16 +43,6 @@ export const ModelUsage = ({ investigations }: Props) => {
             </div>
         );
     }
-
-    const data = Array.from(counts.entries())
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 8)
-        .map(([name, value], i) => ({
-            model: name.length > 22 ? name.slice(0, 20) + '…' : name,
-            fullModel: name,
-            count: value,
-            color: PALETTE[i % PALETTE.length],
-        }));
 
     return (
         <ResponsiveContainer width="100%" height="100%">

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { ToolManager } from './tools/ToolManager';
 import { McpServerConfig } from './tools/McpToolBridge';
@@ -586,8 +587,10 @@ export class AgentRunner extends EventEmitter {
         const lines: string[] = [];
 
         const MAX_SCAN_DEPTH = 5;
+        const MAX_FILES = 200;
+        let fileCount = 0;
         const scanDir = (dir: string, indent: number, depth: number = 0) => {
-            if (depth > MAX_SCAN_DEPTH) return;
+            if (depth > MAX_SCAN_DEPTH || fileCount >= MAX_FILES) return;
             let entries: string[];
             try {
                 entries = fs.readdirSync(dir);
@@ -596,6 +599,7 @@ export class AgentRunner extends EventEmitter {
             }
             entries.sort();
             for (const entry of entries) {
+                if (fileCount >= MAX_FILES) break;
                 const fullPath = path.join(dir, entry);
                 const relPath = path.relative(repoRoot, fullPath).replace(/\\/g, '/');
                 let stat: any;
@@ -609,6 +613,7 @@ export class AgentRunner extends EventEmitter {
                     lines.push(`${prefix}${relPath}/`);
                     scanDir(fullPath, indent + 1, depth + 1);
                 } else {
+                    fileCount++;
                     lines.push(`${prefix}\`${relPath}\``);
                 }
             }
@@ -1821,9 +1826,7 @@ ${recsText}
 
         const baseDir = this.config.investigationsPath || path.join(this.getRepoRoot(), 'investigations');
 
-        if (!fs.existsSync(baseDir)) {
-            fs.mkdirSync(baseDir, { recursive: true });
-        }
+        await fsp.mkdir(baseDir, { recursive: true });
 
         // Use the investigation creation date (from ID) to ensure consistent folder naming
         const startDate = !isNaN(Number(this.state.id)) ? new Date(Number(this.state.id)) : new Date();
@@ -1833,16 +1836,14 @@ ${recsText}
         const folderName = `${timestamp}_${safeStamp}_${safeId}`;
 
         const investigationDir = path.join(baseDir, folderName);
-        if (!fs.existsSync(investigationDir)) {
-            fs.mkdirSync(investigationDir, { recursive: true });
-        }
+        await fsp.mkdir(investigationDir, { recursive: true });
 
         // Save JSON atomically (write to .tmp, then rename)
         const jsonPath = path.join(investigationDir, `state.json`);
         const tmpPath = jsonPath + '.tmp';
         this.log(`Saving JSON artifact to: ${jsonPath}`);
-        fs.writeFileSync(tmpPath, JSON.stringify(this.state, null, 2));
-        fs.renameSync(tmpPath, jsonPath);
+        await fsp.writeFile(tmpPath, JSON.stringify(this.state, null, 2));
+        await fsp.rename(tmpPath, jsonPath);
 
         // Generate Markdown Report — use fullHistory for complete record
         const extractThoughtText = (t: any): string => {
@@ -1930,11 +1931,11 @@ ${recsText}
                 return entry;
             }).join('\n');
 
-        fs.writeFileSync(path.join(investigationDir, `report.md`), report);
+        await fsp.writeFile(path.join(investigationDir, `report.md`), report);
         const summaryPath = path.join(investigationDir, 'summary.json');
         const summaryTmpPath = summaryPath + '.tmp';
-        fs.writeFileSync(summaryTmpPath, JSON.stringify(summaryState, null, 2));
-        fs.renameSync(summaryTmpPath, summaryPath);
+        await fsp.writeFile(summaryTmpPath, JSON.stringify(summaryState, null, 2));
+        await fsp.rename(summaryTmpPath, summaryPath);
 
         // Release fullHistory/fullActions from memory — they're persisted to disk.
         // Re-syncing from thoughts will rebuild them on demand (Fix 1).
