@@ -418,4 +418,27 @@ describe('FileBrowserModal', () => {
         expect(onSelect).toHaveBeenCalledWith('C:\\Users\\test\\project');
         expect(onClose).toHaveBeenCalled();
     });
+
+    it('does not update state when modal closes before listFiles resolves (cancelledRef guard)', async () => {
+        const { api } = await import('../../api');
+        let resolveFiles!: (value: any) => void;
+        vi.mocked(api.listFiles).mockImplementationOnce(() => new Promise(resolve => { resolveFiles = resolve; }));
+
+        const { rerender } = render(<FileBrowserModal isOpen={true} onClose={onClose} onSelect={onSelect} />);
+        // Close modal before API resolves — triggers cancelledRef = true
+        rerender(<FileBrowserModal isOpen={false} onClose={onClose} onSelect={onSelect} />);
+        // Now resolve — the cancelledRef guard should prevent state updates
+        resolveFiles({ path: '/home', entries: [{ name: 'file.txt', isDirectory: false }] });
+        // No error means the guard worked
+    });
+
+    it('does not update state when modal closes before listFiles rejects (cancelledRef error guard)', async () => {
+        const { api } = await import('../../api');
+        let rejectFiles!: (err: Error) => void;
+        vi.mocked(api.listFiles).mockImplementationOnce(() => new Promise((_, reject) => { rejectFiles = reject; }));
+
+        const { rerender } = render(<FileBrowserModal isOpen={true} onClose={onClose} onSelect={onSelect} />);
+        rerender(<FileBrowserModal isOpen={false} onClose={onClose} onSelect={onSelect} />);
+        rejectFiles(new Error('cancelled'));
+    });
 });

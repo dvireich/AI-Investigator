@@ -1746,6 +1746,32 @@ describe('Schedules', () => {
             expect(screen.queryByText('Executive Summary')).not.toBeInTheDocument();
         });
 
+        it('handles Executive Summary button click when refresh fails (line 674 catch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+
+            vi.mocked(api.getScheduleReport)
+                .mockResolvedValueOnce({
+                    scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                    verdictBreakdown: { healthy: 3 }, successRate: 100, trend: 'stable',
+                    recentSummaries: [],
+                    executiveSummary: '# Original',
+                })
+                .mockRejectedValueOnce(new Error('refresh failed')); // Executive Summary button refresh
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('Executive Summary'));
+            await user.click(screen.getByText('Executive Summary'));
+
+            // Modal should open despite the refresh failure
+            await waitFor(() => {
+                expect(screen.getByRole('dialog')).toBeInTheDocument();
+            });
+        });
+
         it('regenerates report when Regenerate button is clicked', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));

@@ -40,6 +40,9 @@ export function setNotifEvents(events: NotifEvent[]): void {
 /** Shared AudioContext singleton — avoids browser limit of ~6 instances. */
 let sharedAudioCtx: AudioContext | null = null;
 
+/** @internal Reset shared AudioContext — test-only */
+export function _resetSharedAudioCtx(): void { sharedAudioCtx = null; }
+
 /** Play a short synthesized chime using Web Audio API */
 function playChime(): void {
     try {

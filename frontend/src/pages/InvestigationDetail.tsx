@@ -659,6 +659,7 @@ export const InvestigationDetail = () => {
     // Pre-load recommendations when investigation completes (already extracted by backend)
     useEffect(() => {
         if (!investigation || investigation.status !== 'completed' || !id) return;
+        /* v8 ignore next -- defensive guard only hit in strict-mode double-fire */
         if (implRecommendations.length > 0) return; // already loaded
         api.getRecommendations(id).then(recs => {
             if (recs.length > 0) setImplRecommendations(recs);

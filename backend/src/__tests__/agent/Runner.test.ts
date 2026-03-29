@@ -1609,6 +1609,19 @@ describe('AgentRunner', () => {
             const result = (runner as any).discoverKnowledgeBase();
             expect(typeof result).toBe('string');
         });
+
+        it('stops scanning after MAX_FILES files', () => {
+            mockDirs.add('/repo/docs');
+            // Generate 210 files — exceeds MAX_FILES=200
+            const fileNames = Array.from({ length: 210 }, (_, i) => `file${String(i).padStart(3, '0')}.md`);
+            mockDirEntries.set('docs', fileNames);
+
+            const runner = new AgentRunner(makeConfig({ knowledgeBasePath: 'docs' }), provider);
+            const result = (runner as any).discoverKnowledgeBase();
+            // Should contain at most 200 file entries (backtick-wrapped lines)
+            const fileLines = result.split('\n').filter((l: string) => l.includes('`'));
+            expect(fileLines.length).toBeLessThanOrEqual(200);
+        });
     });
 
     describe('buildRetrospectMessages', () => {

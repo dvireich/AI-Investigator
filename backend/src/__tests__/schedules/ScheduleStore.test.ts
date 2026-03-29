@@ -227,6 +227,21 @@ describe('ScheduleStore', () => {
             expect(store.getHistoryCount('sch1')).toBe(2);
         });
 
+        it('getHistoryCount uses cache on second call', () => {
+            const entries: ScheduleHistoryEntry[] = [
+                { timestamp: new Date().toISOString(), verdict: 'healthy', investigationId: 'inv1' },
+            ];
+            const histDir = norm(path.join('/data', 'schedules', 'sch1'));
+            const histPath = norm(path.join(histDir, 'history.json'));
+            dirs.add(histDir);
+            files.set(histPath, JSON.stringify(entries));
+            expect(store.getHistoryCount('sch1')).toBe(1);
+            // Second call should use cache — readFileSync not called again
+            (fs.readFileSync as any).mockClear();
+            expect(store.getHistoryCount('sch1')).toBe(1);
+            expect(fs.readFileSync).not.toHaveBeenCalled();
+        });
+
         it('getHistoryCount returns 0 on corrupted file', () => {
             const histDir = norm(path.join('/data', 'schedules', 'sch1'));
             const histPath = norm(path.join(histDir, 'history.json'));

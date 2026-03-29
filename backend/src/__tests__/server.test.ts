@@ -1125,6 +1125,10 @@ describe('server utilities and routes', () => {
             };
             __testUtils.registerWebSocketClient(clientMap as any, ws as any, { url: '/?id=inv-2', headers: { host: 'localhost:3000' } } as any, logger as any);
             expect(clientMap.get('inv-2')?.has(ws as any)).toBe(true);
+            // Simulate error — should call ws.terminate()
+            (ws as any).terminate = vi.fn();
+            wsHandlers.get('error')?.();
+            expect((ws as any).terminate).toHaveBeenCalled();
             wsHandlers.get('close')?.();
             expect(clientMap.has('inv-2')).toBe(false);
 
