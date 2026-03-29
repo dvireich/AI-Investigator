@@ -7198,6 +7198,45 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
         });
 
+        it('clears implRunning after grace period when server reports implementationRunning=false', async () => {
+            const { api } = await import('../../api');
+            // Start with implementation running
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: true,
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            // Spinner should be showing
+            await waitFor(() => {
+                expect(screen.getByText(/Analyzing codebase and generating proposals/i)).toBeInTheDocument();
+            });
+
+            // Advance fake timers past the 5-second grace period
+            await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+
+            // Now switch server to implementationRunning=false
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: false,
+            }));
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'retrospect' });
+                await vi.advanceTimersByTimeAsync(400);
+            });
+
+            // Spinner should disappear after grace period
+            await waitFor(() => {
+                expect(screen.queryByText(/Analyzing codebase and generating proposals/i)).not.toBeInTheDocument();
+            });
+        });
+
         it('shows "no code changes proposed" when implementation completes with zero proposals', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
