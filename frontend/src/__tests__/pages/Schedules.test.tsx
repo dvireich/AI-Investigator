@@ -1745,6 +1745,55 @@ describe('Schedules', () => {
             });
             expect(screen.queryByText('Executive Summary')).not.toBeInTheDocument();
         });
+
+        it('regenerates report when Regenerate button is clicked', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's1' })]));
+
+            let resolveRegenerate!: (value: any) => void;
+            vi.mocked(api.getScheduleReport)
+                .mockResolvedValueOnce({
+                    scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                    verdictBreakdown: { healthy: 2, warning: 1 }, successRate: 66.7, trend: 'stable',
+                    recentSummaries: [],
+                    executiveSummary: '# Original Summary',
+                })
+                .mockImplementationOnce(() => new Promise(resolve => { resolveRegenerate = resolve; }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderSchedules();
+            await waitFor(() => screen.getByText('Daily Check'));
+            await user.click(screen.getByText('Daily Check'));
+            await waitFor(() => screen.getByText('Executive Summary'));
+            await user.click(screen.getByText('Executive Summary'));
+            await waitFor(() => screen.getByRole('dialog'));
+
+            // Click Regenerate button (first button in header bar)
+            const dialog = screen.getByRole('dialog');
+            const headerBar = dialog.querySelector('.border-b');
+            const regenerateBtn = headerBar?.querySelectorAll('button')?.[0];
+            expect(regenerateBtn).toBeTruthy();
+            await user.click(regenerateBtn!);
+
+            // Spinner should appear while regenerating
+            await waitFor(() => {
+                expect(screen.getByText('Generating AI report...')).toBeInTheDocument();
+            });
+
+            // Resolve the regenerate call
+            await act(async () => {
+                resolveRegenerate({
+                    scheduleId: 's1', scheduleName: 'Daily Check', totalRuns: 3,
+                    verdictBreakdown: { healthy: 2, warning: 1 }, successRate: 66.7, trend: 'stable',
+                    recentSummaries: [],
+                    executiveSummary: '# Regenerated Summary',
+                });
+            });
+
+            await waitFor(() => {
+                expect(api.getScheduleReport).toHaveBeenCalledWith('s1', true);
+            });
+        });
     });
 
     // ══════════════════════════════════════════════════════════════════════

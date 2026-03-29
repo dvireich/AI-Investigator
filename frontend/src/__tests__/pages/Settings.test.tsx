@@ -1578,6 +1578,54 @@ describe('Settings', () => {
                 expect(saveButton).toBeDisabled();
             });
         });
+
+        it('syncs analyticsWidgets from server config to local state', async () => {
+            const { api } = await import('../../api');
+            const { setSelectedWidgetIds } = await import('../../components/charts/widgetRegistry');
+            vi.mocked(api.getSettings).mockResolvedValue({
+                model: 'gpt-4o',
+                maxSteps: 50,
+                maxConcurrentInvestigations: 3,
+                retrospectTimeoutMinutes: 10,
+                autoRefreshInterval: 30,
+                defaultTimeRange: 'ago(1h)',
+                defaultView: 'grid',
+                defaultSortOrder: 'newest',
+                defaultPageSize: 12,
+                notifications: true,
+                analyticsWidgets: ['trend', 'categories', 'duration'],
+            });
+
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+            await waitFor(() => {
+                expect(setSelectedWidgetIds).toHaveBeenCalledWith(['trend', 'categories', 'duration']);
+            });
+        });
+
+        it('tolerates saveSettings rejection during widget save', async () => {
+            const { api } = await import('../../api');
+            const { getSelectedWidgetIds } = await import('../../components/charts/widgetRegistry');
+            // Ensure 3 widgets are selected (may have been modified by earlier tests)
+            vi.mocked(getSelectedWidgetIds).mockReturnValue(['trend', 'targetActivity', 'successRate']);
+            vi.mocked(api.saveSettings).mockRejectedValue(new Error('Network error'));
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+            await user.click(screen.getByText('Analytics'));
+            await waitFor(() => screen.getByRole('button', { name: /Save Widgets/i }));
+
+            const saveBtn = screen.getByRole('button', { name: /Save Widgets/i });
+            expect(saveBtn).not.toBeDisabled();
+            await user.click(saveBtn);
+
+            // Even though saveSettings rejects, the handler catches and shows success
+            await waitFor(() => {
+                expect(api.saveSettings).toHaveBeenCalledWith({ analyticsWidgets: expect.any(Array) });
+            }, { timeout: 3000 });
+        });
     });
 
     // =====================================================
@@ -2700,6 +2748,21 @@ describe('Settings', () => {
                 await waitFor(() => {
                     expect(screen.getByLabelText('Model Selection')).toBeInTheDocument();
                 });
+            });
+
+            it('shows Loading models fallback on Schedules tab scheduledReportModel when models list is empty', async () => {
+                const { api } = await import('../../api');
+                vi.mocked(api.listModels).mockResolvedValue([]);
+                const user = userEvent.setup();
+                renderSettings();
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+                await user.click(screen.getByText('Schedules'));
+                await waitFor(() => {
+                    expect(screen.getByLabelText('Scheduled Report Model')).toBeInTheDocument();
+                });
+                // The fallback "Loading models..." option should be displayed
+                expect(within(screen.getByLabelText('Scheduled Report Model')).getByText('Loading models...')).toBeInTheDocument();
             });
         });
 

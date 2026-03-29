@@ -309,6 +309,31 @@ describe('AgentRunner', () => {
             expect(state.recommendations!.length).toBe(0);
         });
 
+        it('catches when extractRecommendations itself throws', async () => {
+            const reportWithRecs = '## Recommendations\n\n### Immediate (P0)\n\n1. **Fix bug**: details\n';
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Done.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: { name: 'finish', arguments: JSON.stringify({ report: reportWithRecs }) },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(runner, 'extractRecommendations').mockRejectedValue(new Error('unexpected crash'));
+
+            await runner.start('Investigate');
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('completed');
+            expect(state.recommendations).toEqual([]);
+        });
+
         it('executes tool actions and feeds results back', async () => {
             mockOpenAI.chat.completions.create
                 .mockResolvedValueOnce({
