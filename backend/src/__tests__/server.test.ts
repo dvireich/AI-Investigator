@@ -3184,6 +3184,62 @@ describe('server utilities and routes', () => {
             expect(r.body.totalCount).toBe(2);
         });
 
+        it('sourceFilter covers fallback for undefined source fields', async () => {
+            // Exercise (s.source || 'manual') fallback in both filterSource branches
+            const investigationsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-src-'));
+            __testUtils.setConfig({ products: [], activeProductId: '', investigationsPath });
+            const s1 = makeState({ id: '9001', status: 'completed', target: 'x', title: 'No source' });
+            delete (s1 as any).source; // undefined source → falls back to 'manual'
+            const s2 = makeState({ id: '9002', status: 'completed', target: 'x', title: 'Has source', source: 'scheduled' });
+            for (const s of [s1, s2]) {
+                const sp = path.join(investigationsPath, `${s.id}-state.json`);
+                fs.writeFileSync(sp, JSON.stringify(s));
+                (s as any)._statePath = sp;
+                (s as any)._lastModified = Number(s.id);
+                __testUtils.getHistory().set(s.id, s as any);
+            }
+            // sourceFilter=manual should match s1 (undefined → 'manual' fallback)
+            const r = await api().get('/api/investigations?sourceFilter=manual');
+            expect(r.body.totalCount).toBe(1);
+            expect(r.body.items[0].id).toBe('9001');
+        });
+
+        it('tagFilter covers fallback for undefined tags', async () => {
+            const investigationsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-tag-'));
+            __testUtils.setConfig({ products: [], activeProductId: '', investigationsPath });
+            const s1 = makeState({ id: '9003', status: 'completed', target: 'x', title: 'No tags', source: 'manual' });
+            delete (s1 as any).tags; // undefined tags → falls back to []
+            const s2 = makeState({ id: '9004', status: 'completed', target: 'x', title: 'Has tag', source: 'manual', tags: ['prod'] });
+            for (const s of [s1, s2]) {
+                const sp = path.join(investigationsPath, `${s.id}-state.json`);
+                fs.writeFileSync(sp, JSON.stringify(s));
+                (s as any)._statePath = sp;
+                (s as any)._lastModified = Number(s.id);
+                __testUtils.getHistory().set(s.id, s as any);
+            }
+            const r = await api().get('/api/investigations?tagFilter=prod');
+            expect(r.body.totalCount).toBe(1);
+            expect(r.body.items[0].id).toBe('9004');
+        });
+
+        it('createdByFilter covers fallback for undefined createdBy', async () => {
+            const investigationsPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-cb-'));
+            __testUtils.setConfig({ products: [], activeProductId: '', investigationsPath });
+            const s1 = makeState({ id: '9005', status: 'completed', target: 'x', title: 'No creator', source: 'manual' });
+            delete (s1 as any).createdBy; // undefined createdBy → falls back to ''
+            const s2 = makeState({ id: '9006', status: 'completed', target: 'x', title: 'Has creator', source: 'manual', createdBy: 'alice' });
+            for (const s of [s1, s2]) {
+                const sp = path.join(investigationsPath, `${s.id}-state.json`);
+                fs.writeFileSync(sp, JSON.stringify(s));
+                (s as any)._statePath = sp;
+                (s as any)._lastModified = Number(s.id);
+                __testUtils.getHistory().set(s.id, s as any);
+            }
+            const r = await api().get('/api/investigations?createdByFilter=alice');
+            expect(r.body.totalCount).toBe(1);
+            expect(r.body.items[0].id).toBe('9006');
+        });
+
         it('searches across title, target, tags, and createdBy', async () => {
             setupInvestigations();
             // 'alpha' matches manual investigations (id 1000, 5000)
