@@ -235,6 +235,24 @@ describe('ScheduleStore', () => {
             expect(store.getHistoryCount('sch1')).toBe(0);
         });
 
+        it('getHistoryCount returns 0 when readFileSync throws', () => {
+            const histDir = norm(path.join('/data', 'schedules', 'sch1'));
+            const histPath = norm(path.join(histDir, 'history.json'));
+            dirs.add(histDir);
+            files.set(histPath, '[{"a":1}]');
+            (fs.readFileSync as any).mockImplementationOnce(() => { throw new Error('read error'); });
+            expect(store.getHistoryCount('sch1')).toBe(0);
+        });
+
+        it('getHistoryCount handles escaped characters in JSON strings', () => {
+            const histDir = norm(path.join('/data', 'schedules', 'sch1'));
+            const histPath = norm(path.join(histDir, 'history.json'));
+            dirs.add(histDir);
+            // Entry with escaped quotes and braces inside strings
+            files.set(histPath, '[{"summary":"line1\\nline2\\"{\\\\}"}]');
+            expect(store.getHistoryCount('sch1')).toBe(1);
+        });
+
         it('appendHistory creates directory and appends entry', () => {
             const entry: ScheduleHistoryEntry = {
                 timestamp: new Date().toISOString(),

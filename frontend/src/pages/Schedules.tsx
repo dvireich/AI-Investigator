@@ -875,11 +875,10 @@ export const Schedules = () => {
                             <div className="flex items-center gap-2">
                                 <button
                                     onClick={async () => {
-                                        if (regeneratingReport || !executiveModalId) return;
                                         setRegeneratingReport(true);
                                         try {
-                                            const report = await api.getScheduleReport(executiveModalId, true);
-                                            setReportMap(prev => ({ ...prev, [executiveModalId]: report }));
+                                            const report = await api.getScheduleReport(executiveModalId!, true);
+                                            setReportMap(prev => ({ ...prev, [executiveModalId!]: report }));
                                         } catch { /* ignore */ }
                                         setRegeneratingReport(false);
                                     }}

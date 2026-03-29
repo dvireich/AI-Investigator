@@ -1594,6 +1594,7 @@ describe('Settings', () => {
                 defaultPageSize: 12,
                 notifications: true,
                 analyticsWidgets: ['trend', 'categories', 'duration'],
+                analyticsVisible: true,
             });
 
             renderSettings();
@@ -1602,6 +1603,7 @@ describe('Settings', () => {
             await waitFor(() => {
                 expect(setSelectedWidgetIds).toHaveBeenCalledWith(['trend', 'categories', 'duration']);
             });
+            expect(localStorage.getItem('inv-analytics')).toBe('true');
         });
 
         it('tolerates saveSettings rejection during widget save', async () => {
@@ -2763,6 +2765,30 @@ describe('Settings', () => {
                 });
                 // The fallback "Loading models..." option should be displayed
                 expect(within(screen.getByLabelText('Scheduled Report Model')).getByText('Loading models...')).toBeInTheDocument();
+            });
+
+            it('changes recommendationModel via dropdown', async () => {
+                const user = userEvent.setup();
+                renderSettings();
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+                await user.click(screen.getByText('Agent Behavior'));
+                await waitFor(() => screen.getByLabelText('Recommendation Extraction Model'));
+                const select = screen.getByLabelText('Recommendation Extraction Model');
+                await user.selectOptions(select, 'gpt-4-turbo');
+                expect(select).toHaveValue('gpt-4-turbo');
+            });
+
+            it('changes scheduledReportModel via dropdown', async () => {
+                const user = userEvent.setup();
+                renderSettings();
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+                await user.click(screen.getByText('Schedules'));
+                await waitFor(() => screen.getByLabelText('Scheduled Report Model'));
+                const select = screen.getByLabelText('Scheduled Report Model');
+                await user.selectOptions(select, 'gpt-4-turbo');
+                expect(select).toHaveValue('gpt-4-turbo');
             });
         });
 

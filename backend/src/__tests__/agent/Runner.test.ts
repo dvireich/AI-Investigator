@@ -4824,13 +4824,14 @@ describe('AgentRunner', () => {
             expect(recs[0].title).toBe('Valid');
         });
 
-        it('defaults missing priority to P2 and missing category to code', async () => {
+        it('defaults missing priority to P2, missing description to empty, and missing category to code', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValueOnce({
-                choices: [{ message: { content: '[{"title":"Fix it","description":"broken"}]' } }],
+                choices: [{ message: { content: '[{"title":"Fix it"}]' } }],
             });
             const runner = new AgentRunner(makeConfig(), provider);
             const recs = await runner.extractRecommendations('Some report');
             expect(recs[0].priority).toBe('P2');
+            expect(recs[0].description).toBe('');
             expect(recs[0].category).toBe('code');
         });
 

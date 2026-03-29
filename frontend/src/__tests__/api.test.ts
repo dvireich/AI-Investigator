@@ -381,6 +381,13 @@ describe('api', () => {
             const result = await api.getScheduleReport('s1');
             expect(result.totalRuns).toBe(5);
         });
+
+        it('getScheduleReport passes refresh query string', async () => {
+            const report = { scheduleId: 's1', totalRuns: 5, verdictBreakdown: {}, successRate: 80, trend: 'stable', recentSummaries: [] };
+            mockFetch.mockResolvedValue(mockResponse(report));
+            await api.getScheduleReport('s1', true);
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/schedules/s1/report?refresh=true'));
+        });
     });
 
     describe('products', () => {

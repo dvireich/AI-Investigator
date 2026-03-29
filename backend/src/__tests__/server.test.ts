@@ -5045,7 +5045,7 @@ describe('server utilities and routes', () => {
 
             const spy = vi.spyOn(SchedulerModule, 'generateAIExecutiveReport').mockResolvedValue('# AI Executive Report');
 
-            const response = await api().get('/api/schedules/sched-ai/report');
+            const response = await api().get('/api/schedules/sched-ai/report?refresh=true');
 
             expect(response.status).toBe(200);
             expect(response.body.executiveSummary).toBe('# AI Executive Report');

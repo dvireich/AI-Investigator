@@ -203,5 +203,135 @@ describe('IcmProvider', () => {
             const result = await promise;
             expect(result.target).toBe('svc-b');
         });
+
+        it('times out hung child process after 5 minutes', async () => {
+            vi.useFakeTimers();
+            provider.configure({ type: 'icm', scriptsPath: '/scripts' });
+            (fs.existsSync as any).mockReturnValue(true);
+
+            const child = createMockChild();
+            child.kill = vi.fn();
+            (spawn as any).mockReturnValue(child);
+
+            const promise = provider.fetchIncident('42');
+            // Advance past the 5-minute timeout
+            vi.advanceTimersByTime(5 * 60 * 1000 + 100);
+
+            await expect(promise).rejects.toThrow('IcM script timed out after 5 minutes for incident 42');
+            expect(child.kill).toHaveBeenCalledWith('SIGKILL');
+            vi.useRealTimers();
+        });
+
+        it('truncates content larger than 1 MB', async () => {
+            provider.configure({ type: 'icm', scriptsPath: '/scripts' });
+            (fs.existsSync as any).mockReturnValue(true);
+
+            const child = createMockChild();
+            (spawn as any).mockReturnValue(child);
+
+            const promise = provider.fetchIncident('42');
+            const bigContent = 'x'.repeat(1_100_000);
+            child.stdout.emit('data', Buffer.from(
+                `[DATA] ${JSON.stringify({ key: 'content', value: bigContent })}\n`
+            ));
+            child.stdout.emit('data', Buffer.from(
+                '[DATA] {"key":"metadata","value":{"title":"Big"}}\n'
+            ));
+            child.emit('close', 0);
+
+            const result = await promise;
+            expect(result.content!.length).toBeLessThan(bigContent.length);
+            expect(result.content).toContain('... [content truncated]');
+        });
+
+        it('JSON-stringifies non-string content values', async () => {
+            provider.configure({ type: 'icm', scriptsPath: '/scripts' });
+            (fs.existsSync as any).mockReturnValue(true);
+
+            const child = createMockChild();
+            (spawn as any).mockReturnValue(child);
+
+            const promise = provider.fetchIncident('42');
+            child.stdout.emit('data', Buffer.from(
+                '[DATA] {"key":"content","value":{"nested":"data"}}\n'
+            ));
+            child.stdout.emit('data', Buffer.from(
+                '[DATA] {"key":"metadata","value":{"title":"T"}}\n'
+            ));
+            child.emit('close', 0);
+
+            const result = await promise;
+            expect(result.content).toBe('{"nested":"data"}');
+        });
+
+        it('ignores close after timeout (settled guard)', async () => {
+            vi.useFakeTimers();
+            provider.configure({ type: 'icm', scriptsPath: '/scripts' });
+            (fs.existsSync as any).mockReturnValue(true);
+
+            const child = createMockChild();
+            child.kill = vi.fn();
+            (spawn as any).mockReturnValue(child);
+
+            const promise = provider.fetchIncident('42');
+            vi.advanceTimersByTime(5 * 60 * 1000 + 100);
+            // Now emit close — should be ignored since settled=true
+            child.emit('close', 0);
+
+            await expect(promise).rejects.toThrow('timed out');
+            vi.useRealTimers();
+        });
+
+        it('ignores error after close (settled guard)', async () => {
+            provider.configure({ type: 'icm', scriptsPath: '/scripts' });
+            (fs.existsSync as any).mockReturnValue(true);
+
+            const child = createMockChild();
+            (spawn as any).mockReturnValue(child);
+
+            const promise = provider.fetchIncident('42');
+            child.stdout.emit('data', Buffer.from(
+                '[DATA] {"key":"metadata","value":{"title":"T"}}\n'
+            ));
+            child.emit('close', 0);
+            // Error fires after close — should be ignored
+            child.emit('error', new Error('late error'));
+
+            const result = await promise;
+            expect(result.title).toBe('T');
+        });
+
+        it('catches kill failure during timeout', async () => {
+            vi.useFakeTimers();
+            provider.configure({ type: 'icm', scriptsPath: '/scripts' });
+            (fs.existsSync as any).mockReturnValue(true);
+
+            const child = createMockChild();
+            child.kill = vi.fn(() => { throw new Error('kill failed'); });
+            (spawn as any).mockReturnValue(child);
+
+            const promise = provider.fetchIncident('42');
+            vi.advanceTimersByTime(5 * 60 * 1000 + 100);
+
+            await expect(promise).rejects.toThrow('timed out');
+            vi.useRealTimers();
+        });
+
+        it('resolves with title when exit code is non-zero but metadata has title', async () => {
+            provider.configure({ type: 'icm', scriptsPath: '/scripts' });
+            (fs.existsSync as any).mockReturnValue(true);
+
+            const child = createMockChild();
+            (spawn as any).mockReturnValue(child);
+
+            const promise = provider.fetchIncident('42');
+            child.stdout.emit('data', Buffer.from(
+                '[DATA] {"key":"metadata","value":{"title":"Partial Data"}}\n'
+            ));
+            child.emit('close', 1); // non-zero exit but has title
+
+            const result = await promise;
+            expect(result.title).toBe('Partial Data');
+        });
     });
 });
