@@ -856,6 +856,16 @@ export const InvestigationDetail = () => {
         }
     }, [implRunning, investigation?.retrospect?.messages]);
 
+    // Sync implRunning from server state so navigating away and back restores the spinner
+    useEffect(() => {
+        if (investigation?.implementationRunning && !implRunning) {
+            setImplRunning(true);
+        } else if (investigation && !investigation.implementationRunning && implRunning) {
+            // Server says done but local state is still running — clear it
+            setImplRunning(false);
+        }
+    }, [investigation?.implementationRunning]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Helper to update proposal status
     const handleProposalAction = useCallback(async (proposalId: string, status: 'approved' | 'rejected') => {
         try {

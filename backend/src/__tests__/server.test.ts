@@ -255,6 +255,19 @@ describe('server utilities and routes', () => {
             expect(result.target).toBe('oi-tds-prd-eus2p-02');
         });
 
+        it('normalizeHistoricalState clears stale implementationRunning flag', () => {
+            const result = normalizeHistoricalState({
+                id: '5',
+                status: 'completed',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                implementationRunning: true,
+            } as any);
+
+            expect(result.implementationRunning).toBe(false);
+        });
+
         it('creates a summary state with a thought preview', () => {
             const summary = createSummaryState({
                 id: '123',

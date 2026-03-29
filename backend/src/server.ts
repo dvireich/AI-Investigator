@@ -88,6 +88,11 @@ export function normalizeHistoricalState(state: InvestigationState, productId?: 
         normalized.thoughts.push('System: Investigation automatically paused due to server restart.');
     }
 
+    // Clear stale implementation flag — no runner survives a restart
+    if (normalized.implementationRunning) {
+        normalized.implementationRunning = false;
+    }
+
     if (productId && !normalized.productId) {
         normalized.productId = productId;
     }
@@ -2007,7 +2012,8 @@ app.get('/api/investigations', (req, res) => {
             analysisComplete: s.retrospect.analysisComplete,
             analysisFailed: s.retrospect.analysisFailed,
             completed: s.retrospect.completed
-        } : undefined
+        } : undefined,
+        implementationRunning: s.implementationRunning || false,
     });
         } catch (itemErr) {
             console.error(`Failed to build summary for investigation ${s?.id}:`, itemErr);

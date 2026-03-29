@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation, type InvestigationFilterMeta, type InvestigationStats } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, ChevronLeft, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag, User } from 'lucide-react';
+import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, ChevronLeft, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag, User, Wrench } from 'lucide-react';
 import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
 import { KpiBar } from '../components/charts/KpiBar';
 import { getSelectedWidgetIds, getWidgetById } from '../components/charts/widgetRegistry';
@@ -587,6 +587,8 @@ export const Dashboard = () => {
             return { label: 'Running',      icon: <Activity className="w-3 h-3 animate-pulse" />,   chip: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',    accent: 'border-l-blue-500',    dot: 'bg-blue-400' };
         if (inv.status === 'paused')
             return { label: 'Paused',       icon: <Pause className="w-3 h-3 fill-current" />,        chip: 'bg-amber-500/15 text-amber-400 border border-amber-500/20',  accent: 'border-l-amber-500',   dot: 'bg-amber-400' };
+        if (inv.implementationRunning)
+            return { label: 'Implementing', icon: <Wrench className="w-3 h-3 animate-pulse" />,      chip: 'bg-sky-500/15 text-sky-400 border border-sky-500/20',       accent: 'border-l-sky-500',     dot: 'bg-sky-400' };
         if (inv.status === 'completed' && hasRetro && !isRetroCompleted)
             return { label: 'Retrospective',icon: <Sparkles className="w-3 h-3" />,                  chip: 'bg-purple-500/15 text-purple-400 border border-purple-500/20',accent: 'border-l-purple-500',  dot: 'bg-purple-400' };
         if (inv.status === 'completed')

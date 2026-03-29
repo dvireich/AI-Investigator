@@ -5301,6 +5301,8 @@ describe('AgentRunner', () => {
             expect(retro.messages[0].content).toContain('[Implementation]');
             // isImplementationRunning should be reset
             expect((runner as any).isImplementationRunning).toBe(false);
+            // state.implementationRunning should be cleared too
+            expect((runner as any).state.implementationRunning).toBe(false);
         });
 
         it('skips duplicate request when already running', async () => {

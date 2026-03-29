@@ -7155,6 +7155,48 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 expect(screen.getByText(/\.\.\. \[truncated\]/)).toBeInTheDocument();
             });
         });
+
+        it('syncs implRunning from server implementationRunning flag on load', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: true,
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Analyzing codebase and generating proposals/i)).toBeInTheDocument();
+            });
+
+            // Now simulate the server reporting implementationRunning=false (implementation finished)
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: false,
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
+                retrospect: {
+                    messages: [{ role: 'assistant', content: 'Implementation complete. All done.' }],
+                    proposals: [],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'retrospect' });
+                await vi.advanceTimersByTimeAsync(400);
+            });
+
+            await waitFor(() => {
+                expect(screen.queryByText(/Analyzing codebase and generating proposals/i)).not.toBeInTheDocument();
+            });
+        });
     });
 
     describe('Tab Focus Reconnection', () => {

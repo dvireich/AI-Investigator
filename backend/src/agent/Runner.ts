@@ -87,6 +87,8 @@ export interface InvestigationState {
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
     verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    // Tracks whether the implementation agent is currently running
+    implementationRunning?: boolean;
 }
 
 export class AgentRunner extends EventEmitter {
@@ -1758,6 +1760,7 @@ ${recsText}
         }
 
         this.isImplementationRunning = true;
+        this.state.implementationRunning = true;
 
         const retro = this.initRetrospect();
         const tools = this.getImplementationTools();
@@ -1817,6 +1820,7 @@ ${recsText}
             clearTimeout(timeoutId!);
             this.retrospectAbortController = null;
             this.isImplementationRunning = false;
+            this.state.implementationRunning = false;
         }
     }
 

@@ -116,6 +116,8 @@ export interface Investigation {
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
     verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    // Tracks whether the implementation agent is currently running
+    implementationRunning?: boolean;
 }
 
 export interface PaginatedResponse<T> {
