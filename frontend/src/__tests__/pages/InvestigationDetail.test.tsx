@@ -7198,6 +7198,31 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
         });
 
+        it('shows still-scanning indicator when proposals exist and implementation is running', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: true,
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
+                retrospect: {
+                    messages: [{ role: 'user', content: '[Implementation] Implement recommendation: Fix the bug' }],
+                    proposals: [{
+                        id: 'prop1', filePath: 'src/main.cs', type: 'edit' as const,
+                        description: 'Fix the bug', content: 'fixed code', status: 'pending' as const, source: 'implementation' as const,
+                    }],
+                    analysisComplete: false,
+                    completed: false,
+                },
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            await waitFor(() => {
+                expect(screen.getByText(/still scanning for more changes/i)).toBeInTheDocument();
+            });
+        });
+
         it('clears implRunning after grace period when server reports implementationRunning=false', async () => {
             const { api } = await import('../../api');
             // Start with implementation running

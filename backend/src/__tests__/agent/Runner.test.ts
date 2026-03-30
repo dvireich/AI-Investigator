@@ -5250,14 +5250,104 @@ describe('AgentRunner', () => {
                 existsSync: () => true,
             };
             const runner = new AgentRunner(makeConfig(), provider);
-            const results: string[] = [];
+            const buffer = new Map<string, { score: number; lines: string[] }>();
             (runner as any).walkDir(
                 fakeFsThrowLstat, pth,
                 repoRoot, repoRoot, /anything/,
                 new Set<string>(), new Set(['.cs']),
-                results, 20
+                buffer, 20
             );
-            expect(results).toHaveLength(0);
+            expect(buffer.size).toBe(0);
+        });
+
+        it('walkDir evicts worst-scoring batch when a better-scoring file arrives and buffer is full', () => {
+            const pth = require('path');
+            const repoRoot = pth.resolve('/repo');
+            // Pre-populate buffer with a docs file (high score 70) using 2 lines
+            const buffer = new Map<string, { score: number; lines: string[] }>();
+            buffer.set('docs/guide.cs', { score: 70, lines: ['docs/guide.cs:1: old match', 'docs/guide.cs:2: old match'] });
+
+            // Fake fs: root has node_modules (skipDir), investigations (skipPath), nomatch.cs (0 hits), src/main.cs (match)
+            const investigationsDir = pth.resolve(repoRoot, 'investigations');
+            const dirSet = new Set([repoRoot, pth.join(repoRoot, 'src'), pth.join(repoRoot, 'node_modules'), investigationsDir]);
+            const fakeFs = {
+                readdirSync: (dir: string) => {
+                    if (dir === pth.join(repoRoot, 'src')) return ['main.cs'];
+                    return ['node_modules', 'investigations', 'nomatch.cs', 'src'];
+                },
+                lstatSync: (p: string) => ({ isDirectory: () => dirSet.has(p) }),
+                readFileSync: (p: string) => {
+                    if (p.includes('nomatch')) return 'nothing relevant here';
+                    return 'source match line';
+                },
+                existsSync: () => true,
+            };
+            const runner = new AgentRunner(makeConfig(), provider);
+            // maxLines=2 means buffer is already full (2 lines from docs/guide.cs)
+            // src/main.cs scores 0 (better), should evict docs/guide.cs
+            // node_modules is in skipDirs, investigations is in skipPaths, nomatch.cs has 0 regex hits
+            (runner as any).walkDir(
+                fakeFs, pth,
+                repoRoot, repoRoot, /match/,
+                new Set(['node_modules']), new Set(['.cs']),
+                buffer, 2,
+                new Set([investigationsDir])
+            );
+            // docs file should be evicted, src file should be in buffer
+            expect(buffer.has('docs/guide.cs')).toBe(false);
+            expect(buffer.has('src/main.cs')).toBe(true);
+            expect(buffer.get('src/main.cs')!.score).toBe(0);
+        });
+
+        it('walkDir does not evict when new file has equal or worse score than buffer contents', () => {
+            const pth = require('path');
+            const repoRoot = pth.resolve('/repo');
+            // Pre-populate buffer with a source file (score 0) using 2 lines
+            const buffer = new Map<string, { score: number; lines: string[] }>();
+            buffer.set('src/main.cs', { score: 0, lines: ['src/main.cs:1: existing match', 'src/main.cs:2: existing match'] });
+
+            // Fake fs: root contains docs/ dir with guide.cs that matches — score 70, worse than existing
+            const dirSet = new Set([repoRoot, pth.join(repoRoot, 'docs')]);
+            const fakeFs = {
+                readdirSync: (dir: string) => {
+                    if (dir === pth.join(repoRoot, 'docs')) return ['guide.cs'];
+                    return ['docs'];
+                },
+                lstatSync: (p: string) => ({ isDirectory: () => dirSet.has(p) }),
+                readFileSync: () => 'doc match line',
+                existsSync: () => true,
+            };
+            const runner = new AgentRunner(makeConfig(), provider);
+            // maxLines=2, buffer already full. docs/guide.cs scores 70 (worse than 0) → should NOT evict
+            (runner as any).walkDir(
+                fakeFs, pth,
+                repoRoot, repoRoot, /match/,
+                new Set<string>(), new Set(['.cs']),
+                buffer, 2
+            );
+            // Original src file should remain, docs file should NOT be added
+            expect(buffer.has('src/main.cs')).toBe(true);
+            expect(buffer.has('docs/guide.cs')).toBe(false);
+        });
+
+        it('scoreFilePath returns correct scores for all path categories', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const score = (p: string) => (runner as any).scoreFilePath(p);
+            // Dot-prefixed directories
+            expect(score('.github/workflows/ci.yml')).toBe(80);
+            expect(score('.vscode/settings.json')).toBe(80);
+            // Docs/examples/samples
+            expect(score('docs/guide.md')).toBe(70);
+            expect(score('examples/demo.cs')).toBe(70);
+            expect(score('samples/test.cs')).toBe(70);
+            // Test directories and files
+            expect(score('src/tests/unit.cs')).toBe(50);
+            expect(score('src/__tests__/app.test.ts')).toBe(50);
+            expect(score('main.test.cs')).toBe(50);
+            expect(score('helper.spec.ts')).toBe(50);
+            // Normal source code
+            expect(score('src/main.cs')).toBe(0);
+            expect(score('config.xml')).toBe(0);
         });
 
         it('searches with a searchPath parameter', () => {
