@@ -1856,6 +1856,12 @@ export const InvestigationDetail = () => {
                                                             Analyzing codebase and generating proposals...
                                                         </div>
                                                     )}
+                                                    {implRunning && implProposals.length > 0 && (
+                                                        <div className="flex items-center gap-2.5 px-3.5 py-2.5 text-xs text-sky-400/70 border-t border-white/[0.04]">
+                                                            <Loader2 className="w-3 h-3 animate-spin" />
+                                                            Agent is still scanning for more changes...
+                                                        </div>
+                                                    )}
                                                     {!implRunning && implCompleted && implProposals.length === 0 && (
                                                         <div className="flex items-center gap-2.5 px-3.5 py-3 text-xs text-slate-400">
                                                             <AlertTriangle className="w-3.5 h-3.5 text-amber-500/70 shrink-0" />
