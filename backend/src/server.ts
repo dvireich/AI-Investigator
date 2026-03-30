@@ -2678,6 +2678,39 @@ app.patch('/api/investigations/:id/notes', async (req, res) => {
     return res.json({ ok: true, notes });
 });
 
+// --- Rephrase selected notes text via LLM ---
+app.post('/api/investigations/:id/notes/rephrase', async (req, res) => {
+    const { text } = req.body;
+
+    if (!text || typeof text !== 'string') {
+        return res.status(400).json({ error: 'text is required' });
+    }
+
+    if (!activeLlmProvider) {
+        return res.status(503).json({ error: 'No LLM provider configured' });
+    }
+
+    try {
+        const state = history.get(req.params.id) ?? (runners.get(req.params.id) as any)?.state as InvestigationState | undefined;
+        const model = state?.model || getEffectiveConfig(state).model;
+        const openai = await activeLlmProvider!.getClient(30_000);
+        const completion = await openai.chat.completions.create({
+            model,
+            messages: [
+                { role: 'system', content: 'You are a professional writing assistant. Rephrase the following text to be clearer, more professional, and well-structured. Preserve the original meaning and any technical terms. Return ONLY the rephrased text, no explanations.' },
+                { role: 'user', content: text },
+            ],
+            temperature: 0.3,
+            max_tokens: 1000,
+        });
+        const rephrased = completion.choices[0]?.message?.content?.trim();
+        return res.json({ rephrased: rephrased || text });
+    } catch (e: any) {
+        console.error(`[Rephrase] Failed:`, e.message);
+        return res.status(500).json({ error: 'Rephrase failed: ' + e.message });
+    }
+});
+
 // --- Delete investigation ---
 app.delete('/api/investigations/:id', async (req, res) => {
     invalidateListCache();

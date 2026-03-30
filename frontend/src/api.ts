@@ -621,6 +621,16 @@ export const api = {
         return res.json();
     },
 
+    rephraseNotes: async (id: string, text: string) => {
+        const res = await fetch(`${API_URL}/investigations/${id}/notes/rephrase`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
     deleteInvestigation: async (id: string) => {
         const res = await fetch(`${API_URL}/investigations/${id}`, {
             method: 'DELETE'

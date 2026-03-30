@@ -91,6 +91,7 @@ vi.mock('../../api', () => ({
         exportPdf: vi.fn().mockResolvedValue(undefined),
         updateTags: vi.fn().mockResolvedValue({ success: true }),
         updateNotes: vi.fn().mockResolvedValue({ ok: true, notes: '' }),
+        rephraseNotes: vi.fn().mockResolvedValue({ rephrased: 'Rephrased text' }),
         updateModel: vi.fn().mockResolvedValue({ success: true }),
         compactInvestigation: vi.fn().mockResolvedValue({ success: true }),
         analyzeRetrospect: vi.fn().mockResolvedValue({ success: true }),
@@ -813,7 +814,7 @@ describe('InvestigationDetail', () => {
     // ════════════════════════════════════════════════════════════════════════════
 
     describe('Notes Tab', () => {
-        it('renders Notes tab and switches to notes view', async () => {
+        it('renders Notes tab and defaults to preview mode', async () => {
             const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
@@ -822,8 +823,16 @@ describe('InvestigationDetail', () => {
             expect(notesTab).toBeInTheDocument();
 
             await user.click(notesTab);
+            // Default is preview mode – textarea not shown
             await waitFor(() => {
-                expect(screen.getByPlaceholderText(/Add your notes here/i)).toBeInTheDocument();
+                expect(screen.getByText('Nothing to preview')).toBeInTheDocument();
+            });
+            expect(screen.queryByPlaceholderText(/Write your notes in Markdown/i)).not.toBeInTheDocument();
+
+            // Click Write to switch to editor
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+            await waitFor(() => {
+                expect(screen.getByPlaceholderText(/Write your notes in Markdown/i)).toBeInTheDocument();
             });
         });
 
@@ -836,7 +845,8 @@ describe('InvestigationDetail', () => {
             const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
             await user.click(notesTab);
 
-            const textarea = await waitFor(() => screen.getByPlaceholderText(/Add your notes here/i));
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+            const textarea = await waitFor(() => screen.getByPlaceholderText(/Write your notes in Markdown/i));
             await user.clear(textarea);
             await user.type(textarea, 'My test notes');
 
@@ -857,12 +867,32 @@ describe('InvestigationDetail', () => {
             const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
             await user.click(notesTab);
 
-            const textarea = await waitFor(() => screen.getByPlaceholderText(/Add your notes here/i));
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+            const textarea = await waitFor(() => screen.getByPlaceholderText(/Write your notes in Markdown/i));
             await user.type(textarea, 'Ctrl-S notes');
             fireEvent.keyDown(textarea, { key: 's', ctrlKey: true });
 
             await waitFor(() => {
                 expect(api.updateNotes).toHaveBeenCalledWith('1700000000000', 'Ctrl-S notes');
+            });
+        });
+
+        it('saves cached notes when in preview mode', async () => {
+            const { api } = await import('../../api');
+            (api.getInvestigation as any).mockResolvedValue(createMockInvestigation({ userNotes: 'cached notes' }));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            // Default is preview mode – save should use cached value
+            const saveBtn = screen.getByRole('button', { name: /Save/i });
+            await user.click(saveBtn);
+
+            await waitFor(() => {
+                expect(api.updateNotes).toHaveBeenCalledWith('1700000000000', 'cached notes');
             });
         });
 
@@ -888,7 +918,8 @@ describe('InvestigationDetail', () => {
             const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
             await user.click(notesTab);
 
-            const textarea = await waitFor(() => screen.getByPlaceholderText(/Add your notes here/i));
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+            const textarea = await waitFor(() => screen.getByPlaceholderText(/Write your notes in Markdown/i));
             await user.type(textarea, 'will fail');
 
             const saveBtn = screen.getByRole('button', { name: /Save/i });
@@ -900,6 +931,212 @@ describe('InvestigationDetail', () => {
             // Toast should show error
             await waitFor(() => {
                 expect(screen.getByText(/Failed to save notes/i)).toBeInTheDocument();
+            });
+        });
+
+        it('renders toolbar with formatting buttons and Write/Preview toggle', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            // Write/Preview toggle visible in both modes
+            await waitFor(() => {
+                expect(screen.getByRole('button', { name: /Write/i })).toBeInTheDocument();
+                expect(screen.getByRole('button', { name: /Preview markdown/i })).toBeInTheDocument();
+            });
+
+            // Default is preview – formatting buttons hidden
+            expect(screen.queryByTitle('Bold')).not.toBeInTheDocument();
+
+            // Switch to write mode to see formatting buttons
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+
+            expect(screen.getByTitle('Bold')).toBeInTheDocument();
+            expect(screen.getByTitle('Italic')).toBeInTheDocument();
+            expect(screen.getByTitle('Heading')).toBeInTheDocument();
+            expect(screen.getByTitle('Bullet list')).toBeInTheDocument();
+            expect(screen.getByTitle('Inline code')).toBeInTheDocument();
+            expect(screen.getByTitle('Link')).toBeInTheDocument();
+
+            // Rephrase button
+            expect(screen.getByRole('button', { name: /Rephrase/i })).toBeInTheDocument();
+        });
+
+        it('shows rendered markdown in default preview mode', async () => {
+            const { api } = await import('../../api');
+            (api.getInvestigation as any).mockResolvedValue(createMockInvestigation({ userNotes: '**bold text**' }));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            // Default preview mode should show rendered markdown
+            await waitFor(() => {
+                expect(screen.getByText('bold text')).toBeInTheDocument();
+            });
+
+            // Textarea should not be in the DOM
+            expect(screen.queryByPlaceholderText(/Write your notes in Markdown/i)).not.toBeInTheDocument();
+        });
+
+        it('shows empty preview message when notes are empty', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            // Default is preview mode with no notes
+            await waitFor(() => {
+                expect(screen.getByText('Nothing to preview')).toBeInTheDocument();
+            });
+        });
+
+        it('rephrase button warns when no text is selected', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+
+            const rephraseBtn = screen.getByRole('button', { name: /Rephrase/i });
+            await user.click(rephraseBtn);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Select text to rephrase/i)).toBeInTheDocument();
+            });
+        });
+
+        it('hides formatting buttons in preview mode', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            // Default is preview – formatting hidden
+            expect(screen.queryByTitle('Bold')).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: /Rephrase/i })).not.toBeInTheDocument();
+
+            // Switch to write – formatting visible
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+            expect(screen.getByTitle('Bold')).toBeInTheDocument();
+
+            // Switch back to preview – formatting hidden again
+            const previewBtn = screen.getByRole('button', { name: /Preview markdown/i });
+            await user.click(previewBtn);
+
+            // Formatting hidden in preview mode
+            expect(screen.queryByTitle('Bold')).not.toBeInTheDocument();
+            expect(screen.queryByRole('button', { name: /Rephrase/i })).not.toBeInTheDocument();
+        });
+
+        it('bold button calls insertMarkdown on textarea', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+            const textarea = screen.getByPlaceholderText(/Write your notes in Markdown/i) as HTMLTextAreaElement;
+            // Simulate typing then selecting text
+            await user.type(textarea, 'hello world');
+            // Set selection range 
+            textarea.selectionStart = 0;
+            textarea.selectionEnd = 5;
+            document.execCommand = vi.fn().mockReturnValue(true);
+
+            const boldBtn = screen.getByTitle('Bold');
+            await user.click(boldBtn);
+
+            expect(document.execCommand).toHaveBeenCalledWith('insertText', false, '**hello**');
+        });
+
+        it('bold button inserts placeholder when no text is selected', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+            const textarea = screen.getByPlaceholderText(/Write your notes in Markdown/i) as HTMLTextAreaElement;
+            textarea.selectionStart = 0;
+            textarea.selectionEnd = 0;
+            document.execCommand = vi.fn().mockReturnValue(true);
+            const setRangeSpy = vi.spyOn(textarea, 'setSelectionRange');
+
+            const boldBtn = screen.getByTitle('Bold');
+            await user.click(boldBtn);
+
+            expect(document.execCommand).toHaveBeenCalledWith('insertText', false, '**bold**');
+            // Should select the placeholder text
+            expect(setRangeSpy).toHaveBeenLastCalledWith(2, 6);
+            setRangeSpy.mockRestore();
+        });
+
+        it('rephrase replaces selected text with API result', async () => {
+            const { api } = await import('../../api');
+            (api.rephraseNotes as any).mockResolvedValue({ rephrased: 'Professional text' });
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+            const textarea = screen.getByPlaceholderText(/Write your notes in Markdown/i) as HTMLTextAreaElement;
+            await user.type(textarea, 'rough draft');
+            textarea.selectionStart = 0;
+            textarea.selectionEnd = 11;
+            document.execCommand = vi.fn().mockReturnValue(true);
+
+            const rephraseBtn = screen.getByRole('button', { name: /Rephrase/i });
+            await user.click(rephraseBtn);
+
+            await waitFor(() => {
+                expect(api.rephraseNotes).toHaveBeenCalledWith('1700000000000', 'rough draft');
+            });
+            await waitFor(() => {
+                expect(document.execCommand).toHaveBeenCalledWith('insertText', false, 'Professional text');
+            });
+        });
+
+        it('rephrase shows error toast on API failure', async () => {
+            const { api } = await import('../../api');
+            (api.rephraseNotes as any).mockRejectedValueOnce(new Error('LLM error'));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            await user.click(screen.getByRole('button', { name: /Write/i }));
+            const textarea = screen.getByPlaceholderText(/Write your notes in Markdown/i) as HTMLTextAreaElement;
+            await user.type(textarea, 'test');
+            textarea.selectionStart = 0;
+            textarea.selectionEnd = 4;
+
+            const rephraseBtn = screen.getByRole('button', { name: /Rephrase/i });
+            await user.click(rephraseBtn);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Rephrase failed: LLM error/i)).toBeInTheDocument();
             });
         });
     });

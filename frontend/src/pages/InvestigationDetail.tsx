@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback, useDeferredVa
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code, Trash2, StickyNote } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code, Trash2, StickyNote, Bold, Italic, Heading, List, ListOrdered, Quote, Link2, Eye, Pencil } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { useNotification } from '../hooks/useNotification';
@@ -562,6 +562,21 @@ export const InvestigationDetail = () => {
     const [notesSaved, setNotesSaved] = useState(false);
     const notesSavedTimer = useRef<ReturnType<typeof setTimeout>>();
     const notesInitialized = useRef(false);
+    const [notesMode, setNotesMode] = useState<'write' | 'preview'>('preview');
+    const [notesPreview, setNotesPreview] = useState('');
+    const notesValueCache = useRef('');
+    const [rephrasing, setRephrasing] = useState(false);
+
+    const formatButtons: { title: string; icon: typeof Bold; prefix: string; suffix: string; placeholder: string; group?: boolean }[] = [
+        { title: 'Bold', icon: Bold, prefix: '**', suffix: '**', placeholder: 'bold' },
+        { title: 'Italic', icon: Italic, prefix: '_', suffix: '_', placeholder: 'italic' },
+        { title: 'Heading', icon: Heading, prefix: '## ', suffix: '', placeholder: 'heading' },
+        { title: 'Bullet list', icon: List, prefix: '- ', suffix: '', placeholder: 'item', group: true },
+        { title: 'Numbered list', icon: ListOrdered, prefix: '1. ', suffix: '', placeholder: 'item' },
+        { title: 'Blockquote', icon: Quote, prefix: '> ', suffix: '', placeholder: 'quote' },
+        { title: 'Inline code', icon: Code, prefix: '`', suffix: '`', placeholder: 'code', group: true },
+        { title: 'Link', icon: Link2, prefix: '[', suffix: '](url)', placeholder: 'link text' },
+    ];
 
     // Memoized thought filtering to avoid re-filtering on every render
     const filteredThoughts = useMemo(() => {
@@ -819,8 +834,10 @@ export const InvestigationDetail = () => {
 
     // Sync notes textarea from investigation data (only on first load)
     useEffect(() => {
-        if (investigation && !notesInitialized.current && notesRef.current) {
-            notesRef.current.value = investigation.userNotes || '';
+        if (investigation && !notesInitialized.current) {
+            const notes = investigation.userNotes || '';
+            notesValueCache.current = notes;
+            setNotesPreview(notes);
             notesInitialized.current = true;
         }
     }, [investigation]);
@@ -979,7 +996,7 @@ export const InvestigationDetail = () => {
     }, [id]);
 
     const saveNotes = useCallback(async () => {
-        const notes = notesRef.current!.value;
+        const notes = notesRef.current?.value ?? notesValueCache.current;
         setNotesSaving(true);
         try {
             await api.updateNotes(id!, notes);
@@ -990,6 +1007,54 @@ export const InvestigationDetail = () => {
             toast('error', 'Failed to save notes: ' + e.message);
         } finally {
             setNotesSaving(false);
+        }
+    }, [id, toast]);
+
+    const insertMarkdown = useCallback((prefix: string, suffix: string = '', placeholder: string = '') => {
+        const ta = notesRef.current!;
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        const val = ta.value;
+        const selected = val.substring(start, end);
+        const text = selected || placeholder;
+        const replacement = prefix + text + suffix;
+        ta.focus();
+        // Use execCommand for undo support, fall back to manual splice
+        ta.setSelectionRange(start, end);
+        document.execCommand('insertText', false, replacement);
+        // Select the inserted/wrapped text (excluding prefix/suffix) so user can type over
+        if (!selected && placeholder) {
+            ta.setSelectionRange(start + prefix.length, start + prefix.length + placeholder.length);
+        }
+    }, []);
+
+    const switchToWrite = useCallback(() => setNotesMode('write'), []);
+    const switchToPreview = useCallback(() => { const val = notesRef.current?.value || ''; notesValueCache.current = val; setNotesPreview(val); setNotesMode('preview'); }, []);
+
+    const handleFormatClick = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
+        const d = e.currentTarget.dataset;
+        insertMarkdown(d.prefix!, d.suffix!, d.placeholder!);
+    }, [insertMarkdown]);
+
+    const handleRephrase = useCallback(async () => {
+        const ta = notesRef.current!;
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        if (start === end) {
+            toast('warning', 'Select text to rephrase');
+            return;
+        }
+        const selected = ta.value.substring(start, end);
+        setRephrasing(true);
+        try {
+            const result = await api.rephraseNotes(id!, selected);
+            ta.focus();
+            ta.setSelectionRange(start, end);
+            document.execCommand('insertText', false, result.rephrased);
+        } catch (e: any) {
+            toast('error', 'Rephrase failed: ' + e.message);
+        } finally {
+            setRephrasing(false);
         }
     }, [id, toast]);
 
@@ -2429,9 +2494,10 @@ export const InvestigationDetail = () => {
                         </div>
 
                         {/* VIEW 4: User Notes */}
-                        <div className={`absolute inset-0 z-20 flex flex-col ${activeTab === 'notes' ? 'z-20' : 'hidden'}`}>
+                        <div aria-hidden={activeTab !== 'notes'} className={`absolute inset-0 z-20 flex flex-col ${activeTab === 'notes' ? 'z-20' : 'hidden'}`}>
                             <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-950">
                                 <div className="max-w-3xl mx-auto my-8 lg:my-12 bg-slate-900/80 shadow-2xl shadow-black/30 rounded-xl border border-slate-700/50 overflow-hidden backdrop-blur-sm">
+                                    {/* Header */}
                                     <div className="bg-slate-800/60 border-b border-slate-700/50 px-4 py-4 sm:px-8 sm:py-5 flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
@@ -2439,7 +2505,7 @@ export const InvestigationDetail = () => {
                                             </div>
                                             <div>
                                                 <h2 className="text-lg font-bold text-slate-100">Notes</h2>
-                                                <p className="text-xs text-slate-500">Personal notes for this investigation</p>
+                                                <p className="text-xs text-slate-500">Markdown supported &middot; Personal notes for this investigation</p>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2">
@@ -2458,19 +2524,74 @@ export const InvestigationDetail = () => {
                                             </button>
                                         </div>
                                     </div>
+                                    {/* Toolbar */}
+                                    <div className="bg-slate-800/40 border-b border-slate-700/30 px-4 sm:px-8 py-2 flex items-center gap-1 flex-wrap">
+                                        {/* Write / Preview toggle */}
+                                        <div className="flex items-center bg-slate-900/60 rounded-md border border-slate-700/40 mr-2">
+                                            <button
+                                                onClick={switchToWrite}
+                                                className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-l-md transition-colors ${notesMode === 'write' ? 'bg-amber-600/20 text-amber-300 border-r border-amber-600/30' : 'text-slate-400 hover:text-slate-200 border-r border-slate-700/40'}`}
+                                            >
+                                                <Pencil className="w-3.5 h-3.5" /> Write
+                                            </button>
+                                            <button
+                                                onClick={switchToPreview}
+                                                aria-label="Preview markdown"
+                                                className={`flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-r-md transition-colors ${notesMode === 'preview' ? 'bg-amber-600/20 text-amber-300' : 'text-slate-400 hover:text-slate-200'}`}
+                                            >
+                                                <Eye className="w-3.5 h-3.5" /> Preview
+                                            </button>
+                                        </div>
+                                        {/* Formatting buttons (visible in write mode) */}
+                                        {notesMode === 'write' && (
+                                            <>
+                                                {formatButtons.map((btn) => (
+                                                    <React.Fragment key={btn.title}>
+                                                        {btn.group && <div className="h-5 w-px bg-slate-700/50 mx-1" />}
+                                                        <button onClick={handleFormatClick} data-prefix={btn.prefix} data-suffix={btn.suffix} data-placeholder={btn.placeholder} title={btn.title} className="p-1.5 rounded hover:bg-slate-700/50 text-slate-400 hover:text-slate-200 transition-colors"><btn.icon className="w-3.5 h-3.5" /></button>
+                                                    </React.Fragment>
+                                                ))}
+                                                <div className="h-5 w-px bg-slate-700/50 mx-1" />
+                                                <button
+                                                    onClick={handleRephrase}
+                                                    disabled={rephrasing}
+                                                    title="AI Rephrase selection"
+                                                    className="flex items-center gap-1 text-xs font-medium px-2 py-1.5 rounded hover:bg-purple-600/20 text-purple-400 hover:text-purple-300 disabled:text-slate-500 transition-colors"
+                                                >
+                                                    {rephrasing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                                                    Rephrase
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                    {/* Editor / Preview */}
                                     <div className="p-4 sm:p-8">
-                                        <textarea
-                                            ref={notesRef}
-                                            defaultValue={investigation.userNotes || ''}
-                                            onKeyDown={(e) => {
-                                                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                                                    e.preventDefault();
-                                                    saveNotes();
-                                                }
-                                            }}
-                                            placeholder="Add your notes here... (Ctrl+S to save)"
-                                            className="w-full min-h-[400px] bg-slate-950/50 border border-slate-700/50 rounded-lg p-4 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500/30 resize-y font-mono leading-relaxed custom-scrollbar"
-                                        />
+                                        {notesMode === 'write' ? (
+                                            <textarea
+                                                ref={notesRef}
+                                                defaultValue={investigation.userNotes || ''}
+                                                onKeyDown={(e) => {
+                                                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                        e.preventDefault();
+                                                        saveNotes();
+                                                    }
+                                                }}
+                                                placeholder="Write your notes in Markdown... (Ctrl+S to save)"
+                                                className="w-full min-h-[400px] bg-slate-950/50 border border-slate-700/50 rounded-lg p-4 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500/30 resize-y font-mono leading-relaxed custom-scrollbar"
+                                            />
+                                        ) : (
+                                            <div className="min-h-[400px] bg-slate-950/50 border border-slate-700/50 rounded-lg p-4">
+                                                {notesPreview ? (
+                                                    <div className="prose prose-invert prose-sm max-w-none">
+                                                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                                            {notesPreview}
+                                                        </ReactMarkdown>
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-sm text-slate-600 italic">Nothing to preview</p>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                             </div>
