@@ -90,6 +90,7 @@ vi.mock('../../api', () => ({
         exportInvestigation: vi.fn().mockResolvedValue(undefined),
         exportPdf: vi.fn().mockResolvedValue(undefined),
         updateTags: vi.fn().mockResolvedValue({ success: true }),
+        updateNotes: vi.fn().mockResolvedValue({ ok: true, notes: '' }),
         updateModel: vi.fn().mockResolvedValue({ success: true }),
         compactInvestigation: vi.fn().mockResolvedValue({ success: true }),
         analyzeRetrospect: vi.fn().mockResolvedValue({ success: true }),
@@ -804,6 +805,77 @@ describe('InvestigationDetail', () => {
             await waitFor(() => {
                 expect(screen.getByText(/Add tag/i)).toBeInTheDocument();
             });
+        });
+    });
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // NOTES TAB TESTS
+    // ════════════════════════════════════════════════════════════════════════════
+
+    describe('Notes Tab', () => {
+        it('renders Notes tab and switches to notes view', async () => {
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            expect(notesTab).toBeInTheDocument();
+
+            await user.click(notesTab);
+            await waitFor(() => {
+                expect(screen.getByPlaceholderText(/Add your notes here/i)).toBeInTheDocument();
+            });
+        });
+
+        it('saves notes on Save button click', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            const textarea = await waitFor(() => screen.getByPlaceholderText(/Add your notes here/i));
+            await user.clear(textarea);
+            await user.type(textarea, 'My test notes');
+
+            const saveBtn = screen.getByRole('button', { name: /Save/i });
+            await user.click(saveBtn);
+
+            await waitFor(() => {
+                expect(api.updateNotes).toHaveBeenCalledWith('1700000000000', 'My test notes');
+            });
+        });
+
+        it('saves notes on Ctrl+S', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            const textarea = await waitFor(() => screen.getByPlaceholderText(/Add your notes here/i));
+            await user.type(textarea, 'Ctrl-S notes');
+            fireEvent.keyDown(textarea, { key: 's', ctrlKey: true });
+
+            await waitFor(() => {
+                expect(api.updateNotes).toHaveBeenCalledWith('1700000000000', 'Ctrl-S notes');
+            });
+        });
+
+        it('shows amber dot when investigation has userNotes', async () => {
+            const { api } = await import('../../api');
+            (api.getInvestigation as any).mockResolvedValue(makeInvestigation({ userNotes: 'existing notes' }));
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            // The notes tab should have the amber dot (a small span within the button)
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            const dot = notesTab.querySelector('.bg-amber-500');
+            expect(dot).toBeInTheDocument();
         });
     });
 

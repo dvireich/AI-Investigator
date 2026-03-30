@@ -3815,6 +3815,44 @@ describe('server utilities and routes', () => {
             expect(__testUtils.getHistory().get('history-tag-fail')?.tags).toEqual(['one']);
         });
 
+        it('patches notes for active and inactive investigations with validation', async () => {
+            // Active runner
+            const runner = makeRunner({ id: 'active-notes', status: 'running' });
+            __testUtils.getRunners().set('active-notes', runner as any);
+
+            let response = await api().patch('/api/investigations/active-notes/notes').send({ notes: 'My investigation notes' });
+            expect(response.status).toBe(200);
+            expect(response.body.notes).toBe('My investigation notes');
+            expect(runner.state.userNotes).toBe('My investigation notes');
+
+            // Inactive (history)
+            setFakeLlmProvider();
+            const saveArtifactsSpy = vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockResolvedValue(undefined);
+            __testUtils.getHistory().set('history-notes', makeState({ id: 'history-notes', status: 'completed' }) as any);
+
+            response = await api().patch('/api/investigations/history-notes/notes').send({ notes: 'Saved notes' });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('history-notes')?.userNotes).toBe('Saved notes');
+            expect(saveArtifactsSpy).toHaveBeenCalled();
+
+            // Validation: not a string
+            response = await api().patch('/api/investigations/active-notes/notes').send({ notes: 123 });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('Notes must be a string');
+
+            // Missing investigation
+            response = await api().patch('/api/investigations/missing-notes/notes').send({ notes: 'test' });
+            expect(response.status).toBe(404);
+
+            // Persistence failure (silent)
+            vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockRejectedValue(new Error('persist notes failed'));
+            __testUtils.getHistory().set('history-notes-fail', makeState({ id: 'history-notes-fail', status: 'paused' }) as any);
+
+            response = await api().patch('/api/investigations/history-notes-fail/notes').send({ notes: 'fail' });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('history-notes-fail')?.userNotes).toBe('fail');
+        });
+
         it('covers missing model, analyze-body fallback, and missing tags history', async () => {
             let response = await api().post('/api/investigations/missing-model/model').send({});
             expect(response.status).toBe(400);
