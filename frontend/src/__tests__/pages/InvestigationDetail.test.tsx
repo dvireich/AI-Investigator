@@ -868,7 +868,7 @@ describe('InvestigationDetail', () => {
 
         it('shows amber dot when investigation has userNotes', async () => {
             const { api } = await import('../../api');
-            (api.getInvestigation as any).mockResolvedValue(makeInvestigation({ userNotes: 'existing notes' }));
+            (api.getInvestigation as any).mockResolvedValue(createMockInvestigation({ userNotes: 'existing notes' }));
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
