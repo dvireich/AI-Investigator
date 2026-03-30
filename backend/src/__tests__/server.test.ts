@@ -255,6 +255,19 @@ describe('server utilities and routes', () => {
             expect(result.target).toBe('oi-tds-prd-eus2p-02');
         });
 
+        it('normalizeHistoricalState clears stale implementationRunning flag', () => {
+            const result = normalizeHistoricalState({
+                id: '5',
+                status: 'completed',
+                thoughts: [],
+                actions: [],
+                logs: [],
+                implementationRunning: true,
+            } as any);
+
+            expect(result.implementationRunning).toBe(false);
+        });
+
         it('creates a summary state with a thought preview', () => {
             const summary = createSummaryState({
                 id: '123',
@@ -3565,6 +3578,16 @@ describe('server utilities and routes', () => {
             response = await api().post('/api/investigations/active-2/action').send({ action: 'abort' });
             expect(response.status).toBe(200);
             expect(runner.abort).toHaveBeenCalled();
+        });
+
+        it('returns 409 when contesting while implementation is running', async () => {
+            const runner = makeRunner({ id: 'active-impl', status: 'running' });
+            (runner as any).state.implementationRunning = true;
+            __testUtils.getRunners().set('active-impl', runner as any);
+
+            const response = await api().post('/api/investigations/active-impl/action').send({ action: 'contest', message: 'Retry' });
+            expect(response.status).toBe(409);
+            expect(response.body.error).toContain('implementation is running');
         });
 
         it('returns 400 when active contest handling throws', async () => {

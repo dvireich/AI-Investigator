@@ -6508,7 +6508,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
         });
 
-        it('does not re-fetch recommendations when they are already loaded (implRecommendations guard)', async () => {
+        it('re-fetches recommendations after status cycles through non-completed (e.g. contest)', async () => {
             const { api } = await import('../../api');
             renderDetail();
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
@@ -6517,7 +6517,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             // Recommendations auto-loaded for completed investigation
             await waitFor(() => expect(api.getRecommendations).toHaveBeenCalledTimes(1));
 
-            // Simulate status cycling: completed → running → completed via WS
+            // Simulate status cycling: completed → running → completed via WS (e.g. contest)
             vi.mocked(api.getInvestigation).mockResolvedValueOnce(createMockInvestigation({ status: 'running', finalReport: null }));
             await act(async () => {
                 mockWsInstance?.simulateMessage({ type: 'status' });
@@ -6525,7 +6525,7 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            // Now return completed again – recommendations are already in state
+            // Now return completed again – stale recs were cleared, so re-fetch happens
             vi.mocked(api.getInvestigation).mockResolvedValueOnce(createMockInvestigation());
             vi.mocked(api.getRecommendations).mockClear();
             await act(async () => {
@@ -6534,8 +6534,8 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             });
             await act(async () => { await vi.advanceTimersByTimeAsync(100); });
 
-            // Guard prevents second fetch
-            expect(api.getRecommendations).not.toHaveBeenCalled();
+            // Recommendations re-fetched after contest/status cycling
+            expect(api.getRecommendations).toHaveBeenCalledTimes(1);
         });
 
         it('auto-selects P0 recommendations in the modal', async () => {
@@ -7155,6 +7155,158 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
                 expect(screen.getByText(/\.\.\. \[truncated\]/)).toBeInTheDocument();
             });
         });
+
+        it('syncs implRunning from server implementationRunning flag on load', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: true,
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Analyzing codebase and generating proposals/i)).toBeInTheDocument();
+            });
+
+            // Now simulate the server reporting implementationRunning=false (implementation finished)
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: false,
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
+                retrospect: {
+                    messages: [{ role: 'assistant', content: 'Implementation complete. All done.' }],
+                    proposals: [],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'retrospect' });
+                await vi.advanceTimersByTimeAsync(400);
+            });
+
+            await waitFor(() => {
+                expect(screen.queryByText(/Analyzing codebase and generating proposals/i)).not.toBeInTheDocument();
+            });
+        });
+
+        it('shows still-scanning indicator when proposals exist and implementation is running', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: true,
+                recommendations: [{ id: 'rec_P0_0', priority: 'P0', title: 'Fix the bug', description: 'crash', category: 'code' }],
+                retrospect: {
+                    messages: [{ role: 'user', content: '[Implementation] Implement recommendation: Fix the bug' }],
+                    proposals: [{
+                        id: 'prop1', filePath: 'src/main.cs', type: 'edit' as const,
+                        description: 'Fix the bug', content: 'fixed code', status: 'pending' as const, source: 'implementation' as const,
+                    }],
+                    analysisComplete: false,
+                    completed: false,
+                },
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            await waitFor(() => {
+                expect(screen.getByText(/still scanning for more changes/i)).toBeInTheDocument();
+            });
+        });
+
+        it('clears implRunning after grace period when server reports implementationRunning=false', async () => {
+            const { api } = await import('../../api');
+            // Start with implementation running
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: true,
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+
+            // Spinner should be showing
+            await waitFor(() => {
+                expect(screen.getByText(/Analyzing codebase and generating proposals/i)).toBeInTheDocument();
+            });
+
+            // Advance fake timers past the 5-second grace period
+            await act(async () => { await vi.advanceTimersByTimeAsync(6000); });
+
+            // Now switch server to implementationRunning=false
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: false,
+            }));
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'retrospect' });
+                await vi.advanceTimersByTimeAsync(400);
+            });
+
+            // Spinner should disappear after grace period
+            await waitFor(() => {
+                expect(screen.queryByText(/Analyzing codebase and generating proposals/i)).not.toBeInTheDocument();
+            });
+        });
+
+        it('shows "no code changes proposed" when implementation completes with zero proposals', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                implementationRunning: false,
+                retrospect: {
+                    messages: [
+                        { role: 'user', content: '[Implementation] Implement recommendation: Fix the bug' },
+                        { role: 'assistant', content: 'Done. Nothing was changed in the codebase.' },
+                    ],
+                    proposals: [],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            await waitFor(() => {
+                expect(screen.getByText(/no code changes were proposed/i)).toBeInTheDocument();
+            });
+        });
+
+        it('clears stale recommendations when investigation status leaves completed', async () => {
+            const { api } = await import('../../api');
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            // Recommendations should have been auto-loaded for the completed investigation
+            await waitFor(() => expect(api.getRecommendations).toHaveBeenCalledTimes(1));
+
+            // Simulate investigation going to running (e.g. contest)
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ status: 'running', finalReport: null }));
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'status' });
+                await vi.advanceTimersByTimeAsync(500);
+            });
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            // The Implement Recommendations button should no longer be visible (running, no report)
+            expect(screen.queryByText(/Implement Recommendations/i)).not.toBeInTheDocument();
+        });
+
     });
 
     describe('Tab Focus Reconnection', () => {

@@ -87,6 +87,8 @@ export interface InvestigationState {
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
     verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
+    // Tracks whether the implementation agent is currently running
+    implementationRunning?: boolean;
 }
 
 export class AgentRunner extends EventEmitter {
@@ -801,11 +803,13 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 type: 'function',
                 function: {
                     name: 'read_file',
-                    description: 'Read a file from the repository to inspect its current content.',
+                    description: 'Read a file from the repository. For large files, use startLine/endLine to read specific sections.',
                     parameters: {
                         type: 'object',
                         properties: {
-                            path: { type: 'string', description: 'File path relative to repo root (e.g., docs/investigations/README.md)' }
+                            path: { type: 'string', description: 'File path relative to repo root (e.g., docs/investigations/README.md)' },
+                            startLine: { type: 'number', description: 'Optional 1-based start line. Use with endLine to read a section of a large file.' },
+                            endLine: { type: 'number', description: 'Optional 1-based end line (inclusive). Use with startLine to read a section of a large file.' }
                         },
                         required: ['path']
                     }
@@ -872,6 +876,8 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         let postToolProposalNudgeSent = false; // One-time nudge after 6+ file reads in tool-processing section
         const filesRead = new Set<string>(); // Track already-read files to prevent re-reads
         let totalReadCalls = 0; // Track total read_file calls to know when to pivot to proposals
+        // Baseline proposal count — so we only count proposals added during THIS run, not leftovers from previous runs
+        const baselineProposalCount = this.state.retrospect?.proposals?.length || 0;
 
         for (let i = 0; i < maxToolIterations; i++) {
             // Check if aborted
@@ -999,9 +1005,10 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 // Keep re-prompting until we get proposals or exhaust retries.
                 // Uses a dedicated counter (noProposalRetries) separate from the post-tool nudge.
                 const retro = this.state.retrospect;
-                const hasProposals = retro && retro.proposals && retro.proposals.length > 0;
+                const newProposalCount = (retro?.proposals?.length || 0) - baselineProposalCount;
+                const hasNewProposals = newProposalCount > 0;
 
-                if (!hasProposals && totalReadCalls >= 1 && noProposalRetries < MAX_NO_PROPOSAL_RETRIES) {
+                if (!hasNewProposals && totalReadCalls >= 1 && noProposalRetries < MAX_NO_PROPOSAL_RETRIES) {
                     noProposalRetries++;
                     consecutiveNoToolCalls = 0;
 
@@ -1027,6 +1034,28 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                         content: nudgePrompt
                     });
                     continue;
+                }
+
+                // CASE 2b: Model HAS proposed some changes but response indicates more work to do.
+                // Don't stop after the first proposal — the agent may need to continue
+                // with remaining recommendations or additional files.
+                if (hasNewProposals && consecutiveNoToolCalls <= 2) {
+                    const indicatesContinuation = /\b(next|also|additionally|remaining|another|second|third|now (let|I)|continue|moving on|the other)\b/i.test(responseText);
+                    const isShortIntermediate = responseText.length < 1000;
+
+                    if (indicatesContinuation || isShortIntermediate) {
+                        this.log(`[Retrospect] ${newProposalCount} proposal(s) so far, but response suggests more work (attempt ${consecutiveNoToolCalls}, len=${responseText.length}). Continuing...`);
+
+                        messages.push({
+                            role: 'assistant',
+                            content: responseText
+                        });
+                        messages.push({
+                            role: 'user',
+                            content: `You have proposed ${newProposalCount} change(s) so far. If there are remaining recommendations or files to modify, continue by searching for the relevant code and calling propose_change. If all recommendations are fully addressed, summarize what was done.`
+                        });
+                        continue;
+                    }
                 }
 
                 // CASE 3: Model returned short planning text (< 500 chars) about reading files
@@ -1096,22 +1125,23 @@ Be thorough but focused. Only propose changes that would directly improve the ou
 
                 try {
                     if (fnName === 'read_file') {
-                        // Dedup: if we already read this file, return a short notice instead of re-reading
+                        // Dedup: if we already read this file in full, return a short notice instead of re-reading
                         const normalizedPath = (args.path || '').replace(/\\/g, '/').toLowerCase();
-                        if (filesRead.has(normalizedPath)) {
+                        const isRangeRead = args.startLine != null && args.startLine > 0;
+                        if (filesRead.has(normalizedPath) && !isRangeRead) {
                             result = `[Already read] You have already read "${args.path}" earlier in this session. Use the content from before. Do not re-read files — focus on proposing changes with propose_change.`;
                             this.log(`[Retrospect] read_file DEDUP: ${args.path} (already read)`);
                         } else {
                             result = this.toolManager.isConnected()
                                 ? await this.toolManager.callTool('read_file', args)
-                                : this.localReadFile(args.path);
+                                : this.localReadFile(args.path, args.startLine, args.endLine);
                             // Cap file content to avoid blowing up context
                             if (result.length > MAX_READ_FILE_CHARS) {
-                                result = result.substring(0, MAX_READ_FILE_CHARS) + `\n... [File truncated. Original: ${result.length} chars. Showing first ${MAX_READ_FILE_CHARS} chars.]`;
+                                result = result.substring(0, MAX_READ_FILE_CHARS) + `\n... [File truncated. Original: ${result.length} chars. Showing first ${MAX_READ_FILE_CHARS} chars. Use startLine/endLine to read specific sections.]`;
                             }
-                            filesRead.add(normalizedPath);
+                            if (!isRangeRead) filesRead.add(normalizedPath);
                             totalReadCalls++;
-                            this.log(`[Retrospect] read_file: ${args.path} (${result.length} chars, total reads: ${totalReadCalls})`);
+                            this.log(`[Retrospect] read_file: ${args.path}${isRangeRead ? ` [${args.startLine}-${args.endLine || 'end'}]` : ''} (${result.length} chars, total reads: ${totalReadCalls})`);
                         }
                     } else if (fnName === 'list_dir') {
                         result = this.toolManager.isConnected()
@@ -1119,7 +1149,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                             : this.localListDir(args.path);
                         this.log(`[Retrospect] list_dir: ${args.path}`);
                     } else if (fnName === 'search_code') {
-                        result = this.localSearchCode(args.pattern, args.path, args.maxResults || 20);
+                        result = this.localSearchCode(args.pattern, args.path, args.maxResults || 50);
                         this.log(`[Retrospect] search_code: pattern='${args.pattern}', path='${args.path || '.'}' (${result.split('\n').length} results)`);
                     } else if (fnName === 'propose_change') {
                         result = this.handleProposeChange(args);
@@ -1165,17 +1195,16 @@ Be thorough but focused. Only propose changes that would directly improve the ou
                 }
 
                 // After enough reads with no proposals, append a strong hint to pivot
-                const retro = this.state.retrospect;
-                const hasProposals = retro && retro.proposals && retro.proposals.length > 0;
-                if (totalReadCalls >= 6 && !hasProposals && fnName === 'read_file') {
+                const retroCheck = this.state.retrospect;
+                const hasNewProposalsCheck = ((retroCheck?.proposals?.length || 0) - baselineProposalCount) > 0;
+                if (totalReadCalls >= 6 && !hasNewProposalsCheck && fnName === 'read_file') {
                     this.log(`[Retrospect] ${totalReadCalls} files read with no proposals. Injecting pivot hint.`);
                 }
             }
 
             // After processing all tool calls in this iteration, check if we should force proposal mode
-            const retroState = this.state.retrospect;
-            const hasAnyProposals = retroState && retroState.proposals && retroState.proposals.length > 0;
-            if (totalReadCalls >= 6 && !hasAnyProposals && !postToolProposalNudgeSent) {
+            const hasAnyNewProposals = ((this.state.retrospect?.proposals?.length || 0) - baselineProposalCount) > 0;
+            if (totalReadCalls >= 6 && !hasAnyNewProposals && !postToolProposalNudgeSent) {
                 postToolProposalNudgeSent = true;
                 this.log(`[Retrospect] Forcing proposal phase after ${totalReadCalls} file reads.`);
                 messages.push({
@@ -1188,7 +1217,7 @@ Be thorough but focused. Only propose changes that would directly improve the ou
         return "Analysis complete (tool iteration limit reached).";
     }
 
-    private localReadFile(filePath: string): string {
+    private localReadFile(filePath: string, startLine?: number, endLine?: number): string {
         const repoRoot = path.resolve(this.getRepoRoot());
         
         const candidates = [
@@ -1200,7 +1229,16 @@ Be thorough but focused. Only propose changes that would directly improve the ou
             // Security: only allow reading files within the repo root
             if (!p.startsWith(repoRoot)) continue;
             if (fs.existsSync(p)) {
-                return fs.readFileSync(p, 'utf-8');
+                const content = fs.readFileSync(p, 'utf-8');
+                if (startLine != null && startLine > 0) {
+                    const lines = content.split('\n');
+                    const start = startLine - 1; // Convert to 0-based
+                    const end = endLine != null ? Math.min(endLine, lines.length) : lines.length;
+                    const totalLines = lines.length;
+                    const slice = lines.slice(start, end);
+                    return `[Lines ${startLine}-${Math.min(end, totalLines)} of ${totalLines}]\n` + slice.join('\n');
+                }
+                return content;
             }
         }
         return `File not found: ${filePath}`;
@@ -1589,11 +1627,19 @@ Respond with ONLY a JSON array of category strings, one per recommendation, in t
      * Search for code patterns in the repository.
      * Cross-platform recursive search using Node.js.
      */
+    /**
+     * Recursively walk a directory tree collecting matching lines per file
+     * into a bounded ranked buffer. Traverses the ENTIRE repo — never stops
+     * early — but keeps memory bounded by evicting the least-relevant file
+     * batch whenever the buffer exceeds maxLines.
+     */
     private walkDir(
         fs: any, path: any,
         dir: string, repoRoot: string, regex: RegExp,
         skipDirs: Set<string>, codeExts: Set<string>,
-        results: string[], maxResults: number
+        buffer: Map<string, { score: number; lines: string[] }>,
+        maxLines: number,
+        skipPaths?: Set<string>
     ): void {
         let entries: string[];
         try {
@@ -1602,7 +1648,6 @@ Respond with ONLY a JSON array of category strings, one per recommendation, in t
             return;
         }
         for (const entry of entries) {
-            if (results.length >= maxResults) return;
             const fullPath = path.join(dir, entry);
             let stat: any = null;
             try {
@@ -1612,26 +1657,75 @@ Respond with ONLY a JSON array of category strings, one per recommendation, in t
             }
             if (!stat) continue;
             if (stat.isDirectory()) {
-                if (!skipDirs.has(entry)) this.walkDir(fs, path, fullPath, repoRoot, regex, skipDirs, codeExts, results, maxResults);
+                if (skipDirs.has(entry)) continue;
+                if (skipPaths && skipPaths.has(path.resolve(fullPath))) continue;
+                this.walkDir(fs, path, fullPath, repoRoot, regex, skipDirs, codeExts, buffer, maxLines, skipPaths);
             } else {
                 const ext = path.extname(entry).toLowerCase();
                 if (!codeExts.has(ext)) continue;
                 try {
                     const content = fs.readFileSync(fullPath, 'utf-8');
                     const lines = content.split('\n');
+                    const relPath = path.relative(repoRoot, fullPath).replace(/\\/g, '/');
+                    const hits: string[] = [];
                     for (let i = 0; i < lines.length; i++) {
-                        if (results.length >= maxResults) return;
                         if (regex.test(lines[i])) {
-                            const relPath = path.relative(repoRoot, fullPath).replace(/\\/g, '/');
-                            results.push(`${relPath}:${i + 1}: ${lines[i].trimStart().substring(0, 200)}`);
+                            hits.push(`${relPath}:${i + 1}: ${lines[i].trimStart().substring(0, 200)}`);
                         }
+                    }
+                    if (hits.length === 0) continue;
+
+                    const score = this.scoreFilePath(relPath);
+
+                    // Count current total lines in the buffer
+                    let totalLines = 0;
+                    for (const batch of buffer.values()) totalLines += batch.lines.length;
+
+                    // If adding this batch would exceed the budget, try to evict
+                    // the worst-scoring (highest number) file to make room.
+                    while (totalLines + hits.length > maxLines && buffer.size > 0) {
+                        let worstKey = '';
+                        let worstScore = -1;
+                        for (const [key, batch] of buffer) {
+                            if (batch.score > worstScore) {
+                                worstScore = batch.score;
+                                worstKey = key;
+                            }
+                        }
+                        // Only evict if the new batch is more relevant (lower score)
+                        if (score >= worstScore) break;
+                        totalLines -= buffer.get(worstKey)!.lines.length;
+                        buffer.delete(worstKey);
+                    }
+
+                    // Add if there's room, or if the buffer isn't at capacity yet
+                    if (totalLines + hits.length <= maxLines || buffer.size === 0) {
+                        buffer.set(relPath, { score, lines: hits });
                     }
                 } catch (_e) { /* skip binary/unreadable files */ }
             }
         }
     }
 
-    private localSearchCode(pattern: string, searchPath?: string, maxResults: number = 20): string {
+    /**
+     * Score a file path for relevance based on location only.
+     * Lower = more relevant. File extension is NOT a signal because
+     * relevance depends on the task (config vs code changes).
+     */
+    private scoreFilePath(relPath: string): number {
+        const lower = relPath.toLowerCase();
+        // Dot-prefixed directories (pipelines, github, prompts, vscode, etc.)
+        if (/^\.[^/]+\//i.test(lower)) return 80;
+        // Docs, examples, samples
+        if (/^(docs?|documentation|examples?|samples?)\//i.test(lower)) return 70;
+        // Test directories
+        if (/\/(tests?|__tests__|spec)\//i.test(lower)) return 50;
+        if (/\.(test|spec)\.[^.]+$/i.test(lower)) return 50;
+        // Everything else (source, config, etc.) — equally relevant
+        return 0;
+    }
+
+    private localSearchCode(pattern: string, searchPath?: string, maxResults: number = 50): string {
         const repoRoot = path.resolve(this.getRepoRoot());
         const startDir = searchPath
             ? path.resolve(repoRoot, searchPath)
@@ -1646,7 +1740,6 @@ Respond with ONLY a JSON array of category strings, one per recommendation, in t
             return `Error: Path '${searchPath || '.'}' does not exist.`;
         }
 
-        const results: string[] = [];
         let regex: RegExp;
         try {
             regex = new RegExp(pattern, 'i');
@@ -1658,10 +1751,30 @@ Respond with ONLY a JSON array of category strings, one per recommendation, in t
         const skipDirs = new Set(['node_modules', '.git', 'bin', 'obj', 'packages', 'TestResults', 'CoverageReport', 'coverage', '.vs', 'Stage']);
         const codeExts = new Set(['.cs', '.ts', '.tsx', '.js', '.jsx', '.json', '.xml', '.csproj', '.sln', '.yaml', '.yml', '.md', '.config', '.props', '.targets', '.py']);
 
-        this.walkDir(fs, path, startDir, repoRoot, regex, skipDirs, codeExts, results, maxResults);
+        // Skip investigation output directory to avoid matching on own artifacts
+        const skipPaths = new Set<string>();
+        if (this.config.investigationsPath) {
+            skipPaths.add(path.resolve(this.config.investigationsPath));
+        }
 
-        if (results.length === 0) {
+        // Traverse the entire repo with a ranked eviction buffer.
+        // Less relevant file batches get evicted as better ones are found.
+        const buffer = new Map<string, { score: number; lines: string[] }>();
+        this.walkDir(fs, path, startDir, repoRoot, regex, skipDirs, codeExts, buffer, maxResults, skipPaths);
+
+        if (buffer.size === 0) {
             return `No matches found for pattern '${pattern}'${searchPath ? ` in '${searchPath}'` : ''}.`;
+        }
+
+        // Output ranked: best-scoring files first
+        const ranked = [...buffer.entries()].sort((a, b) => a[1].score - b[1].score);
+        const results: string[] = [];
+        for (const [, batch] of ranked) {
+            for (const line of batch.lines) {
+                if (results.length >= maxResults) break;
+                results.push(line);
+            }
+            if (results.length >= maxResults) break;
         }
 
         return results.join('\n');
@@ -1680,7 +1793,7 @@ Respond with ONLY a JSON array of category strings, one per recommendation, in t
                         properties: {
                             pattern: { type: 'string', description: 'Search pattern (string or regex). Example: "ParquetIngestionNotificationMessageProcessor" or "class.*Processor"' },
                             path: { type: 'string', description: 'Optional subdirectory to search within (relative to repo root). Example: "src/Teleduct"' },
-                            maxResults: { type: 'number', description: 'Maximum number of matching lines to return (default: 20)' }
+                            maxResults: { type: 'number', description: 'Maximum number of matching lines to return (default: 50)' }
                         },
                         required: ['pattern']
                     }
@@ -1758,6 +1871,7 @@ ${recsText}
         }
 
         this.isImplementationRunning = true;
+        this.state.implementationRunning = true;
 
         const retro = this.initRetrospect();
         const tools = this.getImplementationTools();
@@ -1817,6 +1931,7 @@ ${recsText}
             clearTimeout(timeoutId!);
             this.retrospectAbortController = null;
             this.isImplementationRunning = false;
+            this.state.implementationRunning = false;
         }
     }
 

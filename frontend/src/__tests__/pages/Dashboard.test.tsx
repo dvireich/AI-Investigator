@@ -2873,6 +2873,22 @@ describe('Dashboard', () => {
             expect(screen.getByText('Unknown Status Investigation')).toBeInTheDocument();
         });
 
+        it('renders Implementing status chip for investigation with implementationRunning', async () => {
+            const api = await getApi();
+            vi.mocked(api.listInvestigations).mockResolvedValue(paginatedResponse([
+                createMockInvestigation({
+                    status: 'completed',
+                    title: 'Implementing Investigation',
+                    implementationRunning: true,
+                }),
+            ]));
+
+            localStorage.setItem('inv-view', 'grid');
+            renderDashboard();
+            await waitFor(() => screen.getByText('Implementing Investigation'));
+            expect(screen.getByText('Implementing')).toBeInTheDocument();
+        });
+
         it('renders stale indicator for inactive running investigation in grid view', async () => {
             const api = await getApi();
             const staleInv = createMockInvestigation({
