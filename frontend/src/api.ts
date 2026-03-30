@@ -118,6 +118,8 @@ export interface Investigation {
     verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
     // Tracks whether the implementation agent is currently running
     implementationRunning?: boolean;
+    // Free-form user notes
+    userNotes?: string;
 }
 
 export interface PaginatedResponse<T> {
@@ -604,6 +606,16 @@ export const api = {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ tags })
+        });
+        if (!res.ok) throw new Error(await res.text());
+        return res.json();
+    },
+
+    updateNotes: async (id: string, notes: string) => {
+        const res = await fetch(`${API_URL}/investigations/${id}/notes`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notes })
         });
         if (!res.ok) throw new Error(await res.text());
         return res.json();

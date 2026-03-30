@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback, useDeferredVa
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code, Trash2 } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code, Trash2, StickyNote } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { useNotification } from '../hooks/useNotification';
@@ -523,7 +523,7 @@ export const InvestigationDetail = () => {
     const [showQueryModal, setShowQueryModal] = useState(false);
     const [actingAction, setActingAction] = useState<string | null>(null);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
-    const [activeTab, setActiveTab] = useState<'live' | 'report' | 'retrospect'>('live');
+    const [activeTab, setActiveTab] = useState<'live' | 'report' | 'retrospect' | 'notes'>('live');
     const [isRetrospectThinking, setIsRetrospectThinking] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [expandedProposal, setExpandedProposal] = useState<string | null>(null);
@@ -557,6 +557,11 @@ export const InvestigationDetail = () => {
     const reconnectTimerRef = useRef<ReturnType<typeof setTimeout>>();
     const [maxSteps, setMaxSteps] = useState<number>(0);
     const [notFound, setNotFound] = useState(false);
+    const notesRef = useRef<HTMLTextAreaElement>(null);
+    const [notesSaving, setNotesSaving] = useState(false);
+    const [notesSaved, setNotesSaved] = useState(false);
+    const notesSavedTimer = useRef<ReturnType<typeof setTimeout>>();
+    const notesInitialized = useRef(false);
 
     // Memoized thought filtering to avoid re-filtering on every render
     const filteredThoughts = useMemo(() => {
@@ -812,6 +817,14 @@ export const InvestigationDetail = () => {
         }
     }, [investigation?.finalReport, investigation?.status, activeTab]);
 
+    // Sync notes textarea from investigation data (only on first load)
+    useEffect(() => {
+        if (investigation && !notesInitialized.current && notesRef.current) {
+            notesRef.current.value = investigation.userNotes || '';
+            notesInitialized.current = true;
+        }
+    }, [investigation]);
+
     // Auto-trigger retrospective analysis when tab is first opened
     // Uses useRef instead of useState so the guard survives React StrictMode's
     // mount → cleanup → remount cycle and prevents duplicate API calls.
@@ -964,6 +977,22 @@ export const InvestigationDetail = () => {
             setActingAction(null);
         }
     }, [id]);
+
+    const saveNotes = useCallback(async () => {
+        if (!id) return;
+        const notes = notesRef.current?.value ?? '';
+        setNotesSaving(true);
+        try {
+            await api.updateNotes(id, notes);
+            setNotesSaved(true);
+            clearTimeout(notesSavedTimer.current);
+            notesSavedTimer.current = setTimeout(() => setNotesSaved(false), 2000);
+        } catch (e: any) {
+            toast('error', 'Failed to save notes: ' + e.message);
+        } finally {
+            setNotesSaving(false);
+        }
+    }, [id, toast]);
 
     const handleIntervention = async (msg: string) => {
         if (id && msg.trim()) {
@@ -1557,6 +1586,13 @@ export const InvestigationDetail = () => {
                         >
                             <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Final Report</span><span className="sm:hidden">Report</span>
                             {investigation.finalReport && <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 ml-1.5 animate-pulse"></span>}
+                        </button>
+                        <button
+                            onClick={() => setActiveTab('notes')}
+                            className={`flex-1 px-2 sm:px-4 py-1.5 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'notes' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'}`}
+                        >
+                            <StickyNote className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Notes</span><span className="sm:hidden">Notes</span>
+                            {investigation.userNotes && <span className="flex h-1.5 w-1.5 rounded-full bg-amber-500 ml-1.5"></span>}
                         </button>
                         {['completed', 'failed', 'aborted'].includes(investigation.status) && (
                             <button
@@ -2393,10 +2429,56 @@ export const InvestigationDetail = () => {
                             </div>
                         </div>
 
+                        {/* VIEW 4: User Notes */}
+                        <div className={`absolute inset-0 z-20 flex flex-col ${activeTab === 'notes' ? 'z-20' : 'hidden'}`}>
+                            <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-950">
+                                <div className="max-w-3xl mx-auto my-8 lg:my-12 bg-slate-900/80 shadow-2xl shadow-black/30 rounded-xl border border-slate-700/50 overflow-hidden backdrop-blur-sm">
+                                    <div className="bg-slate-800/60 border-b border-slate-700/50 px-4 py-4 sm:px-8 sm:py-5 flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-9 h-9 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                                                <StickyNote className="w-5 h-5 text-amber-400" />
+                                            </div>
+                                            <div>
+                                                <h2 className="text-lg font-bold text-slate-100">Notes</h2>
+                                                <p className="text-xs text-slate-500">Personal notes for this investigation</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {notesSaved && (
+                                                <span className="flex items-center gap-1 text-emerald-400 text-xs font-medium animate-fade-in">
+                                                    <Check className="w-3.5 h-3.5" /> Saved
+                                                </span>
+                                            )}
+                                            <button
+                                                onClick={saveNotes}
+                                                disabled={notesSaving}
+                                                className="flex items-center gap-1.5 bg-amber-600/20 hover:bg-amber-600/30 disabled:bg-slate-700/50 text-amber-300 disabled:text-slate-500 text-xs font-bold px-4 py-2 rounded-lg border border-amber-600/30 disabled:border-slate-700/30 transition-all"
+                                            >
+                                                {notesSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowDownToLine className="w-3.5 h-3.5" />}
+                                                Save
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="p-4 sm:p-8">
+                                        <textarea
+                                            ref={notesRef}
+                                            defaultValue={investigation.userNotes || ''}
+                                            onKeyDown={(e) => {
+                                                if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                                                    e.preventDefault();
+                                                    saveNotes();
+                                                }
+                                            }}
+                                            placeholder="Add your notes here... (Ctrl+S to save)"
+                                            className="w-full min-h-[400px] bg-slate-950/50 border border-slate-700/50 rounded-lg p-4 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500/30 resize-y font-mono leading-relaxed custom-scrollbar"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
-
-                {/* Query Modal */}
                 {
                     showQueryModal && (
                         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-fade-in" onClick={() => setShowQueryModal(false)}>

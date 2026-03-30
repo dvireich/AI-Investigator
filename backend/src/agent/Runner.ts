@@ -89,6 +89,8 @@ export interface InvestigationState {
     verdict?: 'healthy' | 'warning' | 'critical' | 'error' | 'unknown';
     // Tracks whether the implementation agent is currently running
     implementationRunning?: boolean;
+    // Free-form user notes
+    userNotes?: string;
 }
 
 export class AgentRunner extends EventEmitter {

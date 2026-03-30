@@ -2646,6 +2646,38 @@ app.patch('/api/investigations/:id/tags', async (req, res) => {
     return res.json({ ok: true, tags: cleanTags });
 });
 
+// --- Update investigation user notes ---
+app.patch('/api/investigations/:id/notes', async (req, res) => {
+    invalidateListCache();
+    const { id } = req.params;
+    const { notes } = req.body;
+
+    if (typeof notes !== 'string') {
+        return res.status(400).json({ error: 'Notes must be a string' });
+    }
+
+    const runner = runners.get(id);
+    if (runner) {
+        (runner as any).state.userNotes = notes;
+        await (runner as any).saveArtifacts();
+        history.set(id, (runner as any).state);
+        return res.json({ ok: true, notes });
+    }
+
+    const state = history.get(id);
+    if (!state) return res.status(404).json({ error: 'Investigation not found' });
+
+    state.userNotes = notes;
+    history.set(id, state);
+    try {
+        const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
+        await (tempRunner as any).saveArtifacts();
+    } catch (e: any) {
+        console.error(`Failed to persist notes for ${id}:`, e.message);
+    }
+    return res.json({ ok: true, notes });
+});
+
 // --- Delete investigation ---
 app.delete('/api/investigations/:id', async (req, res) => {
     invalidateListCache();
