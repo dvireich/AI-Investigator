@@ -979,11 +979,10 @@ export const InvestigationDetail = () => {
     }, [id]);
 
     const saveNotes = useCallback(async () => {
-        if (!id || !notesRef.current) return;
-        const notes = notesRef.current.value;
+        const notes = notesRef.current!.value;
         setNotesSaving(true);
         try {
-            await api.updateNotes(id, notes);
+            await api.updateNotes(id!, notes);
             setNotesSaved(true);
             clearTimeout(notesSavedTimer.current);
             notesSavedTimer.current = setTimeout(() => setNotesSaved(false), 2000);
