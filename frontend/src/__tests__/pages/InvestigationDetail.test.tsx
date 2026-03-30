@@ -877,6 +877,31 @@ describe('InvestigationDetail', () => {
             const dot = notesTab.querySelector('.bg-amber-500');
             expect(dot).toBeInTheDocument();
         });
+
+        it('shows toast on save failure', async () => {
+            const { api } = await import('../../api');
+            (api.updateNotes as any).mockRejectedValueOnce(new Error('Network error'));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+
+            const notesTab = await waitFor(() => screen.getByRole('button', { name: /Notes/i }));
+            await user.click(notesTab);
+
+            const textarea = await waitFor(() => screen.getByPlaceholderText(/Add your notes here/i));
+            await user.type(textarea, 'will fail');
+
+            const saveBtn = screen.getByRole('button', { name: /Save/i });
+            await user.click(saveBtn);
+
+            await waitFor(() => {
+                expect(api.updateNotes).toHaveBeenCalled();
+            });
+            // Toast should show error
+            await waitFor(() => {
+                expect(screen.getByText(/Failed to save notes/i)).toBeInTheDocument();
+            });
+        });
     });
 
     // ════════════════════════════════════════════════════════════════════════════
