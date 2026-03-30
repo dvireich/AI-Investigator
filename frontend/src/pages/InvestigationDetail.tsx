@@ -979,8 +979,8 @@ export const InvestigationDetail = () => {
     }, [id]);
 
     const saveNotes = useCallback(async () => {
-        if (!id) return;
-        const notes = notesRef.current?.value ?? '';
+        if (!id || !notesRef.current) return;
+        const notes = notesRef.current.value;
         setNotesSaving(true);
         try {
             await api.updateNotes(id, notes);
