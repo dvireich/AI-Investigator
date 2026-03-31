@@ -1459,6 +1459,66 @@ describe('InvestigationDetail', () => {
             });
         });
 
+        it('does not restore when confirm is cancelled (covers line 1005 !ok branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ contestCount: 1 }));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Restore Previous Report/i));
+
+            await user.click(screen.getByText(/Restore Previous Report/i));
+            await waitFor(() => screen.getByText(/Restore$/));
+
+            // Click Cancel instead of Restore
+            await user.click(screen.getByRole('button', { name: /^Cancel$/i }));
+
+            // sendAction should NOT have been called
+            expect(api.sendAction).not.toHaveBeenCalledWith('1700000000000', 'restore');
+        });
+
+        it('fetchInvestigation runs after successful restore (covers line 1009)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ contestCount: 1 }));
+
+            // Make sendAction pending so we control when it resolves
+            let resolveAction!: (value: any) => void;
+            vi.mocked(api.sendAction).mockImplementation(() => new Promise(r => { resolveAction = r; }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Restore Previous Report/i));
+            await user.click(screen.getByText(/Restore Previous Report/i));
+            await waitFor(() => screen.getByText(/Restore$/));
+
+            // Clear getInvestigation count to isolate the call from fetchInvestigation (line 1009)
+            vi.mocked(api.getInvestigation).mockClear();
+
+            await user.click(screen.getByText(/Restore$/));
+
+            // Resolve sendAction inside act so the continuation (fetchInvestigation) runs
+            await act(async () => {
+                resolveAction({ success: true });
+                await vi.advanceTimersByTimeAsync(100);
+            });
+
+            // fetchInvestigation (line 1009) should have called getInvestigation
+            await waitFor(() => {
+                expect(api.getInvestigation).toHaveBeenCalled();
+            });
+        });
+
         it('shows error toast when restore fails', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ contestCount: 1 }));
