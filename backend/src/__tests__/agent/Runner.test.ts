@@ -96,10 +96,12 @@ vi.mock('fs/promises', () => ({
     writeFile: vi.fn(async (p: string, content: string) => writeFileSyncImpl(p, content)),
     rename: vi.fn(async (old: string, nu: string) => renameSyncImpl(old, nu)),
     mkdir: vi.fn(async (p: string) => mkdirSyncImpl(p)),
+    readFile: vi.fn(async (p: string) => readFileSyncImpl(p)),
     default: {
         writeFile: vi.fn(async (p: string, content: string) => writeFileSyncImpl(p, content)),
         rename: vi.fn(async (old: string, nu: string) => renameSyncImpl(old, nu)),
         mkdir: vi.fn(async (p: string) => mkdirSyncImpl(p)),
+        readFile: vi.fn(async (p: string) => readFileSyncImpl(p)),
     },
 }));
 
@@ -3822,6 +3824,541 @@ describe('AgentRunner', () => {
                 typeof t.content === 'string' &&
                 t.content.includes('(no report content)')
             )).toBe(true);
+        });
+    });
+
+    describe('restoreToLastCheckpoint', () => {
+        function buildContestedState(originalReport: string, contestedReport: string) {
+            // Simulate a completed investigation that was contested and completed again
+            const contestNum = 1;
+            const contestMessage = [
+                `CONTESTED REPORT (attempt #${contestNum})`,
+                `The user has rejected the following final report:`,
+                `--- REJECTED REPORT START ---`,
+                originalReport,
+                `--- REJECTED REPORT END ---`,
+                ``,
+                `User feedback: This is wrong`,
+                ``,
+                `(SYSTEM NOTE: You MUST acknowledge this feedback...)`,
+            ].join('\n');
+
+            return {
+                status: 'completed' as const,
+                finalReport: contestedReport,
+                contestCount: 1,
+                recommendations: [{ id: 'r1', priority: 'P1', title: 'New rec', description: '', category: 'code' as const }],
+                thoughts: [
+                    { role: 'assistant', content: 'Analyzing...' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: `Report Contested: This is wrong` },
+                    `System: Report contested (attempt #1). Investigation resumed with user feedback.`,
+                    { role: 'user', content: contestMessage },
+                    { role: 'assistant', content: 'Re-investigating...' },
+                    'Observation: Report Generated.',
+                ],
+                actions: [null, null, null, null, null, null, null],
+                fullHistory: [
+                    { role: 'assistant', content: 'Analyzing...' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: `Report Contested: This is wrong` },
+                    `System: Report contested (attempt #1). Investigation resumed with user feedback.`,
+                    { role: 'user', content: contestMessage },
+                    { role: 'assistant', content: 'Re-investigating...' },
+                    'Observation: Report Generated.',
+                ],
+                fullActions: [null, null, null, null, null, null, null],
+                retrospect: {
+                    messages: [{ role: 'user' as const, content: 'analyze' }],
+                    proposals: [],
+                    analysisComplete: true,
+                    completed: false,
+                },
+            };
+        }
+
+        it('restores to previous report and truncates post-contest data', async () => {
+            const originalReport = '## Original Report\n\nEverything looks fine.';
+            const contestedReport = '## New Report\n\nAfter re-investigation.';
+            const stateData = buildContestedState(originalReport, contestedReport);
+            const runner = new AgentRunner(makeConfig(), provider, stateData);
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([
+                { id: 'r0', priority: 'P0', title: 'Old rec', description: '', category: 'code' },
+            ]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('completed');
+            expect(state.finalReport).toBe(originalReport);
+            expect(state.contestCount).toBe(0);
+            // fullHistory should be truncated to before the contest entry
+            expect(state.fullHistory!.length).toBe(2); // Only pre-contest entries
+            expect(state.fullHistory!.every((t: any) => {
+                const content = typeof t === 'string' ? t : t?.content;
+                return !content?.includes('Report Contested');
+            })).toBe(true);
+            // Recommendations re-extracted
+            expect(state.recommendations).toEqual([
+                { id: 'r0', priority: 'P0', title: 'Old rec', description: '', category: 'code' },
+            ]);
+            // Retrospect reset
+            expect(state.retrospect!.messages).toEqual([]);
+            expect(state.retrospect!.analysisComplete).toBe(false);
+        });
+
+        it('decrements contestCount correctly for multiple contests', async () => {
+            const originalReport = '## First Report';
+            const secondReport = '## Second Report';
+            const thirdReport = '## Third Report';
+
+            // Build state with 2 contests
+            const contest1Message = [
+                `CONTESTED REPORT (attempt #1)`,
+                `The user has rejected the following final report:`,
+                `--- REJECTED REPORT START ---`,
+                originalReport,
+                `--- REJECTED REPORT END ---`,
+                ``,
+                `User feedback: Wrong`,
+            ].join('\n');
+
+            const contest2Message = [
+                `CONTESTED REPORT (attempt #2)`,
+                `The user has rejected the following final report:`,
+                `--- REJECTED REPORT START ---`,
+                secondReport,
+                `--- REJECTED REPORT END ---`,
+                ``,
+                `User feedback: Still wrong`,
+            ].join('\n');
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: thirdReport,
+                contestCount: 2,
+                thoughts: [
+                    { role: 'assistant', content: 'Step 1' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Wrong' },
+                    'System: Report contested (attempt #1).',
+                    { role: 'user', content: contest1Message },
+                    { role: 'assistant', content: 'Step 2' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Still wrong' },
+                    'System: Report contested (attempt #2).',
+                    { role: 'user', content: contest2Message },
+                    { role: 'assistant', content: 'Step 3' },
+                    'Observation: Report Generated.',
+                ],
+                actions: Array(12).fill(null),
+                fullHistory: [
+                    { role: 'assistant', content: 'Step 1' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Wrong' },
+                    'System: Report contested (attempt #1).',
+                    { role: 'user', content: contest1Message },
+                    { role: 'assistant', content: 'Step 2' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Still wrong' },
+                    'System: Report contested (attempt #2).',
+                    { role: 'user', content: contest2Message },
+                    { role: 'assistant', content: 'Step 3' },
+                    'Observation: Report Generated.',
+                ],
+                fullActions: Array(12).fill(null),
+            });
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.finalReport).toBe(secondReport);
+            expect(state.contestCount).toBe(1);
+            // Should have entries up to but not including the second contest
+            expect(state.fullHistory!.length).toBe(7);
+        });
+
+        it('throws when investigation is not completed', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, { status: 'running' });
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('Can only restore a completed investigation');
+        });
+
+        it('throws when contestCount is 0', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: 'Report',
+                contestCount: 0,
+            });
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('No previous checkpoint to restore to');
+        });
+
+        it('throws when contestCount is undefined', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: 'Report',
+            });
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('No previous checkpoint to restore to');
+        });
+
+        it('reloads fullHistory from disk when empty', async () => {
+            const originalReport = '## Disk Report\n\nLoaded from state.json.';
+            const contestedReport = '## New Report';
+            const contestMessage = [
+                `CONTESTED REPORT (attempt #1)`,
+                `The user has rejected the following final report:`,
+                `--- REJECTED REPORT START ---`,
+                originalReport,
+                `--- REJECTED REPORT END ---`,
+                ``,
+                `User feedback: Wrong`,
+            ].join('\n');
+
+            const savedState = {
+                id: '1700000000000',
+                target: 'TestTarget',
+                fullHistory: [
+                    { role: 'assistant', content: 'Original thought' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Wrong' },
+                    'System: Report contested (attempt #1).',
+                    { role: 'user', content: contestMessage },
+                    { role: 'assistant', content: 'New thought' },
+                    'Observation: Report Generated.',
+                ],
+                fullActions: Array(7).fill(null),
+            };
+
+            // Place the state.json on the mock filesystem
+            const statePath = n('/investigations/2023-11-14_TestTarget_1700000000000/state.json');
+            mockFsState.set(statePath, JSON.stringify(savedState));
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                id: '1700000000000',
+                target: 'TestTarget',
+                status: 'completed',
+                finalReport: contestedReport,
+                contestCount: 1,
+                thoughts: [],
+                actions: [],
+                fullHistory: [], // Empty — cleared from RAM after save
+                fullActions: [],
+            });
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.finalReport).toBe(originalReport);
+            expect(state.contestCount).toBe(0);
+            expect(state.fullHistory!.length).toBe(2);
+        });
+
+        it('handles disk reload with missing fullActions and non-numeric id', async () => {
+            const originalReport = '## Disk Report';
+            const contestMessage = [
+                `CONTESTED REPORT (attempt #1)`,
+                `--- REJECTED REPORT START ---`,
+                originalReport,
+                `--- REJECTED REPORT END ---`,
+                `User feedback: Wrong`,
+            ].join('\n');
+
+            // Saved state without fullActions (covers savedState.fullActions || [] branch)
+            const savedState = {
+                fullHistory: [
+                    { role: 'assistant', content: 'Thought' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Wrong' },
+                    'System: Report contested (attempt #1).',
+                    { role: 'user', content: contestMessage },
+                    { role: 'assistant', content: 'New thought' },
+                ],
+                // No fullActions — tests || [] branch
+                // No fullHistory on second pass — tests savedState.fullHistory || []
+            };
+
+            // Use a non-numeric id to cover the ternary false branch
+            const today = new Date().toISOString().split('T')[0];
+            const statePath = n(`/investigations/${today}_UnknownTarget_abc123/state.json`);
+            mockFsState.set(statePath, JSON.stringify(savedState));
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                id: 'abc123',
+                status: 'completed',
+                finalReport: '## New Report',
+                contestCount: 1,
+            });
+            // Clear fullHistory and target after construction to hit fallback branches
+            (runner as any).state.fullHistory = [];
+            (runner as any).state.target = undefined;
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.finalReport).toBe(originalReport);
+        });
+
+        it('handles disk state.json without fullHistory field', async () => {
+            // savedState has no fullHistory → savedState.fullHistory || [] branch fires
+            const savedState = { someOtherField: true };
+            const statePath = n('/investigations/2023-11-14_TestTarget_1700000000000/state.json');
+            mockFsState.set(statePath, JSON.stringify(savedState));
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                id: '1700000000000',
+                target: 'TestTarget',
+                status: 'completed',
+                finalReport: 'Report',
+                contestCount: 1,
+                fullHistory: [],
+            });
+            // After reload, fullHistory will be [] (from || []), so throws "no history available"
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('no history available');
+        });
+
+        it('falls back to computed investigationsPath when config omits it', async () => {
+            const originalReport = '## Disk Report';
+            const contestMessage = [
+                `CONTESTED REPORT (attempt #1)`,
+                `--- REJECTED REPORT START ---`,
+                originalReport,
+                `--- REJECTED REPORT END ---`,
+            ].join('\n');
+
+            const savedState = {
+                fullHistory: [
+                    { role: 'assistant', content: 'Thought' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Wrong' },
+                    'System: Report contested (attempt #1).',
+                    { role: 'user', content: contestMessage },
+                ],
+                fullActions: Array(5).fill(null),
+            };
+
+            // Computed path: path.join(repoRoot, 'investigations') → /repo/investigations
+            const statePath = n('/repo/investigations/2023-11-14_TestTarget_1700000000000/state.json');
+            mockFsState.set(statePath, JSON.stringify(savedState));
+
+            const runner = new AgentRunner(makeConfig({ investigationsPath: undefined as any }), provider, {
+                id: '1700000000000',
+                target: 'TestTarget',
+                status: 'completed',
+                finalReport: '## New',
+                contestCount: 1,
+                fullHistory: [],
+            });
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.finalReport).toBe(originalReport);
+        });
+
+        it('throws when no contest boundary found in history', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: 'Report',
+                contestCount: 1,
+                fullHistory: [
+                    { role: 'assistant', content: 'Just a normal thought' },
+                ],
+                fullActions: [null],
+            });
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('no contest boundary found');
+        });
+
+        it('throws when fullHistory is empty and disk reload fails', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                id: '1700000000000',
+                target: 'TestTarget',
+                status: 'completed',
+                finalReport: 'Report',
+                contestCount: 1,
+                fullHistory: [],
+                fullActions: [],
+            });
+            // No state.json on disk — existsSync returns false by default in mock
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('no history available');
+        });
+
+        it('throws when fullHistory is undefined and disk reload fails', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                id: '1700000000000',
+                target: 'TestTarget',
+                status: 'completed',
+                finalReport: 'Report',
+                contestCount: 1,
+            });
+            // Manually clear fullHistory after construction to hit !this.state.fullHistory branch
+            (runner as any).state.fullHistory = undefined;
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('no history available');
+        });
+
+        it('emits status and thought events', async () => {
+            const originalReport = '## Original';
+            const stateData = buildContestedState(originalReport, '## New');
+            const runner = new AgentRunner(makeConfig(), provider, stateData);
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+
+            const statusEvents: any[] = [];
+            const thoughtEvents: any[] = [];
+            runner.on('status', (d) => statusEvents.push(d));
+            runner.on('thought', (d) => thoughtEvents.push(d));
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            expect(statusEvents).toEqual([{ status: 'completed' }]);
+            expect(thoughtEvents.some((t: any) =>
+                typeof t === 'string' && t.includes('restored to previous report')
+            )).toBe(true);
+        });
+
+        it('adds system notification to thoughts after restore', async () => {
+            const originalReport = '## Original';
+            const stateData = buildContestedState(originalReport, '## New');
+            const runner = new AgentRunner(makeConfig(), provider, stateData);
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            const lastThought = state.thoughts[state.thoughts.length - 1];
+            expect(typeof lastThought).toBe('string');
+            expect(lastThought).toContain('restored to previous report');
+        });
+
+        it('throws when contested entry has no report markers', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: 'Current Report',
+                contestCount: 1,
+                fullHistory: [
+                    { role: 'assistant', content: 'Analyzing...' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Wrong' },
+                    'System: Report contested (attempt #1).',
+                    { role: 'user', content: 'CONTESTED REPORT (attempt #1)\nNo markers here' },
+                    { role: 'assistant', content: 'Re-investigating...' },
+                ],
+                actions: Array(6).fill(null),
+                fullActions: Array(6).fill(null),
+            });
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('unable to extract the previous report');
+        });
+
+        it('clears recommendations when extractRecommendations fails during restore', async () => {
+            const originalReport = '## Original Report';
+            const stateData = buildContestedState(originalReport, '## New Report');
+            const runner = new AgentRunner(makeConfig(), provider, stateData);
+            vi.spyOn(runner as any, 'extractRecommendations').mockRejectedValue(new Error('LLM unavailable'));
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.finalReport).toBe(originalReport);
+            expect(state.recommendations).toEqual([]);
+        });
+
+        it('throws when contested entry at index+2 is missing', async () => {
+            // fullHistory has "Report Contested:" but no entry at contestIndex+2
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: 'Current Report',
+                contestCount: 1,
+                fullHistory: [
+                    { role: 'assistant', content: 'Analyzing...' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Wrong' },
+                    'System: Report contested (attempt #1).',
+                    // No contestIndex+2 entry
+                ],
+                actions: Array(4).fill(null),
+                fullActions: Array(4).fill(null),
+            });
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('unable to extract the previous report');
+        });
+
+        it('throws when contested entry content is not a string', async () => {
+            // Entry at contestIndex+2 is an object with non-string content
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: 'Current Report',
+                contestCount: 1,
+                fullHistory: [
+                    { role: 'assistant', content: 'Analyzing...' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Wrong' },
+                    'System: Report contested (attempt #1).',
+                    { role: 'user', content: null as any },
+                    { role: 'assistant', content: 'Re-investigating...' },
+                ],
+                actions: Array(6).fill(null),
+                fullActions: Array(6).fill(null),
+            });
+            await expect(runner.restoreToLastCheckpoint()).rejects.toThrow('unable to extract the previous report');
+        });
+
+        it('handles missing fullActions during restore', async () => {
+            const originalReport = '## Original Report\n\nEverything looks fine.';
+            const contestedReport = '## New Report\n\nAfter re-investigation.';
+            const stateData = buildContestedState(originalReport, contestedReport);
+            const runner = new AgentRunner(makeConfig(), provider, stateData);
+            // Manually clear fullActions after construction to hit the || [] fallback branches
+            (runner as any).state.fullActions = undefined;
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.finalReport).toBe(originalReport);
+            expect(state.fullActions).toEqual([]);
+        });
+
+        it('handles restore when contested entry is a raw string with markers', async () => {
+            // Test the typeof contestedEntry === 'string' ? contestedEntry : ... branch
+            const originalReport = '## Inline Report';
+            const contestMessage = [
+                `CONTESTED REPORT (attempt #1)`,
+                `--- REJECTED REPORT START ---`,
+                originalReport,
+                `--- REJECTED REPORT END ---`,
+            ].join('\n');
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: '## New Report',
+                contestCount: 1,
+                fullHistory: [
+                    { role: 'assistant', content: 'Analyzing...' },
+                    'Observation: Report Generated.',
+                    { role: 'user', content: 'Report Contested: Wrong' },
+                    'System: Report contested (attempt #1).',
+                    contestMessage, // Raw string, not object
+                    { role: 'assistant', content: 'Re-investigating...' },
+                ],
+                actions: Array(6).fill(null),
+                fullActions: Array(6).fill(null),
+            });
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.finalReport).toBe(originalReport);
         });
     });
 

@@ -2153,6 +2153,112 @@ ${recsText}
         this.log(`Investigation report contested (attempt #${contestNum}). User feedback: ${feedback}`);
     }
 
+    async restoreToLastCheckpoint() {
+        if (this.state.status !== 'completed') {
+            throw new Error('Can only restore a completed investigation.');
+        }
+        if (!this.state.contestCount || this.state.contestCount < 1) {
+            throw new Error('No previous checkpoint to restore to. The investigation has not been contested.');
+        }
+
+        // Ensure fullHistory is populated — it may have been cleared from RAM after saveArtifacts
+        if (!this.state.fullHistory || this.state.fullHistory.length === 0) {
+            const baseDir = this.config.investigationsPath || path.join(this.getRepoRoot(), 'investigations');
+            const startDate = !isNaN(Number(this.state.id)) ? new Date(Number(this.state.id)) : new Date();
+            const timestamp = startDate.toISOString().split('T')[0];
+            const safeStamp = (this.state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
+            const safeId = this.state.id.replace(/[^a-zA-Z0-9]/g, '');
+            const folderName = `${timestamp}_${safeStamp}_${safeId}`;
+            const statePath = path.join(baseDir, folderName, 'state.json');
+
+            if (fs.existsSync(statePath)) {
+                const savedState = JSON.parse(await fsp.readFile(statePath, 'utf8'));
+                this.state.fullHistory = savedState.fullHistory || [];
+                this.state.fullActions = savedState.fullActions || [];
+            }
+        }
+
+        if (!this.state.fullHistory || this.state.fullHistory.length === 0) {
+            throw new Error('Cannot restore: no history available.');
+        }
+
+        // Find the last "Report Contested:" entry in fullHistory (scanning backward)
+        let contestIndex = -1;
+        for (let i = this.state.fullHistory.length - 1; i >= 0; i--) {
+            const entry = this.state.fullHistory[i];
+            const content = typeof entry === 'string' ? entry : entry?.content;
+            if (typeof content === 'string' && content.startsWith('Report Contested:')) {
+                contestIndex = i;
+                break;
+            }
+        }
+
+        if (contestIndex < 0) {
+            throw new Error('Cannot restore: no contest boundary found in history.');
+        }
+
+        // Extract the rejected report from the CONTESTED REPORT message (contestIndex + 2)
+        let restoredReport: string | undefined;
+        const contestedEntry = this.state.fullHistory[contestIndex + 2];
+        if (contestedEntry) {
+            const contestedContent = typeof contestedEntry === 'string' ? contestedEntry : contestedEntry?.content;
+            if (typeof contestedContent === 'string') {
+                const startMarker = '--- REJECTED REPORT START ---';
+                const endMarker = '--- REJECTED REPORT END ---';
+                const startIdx = contestedContent.indexOf(startMarker);
+                const endIdx = contestedContent.indexOf(endMarker);
+                if (startIdx !== -1 && endIdx !== -1) {
+                    restoredReport = contestedContent.substring(startIdx + startMarker.length, endIdx).trim();
+                }
+            }
+        }
+
+        if (!restoredReport) {
+            throw new Error('Cannot restore: unable to extract the previous report from history.');
+        }
+
+        // Truncate history to just before the contest
+        this.state.fullHistory = this.state.fullHistory.slice(0, contestIndex);
+        this.state.fullActions = (this.state.fullActions || []).slice(0, contestIndex);
+
+        // Set thoughts/actions to the truncated fullHistory
+        this.state.thoughts = [...this.state.fullHistory];
+        this.state.actions = [...this.state.fullActions];
+        this.fullHistorySyncCursor = this.state.thoughts.length;
+
+        // Restore the previous report
+        this.state.finalReport = restoredReport;
+        this.state.contestCount = this.state.contestCount! - 1;
+
+        // Re-extract recommendations from the restored report
+        try {
+            this.state.recommendations = await this.extractRecommendations(restoredReport);
+            this.log(`Restored report: extracted ${this.state.recommendations.length} recommendations.`);
+        } catch (err: any) {
+            this.log(`Warning: recommendation extraction failed during restore: ${err.message}`);
+            this.state.recommendations = [];
+        }
+
+        // Reset retrospect (it analyzed the now-deleted post-contest report)
+        this.state.retrospect = { messages: [], proposals: [], analysisComplete: false, completed: false };
+
+        // Ensure status is completed
+        this.state.status = 'completed';
+
+        // Push a system notification visible in the UI
+        const systemNotice = `System: Investigation restored to previous report checkpoint.`;
+        this.state.thoughts.push(systemNotice);
+        this.state.actions.push(null as any);
+        this.emit('thought', systemNotice);
+
+        // Re-sync fullHistory cursor after push
+        this.fullHistorySyncCursor = this.state.thoughts.length;
+
+        this.emit('status', { status: 'completed' });
+        await this.saveArtifacts();
+        this.log(`Investigation restored to checkpoint before contest #${(this.state.contestCount || 0) + 1}.`);
+    }
+
     private loadSystemPrompt(): string {
         if (fs.existsSync(this.config.systemPromptPath)) {
             return fs.readFileSync(this.config.systemPromptPath, 'utf8');
