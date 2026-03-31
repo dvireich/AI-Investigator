@@ -2223,12 +2223,12 @@ ${recsText}
 
         // Set thoughts/actions to the truncated fullHistory
         this.state.thoughts = [...this.state.fullHistory];
-        this.state.actions = [...(this.state.fullActions || [])];
+        this.state.actions = [...this.state.fullActions];
         this.fullHistorySyncCursor = this.state.thoughts.length;
 
         // Restore the previous report
         this.state.finalReport = restoredReport;
-        this.state.contestCount = (this.state.contestCount || 1) - 1;
+        this.state.contestCount = this.state.contestCount! - 1;
 
         // Re-extract recommendations from the restored report
         try {

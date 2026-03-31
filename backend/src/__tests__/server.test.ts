@@ -3544,6 +3544,19 @@ describe('server utilities and routes', () => {
             expect(response.body.error).toMatch(/Cannot restore while implementation is running/);
         });
 
+        it('returns 400 when restoreToLastCheckpoint throws', async () => {
+            const runner = makeRunner({
+                id: 'restore-throw',
+                status: 'completed',
+            }, { restoreToLastCheckpoint: vi.fn().mockRejectedValue(new Error('unable to extract the previous report')) });
+            (runner as any).state.contestCount = 1;
+            __testUtils.getRunners().set('restore-throw', runner as any);
+
+            const response = await api().post('/api/investigations/restore-throw/action').send({ action: 'restore' });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toMatch(/unable to extract/);
+        });
+
         it('continues inactive pause, abort, and intervene actions when persistence fails', async () => {
             setFakeLlmProvider();
             vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockRejectedValue(new Error('persist failed'));

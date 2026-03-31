@@ -1458,6 +1458,29 @@ describe('InvestigationDetail', () => {
                 expect(api.sendAction).toHaveBeenCalledWith('1700000000000', 'restore');
             });
         });
+
+        it('shows error toast when restore fails', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ contestCount: 1 }));
+            vi.mocked(api.sendAction).mockRejectedValueOnce(new Error('unable to extract'));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Restore Previous Report/i));
+
+            await user.click(screen.getByText(/Restore Previous Report/i));
+            await waitFor(() => screen.getByText(/Restore$/));
+            await user.click(screen.getByText(/Restore$/));
+
+            await waitFor(() => {
+                expect(screen.getByText(/Restore failed.*unable to extract/i)).toBeTruthy();
+            });
+        });
     });
 
     // ════════════════════════════════════════════════════════════════════════════
