@@ -646,6 +646,24 @@ describe('api', () => {
             expect(body.tags).toEqual(['a', 'b']);
         });
 
+        it('updateNotes sends PATCH with notes', async () => {
+            mockFetch.mockResolvedValue(mockResponse({ ok: true, notes: 'My notes' }));
+            const result = await api.updateNotes('inv1', 'My notes');
+            expect(result.notes).toBe('My notes');
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/notes'), expect.objectContaining({ method: 'PATCH' }));
+            const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+            expect(body.notes).toBe('My notes');
+        });
+
+        it('rephraseNotes sends POST with text', async () => {
+            mockFetch.mockResolvedValue(mockResponse({ rephrased: 'Better text' }));
+            const result = await api.rephraseNotes('inv1', 'rough text');
+            expect(result.rephrased).toBe('Better text');
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/notes/rephrase'), expect.objectContaining({ method: 'POST' }));
+            const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+            expect(body.text).toBe('rough text');
+        });
+
         it('analyzeRetrospect sends POST', async () => {
             mockFetch.mockResolvedValue(mockResponse({ status: 'analyzing' }));
             const result = await api.analyzeRetrospect('inv1');
@@ -1182,6 +1200,22 @@ describe('api', () => {
                 text: vi.fn().mockResolvedValue('Tags failed'),
             });
             await expect(api.updateTags('1', ['a'])).rejects.toThrow('Tags failed');
+        });
+
+        it('updateNotes throws on error', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false, status: 500, headers: new Headers(),
+                text: vi.fn().mockResolvedValue('Notes failed'),
+            });
+            await expect(api.updateNotes('1', 'test')).rejects.toThrow('Notes failed');
+        });
+
+        it('rephraseNotes throws on error', async () => {
+            mockFetch.mockResolvedValue({
+                ok: false, status: 500, headers: new Headers(),
+                text: vi.fn().mockResolvedValue('Rephrase failed'),
+            });
+            await expect(api.rephraseNotes('1', 'text')).rejects.toThrow('Rephrase failed');
         });
 
         it('completeRetrospect throws on error', async () => {

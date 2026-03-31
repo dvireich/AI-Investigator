@@ -3815,6 +3815,143 @@ describe('server utilities and routes', () => {
             expect(__testUtils.getHistory().get('history-tag-fail')?.tags).toEqual(['one']);
         });
 
+        it('patches notes for active and inactive investigations with validation', async () => {
+            // Active runner
+            const runner = makeRunner({ id: 'active-notes', status: 'running' });
+            __testUtils.getRunners().set('active-notes', runner as any);
+
+            let response = await api().patch('/api/investigations/active-notes/notes').send({ notes: 'My investigation notes' });
+            expect(response.status).toBe(200);
+            expect(response.body.notes).toBe('My investigation notes');
+            expect(runner.state.userNotes).toBe('My investigation notes');
+
+            // Inactive (history)
+            setFakeLlmProvider();
+            const saveArtifactsSpy = vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockResolvedValue(undefined);
+            __testUtils.getHistory().set('history-notes', makeState({ id: 'history-notes', status: 'completed' }) as any);
+
+            response = await api().patch('/api/investigations/history-notes/notes').send({ notes: 'Saved notes' });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('history-notes')?.userNotes).toBe('Saved notes');
+            expect(saveArtifactsSpy).toHaveBeenCalled();
+
+            // Validation: not a string
+            response = await api().patch('/api/investigations/active-notes/notes').send({ notes: 123 });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('Notes must be a string');
+
+            // Missing investigation
+            response = await api().patch('/api/investigations/missing-notes/notes').send({ notes: 'test' });
+            expect(response.status).toBe(404);
+
+            // Persistence failure (silent)
+            vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockRejectedValue(new Error('persist notes failed'));
+            __testUtils.getHistory().set('history-notes-fail', makeState({ id: 'history-notes-fail', status: 'paused' }) as any);
+
+            response = await api().patch('/api/investigations/history-notes-fail/notes').send({ notes: 'fail' });
+            expect(response.status).toBe(200);
+            expect(__testUtils.getHistory().get('history-notes-fail')?.userNotes).toBe('fail');
+        });
+
+        it('rephrases selected notes text via LLM', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({
+                choices: [{ message: { content: 'Professional rephrased text' } }],
+            });
+            __testUtils.setActiveLlmProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                getAuthRequirement: () => ({ type: 'none' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true }),
+                getClient: vi.fn().mockResolvedValue({ chat: { completions: { create: mockCreate } } }),
+                listModels: vi.fn().mockResolvedValue(['model-a']),
+            } as any);
+            __testUtils.getHistory().set('rephrase-inv', makeState({ id: 'rephrase-inv', status: 'completed' }) as any);
+
+            const response = await api().post('/api/investigations/rephrase-inv/notes/rephrase').send({ text: 'rough draft text' });
+            expect(response.status).toBe(200);
+            expect(response.body.rephrased).toBe('Professional rephrased text');
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
+                messages: expect.arrayContaining([
+                    expect.objectContaining({ role: 'user', content: 'rough draft text' }),
+                ]),
+                temperature: 0.3,
+            }));
+        });
+
+        it('rephrases text using runner state when not in history', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({
+                choices: [{ message: { content: 'Runner rephrased' } }],
+            });
+            __testUtils.setActiveLlmProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                getAuthRequirement: () => ({ type: 'none' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true }),
+                getClient: vi.fn().mockResolvedValue({ chat: { completions: { create: mockCreate } } }),
+                listModels: vi.fn().mockResolvedValue(['model-a']),
+            } as any);
+            const runner = makeRunner({ id: 'rephrase-run', status: 'running', model: 'custom-model' });
+            __testUtils.getRunners().set('rephrase-run', runner as any);
+
+            const response = await api().post('/api/investigations/rephrase-run/notes/rephrase').send({ text: 'some text' });
+            expect(response.status).toBe(200);
+            expect(response.body.rephrased).toBe('Runner rephrased');
+            expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ model: 'custom-model' }));
+        });
+
+        it('falls back to original text when LLM returns empty response', async () => {
+            const mockCreate = vi.fn().mockResolvedValue({
+                choices: [{ message: { content: '' } }],
+            });
+            __testUtils.setActiveLlmProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                getAuthRequirement: () => ({ type: 'none' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true }),
+                getClient: vi.fn().mockResolvedValue({ chat: { completions: { create: mockCreate } } }),
+                listModels: vi.fn().mockResolvedValue(['model-a']),
+            } as any);
+
+            const response = await api().post('/api/investigations/unknown-reph/notes/rephrase').send({ text: 'original text' });
+            expect(response.status).toBe(200);
+            expect(response.body.rephrased).toBe('original text');
+        });
+
+        it('returns 400 when rephrase text is missing', async () => {
+            const response = await api().post('/api/investigations/any-inv/notes/rephrase').send({});
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('text is required');
+        });
+
+        it('returns 503 when no LLM provider for rephrase', async () => {
+            __testUtils.setActiveLlmProvider(null);
+            const response = await api().post('/api/investigations/any-inv/notes/rephrase').send({ text: 'hello' });
+            expect(response.status).toBe(503);
+            expect(response.body.error).toBe('No LLM provider configured');
+        });
+
+        it('returns 500 when LLM call fails during rephrase', async () => {
+            __testUtils.setActiveLlmProvider({
+                type: 'fake',
+                displayName: 'Fake',
+                getAuthRequirement: () => ({ type: 'none' }),
+                configure: vi.fn(),
+                getAuthStatus: vi.fn().mockResolvedValue({ authenticated: true }),
+                getClient: vi.fn().mockResolvedValue({
+                    chat: { completions: { create: vi.fn().mockRejectedValue(new Error('LLM timeout')) } },
+                }),
+                listModels: vi.fn().mockResolvedValue(['model-a']),
+            } as any);
+            __testUtils.getHistory().set('rephrase-fail', makeState({ id: 'rephrase-fail', status: 'completed' }) as any);
+
+            const response = await api().post('/api/investigations/rephrase-fail/notes/rephrase').send({ text: 'hello' });
+            expect(response.status).toBe(500);
+            expect(response.body.error).toContain('LLM timeout');
+        });
+
         it('covers missing model, analyze-body fallback, and missing tags history', async () => {
             let response = await api().post('/api/investigations/missing-model/model').send({});
             expect(response.status).toBe(400);
