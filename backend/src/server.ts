@@ -2349,6 +2349,21 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             return res.status(400).json({ error: e.message });
         }
     }
+    if (action === 'restore') {
+        if ((runner as any).state?.implementationRunning) {
+            return res.status(409).json({ error: 'Cannot restore while implementation is running. Wait for implementation to finish or cancel it first.' });
+        }
+        if (!(runner as any).state?.contestCount || (runner as any).state.contestCount < 1) {
+            return res.status(400).json({ error: 'No previous checkpoint to restore to.' });
+        }
+        try {
+            await runner.restoreToLastCheckpoint();
+            history.set(id, (runner as any).state);
+            invalidateListCache();
+        } catch (e: any) {
+            return res.status(400).json({ error: e.message });
+        }
+    }
 
     res.json({ status: 'ok' });
 });

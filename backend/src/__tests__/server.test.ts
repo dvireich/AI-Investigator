@@ -3494,6 +3494,56 @@ describe('server utilities and routes', () => {
             expect(response.status).toBe(400);
         });
 
+        it('restores a completed investigation to the previous checkpoint', async () => {
+            const runner = makeRunner({
+                id: 'hist-restore',
+                status: 'completed',
+            }, { restoreToLastCheckpoint: vi.fn().mockResolvedValue(undefined) });
+            (runner as any).state.contestCount = 1;
+            (runner as any).state.finalReport = 'Some report';
+            __testUtils.getRunners().set('hist-restore', runner as any);
+
+            const response = await api().post('/api/investigations/hist-restore/action').send({ action: 'restore' });
+            expect(response.status).toBe(200);
+            expect(runner.restoreToLastCheckpoint).toHaveBeenCalled();
+        });
+
+        it('blocks restore when contestCount is 0', async () => {
+            const completedState = makeState({
+                id: 'hist-restore-zero',
+                status: 'completed',
+                contestCount: 0,
+                finalReport: 'Report',
+            });
+            __testUtils.getHistory().set(completedState.id, completedState as any);
+
+            // Use an active runner to avoid LLM provider requirement
+            const runner = makeRunner({
+                id: 'hist-restore-zero',
+                status: 'completed',
+            }, { restoreToLastCheckpoint: vi.fn() });
+            (runner as any).state.contestCount = 0;
+            __testUtils.getRunners().set('hist-restore-zero', runner as any);
+
+            const response = await api().post('/api/investigations/hist-restore-zero/action').send({ action: 'restore' });
+            expect(response.status).toBe(400);
+            expect(response.body.error).toMatch(/No previous checkpoint/);
+        });
+
+        it('blocks restore when implementation is running', async () => {
+            const runner = makeRunner({
+                id: 'impl-restore',
+                status: 'completed',
+            }, { restoreToLastCheckpoint: vi.fn() });
+            (runner as any).state.contestCount = 1;
+            (runner as any).state.implementationRunning = true;
+            __testUtils.getRunners().set('impl-restore', runner as any);
+
+            const response = await api().post('/api/investigations/impl-restore/action').send({ action: 'restore' });
+            expect(response.status).toBe(409);
+            expect(response.body.error).toMatch(/Cannot restore while implementation is running/);
+        });
+
         it('continues inactive pause, abort, and intervene actions when persistence fails', async () => {
             setFakeLlmProvider();
             vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockRejectedValue(new Error('persist failed'));

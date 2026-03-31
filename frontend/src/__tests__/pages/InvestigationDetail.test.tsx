@@ -1398,6 +1398,69 @@ describe('InvestigationDetail', () => {
     });
 
     // ════════════════════════════════════════════════════════════════════════════
+    // RESTORE PREVIOUS REPORT TESTS
+    // ════════════════════════════════════════════════════════════════════════════
+
+    describe('Restore Previous Report', () => {
+        it('shows restore button when contestCount > 0', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ contestCount: 2 }));
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(reportTab);
+
+            await waitFor(() => {
+                expect(screen.getByText(/Restore Previous Report/i)).toBeInTheDocument();
+            });
+        });
+
+        it('hides restore button when contestCount is 0', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ contestCount: 0 }));
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(reportTab);
+
+            await waitFor(() => {
+                expect(screen.queryByText(/Restore Previous Report/i)).not.toBeInTheDocument();
+            });
+        });
+
+        it('calls restore action after confirmation', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({ contestCount: 1 }));
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            const reportTabs = screen.getAllByRole('button', { name: /Report/i });
+            const reportTab = reportTabs.find(btn => btn.textContent?.includes('Final') || btn.textContent === 'Report')!;
+            await user.click(reportTab);
+            await waitFor(() => screen.getByText(/Restore Previous Report/i));
+
+            // Click restore button
+            await user.click(screen.getByText(/Restore Previous Report/i));
+
+            // Confirm in the modal
+            await waitFor(() => screen.getByText(/Restore$/));
+            await user.click(screen.getByText(/Restore$/));
+
+            await waitFor(() => {
+                expect(api.sendAction).toHaveBeenCalledWith('1700000000000', 'restore');
+            });
+        });
+    });
+
+    // ════════════════════════════════════════════════════════════════════════════
     // RETROSPECTIVE TESTS
     // ════════════════════════════════════════════════════════════════════════════
 

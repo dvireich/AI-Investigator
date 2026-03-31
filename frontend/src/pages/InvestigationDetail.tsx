@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef, useMemo, useCallback, useDeferredVa
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, BASE_URL, type Investigation, type Recommendation } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code, Trash2, StickyNote, Bold, Italic, Heading, List, ListOrdered, Quote, Link2, Eye, Pencil } from 'lucide-react';
+import { Play, Pause, XCircle, Send, Terminal, Cpu, Activity, Clock, FileText, RefreshCw, Bot, User, AlertTriangle, MessageSquare, Sparkles, Copy, Check, X, ChevronDown, ChevronRight, FilePlus, FileEdit, Loader2, CheckCircle2, ArrowDownToLine, RotateCcw, WifiOff, Wifi, FolderOpen, Search, Share2, FileDown, Calendar, Tag, Plus, Wrench, Code, Trash2, StickyNote, Bold, Italic, Heading, List, ListOrdered, Quote, Link2, Eye, Pencil, Undo2 } from 'lucide-react';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { ScrollToTop } from '../components/ScrollToTop';
 import { useNotification } from '../hooks/useNotification';
@@ -515,7 +515,7 @@ function implProposalStatusClass(status: string): string {
 }
 
 export const InvestigationDetail = () => {
-    const { toast } = useToast();
+    const { toast, confirm } = useToast();
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const [investigation, setInvestigation] = useState<Investigation | null>(null);
@@ -990,6 +990,25 @@ export const InvestigationDetail = () => {
             setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 150);
         } catch (e: any) {
             toast('error', `Action failed: ${e.message}`);
+        } finally {
+            setActingAction(null);
+        }
+    }, [id]);
+
+    const handleRestore = useCallback(async () => {
+        const ok = await confirm({
+            title: 'Restore Previous Report',
+            message: 'This will restore the report from before the last contest and permanently delete all investigation data collected after it. This cannot be undone.',
+            confirmLabel: 'Restore',
+            variant: 'danger',
+        });
+        if (!ok) return;
+        setActingAction('restore');
+        try {
+            await api.sendAction(id!, 'restore');
+            await fetchInvestigation();
+        } catch (e: any) {
+            toast('error', `Restore failed: ${e.message}`);
         } finally {
             setActingAction(null);
         }
@@ -1976,6 +1995,22 @@ export const InvestigationDetail = () => {
                                     {/* Action Buttons Bar */}
                                     <div className="relative px-5 py-4 flex flex-wrap items-center justify-between gap-3">
                                         <ContestForm onContest={handleContest} actingAction={actingAction} disabled={implRunning} />
+                                        {investigation.contestCount && investigation.contestCount > 0 && (
+                                            <button
+                                                onClick={handleRestore}
+                                                disabled={implRunning || actingAction === 'restore'}
+                                                className="group relative flex items-center gap-2.5 px-5 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 overflow-hidden text-rose-200/90 hover:text-rose-100 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                                            >
+                                                <span className="absolute inset-0 rounded-xl bg-gradient-to-r from-rose-500/25 via-red-500/25 to-rose-500/25 opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+                                                <span className="absolute inset-[1px] rounded-[11px] bg-slate-900/90 backdrop-blur-sm" />
+                                                <span className="absolute inset-0 rounded-xl border border-rose-500/20 group-hover:border-rose-400/40 transition-colors duration-300" />
+                                                <span className="absolute inset-0 rounded-xl shadow-[0_0_15px_-3px] shadow-rose-500/0 group-hover:shadow-rose-500/15 transition-shadow duration-500" />
+                                                <span className="relative flex items-center gap-2.5">
+                                                    {actingAction === 'restore' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Undo2 className="w-4 h-4 text-rose-400" />}
+                                                    {actingAction === 'restore' ? 'Restoring...' : 'Restore Previous Report'}
+                                                </span>
+                                            </button>
+                                        )}
                                         <button
                                             onClick={handleOpenImplModal}
                                             disabled={implRunning}
