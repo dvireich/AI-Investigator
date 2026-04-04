@@ -61,7 +61,7 @@ app.use(express.json());
 // CORS for Vite dev server
 app.use((req, res, next) => {
     res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Content-Type');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, If-None-Match');
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
@@ -76,7 +76,15 @@ app.get('/api/investigations', (_req, res) => {
         thoughts: inv.thoughts?.length ? [inv.thoughts[inv.thoughts.length - 1]] : [],
         actions: [],          // list endpoint doesn't return full actions
     }));
-    res.json(list);
+    res.json({
+        items: list,
+        totalCount: list.length,
+        page: 1,
+        pageSize: Math.max(list.length, 12),
+        totalPages: 1,
+        filterMeta: { products: [{ id: 'sample-product', name: 'Sample Product' }, { id: 'platform-api', name: 'Platform API' }, { id: 'infrastructure', name: 'Infrastructure' }], tags: ['p95-spike', 'on-call', 'sev2'], creators: ['dvreich', 'scheduler'] },
+        stats: { total: list.length, running: list.filter(i => i.status === 'running').length, completed: list.filter(i => i.status === 'completed').length, failed: list.filter(i => i.status === 'failed').length, paused: list.filter(i => i.status === 'paused').length, aborted: 0, successRate: 75, resolvedCount: 6, avgDurationMs: 1843200000, durationSamples: 8, thisWeekCount: 7, lastWeekCount: 5, contestRate: 12.5, contestableCount: 1 },
+    });
 });
 
 app.get('/api/investigations/:id', (req, res) => {
@@ -125,6 +133,22 @@ app.patch('/api/investigations/:id/title', (req, res) => {
     res.json({ success: true });
 });
 
+// ---- Tags & Notes ----
+
+app.patch('/api/investigations/:id/tags', (req, res) => {
+    res.json({ ok: true, tags: req.body.tags || [] });
+});
+
+app.patch('/api/investigations/:id/notes', (req, res) => {
+    res.json({ ok: true, notes: req.body.notes || '' });
+});
+
+app.post('/api/investigations/:id/notes/rephrase', (req, res) => {
+    // Return a polished version of the input text
+    const text = req.body.text || '';
+    res.json({ rephrased: text.replace(/\n/g, '\n').trim() + ' (rephrased)' });
+});
+
 // ---- Export / Import / PDF ----
 
 app.get('/api/investigations/:id/export', (req, res) => {
@@ -171,10 +195,10 @@ app.get('/api/version', (_req, res) => {
         current: '1.4.0',
         commit: 'd7b5dd2e',
         buildDate: '2026-03-22T12:00:00Z',
-        latest: '1.4.1',
-        updateAvailable: true,
-        downloadUrl: 'https://github.com/dvireich/AI-Investigator/releases/download/v1.4.1/ai-investigator.exe',
-        releaseNotesUrl: 'https://github.com/dvireich/AI-Investigator/releases/tag/v1.4.1',
+        latest: null,
+        updateAvailable: false,
+        downloadUrl: null,
+        releaseNotesUrl: null,
     });
 });
 
@@ -210,6 +234,15 @@ app.get('/api/settings', (_req, res) => {
 
 app.post('/api/settings', (req, res) => {
     res.json({ success: true });
+});
+
+app.get('/api/settings/export', (_req, res) => {
+    res.setHeader('Content-Disposition', 'attachment; filename="config.json"');
+    res.json(settingsData.settings);
+});
+
+app.post('/api/settings/import', (req, res) => {
+    res.json({ imported: Object.keys(req.body || {}).length, config: settingsData.settings });
 });
 
 // ---- Models ----
@@ -413,7 +446,7 @@ const mockScheduleHistory = {
 };
 
 app.get('/api/schedules', (_req, res) => {
-    res.json(mockSchedules);
+    res.json({ items: mockSchedules, totalCount: mockSchedules.length, page: 1, pageSize: 12, totalPages: 1 });
 });
 
 app.post('/api/schedules', (req, res) => {
@@ -442,6 +475,28 @@ app.post('/api/schedules/:id/disable', (req, res) => {
 
 app.get('/api/schedules/:id/history', (req, res) => {
     res.json(mockScheduleHistory[req.params.id] || []);
+});
+
+app.get('/api/schedules/:id/report', (req, res) => {
+    const sched = mockSchedules.find(s => s.id === req.params.id);
+    if (!sched) return res.status(404).json({ error: 'Schedule not found' });
+    const history = mockScheduleHistory[req.params.id] || [];
+    const verdictBreakdown = {};
+    for (const e of history) {
+        verdictBreakdown[e.verdict] = (verdictBreakdown[e.verdict] || 0) + 1;
+    }
+    res.json({
+        scheduleId: req.params.id,
+        scheduleName: sched.name,
+        totalRuns: history.length,
+        verdictBreakdown,
+        successRate: 66.7,
+        trend: 'improving',
+        firstRunAt: history.length ? history[history.length - 1].timestamp : null,
+        lastRunAt: history.length ? history[0].timestamp : null,
+        recentSummaries: history.slice(0, 5).map(e => ({ timestamp: e.timestamp, verdict: e.verdict, investigationId: e.investigationId, summary: e.summary })),
+        executiveSummary: '## Executive Summary\n\nThe **EUS2P Health Check** schedule has completed 3 runs over the past 7 days. Overall health is **good** with an improving trend.\n\n### Verdict Breakdown\n- Healthy: 2 runs (67%)\n- Warning: 1 run (33%)\n\n### Trend Analysis\nThe most recent runs show improvement — the warning on the ProcessingService latency has resolved after the scaling event on Tuesday.\n\n### Recommendations\n- Continue monitoring P95 latency post-scaling\n- Consider reducing the check interval to 30m during peak hours',
+    });
 });
 
 app.post('/api/scheduler/start', (_req, res) => {
