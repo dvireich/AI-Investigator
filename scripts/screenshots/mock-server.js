@@ -195,10 +195,10 @@ app.get('/api/version', (_req, res) => {
         current: '1.4.0',
         commit: 'd7b5dd2e',
         buildDate: '2026-03-22T12:00:00Z',
-        latest: '1.4.1',
-        updateAvailable: true,
-        downloadUrl: 'https://github.com/dvireich/AI-Investigator/releases/download/v1.4.1/ai-investigator.exe',
-        releaseNotesUrl: 'https://github.com/dvireich/AI-Investigator/releases/tag/v1.4.1',
+        latest: null,
+        updateAvailable: false,
+        downloadUrl: null,
+        releaseNotesUrl: null,
     });
 });
 
