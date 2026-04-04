@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2, RefreshCw, Download, Package, Rocket, Bell, Cpu } from 'lucide-react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2, RefreshCw, Download, Package, Rocket, Bell, Cpu, StickyNote, BellRing, ArrowDownUp, ClipboardList } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -211,6 +211,26 @@ export const About = () => {
                         bg="bg-slate-900/60 border-slate-800 hover:border-rose-500/20"
                         title="Implementation recommendations"
                         desc="Select recommendations from the final report and let an AI coding agent search the codebase and propose targeted code changes — with the same approve/reject workflow." />
+                    <FeatureCard icon={<StickyNote className="w-4 h-4" />}
+                        color="bg-amber-500/10 border border-amber-500/20 text-amber-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-amber-500/20"
+                        title="Investigation notes"
+                        desc="Attach freeform markdown notes to any investigation. Rich-text editor with formatting toolbar, live preview, AI-powered rephrase, and Ctrl+S auto-save." />
+                    <FeatureCard icon={<BellRing className="w-4 h-4" />}
+                        color="bg-sky-500/10 border border-sky-500/20 text-sky-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-sky-500/20"
+                        title="Browser notifications"
+                        desc="Get native browser notifications for investigation events — completed, failed, paused, or aborted. Selective event types with optional sound chime, configurable in Settings." />
+                    <FeatureCard icon={<ClipboardList className="w-4 h-4" />}
+                        color="bg-indigo-500/10 border border-indigo-500/20 text-indigo-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-indigo-500/20"
+                        title="Schedule executive reports"
+                        desc="Generate AI-powered executive summaries for any schedule — verdict heatmap, breakdown bar chart, trend analysis, and natural-language insights across all runs." />
+                    <FeatureCard icon={<ArrowDownUp className="w-4 h-4" />}
+                        color="bg-teal-500/10 border border-teal-500/20 text-teal-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-teal-500/20"
+                        title="Settings import & export"
+                        desc="Export your full configuration as a JSON file and import it on another machine. Share team settings instantly without manual reconfiguration." />
                 </div>
             </section>
 
@@ -276,6 +296,10 @@ export const About = () => {
                         [Rocket,            'text-lime-400',    'Onboarding wizard — guided first-launch setup for LLM provider and product discovery'],
                         [Bell,              'text-brand-400',   'Auto-update — checks for new releases on startup with a floating notification card'],
                         [Cpu,               'text-rose-400',    'Implementation agent — select report recommendations and generate code change proposals'],
+                        [StickyNote,        'text-amber-400',   'Investigation notes — markdown editor with AI rephrase, formatting toolbar, and auto-save'],
+                        [BellRing,          'text-sky-400',     'Browser notifications — native alerts for investigation events with selective types and sound'],
+                        [ClipboardList,     'text-indigo-400',  'Executive reports — AI-generated schedule summaries with verdict heatmap and trend analysis'],
+                        [ArrowDownUp,       'text-teal-400',    'Settings import/export — share full configuration as JSON across machines'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
                             <Icon className={`w-4 h-4 ${color} shrink-0`} />

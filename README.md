@@ -228,7 +228,7 @@ After auto-analysis, continue chatting with the retrospective agent to explore a
 
 ### 18. Settings
 
-Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across five tabs: Products, Agent Behavior, Analytics, Appearance, and System.
+Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across seven tabs: Products, Connections, Agent Behavior, Schedules, Analytics, Appearance, and System.
 
 ![Settings](docs/screenshots/settings.png)
 
@@ -236,7 +236,23 @@ Configure agent behavior, model selection, investigation storage path (with serv
 
 ---
 
-### 19. Settings — Analytics Widgets
+### 19. Settings — Connections
+
+Configure all external integrations in one place: LLM provider selection (with auth status), MCP tool server management (add, edit, delete servers with environment variable injection), and incident provider settings.
+
+![Settings Connections](docs/screenshots/settings-connections.png)
+
+---
+
+### 20. Settings — Schedules
+
+Configure schedule-level defaults: maximum concurrent scheduled investigations, retention count (auto-delete oldest), and the LLM model used for AI-generated executive summaries.
+
+![Settings Schedules](docs/screenshots/settings-schedules.png)
+
+---
+
+### 21. Settings — Analytics Widgets
 
 Choose which 3 analytics charts appear on the dashboard from a registry of 8 widget types. Each widget shows a preview of its chart style.
 
@@ -246,7 +262,15 @@ Choose which 3 analytics charts appear on the dashboard from a registry of 8 wid
 
 ---
 
-### 20. Resume All After Server Restart
+### 22. Settings — Appearance
+
+Customize default view mode (grid/list), sort order (newest/modified/oldest/steps), page size (6/12/24/48), auto-refresh interval, and browser notifications with selective event types and optional sound chime.
+
+![Settings Appearance](docs/screenshots/settings-appearance.png)
+
+---
+
+### 23. Resume All After Server Restart
 
 When the backend restarts, all running investigations are automatically paused. The dashboard shows a **Resume All** button with the count of paused investigations. Click it to resume them all at once (respecting the max concurrent limit). A separate **Restart Server** button lets you trigger a graceful restart directly from the UI.
 
@@ -256,7 +280,7 @@ When the backend restarts, all running investigations are automatically paused. 
 
 ---
 
-### 21. Share & Export
+### 24. Share & Export
 
 Non-running investigations show **Share** (sky-blue) and **PDF** (violet) buttons in the sidebar. Share exports the full investigation state as a JSON file; PDF renders the final report into a styled, downloadable PDF document via Puppeteer.
 
@@ -266,7 +290,7 @@ Non-running investigations show **Share** (sky-blue) and **PDF** (violet) button
 
 ---
 
-### 22. Import Investigation (Drag & Drop)
+### 25. Import Investigation (Drag & Drop)
 
 Import previously exported investigations via the **Import Investigation** button in the floating action dock, or simply drag and drop a `.json` file anywhere on the dashboard. A full-screen animated drop zone appears with gradient borders and a pulsing upload icon.
 
@@ -276,7 +300,7 @@ Import previously exported investigations via the **Import Investigation** butto
 
 ---
 
-### 23. Scheduled Investigations
+### 26. Scheduled Investigations
 
 Set up recurring automated health checks with configurable intervals. The Schedules page shows all schedules as cards with live verdict badges (healthy / warning / critical / error), next-run countdown, and full run history. A floating dock lets you start/stop the scheduler and create new schedules.
 
@@ -284,7 +308,7 @@ Set up recurring automated health checks with configurable intervals. The Schedu
 
 ---
 
-### 24. New / Edit Schedule
+### 27. New / Edit Schedule
 
 Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — target, category, time range, model, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
 
@@ -292,7 +316,7 @@ Create or edit a schedule with a multi-step wizard: choose a saved query from th
 
 ---
 
-### 25. Query Bank
+### 28. Query Bank
 
 Save investigation configurations as reusable templates. Access the Query Bank from the New Investigation form to instantly load a saved target, query, time range, category, and model — or use them when creating schedules.
 
@@ -300,7 +324,7 @@ Save investigation configurations as reusable templates. Access the Query Bank f
 
 ---
 
-### 26. GitHub Copilot Authentication
+### 29. GitHub Copilot Authentication
 
 Secure OAuth device flow — enter the code on GitHub, and you're connected.
 
@@ -308,11 +332,21 @@ Secure OAuth device flow — enter the code on GitHub, and you're connected.
 
 ---
 
-### 27. About
+### 30. About
 
 Project information, feature showcase, architecture pipeline, tech stack, and version info with auto-update checking.
 
 ![About Page](docs/screenshots/about-page.png)
+
+---
+
+### 31. Investigation Notes
+
+Attach freeform markdown notes to any investigation. The rich-text editor supports a formatting toolbar, live markdown preview, and an **AI Rephrase** button that uses your selected model to polish your writing. Notes auto-save on **Ctrl+S**.
+
+![Investigation Notes](docs/screenshots/investigation-notes.png)
+
+<!-- Screenshot: The notes tab of an investigation showing the markdown editor with formatting toolbar, preview pane, and AI Rephrase button. -->
 
 ---
 
@@ -333,6 +367,18 @@ Project information, feature showcase, architecture pipeline, tech stack, and ve
 - **Max Steps** — Configurable safety limit (auto-pauses at threshold, resume for another batch)
 - **Model Switching** — Change the LLM model mid-investigation (even while paused)
 - **Contest Tracking** — Tracks the number of times a report is contested, giving the agent cumulative feedback context
+- **Restore Previous Report** — After contesting a report, a "Restore Previous Report" button lets you revert to the pre-contest version if the re-investigation didn't improve things
+
+### 📝 Investigation Notes
+
+Attach rich notes to any investigation with a built-in markdown editor:
+
+- **Notes Tab** — Dedicated tab on every investigation detail view with Write/Preview toggle
+- **Formatting Toolbar** — Bold, italic, heading, bullet list, numbered list, blockquote, inline code, and link buttons
+- **AI Rephrase** — Select text and click Rephrase to have the LLM rewrite it for clarity
+- **Ctrl+S Save** — Keyboard shortcut for quick saves
+- **Markdown Preview** — Live-rendered preview with full prose typography
+- **Persistent** — Notes saved alongside investigation state and survive server restarts
 
 ### 🎫 Incident Integration
 
@@ -388,7 +434,7 @@ The **retrospective agent** additionally has:
 The main dashboard provides a rich interface for managing all investigations:
 
 - **Grid / List View** — Toggle between card grid and compact list layouts (persisted to localStorage)
-- **Sort** — Order by Newest, Oldest, or Step Count
+- **Sort** — Order by Newest, Last Modified, Oldest, or Most Steps
 - **Filter by Status** — All, Running, Paused, Completed, Failed, Aborted
 - **Filter by Product** — Dropdown to show only investigations for a specific product
 - **Filter by Creator** — Dropdown to show only investigations created by a specific user (indigo themed)
@@ -401,6 +447,11 @@ The main dashboard provides a rich interface for managing all investigations:
 - **Inline Pause/Resume** — Hover over running/paused cards to toggle state without opening the detail view
 - **Stale Detection** — Flags running investigations that haven't progressed in 5+ minutes
 - **Toast Notifications** — Pop-up alerts when investigations complete or fail
+- **Browser Notifications** — Native OS notifications via the Web Notifications API, even when the tab is in the background. Configurable in Settings → Appearance:
+  - Enable/disable toggle with browser permission prompt
+  - Sound chime toggle (synthesized via Web Audio API)
+  - Selective event types: Completed, Failed, Paused, Requires Intervention
+  - Deduplication (2-second debounce) and auto-close after 10 seconds
 - **Statistics Bar** — Four animated tiles: Active, Done, Failed, and Total Investigations. Click any tile to filter the list
 - **KPI Bar** — Collapsible row of key metrics: success rate percentage, average investigation duration, this-week count with week-over-week delta, and contest rate
 - **Creator Badges** — Indigo badges on grid cards and list rows showing who created each investigation. Click a badge to filter by that creator
@@ -425,6 +476,12 @@ The main dashboard provides a rich interface for managing all investigations:
 - **Correlation ID Copy** — Abbreviated correlation IDs with click-to-copy
 - **Skeleton Loading** — Animated placeholder cards during initial data fetch
 - **Auto-Refresh** — Configurable polling interval (lightweight metadata-only polling)
+- **Pagination** — Configurable page size (6, 12, 24, or 48 items per page) with page navigation
+- **Progress Ring** — Circular progress indicator on cards showing steps completed vs. max steps limit
+- **Dynamic Tab Titles** — Browser tab title updates with investigation status prefixes (● Running, ✓ Completed, ⏸ Paused, ✕ Failed, ⊘ Aborted) and running/paused counts on the dashboard
+- **Breadcrumb Navigation** — Breadcrumbs with back button on sub-pages (investigation detail, settings, schedules); double-click to rename
+- **Scroll to Top** — Floating button appears after scrolling down, smooth-scrolls to the top
+- **Error Boundary** — Graceful error recovery UI with Try Again, Refresh Page, and Go to Dashboard options
 - **Floating Action Dock** — Portal-rendered toolbar pinned below the navbar with quick actions:
   - **Resume All** — Batch-resume all paused investigations (shown only when paused count > 0)
   - **Restart Server** — Restart the backend server process
@@ -455,6 +512,12 @@ Automate recurring target health checks with a built-in scheduler:
 - **Cascade Delete** — Deleting a schedule also removes all its associated investigations from memory and disk
 - **Concurrent Limits** — Configurable maximum concurrent scheduled investigations (default: 2)
 - **Next Run Countdown** — Live countdown timer showing when the next scheduled run will trigger
+- **Clone Schedule** — Duplicate an existing schedule configuration as a starting point for a new one
+- **Per-Schedule Retention** — Override the global retention count on individual schedules; reset to default with one click
+- **Auto-Escalation** — Optionally auto-launch a full investigation when a schedule produces a `critical` verdict. Configurable escalation query override and consecutive critical verdict tracking
+- **Executive Summary** — AI-generated executive report per schedule with verdict breakdown, success rate, trend analysis (improving/degrading/stable), and recent run summaries. Regenerate on demand. Uses a configurable report model (default: gpt-4o-mini)
+- **Verdict Heatmap** — Compact dot visualization of the last 50 runs as color-coded dots; click any dot to drill down to that investigation
+- **Verdict Breakdown Bar** — Stacked bar chart on expanded schedule cards showing healthy/warning/critical/error distribution
 
 ### 📚 Query Bank
 
@@ -627,12 +690,14 @@ The Add Product modal starts with a **Discover** step: point to a repo root, cli
 
 ### ⚙️ Settings
 
-Five-tab Settings page:
+Seven-tab Settings page:
 - **Products** — Configure investigation targets with discover-first onboarding (`.investigator.json` manifest or auto-scan), expand/collapse product cards, path validation, and clone
-- **Agent Behavior** — Max steps, default model, retrospective timeout, system prompt path, working directory, investigation storage path
+- **Connections** — LLM provider selection (OpenAI, Anthropic, Azure OpenAI, GitHub Copilot, Ollama), MCP server management (add/edit/delete servers with environment variable injection), and incident provider configuration (IcM, PagerDuty, manual) — all external integrations in one place
+- **Agent Behavior** — Max steps, default model, retrospective timeout, recommendation extraction model, system prompt path, working directory, investigation storage path
+- **Schedules** — Max concurrent scheduled investigations (0–10), scheduled investigation retention count (auto-delete oldest), and scheduled report model (LLM for AI-generated executive summaries, default: gpt-4o-mini)
 - **Analytics** — Choose which 3 analytics widgets appear on the dashboard from a registry of 8 chart types (14-Day Trend, Categories, Duration Distribution, Success Rate, Target Activity, Verdict Breakdown, Model Usage, Contest Rate). Reset to defaults with one click
-- **Appearance** — Auto-refresh interval, default dashboard view mode (grid/list)
-- **System** — Default time range preset, LLM provider configuration, incident provider settings
+- **Appearance** — Default dashboard view mode (grid/list), default sort order (newest/last modified/oldest/most steps), default page size (6/12/24/48), auto-refresh interval, and browser notifications (enable/disable toggle, sound chime via Web Audio API, selective event types: completed, failed, paused, requires intervention)
+- **System** — Default time range preset, import/export settings (backup or restore your full configuration as a portable JSON file)
 
 Includes a server-side **file browser** for selecting directories.
 
@@ -1032,6 +1097,11 @@ Configuration is managed through the Settings UI or directly in `backend/config.
 | `theme` | `light` | UI theme preference |
 | `products` | `[]` | Array of product configurations (see Multi-Product Support) |
 | `activeProductId` | *(empty)* | ID of the currently selected product for new investigations |
+| `defaultSortOrder` | `newest` | Dashboard sort order: `newest`, `modified`, `oldest`, or `steps` |
+| `defaultPageSize` | `12` | Items per page on dashboard and schedules (6, 12, 24, or 48) |
+| `maxConcurrentScheduledInvestigations` | `2` | Maximum parallel scheduled investigations (0 = unlimited) |
+| `scheduledInvestigationRetentionCount` | `10` | Max completed investigations to keep per schedule (0 = keep all) |
+| `scheduledReportModel` | `gpt-4o-mini` | LLM model for AI-generated schedule executive reports |
 
 ### Product Configuration
 
@@ -1064,6 +1134,9 @@ Each product in the `products` array has:
 | `POST` | `/api/investigations/:id/compact` | Summarize history to reduce tokens |
 | `DELETE` | `/api/investigations/:id` | Delete investigation (memory + disk) |
 | `PATCH` | `/api/investigations/:id/title` | Rename investigation title |
+| `PATCH` | `/api/investigations/:id/tags` | Update investigation tags |
+| `PATCH` | `/api/investigations/:id/notes` | Update investigation notes (markdown) |
+| `POST` | `/api/investigations/:id/notes/rephrase` | AI-powered note rephrasing via LLM |
 | `GET` | `/api/investigations/:id/export` | Export investigation as portable JSON |
 | `POST` | `/api/investigations/import` | Import investigation from exported JSON |
 | `POST` | `/api/investigations/resume-all` | Bulk resume all paused investigations |
@@ -1106,6 +1179,7 @@ Each product in the `products` array has:
 | `POST` | `/api/schedules/:id/enable` | Enable a schedule |
 | `POST` | `/api/schedules/:id/disable` | Disable a schedule |
 | `GET` | `/api/schedules/:id/history` | Get run history for a schedule |
+| `GET` | `/api/schedules/:id/report` | Get or generate AI executive report for a schedule |
 | `POST` | `/api/scheduler/start` | Start the scheduler engine |
 | `POST` | `/api/scheduler/stop` | Stop the scheduler engine |
 | `GET` | `/api/scheduler/status` | Check if the scheduler is running |
@@ -1134,6 +1208,8 @@ Each product in the `products` array has:
 | `GET` | `/api/me` | Get OS username |
 | `GET` | `/api/models` | List available LLM models |
 | `GET/POST` | `/api/settings` | Get / Save configuration |
+| `GET` | `/api/settings/export` | Download full configuration as portable JSON |
+| `POST` | `/api/settings/import` | Import configuration from JSON file |
 | `GET` | `/api/files/list` | Browse server filesystem |
 | `GET` | `/api/version` | Version status: current, latest, update availability, SHA256, download URL |
 | `GET` | `/api/onboarding/status` | Check if first-launch onboarding is complete |
@@ -1265,7 +1341,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect + Implementation
 │           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
 │           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
-│           ├── Settings.tsx          # Configuration management (5 tabs: Products, Agent, Analytics, Appearance, System)
+│           ├── Settings.tsx          # Configuration management (7 tabs: Products, Connections, Agent, Schedules, Analytics, Appearance, System)
 │           ├── About.tsx             # Feature showcase + version info + update check
 │           └── OnboardingWizard.tsx  # First-launch setup wizard (LLM + product discovery)
 └── docs/
@@ -1291,7 +1367,7 @@ cd scripts/screenshots
 npm install
 npx playwright install chromium
 
-# Generate all 18 screenshots
+# Generate all 37 screenshots
 npm run capture
 ```
 
@@ -1300,7 +1376,7 @@ npm run capture
 1. A mock Express + WebSocket server starts on port **3099** serving canned investigation fixtures
 2. A Vite dev server starts on port **5174** with `VITE_API_URL=http://localhost:3099/api` — so the frontend talks to the mock server instead of the real backend
 3. Playwright launches a headless Chromium browser (1400×900 viewport, 2× device scale for Retina-quality PNGs, dark color scheme)
-4. For each of the 18 screenshots, the capture script:
+4. For each screenshot, the capture script:
    - Calls the mock server's `/__control/*` endpoints to swap in the right fixture data
    - Navigates to the correct route (`/`, `/new`, `/investigation/:id`, `/settings`, etc.)
    - Waits for animations to settle (`reducedMotion: 'reduce'` + timeouts)
@@ -1313,14 +1389,14 @@ npm run capture
 
 | Command | Description |
 |---------|-------------|
-| `npm run capture` | Full run — starts mock server + Vite, captures all 19 screenshots |
+| `npm run capture` | Full run — starts mock server + Vite, captures all screenshots |
 | `npm run capture:headed` | Same, but with a visible browser window (useful for debugging) |
 | `npm run capture:no-vite` | Skip starting Vite — use when you already have Vite running on port 5174 |
 | `npm run mock-server` | Run only the mock API server (for manual UI exploration at `http://localhost:3099`) |
 
 ### Screenshot Inventory
 
-The capture script produces these 33 files in `docs/screenshots/`:
+The capture script produces these 37 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
@@ -1344,19 +1420,23 @@ The capture script produces these 33 files in `docs/screenshots/`:
 | 18 | `proposals-panel.png` | Retrospective tab — expanded proposals |
 | 19 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
 | 20 | `settings.png` | Settings — Products tab expanded |
-| 21 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
-| 22 | `auth-flow.png` | Unauthenticated state |
-| 23 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
-| 24 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
-| 25 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
-| 26 | `schedule-form.png` | Schedule creation wizard with query bank |
-| 27 | `query-bank.png` | New Investigation — query bank dropdown |
-| 28 | `about-page.png` | About — feature showcase, pipeline, version info |
-| 29 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
-| 30 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
-| 31 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
-| 32 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
-| 33 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
+| 21 | `settings-connections.png` | Settings — Connections tab (LLM provider + MCP servers + incident provider) |
+| 22 | `settings-schedules.png` | Settings — Schedules tab (concurrency, retention, report model) |
+| 23 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
+| 24 | `settings-appearance.png` | Settings — Appearance tab (view, sort, page size, browser notifications) |
+| 25 | `auth-flow.png` | Unauthenticated state |
+| 26 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
+| 27 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
+| 28 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
+| 29 | `schedule-form.png` | Schedule creation wizard with query bank |
+| 30 | `query-bank.png` | New Investigation — query bank dropdown |
+| 31 | `investigation-notes.png` | Investigation detail — Notes tab with markdown editor |
+| 32 | `about-page.png` | About — feature showcase, pipeline, version info |
+| 33 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 34 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 35 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 36 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 37 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
 
 ### Architecture
 

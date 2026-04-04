@@ -2,7 +2,7 @@
  * Automated screenshot capture for the AI Investigator README.
  *
  * Launches a mock API server and the Vite dev server, then uses Playwright
- * to navigate every page/state and capture 30 screenshots to docs/screenshots/.
+ * to navigate every page/state and capture 37 screenshots to docs/screenshots/.
  *
  * Usage:
  *   node capture.js              → full run (starts mock + Vite, captures all)
@@ -503,6 +503,71 @@ async function captureSettingsAnalytics(page) {
     await screenshot(page, 'settings-analytics');
 }
 
+async function captureSettingsConnections(page) {
+    console.log('\n📸 Settings — Connections...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    const connectionsTab = page.locator('button:has-text("Connections")').first();
+    if (await connectionsTab.isVisible()) {
+        await connectionsTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'settings-connections');
+}
+
+async function captureSettingsSchedules(page) {
+    console.log('\n📸 Settings — Schedules...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    const schedulesTab = page.locator('button:has-text("Schedules")').first();
+    if (await schedulesTab.isVisible()) {
+        await schedulesTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'settings-schedules');
+}
+
+async function captureSettingsAppearance(page) {
+    console.log('\n📸 Settings — Appearance...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    const appearanceTab = page.locator('button:has-text("Appearance")').first();
+    if (await appearanceTab.isVisible()) {
+        await appearanceTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'settings-appearance');
+}
+
+async function captureInvestigationNotes(page) {
+    console.log('\n📸 Investigation Notes...');
+    await resetMock();
+    // Load the completed investigation that has userNotes
+    const completedInv = loadFixture('investigation-completed.json');
+    await setDetailOverride(completedInv.id, completedInv);
+
+    await navigateTo(page, `/investigation/${completedInv.id}`);
+    await page.waitForTimeout(1000);
+
+    // Click the Notes tab
+    const notesTab = page.locator('button:has-text("Notes")').first();
+    if (await notesTab.isVisible()) {
+        await notesTab.click();
+        await page.waitForTimeout(800);
+    }
+
+    await screenshot(page, 'investigation-notes');
+}
+
 async function captureAuthFlow(page) {
     console.log('\n📸 Auth Flow...');
     // Set auth to unauthenticated with device-flow so the Connect button appears
@@ -660,8 +725,10 @@ async function captureMobileSettings(page) {
 async function captureSchedules(page) {
     console.log('\n📸 Schedules page...');
     await resetMock();
-    await page.goto(`${VITE_URL}/schedules`, { waitUntil: 'networkidle' });
-    await page.waitForSelector('header', { timeout: 10000, state: 'attached' });
+    // Navigate to dashboard first to reset React app state after drag-drop overlay
+    await navigateTo(page, '/');
+    await page.waitForTimeout(500);
+    await navigateTo(page, '/schedules');
     await page.waitForTimeout(1500);
 
     // Expand the first schedule to show history
@@ -678,8 +745,7 @@ async function captureSchedules(page) {
 async function captureScheduleForm(page) {
     console.log('\n📸 Schedule Form...');
     await resetMock();
-    await page.goto(`${VITE_URL}/schedules/new`, { waitUntil: 'networkidle' });
-    await page.waitForSelector('header', { timeout: 10000, state: 'attached' });
+    await navigateTo(page, '/schedules/new');
     await page.waitForTimeout(1200);
 
     // Fill in the schedule name
@@ -701,8 +767,7 @@ async function captureScheduleForm(page) {
 async function captureQueryBank(page) {
     console.log('\n📸 Query Bank...');
     await resetMock();
-    await page.goto(`${VITE_URL}/new`, { waitUntil: 'networkidle' });
-    await page.waitForSelector('header', { timeout: 10000, state: 'attached' });
+    await navigateTo(page, '/new');
     await page.waitForTimeout(1200);
 
     // Click the Query Bank button/dropdown to open it
@@ -728,7 +793,7 @@ async function startVite() {
             cwd: FRONTEND_DIR,
             shell: true,
             stdio: ['ignore', 'pipe', 'pipe'],
-            env: { ...process.env, VITE_API_URL: `http://localhost:${MOCK_PORT}/api` },
+            env: { ...process.env, BACKEND_PORT: String(MOCK_PORT) },
         });
 
         let started = false;
@@ -809,7 +874,7 @@ async function main() {
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
     try {
-        // ---- Capture all 33 screenshots ----
+        // ---- Capture all 37 screenshots ----
 
         // Onboarding
         await captureOnboardingWizard(page);
@@ -846,22 +911,30 @@ async function main() {
 
         // Settings
         await captureSettings(page);
+        await captureSettingsConnections(page);
+        await captureSettingsSchedules(page);
         await captureSettingsAnalytics(page);
+        await captureSettingsAppearance(page);
 
         // Auth
         await captureAuthFlow(page);
 
-        // Share, Export & Import
+        // Share & Export
         await captureShareExportButtons(page);
-        await captureDragDropImport(page);
 
-        // Schedules & Query Bank
+        // Schedules & Query Bank (before drag-drop which can corrupt page state)
         await captureSchedules(page);
         await captureScheduleForm(page);
         await captureQueryBank(page);
 
+        // Drag & Drop Import (must be after schedules — dispatches synthetic drag events)
+        await captureDragDropImport(page);
+
         // About
         await captureAboutPage(page);
+
+        // Investigation Notes
+        await captureInvestigationNotes(page);
 
         // Mobile screenshots
         await captureMobileDashboard(page);
@@ -871,7 +944,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 33 screenshots captured successfully!');
+        console.log('  ✅ All 37 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

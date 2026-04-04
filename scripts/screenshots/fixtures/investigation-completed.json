@@ -10,6 +10,7 @@
   "model": "claude-sonnet-4-20250514",
   "productId": "sample-product",
   "productName": "sample-product",
+  "userNotes": "## Root Cause Summary\n\nThe DLQ overflow was caused by an **upstream schema change** that introduced a `dynamic` column (`ExtendedProperties_v2`) which the data writer couldn't serialize.\n\n### Key Findings\n- Schema update deployed at **18:15 UTC** — spike began 15 min later\n- ~42,000 messages affected across 3 workspaces\n- Error type: `InvalidBlobContentException` (97.3% of DLQ messages)\n\n### Action Items\n- [x] Hotfix deployed to handle dynamic columns\n- [ ] Add schema validation pre-check to pipeline\n- [ ] Update runbook for schema change coordination",
   "thoughtCount": 12,
   "contestCount": 0,
   "thoughts": [
