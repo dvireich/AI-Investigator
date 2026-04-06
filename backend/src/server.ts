@@ -3,6 +3,7 @@ import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import { AgentRunner, InvestigationState } from './agent/Runner';
+import { PipelineDefinition, PipelineOrchestrator, listBuiltinAgents, validatePipeline } from './agent/pipeline';
 import { LlmProviderRegistry } from './agent/llm/LlmProviderRegistry';
 import { LlmProvider } from './agent/llm/LlmProvider';
 import { IncidentProviderRegistry } from './agent/incidents/IncidentProviderRegistry';
@@ -331,6 +332,8 @@ wss.on('error', () => { /* handled on server */ });
 
 // Store active runners
 const runners = new Map<string, AgentRunner>();
+// Track active pipeline orchestrators by investigation ID
+const pipelineOrchestrators = new Map<string, PipelineOrchestrator>();
 // Store past investigations
 const history = new InvestigationHistoryStore();
 // Cache storage paths per investigation ID to avoid recompute on every poll
@@ -363,6 +366,12 @@ export function cleanupRunner(id: string): void {
         runner.dispose();
     }
     runners.delete(id);
+    // Also clean up pipeline orchestrator if one exists
+    const orchestrator = pipelineOrchestrators.get(id);
+    if (orchestrator) {
+        orchestrator.removeAllListeners();
+        pipelineOrchestrators.delete(id);
+    }
 }
 
 /** How long a paused runner can sit idle before auto-eviction (default 30 min). */
@@ -676,6 +685,67 @@ const attachRunnerListeners = (runner: AgentRunner, id: string) => {
     runner.on('retrospect-tool-activity', (data) => { touch(); broadcast(id, 'retrospect-tool-activity', data); });
 };
 
+const attachPipelineListeners = (orchestrator: PipelineOrchestrator, id: string) => {
+    console.log(`[WS] Attaching pipeline listeners for id=${id}`);
+
+    // Helper: keep the anchor runner state in sync so GET /api/investigations/:id
+    // returns live thoughts/actions during pipeline execution (not just at completion).
+    const syncRunnerState = () => {
+        const runner = runners.get(id);
+        if (!runner) return;
+        const st = (runner as any).state;
+        const ps = orchestrator.getPipelineState();
+        if (ps) st.pipeline = ps;
+    };
+
+    // Persist the anchor runner state to disk periodically so the investigation
+    // folder exists during the run and progress survives backend restarts/crashes.
+    const saveToDisk = async () => {
+        const runner = runners.get(id);
+        if (!runner) return;
+        syncRunnerState();
+        try { await (runner as any).saveArtifacts(); } catch (_e) { /* best-effort */ }
+    };
+
+    // Forward standard runner events + accumulate into runner state
+    orchestrator.on('thought', (data) => {
+        const runner = runners.get(id);
+        if (runner) {
+            const st = (runner as any).state;
+            if (!st.thoughts) st.thoughts = [];
+            st.thoughts.push(data);
+        }
+        broadcast(id, 'thought', data);
+    });
+    orchestrator.on('action', (data) => {
+        const runner = runners.get(id);
+        if (runner) {
+            const st = (runner as any).state;
+            if (!st.actions) st.actions = [];
+            st.actions.push(data);
+        }
+        broadcast(id, 'action', data);
+    });
+    orchestrator.on('log', (data) => {
+        const runner = runners.get(id);
+        if (runner) {
+            const st = (runner as any).state;
+            if (!st.logs) st.logs = [];
+            st.logs.push(data);
+        }
+        broadcast(id, 'log', data);
+    });
+    orchestrator.on('status', (data) => broadcast(id, 'status', data));
+    orchestrator.on('retrospect', (data) => broadcast(id, 'retrospect', data));
+    orchestrator.on('retrospect-proposal', (data) => broadcast(id, 'retrospect-proposal', data));
+    orchestrator.on('retrospect-tool-activity', (data) => broadcast(id, 'retrospect-tool-activity', data));
+    // Pipeline-specific events — also sync pipeline state & persist to disk
+    orchestrator.on('stage-start', (data) => { syncRunnerState(); saveToDisk(); broadcast(id, 'stage-start', data); });
+    orchestrator.on('stage-complete', (data) => { syncRunnerState(); saveToDisk(); broadcast(id, 'stage-complete', data); });
+    orchestrator.on('stage-reject', (data) => { syncRunnerState(); saveToDisk(); broadcast(id, 'stage-reject', data); });
+    orchestrator.on('conversation-entry', (data) => broadcast(id, 'conversation-entry', data));
+};
+
 export function registerWebSocketClient(
     clientMap: Map<string, Set<WebSocket>>,
     ws: WebSocket,
@@ -753,6 +823,7 @@ export function getEffectiveConfig(state?: Partial<InvestigationState>): typeof 
                 knowledgeBasePath: product.knowledgeBasePath || config.knowledgeBasePath,
                 workingDirectory: product.workingDirectory || config.workingDirectory,
                 investigationsPath: product.investigationsPath || config.investigationsPath,
+                pipeline: product.pipeline || config.pipeline,
             };
         }
     }
@@ -797,6 +868,7 @@ interface Product {
     knowledgeBasePath: string;
     workingDirectory: string;
     investigationsPath: string;
+    pipeline?: PipelineDefinition;
 }
 
 let config: {
@@ -834,6 +906,8 @@ let config: {
     // Analytics preferences
     analyticsWidgets: string[];
     analyticsVisible: boolean;
+    // Multi-agent pipeline configuration
+    pipeline?: PipelineDefinition;
 } = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
@@ -866,6 +940,7 @@ let config: {
     defaultPageSize: 12,
     analyticsWidgets: ['trend', 'targetActivity', 'successRate'],
     analyticsVisible: true,
+    pipeline: undefined,
 };
 
 // Track what's persisted on disk — prevents internal defaults from leaking into the config file.
@@ -892,6 +967,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'llmProvider', 'incidentProvider',
     'defaultView', 'defaultSortOrder', 'defaultPageSize',
     'analyticsWidgets', 'analyticsVisible',
+    'pipeline',
 ]);
 
 function saveConfigToDisk() {
@@ -1299,7 +1375,7 @@ interface ProductValidation {
 }
 
 export function validateProductPaths(product: Product): ProductValidation {
-    const pathFields: { field: keyof Product; label: string; required: boolean }[] = [
+    const pathFields: { field: 'id' | 'name' | 'repoRoot' | 'systemPromptPath' | 'knowledgeBasePath' | 'workingDirectory' | 'investigationsPath'; label: string; required: boolean }[] = [
         { field: 'repoRoot', label: 'Repository Root', required: true },
         { field: 'systemPromptPath', label: 'System Prompt', required: false },
         { field: 'knowledgeBasePath', label: 'Knowledge Base', required: false },
@@ -1544,6 +1620,48 @@ app.post('/api/products/:id/clone', (req, res) => {
     }
 });
 
+// ── Pipeline / Multi-Agent Endpoints ──────────────────────────────────
+
+app.get('/api/pipeline/builtins', (_req, res) => {
+    res.json(listBuiltinAgents());
+});
+
+app.get('/api/investigations/:id/pipeline', (req, res) => {
+    const { id } = req.params;
+
+    // Check active orchestrator first
+    const orchestrator = pipelineOrchestrators.get(id);
+    if (orchestrator) {
+        return res.json(orchestrator.getPipelineState());
+    }
+
+    // Fall back to history
+    const state = history.get(id);
+    if (state && state.pipeline) {
+        return res.json(state.pipeline);
+    }
+
+    // Check active runner state
+    const runner = runners.get(id);
+    if (runner) {
+        const runnerState = (runner as any).state as InvestigationState;
+        if (runnerState?.pipeline) {
+            return res.json(runnerState.pipeline);
+        }
+    }
+
+    return res.status(404).json({ error: 'No pipeline data for this investigation' });
+});
+
+app.post('/api/pipeline/validate', (req, res) => {
+    try {
+        validatePipeline(req.body);
+        res.json({ valid: true });
+    } catch (e: any) {
+        res.json({ valid: false, error: e.message });
+    }
+});
+
 app.get('/api/models', async (req, res) => {
     try {
         if (!activeLlmProvider) {
@@ -1748,6 +1866,18 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
         throw new Error('No LLM provider configured. Update settings to configure an LLM provider.');
     }
 
+    // Check if a multi-agent pipeline is configured
+    const pipelineDef = effectiveConfig.pipeline;
+    if (pipelineDef && pipelineDef.stages && pipelineDef.stages.length > 1) {
+        const pipelineCreatedBy = createdBy ?? (source === 'scheduled' ? 'scheduler' : undefined);
+        return createPipelineInvestigation(pipelineDef, effectiveConfig, activeLlmProvider, fullQuery, {
+            target, timeRange, correlationId, category, incidentId,
+            model: model || effectiveConfig.model, productId,
+            source: source || 'manual', scheduleId, title,
+            createdBy: pipelineCreatedBy,
+        });
+    }
+
     const runner = new AgentRunner(effectiveConfig, activeLlmProvider, {
         query: fullQuery,
         target,
@@ -1792,6 +1922,187 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
     });
 
     return { id, runner };
+}
+
+/**
+ * Create an investigation that runs through a multi-agent pipeline.
+ * Returns a dummy AgentRunner for the first stage (so callers can still track by runner).
+ */
+function createPipelineInvestigation(
+    pipelineDef: PipelineDefinition,
+    effectiveConfig: typeof config,
+    llmProvider: LlmProvider,
+    fullQuery: string,
+    metadata: Record<string, any>,
+): { id: string; runner: AgentRunner } {
+    const agentConfig: import('./agent/Runner').AgentConfig = {
+        systemPromptPath: effectiveConfig.systemPromptPath,
+        retrospectPromptPath: effectiveConfig.retrospectPromptPath,
+        knowledgeBasePath: effectiveConfig.knowledgeBasePath,
+        repoRoot: effectiveConfig.repoRoot,
+        mcpServers: effectiveConfig.mcpServers,
+        maxSteps: effectiveConfig.maxSteps,
+        model: metadata.model!,
+        workingDirectory: effectiveConfig.workingDirectory,
+        investigationsPath: effectiveConfig.investigationsPath,
+    };
+
+    const orchestrator = new PipelineOrchestrator(pipelineDef, llmProvider, agentConfig);
+
+    // Create a lightweight runner that acts as the "anchor" for the runners map.
+    // This keeps existing infrastructure (pause, abort, history) working.
+    const runner = new AgentRunner(effectiveConfig, llmProvider, {
+        query: fullQuery,
+        ...metadata,
+    });
+    const id = (runner as any).state.id;
+    // Mark that this runner is pipeline-managed
+    (runner as any)._isPipeline = true;
+
+    runners.set(id, runner);
+    pipelineOrchestrators.set(id, orchestrator);
+    attachPipelineListeners(orchestrator, id);
+    invalidateListCache();
+
+    // Run the pipeline asynchronously
+    orchestrator.run(fullQuery, {
+        id,
+        query: fullQuery,
+        target: metadata.target,
+        timeRange: metadata.timeRange,
+        correlationId: metadata.correlationId,
+        category: metadata.category,
+        incidentId: metadata.incidentId,
+        productId: metadata.productId,
+        source: metadata.source,
+        scheduleId: metadata.scheduleId,
+        title: metadata.title,
+        createdBy: metadata.createdBy,
+    }).then(async (finalState) => {
+        // Merge pipeline state into the anchor runner's state
+        const runnerState = (runner as any).state;
+        Object.assign(runnerState, {
+            status: finalState.status,
+            thoughts: finalState.thoughts,
+            actions: finalState.actions,
+            fullHistory: finalState.fullHistory,
+            fullActions: finalState.fullActions,
+            logs: finalState.logs,
+            finalReport: finalState.finalReport,
+            recommendations: finalState.recommendations,
+            verdict: finalState.verdict,
+            pipeline: finalState.pipeline,
+            retrospect: finalState.retrospect,
+        });
+
+        // Save artifacts from the anchor runner (stage runners skip saving)
+        try { await (runner as any).saveArtifacts(); } catch (e: any) {
+            console.error(`[Pipeline] Failed to save artifacts for ${id}:`, e.message);
+        }
+
+        history.set(id, runnerState);
+        invalidateListCache();
+
+        if (runnerState.status === 'completed' || runnerState.status === 'failed' || runnerState.status === 'aborted') {
+            cleanupRunner(id);
+            console.log(`[Pipeline] Investigation ${id} finished (${runnerState.status}).`);
+        }
+    }).catch(async (err) => {
+        console.error(`[Pipeline] Investigation ${id} crashed:`, err);
+        const runnerState = (runner as any).state;
+        if (runnerState) {
+            runnerState.status = 'failed';
+            history.set(id, runnerState);
+            // Persist crash state so the investigation is recoverable from disk
+            try { await (runner as any).saveArtifacts(); } catch (_e) { /* best-effort */ }
+        }
+        cleanupRunner(id);
+        invalidateListCache();
+    });
+
+    return { id, runner };
+}
+
+/**
+ * Restart a pipeline investigation after contest.
+ * Creates a new PipelineOrchestrator from the saved pipeline definition
+ * and runs it with the contest feedback already injected in the runner state.
+ */
+function restartPipelineForContest(runner: AgentRunner, id: string): void {
+    const state = (runner as any).state as InvestigationState;
+    const pipelineDef = state.pipeline!.definition!;
+
+    const effectiveCfg = getEffectiveConfig(state);
+    const agentConfig: import('./agent/Runner').AgentConfig = {
+        systemPromptPath: effectiveCfg.systemPromptPath,
+        retrospectPromptPath: effectiveCfg.retrospectPromptPath,
+        knowledgeBasePath: effectiveCfg.knowledgeBasePath,
+        repoRoot: effectiveCfg.repoRoot,
+        mcpServers: effectiveCfg.mcpServers,
+        maxSteps: effectiveCfg.maxSteps,
+        model: state.model!,
+        workingDirectory: effectiveCfg.workingDirectory,
+        investigationsPath: effectiveCfg.investigationsPath,
+    };
+
+    const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig);
+    (runner as any)._isPipeline = true;
+    pipelineOrchestrators.set(id, orchestrator);
+    attachPipelineListeners(orchestrator, id);
+
+    const query = state.query!;
+    orchestrator.run(query, {
+        id,
+        query,
+        target: state.target,
+        timeRange: state.timeRange,
+        correlationId: state.correlationId,
+        category: state.category,
+        incidentId: state.incidentId,
+        productId: state.productId,
+        source: state.source,
+        scheduleId: state.scheduleId,
+        title: state.title,
+        createdBy: state.createdBy,
+        contestCount: state.contestCount,
+    }).then(async (finalState) => {
+        const runnerState = (runner as any).state;
+        Object.assign(runnerState, {
+            status: finalState.status,
+            thoughts: finalState.thoughts,
+            actions: finalState.actions,
+            fullHistory: finalState.fullHistory,
+            fullActions: finalState.fullActions,
+            logs: finalState.logs,
+            finalReport: finalState.finalReport,
+            recommendations: finalState.recommendations,
+            verdict: finalState.verdict,
+            pipeline: finalState.pipeline,
+            retrospect: finalState.retrospect,
+        });
+
+        try { await (runner as any).saveArtifacts(); } catch (e: any) {
+            console.error(`[Pipeline] Failed to save artifacts for ${id}:`, e.message);
+        }
+
+        history.set(id, runnerState);
+        invalidateListCache();
+
+        if (['completed', 'failed', 'aborted'].includes(runnerState.status)) {
+            cleanupRunner(id);
+            console.log(`[Pipeline] Contest re-run ${id} finished (${runnerState.status}).`);
+        }
+    }).catch(async (err) => {
+        console.error(`[Pipeline] Contest re-run ${id} crashed:`, err);
+        const runnerState = (runner as any).state;
+        if (runnerState) {
+            runnerState.status = 'failed';
+            history.set(id, runnerState);
+            try { await (runner as any).saveArtifacts(); } catch (_e) { /* best-effort */ }
+        }
+        cleanupRunner(id);
+        invalidateListCache();
+    });
 }
 
 app.post('/api/investigations', async (req, res) => {
@@ -2155,6 +2466,11 @@ app.get('/api/investigations/:id', (req, res) => {
     lightweightState.fullHistory = undefined;
     lightweightState.fullActions = undefined;
 
+    // Inject live pipeline state from orchestrator if active
+    if (!lightweightState.pipeline && pipelineOrchestrators.has(id)) {
+        lightweightState.pipeline = pipelineOrchestrators.get(id)!.getPipelineState();
+    }
+
     res.json(lightweightState);
 });
 
@@ -2285,18 +2601,23 @@ app.post('/api/investigations/:id/action', async (req, res) => {
 
             runner.contestReport(message);
 
-            // Restart execution loop with the original query
-            const query = state.query || 'Resume investigation';
-            runner.start(query).then(() => {
-                history.set(id, (runner as any).state);
-            }).catch(err => {
-                console.error(`Runner ${id} failed after contest:`, err);
-            }).finally(() => {
-                history.set(id, (runner as any).state);
-                cleanupRunner(id);
-            });
-
-            runner.log(`Investigation ${id} contested and resumed from disk...`);
+            // If this was a pipeline investigation, restart the full pipeline
+            if ((state.pipeline?.definition?.stages?.length ?? 0) > 1) {
+                restartPipelineForContest(runner, id);
+                runner.log(`Investigation ${id} contested and pipeline restarted from disk...`);
+            } else {
+                // Restart execution loop with the original query
+                const query = state.query || 'Resume investigation';
+                runner.start(query).then(() => {
+                    history.set(id, (runner as any).state);
+                }).catch(err => {
+                    console.error(`Runner ${id} failed after contest:`, err);
+                }).finally(() => {
+                    history.set(id, (runner as any).state);
+                    cleanupRunner(id);
+                });
+                runner.log(`Investigation ${id} contested and resumed from disk...`);
+            }
             return res.json({ status: 'ok' });
         } else {
             return res.status(400).json({ error: 'Runner not active. Use resume to restart.' });
@@ -2326,25 +2647,31 @@ app.post('/api/investigations/:id/action', async (req, res) => {
         try {
             runner.contestReport(message);
 
-            // Restart the execution loop — the previous loop has already exited
-            // after the 'finish' tool's break. Without this, the investigation
-            // would be stuck in 'running' status with no active loop.
-            const query = (runner as any).state.query || 'Resume investigation';
-            runner.start(query).then(() => {
-                history.set(id, (runner as any).state);
-                const finalStatus = (runner as any).state.status;
-                if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'aborted') {
+            const st = (runner as any).state as InvestigationState;
+            // If this was a pipeline investigation, restart the full pipeline
+            if (st.pipeline?.definition?.stages?.length && st.pipeline.definition.stages.length > 1) {
+                restartPipelineForContest(runner, id);
+                runner.log(`Investigation ${id} contested and pipeline restarted...`);
+            } else {
+                // Restart the execution loop — the previous loop has already exited
+                // after the 'finish' tool's break. Without this, the investigation
+                // would be stuck in 'running' status with no active loop.
+                const query = st.query || 'Resume investigation';
+                runner.start(query).then(() => {
+                    history.set(id, (runner as any).state);
+                    const finalStatus = (runner as any).state.status;
+                    if (finalStatus === 'completed' || finalStatus === 'failed' || finalStatus === 'aborted') {
+                        cleanupRunner(id);
+                    }
+                }).catch(err => {
+                    console.error(`Runner ${id} failed after contest:`, err);
+                    history.set(id, (runner as any).state);
                     cleanupRunner(id);
-                }
-            }).catch(err => {
-                console.error(`Runner ${id} failed after contest:`, err);
-                history.set(id, (runner as any).state);
-                cleanupRunner(id);
-            }).finally(() => {
-                invalidateListCache();
-            });
-
-            runner.log(`Investigation ${id} contested and resumed...`);
+                }).finally(() => {
+                    invalidateListCache();
+                });
+                runner.log(`Investigation ${id} contested and resumed...`);
+            }
         } catch (e: any) {
             return res.status(400).json({ error: e.message });
         }
@@ -4167,6 +4494,7 @@ export const __testUtils = {
     getQueryBankStore: () => queryBankStore,
     getHistory: () => history,
     getRunners: () => runners,
+    getPipelineOrchestrators: () => pipelineOrchestrators,
     setListCacheDirtyAt: (value: number) => {
         listCacheDirtyAt = value;
     },

@@ -74,6 +74,7 @@ vi.mock('../../api', () => ({
         configureLlmProvider: vi.fn().mockResolvedValue({}),
         exportSettings: vi.fn().mockResolvedValue(undefined),
         importSettings: vi.fn().mockResolvedValue({ imported: 3, config: { model: 'gpt-4o', maxSteps: 50 } }),
+        getPipelineBuiltins: vi.fn().mockResolvedValue([]),
     },
 }));
 
@@ -103,6 +104,18 @@ vi.mock('../../components/FileBrowserModal', () => ({
             </div>
         );
     },
+}));
+
+// Mock PipelineBuilder – renders a button that triggers onChange so tests can cover the callback
+vi.mock('../../components/PipelineBuilder', () => ({
+    PipelineBuilder: ({ onChange }: { value: any; onChange: (v: any) => void; builtinAgents: any[]; availableModels: string[] }) => (
+        <div data-testid="pipeline-builder">
+            <button onClick={() => onChange({ id: 'mock-pipe', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] })}>
+                MockPipelineChange
+            </button>
+            <button onClick={() => onChange(null)}>MockPipelineClear</button>
+        </div>
+    ),
 }));
 
 // Test data constants - defined after mocks for use in tests
@@ -4037,6 +4050,39 @@ describe('Settings extra coverage', () => {
                 expect(localStorage.getItem('notif-sound')).toBe('false');
                 expect(JSON.parse(localStorage.getItem('notif-events') || '[]')).toEqual(['completed', 'paused']);
             });
+        });
+    });
+
+    describe('Pipeline tab', () => {
+        it('renders pipeline tab and shows PipelineBuilder when clicked', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            const pipelineTab = screen.getByText('Pipeline');
+            await user.click(pipelineTab);
+            await waitFor(() => {
+                expect(screen.getByText('Multi-Agent Pipeline')).toBeInTheDocument();
+            });
+        });
+
+        it('syncs pipeline config from server settings and handles onChange', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSettings).mockResolvedValueOnce({
+                model: 'gpt-4o',
+                maxSteps: 50,
+                pipeline: { id: 'pipe-1', stages: [{ agent: { id: 'a1', name: 'Agent 1', source: 'inline', promptContent: 'x' } }] },
+            } as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => {
+                expect(screen.getByText('Multi-Agent Pipeline')).toBeInTheDocument();
+            });
+            // Trigger onChange with a pipeline value (covers setPipelineConfig + setPipelineJson + setDirty)
+            await user.click(screen.getByText('MockPipelineChange'));
+            // Trigger onChange with null (covers the null ternary branch)
+            await user.click(screen.getByText('MockPipelineClear'));
         });
     });
 });

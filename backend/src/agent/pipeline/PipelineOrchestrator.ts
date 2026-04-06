@@ -1,0 +1,581 @@
+import { EventEmitter } from 'events';
+import * as fs from 'fs';
+import * as path from 'path';
+import { AgentDefinition, ConversationEntry } from './AgentDefinition';
+import {
+    PipelineDefinition,
+    PipelineStage,
+    resolveStageAgent,
+    resolveRejectTarget,
+    getEffectiveMaxRetries,
+    validatePipeline,
+} from './PipelineDefinition';
+import { getBuiltinAgent, getPaletteEntry } from './builtinAgents';
+import { AgentRunner, AgentConfig, InvestigationState, PipelineState, PipelineStageState, StageContext } from '../Runner';
+import { LlmProvider } from '../llm/LlmProvider';
+
+/**
+ * Orchestrates a multi-agent investigation pipeline.
+ *
+ * Sequences agents through an ordered pipeline, maintaining a shared conversation
+ * log that each agent can read. Handles rejection loops, stage timeouts, and
+ * event forwarding to WebSocket clients.
+ *
+ * Usage:
+ *   const orchestrator = new PipelineOrchestrator(pipeline, llmProvider, baseConfig);
+ *   orchestrator.on('thought', ...);
+ *   orchestrator.on('stage-start', ...);
+ *   const state = await orchestrator.run(query, metadata);
+ */
+export class PipelineOrchestrator extends EventEmitter {
+    private pipeline: PipelineDefinition;
+    private llmProvider: LlmProvider;
+    private baseConfig: AgentConfig;
+    private conversationLog: ConversationEntry[] = [];
+    private pipelineState: PipelineState;
+    private aborted: boolean = false;
+    private currentRunner: AgentRunner | null = null;
+
+    constructor(
+        pipeline: PipelineDefinition,
+        llmProvider: LlmProvider,
+        baseConfig: AgentConfig
+    ) {
+        super();
+        validatePipeline(pipeline);
+
+        this.pipeline = pipeline;
+        this.llmProvider = llmProvider;
+        this.baseConfig = baseConfig;
+
+        // Initialize pipeline state
+        this.pipelineState = {
+            stages: pipeline.stages.map((stage, index) => {
+                const agent = this.resolveAgent(stage, index);
+                return {
+                    agentId: agent.id,
+                    agentName: agent.name,
+                    color: agent.color!,
+                    icon: agent.icon!,
+                    status: 'pending' as const,
+                    retryCount: 0,
+                };
+            }),
+            currentStageIndex: 0,
+            definition: pipeline,
+            conversationLog: this.conversationLog,
+        };
+    }
+
+    /**
+     * Execute the full pipeline.
+     *
+     * Creates an AgentRunner for each stage, feeds it the conversation context,
+     * collects results, handles rejection loops, and returns the final state.
+     */
+    async run(
+        initialQuery: string,
+        initialMetadata: Partial<InvestigationState> = {}
+    ): Promise<InvestigationState> {
+        let currentState: InvestigationState = {
+            id: Date.now().toString(),
+            status: 'running',
+            thoughts: [],
+            actions: [],
+            logs: [],
+            fullHistory: [],
+            fullActions: [],
+            totalPausedTime: 0,
+            pipeline: this.pipelineState,
+            ...initialMetadata,
+        };
+
+        let stageIndex = 0;
+
+        while (stageIndex < this.pipeline.stages.length && !this.aborted) {
+            const stage = this.pipeline.stages[stageIndex];
+            const stageState = this.pipelineState.stages[stageIndex];
+            const agent = this.resolveAgent(stage, stageIndex);
+
+            // Update pipeline tracking
+            this.pipelineState.currentStageIndex = stageIndex;
+            stageState.status = 'running';
+            stageState.startedAt = Date.now();
+
+            this.emit('stage-start', {
+                stageIndex,
+                agentId: agent.id,
+                agentName: agent.name,
+                agentColor: stageState.color,
+                agentIcon: stageState.icon,
+                totalStages: this.pipeline.stages.length,
+            });
+
+            // Emit handoff card data (skip for the first stage)
+            if (stageIndex > 0) {
+                const prevAgent = this.pipelineState.stages[stageIndex - 1];
+                this.addConversationEntry({
+                    agentId: 'pipeline',
+                    agentName: 'Pipeline',
+                    role: 'handoff',
+                    content: `Passing to ${agent.name}...`,
+                    timestamp: Date.now(),
+                    stageIndex,
+                    metadata: {
+                        fromAgent: prevAgent.agentName,
+                        fromColor: prevAgent.color,
+                        toAgent: agent.name,
+                        toColor: stageState.color,
+                        toIcon: stageState.icon,
+                        conversationLength: this.conversationLog.length,
+                        inputMode: stage.inputMode || 'conversation',
+                    },
+                });
+            }
+
+            try {
+                // Build the system prompt for this agent
+                const systemPrompt = this.buildAgentPrompt(agent, stage, stageIndex, currentState);
+
+                // Build config overrides for this stage
+                const stageConfig: AgentConfig = {
+                    ...this.baseConfig,
+                    mcpServers: agent.mcpServers || this.baseConfig.mcpServers,
+                };
+
+                // Create a runner for this stage
+                const runner = new AgentRunner(stageConfig, this.llmProvider, {
+                    ...currentState,
+                    status: 'running',
+                    // Reset per-stage state (keep accumulated thoughts for the timeline)
+                    finalReport: undefined,
+                });
+
+                this.currentRunner = runner;
+
+                // Set stage context
+                const stageContext: StageContext = {
+                    conversationLog: stage.inputMode === 'report-only'
+                        ? this.getReportOnlyContext()
+                        : [...this.conversationLog],
+                    stageIndex,
+                    agentId: agent.id,
+                    agentName: agent.name,
+                    agentColor: stageState.color,
+                    agentIcon: stageState.icon,
+                    systemPromptOverride: systemPrompt,
+                    modelOverride: agent.model,
+                    maxStepsOverride: agent.maxSteps,
+                };
+                runner.setStageContext(stageContext);
+
+                // Forward events from the runner (tagged with agent identity)
+                this.forwardRunnerEvents(runner, {
+                    agentId: agent.id,
+                    agentName: agent.name,
+                    agentColor: stageState.color,
+                    agentIcon: stageState.icon,
+                    stageIndex,
+                });
+
+                // Execute with timeout
+                const timeout = stage.timeout ? stage.timeout * 60_000 : undefined;
+                await this.runWithTimeout(runner, initialQuery, timeout);
+
+                // Collect results
+                const result = runner.getStageResult();
+                const runnerState = (runner as any).state as InvestigationState;
+
+                // Append this agent's key outputs to the conversation log
+                if (result.report) {
+                    this.addConversationEntry({
+                        agentId: agent.id,
+                        agentName: agent.name,
+                        agentColor: stageState.color,
+                        agentIcon: stageState.icon,
+                        role: 'report',
+                        content: result.report,
+                        timestamp: Date.now(),
+                        stageIndex,
+                    });
+                }
+
+                // Handle verdict
+                if (result.verdict) {
+                    stageState.verdict = result.verdict as any;
+                    stageState.feedback = result.feedback;
+
+                    this.addConversationEntry({
+                        agentId: agent.id,
+                        agentName: agent.name,
+                        agentColor: stageState.color,
+                        agentIcon: stageState.icon,
+                        role: 'verdict',
+                        content: `Verdict: ${result.verdict}${result.feedback ? `\n\nFeedback: ${result.feedback}` : ''}`,
+                        timestamp: Date.now(),
+                        stageIndex,
+                        metadata: { verdict: result.verdict, feedback: result.feedback },
+                    });
+                }
+
+                stageState.report = result.report;
+                stageState.completedAt = Date.now();
+
+                // Merge runner state back into current state
+                currentState = {
+                    ...currentState,
+                    thoughts: runnerState.thoughts,
+                    actions: runnerState.actions,
+                    fullHistory: runnerState.fullHistory,
+                    fullActions: runnerState.fullActions,
+                    logs: [...currentState.logs, ...runnerState.logs],
+                    finalReport: result.report || currentState.finalReport,
+                    recommendations: runnerState.recommendations || currentState.recommendations,
+                    verdict: (result.verdict as any) || currentState.verdict,
+                    pipeline: this.pipelineState,
+                };
+
+                // If this was a retrospect-type stage, bridge its results into
+                // the investigation's retrospect state so the Retrospect tab
+                // shows them directly instead of re-running analysis from scratch.
+                if (agent.builtinType === 'retrospect') {
+                    const runnerRetro = runnerState.retrospect;
+                    const proposals = runnerRetro?.proposals || [];
+                    const reportText = result.report || 'Pipeline retrospect stage completed.';
+                    const proposalSummary = proposals.length > 0
+                        ? `${proposals.length} proposed change${proposals.length === 1 ? '' : 's'} generated.`
+                        : 'No changes were proposed.';
+                    currentState.retrospect = {
+                        messages: [
+                            { role: 'user', content: '[Auto-Analysis] Pipeline retrospect stage' },
+                            { role: 'assistant', content: `${reportText}\n\n---\n\n**Analysis complete.** ${proposalSummary}` },
+                        ],
+                        proposals,
+                        analysisComplete: true,
+                        completed: true,
+                    };
+                }
+
+                // Clean up runner
+                runner.dispose();
+                this.currentRunner = null;
+
+                // Handle rejection
+                if (stage.canReject && result.verdict === 'rejected') {
+                    stageState.status = 'rejected';
+
+                    this.emit('stage-reject', {
+                        stageIndex,
+                        agentName: agent.name,
+                        verdict: result.verdict,
+                        feedback: result.feedback,
+                    });
+
+                    if (stage.onReject === 'abort') {
+                        currentState.status = 'failed';
+                        this.emit('status', { status: 'failed' });
+                        break;
+                    }
+
+                    if (stage.onReject === 'loop') {
+                        const maxRetries = getEffectiveMaxRetries(stage);
+                        if (stageState.retryCount < maxRetries) {
+                            stageState.retryCount++;
+                            const targetIndex = resolveRejectTarget(
+                                stage,
+                                stageIndex,
+                                this.pipeline.stages.length
+                            );
+
+                            // Reset stages from target to current for re-execution
+                            for (let i = targetIndex; i <= stageIndex; i++) {
+                                if (i !== stageIndex) {
+                                    this.pipelineState.stages[i].status = 'pending';
+                                }
+                            }
+
+                            // Inject rejection feedback into the conversation
+                            this.addConversationEntry({
+                                agentId: 'pipeline',
+                                agentName: 'Pipeline',
+                                role: 'handoff',
+                                content: `Rejected by ${agent.name} (retry ${stageState.retryCount}/${maxRetries}). Sending feedback to ${this.pipelineState.stages[targetIndex].agentName}.`,
+                                timestamp: Date.now(),
+                                stageIndex,
+                                metadata: {
+                                    type: 'rejection-loop',
+                                    fromAgent: agent.name,
+                                    toAgent: this.pipelineState.stages[targetIndex].agentName,
+                                    retryCount: stageState.retryCount,
+                                    maxRetries,
+                                    feedback: result.feedback,
+                                },
+                            });
+
+                            // Loop back to target stage
+                            stageIndex = targetIndex;
+                            continue;
+                        }
+                        // Max retries exceeded — treat as flag and continue
+                        this.log(`Max retries (${maxRetries}) exceeded for stage ${stageIndex}. Continuing as flag.`);
+                    }
+
+                    // For 'flag' or exhausted retries: mark and continue
+                    stageState.status = 'completed'; // completed with flag
+                } else {
+                    stageState.status = 'completed';
+                }
+
+                this.emit('stage-complete', {
+                    stageIndex,
+                    agentName: agent.name,
+                    status: stageState.status,
+                    verdict: stageState.verdict,
+                    duration: stageState.completedAt! - stageState.startedAt!,
+                });
+
+                stageIndex++;
+
+            } catch (error: any) {
+                stageState.status = 'failed';
+                stageState.completedAt = Date.now();
+                this.log(`Stage ${stageIndex} (${agent.name}) failed: ${error.message}`);
+
+                currentState.status = 'failed';
+                currentState.pipeline = this.pipelineState;
+                this.emit('stage-complete', {
+                    stageIndex,
+                    agentName: agent.name,
+                    status: 'failed',
+                    error: error.message,
+                });
+                break;
+            }
+        }
+
+        // Set final status
+        if (!this.aborted && currentState.status !== 'failed') {
+            currentState.status = 'completed';
+        }
+        if (this.aborted) {
+            currentState.status = 'aborted';
+        }
+
+        currentState.pipeline = this.pipelineState;
+        this.pipelineState.conversationLog = this.conversationLog;
+        return currentState;
+    }
+
+    /**
+     * Abort the pipeline (and current runner if active).
+     */
+    abort(): void {
+        this.aborted = true;
+        if (this.currentRunner) {
+            (this.currentRunner as any).aborted = true;
+        }
+    }
+
+    /**
+     * Get current pipeline state (for API polling).
+     */
+    getPipelineState(): PipelineState {
+        return this.pipelineState;
+    }
+
+    // ─── Private helpers ───
+
+    private resolveAgent(stage: PipelineStage, index: number): AgentDefinition {
+        const agentDef = resolveStageAgent(stage, this.pipeline);
+
+        // For builtin agents, resolve the full definition
+        if (agentDef.source === 'builtin' && agentDef.builtinType) {
+            const builtin = getBuiltinAgent(agentDef.builtinType, agentDef);
+            if (builtin) return builtin;
+        }
+
+        // Assign palette defaults if not set
+        if (!agentDef.color || !agentDef.icon) {
+            const palette = getPaletteEntry(index);
+            return {
+                ...agentDef,
+                color: agentDef.color || palette.color,
+                icon: agentDef.icon || palette.icon,
+            };
+        }
+
+        return agentDef;
+    }
+
+    /**
+     * Build the system prompt for an agent, loading from file or inline,
+     * then substituting template variables.
+     */
+    private buildAgentPrompt(
+        agent: AgentDefinition,
+        stage: PipelineStage,
+        stageIndex: number,
+        currentState: InvestigationState
+    ): string {
+        let prompt = '';
+
+        // Load prompt based on source
+        if (agent.source === 'file' && agent.promptPath) {
+            const resolvedPath = path.isAbsolute(agent.promptPath)
+                ? agent.promptPath
+                : path.join(this.baseConfig.repoRoot || '', agent.promptPath);
+            if (fs.existsSync(resolvedPath)) {
+                prompt = fs.readFileSync(resolvedPath, 'utf8');
+            } else {
+                this.log(`Warning: Agent prompt file not found: ${resolvedPath}`);
+                prompt = `You are ${agent.name}. ${agent.description || ''}`;
+            }
+        } else if (agent.source === 'inline' && agent.promptContent) {
+            prompt = agent.promptContent;
+        } else if (agent.source === 'builtin') {
+            // Builtins with a custom prompt file get it loaded and templated
+            if (agent.promptPath) {
+                const resolvedPath = path.isAbsolute(agent.promptPath)
+                    ? agent.promptPath
+                    : path.join(this.baseConfig.repoRoot || '', agent.promptPath);
+                if (fs.existsSync(resolvedPath)) {
+                    prompt = fs.readFileSync(resolvedPath, 'utf8');
+                } else {
+                    this.log(`Warning: Builtin agent prompt file not found: ${resolvedPath}`);
+                    prompt = `You are ${agent.name}. ${agent.description || ''}`;
+                }
+            } else {
+                // Builtins without a prompt file use the Runner's default loadSystemPrompt()
+                return '';
+            }
+        } else {
+            prompt = `You are ${agent.name}. ${agent.description || ''}`;
+        }
+
+        // Substitute template variables
+        const lastReport = this.getLastReport();
+        const conversationText = this.conversationLog
+            .map(e => `[${e.agentName}] (${e.role}): ${e.content}`)
+            .join('\n\n');
+        const agentNames = this.pipelineState.stages
+            .map((s, i) => `${i + 1}. ${s.agentName}${i === stageIndex ? ' (you)' : ''}`)
+            .join('\n');
+
+        prompt = prompt
+            .replace(/\{\{GOAL\}\}/g, currentState.query || '')
+            .replace(/\{\{TARGET\}\}/g, currentState.target || '')
+            .replace(/\{\{STATUS\}\}/g, currentState.status || '')
+            .replace(/\{\{CATEGORY\}\}/g, currentState.category || '')
+            .replace(/\{\{REPORT\}\}/g, lastReport || '(No report from previous agent)')
+            .replace(/\{\{CONVERSATION\}\}/g, conversationText || '(No prior conversation)')
+            .replace(/\{\{AGENT_NAME\}\}/g, agent.name)
+            .replace(/\{\{AGENT_NAMES\}\}/g, agentNames);
+
+        return prompt;
+    }
+
+    /**
+     * Get the most recent report from the conversation log.
+     */
+    private getLastReport(): string | undefined {
+        for (let i = this.conversationLog.length - 1; i >= 0; i--) {
+            if (this.conversationLog[i].role === 'report') {
+                return this.conversationLog[i].content;
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * Get a minimal conversation context (only reports) for 'report-only' input mode.
+     */
+    private getReportOnlyContext(): ConversationEntry[] {
+        return this.conversationLog.filter(e => e.role === 'report' || e.role === 'verdict');
+    }
+
+    /**
+     * Add an entry to the shared conversation log and emit it.
+     */
+    private addConversationEntry(entry: ConversationEntry): void {
+        this.conversationLog.push(entry);
+        this.emit('conversation-entry', entry);
+    }
+
+    /**
+     * Forward all events from a runner, so pipeline consumers get real-time updates.
+     * Also converts key events (thought, action) into conversation-entry events
+     * so the Pipeline tab can show live activity.
+     */
+    private forwardRunnerEvents(
+        runner: AgentRunner,
+        identity: { agentId: string; agentName: string; agentColor?: string; agentIcon?: string; stageIndex: number },
+    ): void {
+        const events = ['thought', 'action', 'log', 'status', 'progress',
+                        'retrospect', 'retrospect-proposal', 'retrospect-tool-activity'];
+        for (const event of events) {
+            runner.on(event, (data: any) => {
+                this.emit(event, data);
+            });
+        }
+
+        // Convert thought events → conversation entries for the Pipeline timeline
+        runner.on('thought', (data: any) => {
+            const content = typeof data === 'string' ? data : (data?.content ?? data?.text ?? String(data));
+            if (!content || content.startsWith('System Alert:')) return;
+            this.addConversationEntry({
+                agentId: identity.agentId,
+                agentName: identity.agentName,
+                agentColor: identity.agentColor,
+                agentIcon: identity.agentIcon,
+                role: 'thought',
+                content,
+                timestamp: Date.now(),
+                stageIndex: identity.stageIndex,
+            });
+        });
+
+        // Convert action events → conversation entries for the Pipeline timeline
+        runner.on('action', (data: any) => {
+            const content = typeof data === 'string' ? data : (data?.description || data?.tool || String(data));
+            if (!content) return;
+            this.addConversationEntry({
+                agentId: identity.agentId,
+                agentName: identity.agentName,
+                agentColor: identity.agentColor,
+                agentIcon: identity.agentIcon,
+                role: 'action',
+                content,
+                timestamp: Date.now(),
+                stageIndex: identity.stageIndex,
+            });
+        });
+    }
+
+    /**
+     * Run a runner with an optional timeout.
+     */
+    private async runWithTimeout(
+        runner: AgentRunner,
+        query: string,
+        timeoutMs?: number
+    ): Promise<void> {
+        if (!timeoutMs) {
+            await runner.start(query);
+            return;
+        }
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
+        });
+
+        await Promise.race([
+            runner.start(query),
+            timeoutPromise,
+        ]);
+    }
+
+    private log(msg: string): void {
+        console.log(`[Pipeline] ${msg}`);
+        this.emit('log', msg);
+    }
+}

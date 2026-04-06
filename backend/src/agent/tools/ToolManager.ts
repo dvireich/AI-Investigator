@@ -97,12 +97,13 @@ export class ToolManager {
             },
             {
                 name: 'finish',
-                description: 'Complete the investigation with a summary. For scheduled health checks, include a verdict.',
+                description: 'Complete the investigation with a summary. For scheduled health checks, include a verdict. In multi-agent pipelines, agents with review authority can also include a verdict and feedback.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         summary: { type: 'string', description: 'Final summary of the investigation.' },
-                        verdict: { type: 'string', enum: ['healthy', 'warning', 'critical'], description: 'Health verdict for scheduled checks.' }
+                        verdict: { type: 'string', enum: ['healthy', 'warning', 'critical', 'approved', 'rejected', 'flagged'], description: 'Health verdict for scheduled checks, or review verdict for pipeline agents.' },
+                        feedback: { type: 'string', description: 'When rejecting or flagging, explain what specifically needs to be fixed or re-examined.' }
                     },
                     required: ['summary']
                 }

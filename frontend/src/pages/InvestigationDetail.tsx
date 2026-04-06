@@ -8,6 +8,9 @@ import { ScrollToTop } from '../components/ScrollToTop';
 import { useNotification } from '../hooks/useNotification';
 import { useDocumentTitle, buildInvestigationTitle } from '../hooks/useDocumentTitle';
 import { ProgressRing } from '../components/ProgressRing';
+import { PipelineStepper } from '../components/PipelineStepper';
+import { PipelineTimeline } from '../components/PipelineTimeline';
+import type { PipelineState, ConversationEntry } from '../types/pipeline';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -523,7 +526,7 @@ export const InvestigationDetail = () => {
     const [showQueryModal, setShowQueryModal] = useState(false);
     const [actingAction, setActingAction] = useState<string | null>(null);
     const [availableModels, setAvailableModels] = useState<string[]>([]);
-    const [activeTab, setActiveTab] = useState<'live' | 'report' | 'retrospect' | 'notes'>('live');
+    const [activeTab, setActiveTab] = useState<'live' | 'report' | 'retrospect' | 'notes' | 'pipeline'>('live');
     const [isRetrospectThinking, setIsRetrospectThinking] = useState(false);
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [expandedProposal, setExpandedProposal] = useState<string | null>(null);
@@ -566,6 +569,9 @@ export const InvestigationDetail = () => {
     const [notesPreview, setNotesPreview] = useState('');
     const notesValueCache = useRef('');
     const [rephrasing, setRephrasing] = useState(false);
+    // Pipeline multi-agent state
+    const [pipelineState, setPipelineState] = useState<PipelineState | null>(null);
+    const [pipelineConversation, setPipelineConversation] = useState<ConversationEntry[]>([]);
 
     const formatButtons: { title: string; icon: typeof Bold; prefix: string; suffix: string; placeholder: string; group?: boolean }[] = [
         { title: 'Bold', icon: Bold, prefix: '**', suffix: '**', placeholder: 'bold' },
@@ -649,6 +655,14 @@ export const InvestigationDetail = () => {
             const data = await api.getInvestigation(id!);
             setInvestigation(data);
 
+            // Sync pipeline state if available
+            if (data.pipeline) {
+                setPipelineState(data.pipeline);
+                if (data.pipeline.conversationLog) {
+                    setPipelineConversation(data.pipeline.conversationLog);
+                }
+            }
+
             // Reconcile pending interventions: remove any that now appear in thoughts
             if (data.thoughts && data.thoughts.length > 0) {
                 setPendingInterventions(prev => {
@@ -677,6 +691,15 @@ export const InvestigationDetail = () => {
         api.getSettings().then((s: any) => {
             if (typeof s.maxSteps === 'number') setMaxSteps(s.maxSteps);
         }).catch(() => {});
+        // Fetch pipeline state separately (available before investigation.pipeline is populated)
+        if (id) {
+            api.getInvestigationPipeline(id).then(ps => {
+                if (ps) {
+                    setPipelineState(ps);
+                    if (ps.conversationLog) setPipelineConversation(ps.conversationLog);
+                }
+            }).catch(() => {});
+        }
     }, [id, navigate]);
 
     // Pre-load recommendations when investigation completes (already extracted by backend)
@@ -735,6 +758,16 @@ export const InvestigationDetail = () => {
                     // Clear tool activity when we get a full retrospect update (means a cycle completed)
                     if (message.type === 'retrospect') {
                         setRetroToolActivity(null);
+                    }
+                    // Pipeline events
+                    if (message.type === 'stage-start' || message.type === 'stage-complete' || message.type === 'stage-reject') {
+                        // Refresh pipeline state from server
+                        api.getInvestigationPipeline(id!).then(ps => {
+                            if (ps) setPipelineState(ps);
+                        }).catch(() => {});
+                    }
+                    if (message.type === 'conversation-entry' && message.data) {
+                        setPipelineConversation(prev => [...prev, message.data]);
                     }
                 } catch (e) {
                     console.error("WebSocket message error:", e);
@@ -1654,14 +1687,33 @@ export const InvestigationDetail = () => {
                         </div>
                     </div>
 
+                    {/* Pipeline Stepper (shown when pipeline is active) */}
+                    {pipelineState && pipelineState.stages.length > 1 && (
+                        <div className="shrink-0 w-full px-1 mt-1">
+                            <PipelineStepper
+                                stages={pipelineState.stages}
+                                currentStageIndex={pipelineState.currentStageIndex}
+                            />
+                        </div>
+                    )}
+
                     {/* Integrated Tab Bar (Below Banner) */}
                     <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-800/50 border border-slate-700/50 w-full shrink-0">
                         <button
-                            onClick={() => setActiveTab('live')}
+                            onClick={() => { setActiveTab('live'); requestAnimationFrame(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })); }}
                             className={`flex-1 px-2 sm:px-4 py-1.5 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'live' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'}`}
                         >
                             <Terminal className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Live Session</span><span className="sm:hidden">Live</span>
                         </button>
+                        {pipelineState && pipelineState.stages.length > 1 && (
+                            <button
+                                onClick={() => setActiveTab('pipeline')}
+                                className={`flex-1 px-2 sm:px-4 py-1.5 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'pipeline' ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'}`}
+                            >
+                                <Activity className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Pipeline</span><span className="sm:hidden">Pipe</span>
+                                {pipelineConversation.length > 0 && <span className="flex h-1.5 w-1.5 rounded-full bg-cyan-500 ml-1.5"></span>}
+                            </button>
+                        )}
                         <button
                             onClick={() => setActiveTab('report')}
                             disabled={!investigation.finalReport}
@@ -1804,6 +1856,13 @@ export const InvestigationDetail = () => {
                                 <InterventionInput onSend={handleIntervention} status={investigation.status} />
                             </div>
                         </div>
+
+                        {/* VIEW: Pipeline Timeline (multi-agent conversation) */}
+                        {pipelineState && pipelineState.stages.length > 1 && (
+                            <div className={`absolute inset-0 flex flex-col bg-slate-900 ${activeTab === 'pipeline' ? 'z-10' : 'invisible -z-10 pointer-events-none'}`}>
+                                <PipelineTimeline conversationLog={pipelineConversation} isActive={activeTab === 'pipeline'} />
+                            </div>
+                        )}
 
                         {/* VIEW 2: Final Report */}
                         <div className={`absolute inset-0 z-20 flex flex-col ${activeTab === 'report' ? 'z-20' : 'hidden'}`}>

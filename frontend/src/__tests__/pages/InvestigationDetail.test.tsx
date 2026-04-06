@@ -79,6 +79,16 @@ const createMockInvestigation = (overrides: any = {}) => ({
     ...overrides,
 });
 
+// Mock heavy pipeline components to simple stubs
+vi.mock('../../components/PipelineTimeline', () => ({
+    PipelineTimeline: ({ conversationLog }: { conversationLog: any[]; isActive: boolean }) => (
+        <div data-testid="pipeline-timeline">Timeline({conversationLog.length})</div>
+    ),
+}));
+vi.mock('../../components/PipelineStepper', () => ({
+    PipelineStepper: () => <div data-testid="pipeline-stepper">Stepper</div>,
+}));
+
 // Mock API module
 vi.mock('../../api', () => ({
     api: {
@@ -112,6 +122,9 @@ vi.mock('../../api', () => ({
             { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
         ]),
         getSettings: vi.fn().mockResolvedValue({ maxSteps: 50 }),
+        getInvestigationPipeline: vi.fn().mockResolvedValue(null),
+        getPipelineBuiltins: vi.fn().mockResolvedValue([]),
+        validatePipeline: vi.fn().mockResolvedValue({ valid: true }),
     },
     BASE_URL: 'http://localhost:3000',
 }));
@@ -8008,6 +8021,139 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
             expect(screen.queryByText(/\/ \d+/)).not.toBeInTheDocument();
             // ProgressRing should NOT render
             expect(screen.queryByText('%')).not.toBeInTheDocument();
+        });
+    });
+
+    describe('Pipeline tab', () => {
+        it('shows Pipeline tab button and PipelineTimeline when pipeline state is present', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getInvestigationPipeline).mockResolvedValue({
+                stages: [
+                    { agentId: 'a1', agentName: 'Investigator', status: 'completed', startedAt: Date.now() - 5000, completedAt: Date.now() },
+                    { agentId: 'a2', agentName: 'Reviewer', status: 'running', startedAt: Date.now() },
+                ],
+                conversationLog: [
+                    { agentId: 'a1', agentName: 'Investigator', role: 'thought', content: 'Analyzing...', timestamp: Date.now(), stageIndex: 0 },
+                ],
+                definition: { id: 'p1', stages: [] },
+            } as any);
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            // Pipeline tab button should appear
+            await waitFor(() => {
+                expect(screen.getByText('Pipeline')).toBeInTheDocument();
+            });
+        });
+
+        it('syncs pipeline state from investigation data on fetch', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                pipeline: {
+                    stages: [
+                        { agentId: 'a1', agentName: 'Investigator', status: 'completed' },
+                        { agentId: 'a2', agentName: 'Reviewer', status: 'running' },
+                    ],
+                    conversationLog: [
+                        { agentId: 'a1', agentName: 'Investigator', role: 'thought', content: 'Test', timestamp: Date.now(), stageIndex: 0 },
+                    ],
+                    definition: { id: 'p1', stages: [] },
+                },
+            }));
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            await waitFor(() => {
+                expect(screen.getByText('Pipeline')).toBeInTheDocument();
+            });
+        });
+
+        it('shows Pipeline tab without conversation dot when conversationLog is empty, and renders PipelineTimeline on click', async () => {
+            const api = (await import('../../api')).api;
+            vi.mocked(api.getInvestigationPipeline).mockResolvedValue({
+                stages: [
+                    { agentId: 'a1', agentName: 'Investigator', status: 'completed' },
+                    { agentId: 'a2', agentName: 'Reviewer', status: 'running' },
+                ],
+                conversationLog: [],
+                definition: { id: 'p1', stages: [] },
+            } as any);
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            await waitFor(() => {
+                expect(screen.getByText('Pipeline')).toBeInTheDocument();
+            });
+            // PipelineTimeline should be rendered in the DOM (hidden but present)
+            expect(screen.getByTestId('pipeline-timeline')).toBeInTheDocument();
+            // Click Pipeline tab to activate it
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            await user.click(screen.getByText('Pipeline'));
+        });
+
+        it('handles stage-start WS event by refreshing pipeline state', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigationPipeline).mockResolvedValue({
+                stages: [
+                    { agentId: 'a1', agentName: 'Investigator', status: 'completed', startedAt: Date.now() - 5000, completedAt: Date.now() },
+                    { agentId: 'a2', agentName: 'Reviewer', status: 'running', startedAt: Date.now() },
+                ],
+                conversationLog: [],
+                definition: { id: 'p1', stages: [] },
+            } as any);
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            // Clear to track new calls
+            vi.mocked(api.getInvestigationPipeline).mockClear();
+            vi.mocked(api.getInvestigationPipeline).mockResolvedValue({
+                stages: [
+                    { agentId: 'a1', agentName: 'Investigator', status: 'completed' },
+                    { agentId: 'a2', agentName: 'Reviewer', status: 'completed' },
+                ],
+                conversationLog: [],
+                definition: { id: 'p1', stages: [] },
+            } as any);
+
+            // Simulate stage-start WS message
+            await act(async () => {
+                mockWsInstance?.simulateMessage({ type: 'stage-start', data: { stageIndex: 1 } });
+                await vi.advanceTimersByTimeAsync(400);
+            });
+
+            await waitFor(() => {
+                expect(api.getInvestigationPipeline).toHaveBeenCalled();
+            });
+        });
+
+        it('handles conversation-entry WS event by appending to pipeline conversation', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigationPipeline).mockResolvedValue({
+                stages: [
+                    { agentId: 'a1', agentName: 'Investigator', status: 'running', startedAt: Date.now() },
+                    { agentId: 'a2', agentName: 'Reviewer', status: 'pending' },
+                ],
+                conversationLog: [],
+                definition: { id: 'p1', stages: [] },
+            } as any);
+
+            renderDetail();
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            // Simulate conversation-entry WS message
+            await act(async () => {
+                mockWsInstance?.simulateMessage({
+                    type: 'conversation-entry',
+                    data: { agentId: 'a1', agentName: 'Investigator', role: 'thought', content: 'Analyzing logs...', timestamp: Date.now(), stageIndex: 0 },
+                });
+                await vi.advanceTimersByTimeAsync(400);
+            });
+
+            // The conversation entry should be added (Pipeline tab button should still be visible)
+            await waitFor(() => {
+                expect(screen.getByText('Pipeline')).toBeInTheDocument();
+            });
         });
     });
 

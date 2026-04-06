@@ -1395,4 +1395,56 @@ describe('api', () => {
             await expect(api.implementRecommendations('inv1', ['rec_P0_0'])).rejects.toThrow('Implementation failed');
         });
     });
+
+    describe('getPipelineBuiltins', () => {
+        it('returns builtin agents', async () => {
+            const builtins = [{ id: 'investigator', name: 'Investigator' }];
+            mockFetch.mockResolvedValue(mockResponse(builtins));
+            const result = await api.getPipelineBuiltins();
+            expect(result).toEqual(builtins);
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue(mockResponse(null, { status: 500 }));
+            await expect(api.getPipelineBuiltins()).rejects.toThrow('Failed to fetch pipeline builtins');
+        });
+    });
+
+    describe('getInvestigationPipeline', () => {
+        it('returns pipeline state', async () => {
+            const pipelineState = { stages: [], conversationLog: [] };
+            mockFetch.mockResolvedValue(mockResponse(pipelineState));
+            const result = await api.getInvestigationPipeline('inv1');
+            expect(result).toEqual(pipelineState);
+        });
+
+        it('returns null on 404', async () => {
+            mockFetch.mockResolvedValue(mockResponse(null, { status: 404 }));
+            const result = await api.getInvestigationPipeline('inv1');
+            expect(result).toBeNull();
+        });
+
+        it('throws on other errors', async () => {
+            mockFetch.mockResolvedValue(mockResponse(null, { status: 500 }));
+            await expect(api.getInvestigationPipeline('inv1')).rejects.toThrow('Failed to fetch pipeline state');
+        });
+    });
+
+    describe('validatePipeline', () => {
+        it('returns validation result', async () => {
+            const validation = { valid: true };
+            mockFetch.mockResolvedValue(mockResponse(validation));
+            const result = await api.validatePipeline({ id: 'p1', stages: [] } as any);
+            expect(result).toEqual(validation);
+            expect(mockFetch).toHaveBeenCalledWith(
+                expect.stringContaining('/pipeline/validate'),
+                expect.objectContaining({ method: 'POST' }),
+            );
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue(mockResponse(null, { status: 500 }));
+            await expect(api.validatePipeline({ id: 'p1', stages: [] } as any)).rejects.toThrow('Failed to validate pipeline');
+        });
+    });
 });

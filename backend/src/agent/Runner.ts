@@ -5,6 +5,8 @@ import * as path from 'path';
 import { ToolManager } from './tools/ToolManager';
 import { McpServerConfig } from './tools/McpToolBridge';
 import { LlmProvider } from './llm/LlmProvider';
+import { ConversationEntry } from './pipeline/AgentDefinition';
+import { PipelineDefinition } from './pipeline/PipelineDefinition';
 import OpenAI from 'openai';
 
 export interface AgentConfig {
@@ -91,6 +93,64 @@ export interface InvestigationState {
     implementationRunning?: boolean;
     // Free-form user notes
     userNotes?: string;
+    // Multi-agent pipeline state
+    pipeline?: PipelineState;
+}
+
+/** Tracks the state of a multi-agent pipeline execution. */
+export interface PipelineState {
+    /** Per-stage status tracking. */
+    stages: PipelineStageState[];
+    /** Index of the currently executing stage (0-based). */
+    currentStageIndex: number;
+    /** Snapshot of the pipeline config used (frozen at investigation start). */
+    definition: PipelineDefinition;
+    /** Shared multi-agent conversation log — all agents' messages interleaved. */
+    conversationLog: ConversationEntry[];
+}
+
+/** Tracks the state of a single pipeline stage. */
+export interface PipelineStageState {
+    agentId: string;
+    agentName: string;
+    color?: string;
+    icon?: string;
+    status: 'pending' | 'running' | 'completed' | 'rejected' | 'skipped' | 'failed';
+    /** Set when the agent produces a verdict (only meaningful when stage has canReject: true). */
+    verdict?: 'approved' | 'rejected' | 'flagged';
+    /** Rejection/flag explanation from the agent. */
+    feedback?: string;
+    /** This stage's output report. */
+    report?: string;
+    /** How many times this stage has been re-run due to rejection loops. */
+    retryCount: number;
+    startedAt?: number;
+    completedAt?: number;
+}
+
+/**
+ * Context provided by the PipelineOrchestrator when running an agent as a pipeline stage.
+ * Contains the shared conversation history and stage metadata.
+ */
+export interface StageContext {
+    /** Full multi-agent conversation log from all prior stages. */
+    conversationLog: ConversationEntry[];
+    /** This agent's stage index within the pipeline. */
+    stageIndex: number;
+    /** This agent's ID (used to tag emitted events). */
+    agentId: string;
+    /** This agent's display name (used to tag emitted events). */
+    agentName: string;
+    /** This agent's color (for UI). */
+    agentColor?: string;
+    /** This agent's icon (for UI). */
+    agentIcon?: string;
+    /** Override system prompt (loaded from agent definition). Overrides config.systemPromptPath. */
+    systemPromptOverride?: string;
+    /** Override model for this stage. */
+    modelOverride?: string;
+    /** Override maxSteps for this stage. */
+    maxStepsOverride?: number;
 }
 
 export class AgentRunner extends EventEmitter {
@@ -102,6 +162,8 @@ export class AgentRunner extends EventEmitter {
     private pendingInterventions: any[] = [];
     private llmProvider: LlmProvider;
     private openaiClient: OpenAI | null = null;
+    /** When running as a pipeline stage, carries context from the orchestrator. */
+    private stageContext?: StageContext;
     // Tracks how many entries from `thoughts` have been archived into `fullHistory`.
     // This allows us to sync incrementally without duplicating entries.
     private fullHistorySyncCursor: number = 0;
@@ -130,6 +192,14 @@ export class AgentRunner extends EventEmitter {
         if (!this.state.fullActions) this.state.fullActions = [...this.state.actions];
         // Initialize sync cursor: if rehydrating, fullHistory is already populated
         this.fullHistorySyncCursor = this.state.thoughts.length;
+    }
+
+    /**
+     * Configure this runner to execute as a pipeline stage.
+     * Called by PipelineOrchestrator before `start()`.
+     */
+    setStageContext(ctx: StageContext): void {
+        this.stageContext = ctx;
     }
 
     /**
@@ -222,6 +292,14 @@ export class AgentRunner extends EventEmitter {
         // Load System Prompt & Inject Metadata
         let systemPrompt = this.loadSystemPrompt();
 
+        // Pipeline stage: inject prior agents' conversation into the prompt
+        if (this.stageContext && this.stageContext.conversationLog.length > 0) {
+            const conversationText = this.stageContext.conversationLog
+                .map(e => `[${e.agentName}] (${e.role}): ${e.content}`)
+                .join('\n\n');
+            systemPrompt += `\n\n## Prior Agent Conversation\nThe following is the conversation from previous agents in this pipeline:\n\n${conversationText}`;
+        }
+
         // Context Injection
         const contextParts = [];
         if (this.state.timeRange) contextParts.push(`Target Time Range: ${this.state.timeRange}`);
@@ -256,10 +334,12 @@ export class AgentRunner extends EventEmitter {
 
         // Main Loop
         let stepCount = 0;
+        // Stage context can override maxSteps
+        const configMaxSteps = this.stageContext?.maxStepsOverride ?? this.config.maxSteps;
         // Treat 0 as no limit (Infinity), undefined defaults to 50
-        const maxSteps = (this.config.maxSteps !== undefined && this.config.maxSteps === 0)
+        const maxSteps = (configMaxSteps !== undefined && configMaxSteps === 0)
             ? Infinity
-            : (this.config.maxSteps || 50);
+            : (configMaxSteps || 50);
         let consecutiveThoughts = 0;
         let consecutiveLLMErrors = 0;
         const maxConsecutiveErrors = 3;
@@ -299,7 +379,7 @@ export class AgentRunner extends EventEmitter {
 
                 if (step.thought) {
                     this.state.thoughts.push(step.thought);
-                    this.emit('thought', step.thought);
+                    this.emit('thought', this.tagEvent(step.thought));
                     console.log(`[Agent] Thought: ${JSON.stringify(step.thought)}`); // Log without pushing to thoughts again
                 }
 
@@ -371,7 +451,7 @@ export class AgentRunner extends EventEmitter {
                     consecutiveThoughts = 0;
 
                     this.state.actions.push(step.action);
-                    this.emit('action', step.action);
+                    this.emit('action', this.tagEvent(step.action));
 
                     // Check for finish tool
                     if (step.action.tool === 'finish') {
@@ -1938,6 +2018,10 @@ ${recsText}
     }
 
     private async saveArtifacts() {
+        // Skip saving when this runner is a pipeline stage — the orchestrator
+        // controls artifact saving via the anchor runner at pipeline completion.
+        if (this.stageContext) return;
+
         // Sync fullHistory before persisting so the saved state has the complete record
         this.syncFullHistory();
 
@@ -2139,6 +2223,21 @@ ${recsText}
         // Reset retrospective (it analyzed a now-rejected report)
         this.state.retrospect = { messages: [], proposals: [], analysisComplete: false, completed: false };
 
+        // Reset pipeline stage states so the stepper shows fresh progress
+        if (this.state.pipeline?.stages) {
+            for (const stage of this.state.pipeline.stages) {
+                stage.status = 'pending';
+                stage.verdict = undefined;
+                stage.feedback = undefined;
+                stage.report = undefined;
+                stage.retryCount = 0;
+                stage.startedAt = undefined;
+                stage.completedAt = undefined;
+            }
+            this.state.pipeline.currentStageIndex = 0;
+            this.state.pipeline.conversationLog = [];
+        }
+
         // Transition back to running
         this.paused = false;
         this.aborted = false;
@@ -2260,10 +2359,64 @@ ${recsText}
     }
 
     private loadSystemPrompt(): string {
+        // Pipeline stage override takes priority
+        if (this.stageContext?.systemPromptOverride) {
+            return this.stageContext.systemPromptOverride;
+        }
         if (fs.existsSync(this.config.systemPromptPath)) {
             return fs.readFileSync(this.config.systemPromptPath, 'utf8');
         }
         return "You are a helpful assistant.";
+    }
+
+    /**
+     * Tag an emitted event with pipeline agent identity (if running as a stage).
+     * Returns the original data augmented with agentId/agentName/agentColor/agentIcon.
+     * When not in pipeline mode, returns the data unchanged.
+     */
+    private tagEvent(data: any): any {
+        if (!this.stageContext) return data;
+        const tag = {
+            agentId: this.stageContext.agentId,
+            agentName: this.stageContext.agentName,
+            agentColor: this.stageContext.agentColor,
+            agentIcon: this.stageContext.agentIcon,
+            stageIndex: this.stageContext.stageIndex,
+        };
+        if (typeof data === 'string') {
+            return { content: data, ...tag };
+        }
+        if (typeof data === 'object' && data !== null) {
+            return { ...data, ...tag };
+        }
+        return data;
+    }
+
+    /**
+     * Get the pipeline-relevant result from this agent's execution.
+     * Used by PipelineOrchestrator to extract verdict/feedback/report after the agent finishes.
+     */
+    getStageResult(): { report?: string; verdict?: string; feedback?: string } {
+        // The finish tool may have set verdict on state (health check style)
+        // or the args may include pipeline-style verdict/feedback
+        const lastFinishAction = this.state.actions.find(
+            (a: any) => a && a.tool === 'finish'
+        );
+
+        // Only use this.state.verdict as fallback if it's a valid pipeline verdict
+        // (approved/rejected/flagged). Health-check verdicts (healthy/warning/critical/etc.)
+        // must NOT leak into pipeline stage verdicts.
+        const PIPELINE_VERDICTS = new Set(['approved', 'rejected', 'flagged']);
+        const explicitVerdict = lastFinishAction?.args?.verdict;
+        const fallbackVerdict = PIPELINE_VERDICTS.has(this.state.verdict as string)
+            ? this.state.verdict
+            : undefined;
+
+        return {
+            report: this.state.finalReport,
+            verdict: explicitVerdict || fallbackVerdict,
+            feedback: lastFinishAction?.args?.feedback,
+        };
     }
 
     public log(msg: string) {
