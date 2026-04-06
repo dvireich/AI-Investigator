@@ -49,6 +49,7 @@ for (const inv of [invRunning, invPaused, invLiveSession, invCompleted, invConte
 // ---------------------------------------------------------------------------
 let currentInvestigations = investigationsIndex.investigations;
 let overrideDetail = {};    // id → fixture override for GET /api/investigations/:id
+let overrideSettings = null; // runtime override for GET /api/settings
 let authStatus = { authenticated: true, username: 'user@microsoft.com' };
 let onboardingComplete = true;
 
@@ -229,7 +230,7 @@ app.post('/api/auth/login', (_req, res) => {
 // ---- Settings ----
 
 app.get('/api/settings', (_req, res) => {
-    res.json(settingsData.settings);
+    res.json(overrideSettings || settingsData.settings);
 });
 
 app.post('/api/settings', (req, res) => {
@@ -288,6 +289,62 @@ app.post('/api/products/discover', (req, res) => {
 
 app.post('/api/products/clone', (req, res) => {
     res.json({ id: 'cloned-product', ...req.body });
+});
+
+// ---- Pipeline ----
+
+app.get('/api/pipeline/builtins', (_req, res) => {
+    res.json([
+        {
+            id: 'builtin-investigator',
+            name: 'Investigator',
+            description: 'Runs the main investigation loop with full tool access. Queries data sources, analyzes results, and produces a findings report.',
+            source: 'builtin',
+            builtinType: 'investigator',
+            color: '#10b981',
+            icon: '🤖',
+        },
+        {
+            id: 'builtin-validator',
+            name: 'Validator',
+            description: 'Reviews investigation findings for accuracy, completeness, and evidence. Can approve, reject, or flag results.',
+            source: 'builtin',
+            builtinType: 'validator',
+            color: '#f59e0b',
+            icon: '🛡️',
+        },
+        {
+            id: 'builtin-retrospect',
+            name: 'Retrospect',
+            description: 'Analyzes the completed investigation against the knowledge base and proposes file changes to improve future investigations.',
+            source: 'builtin',
+            builtinType: 'retrospect',
+            color: '#8b5cf6',
+            icon: '✨',
+        },
+        {
+            id: 'builtin-proposer',
+            name: 'Proposer',
+            description: 'Reads investigation findings and proposes code changes for recommendations. Does not apply changes — only creates proposals for review.',
+            source: 'builtin',
+            builtinType: 'implementation',
+            color: '#6366f1',
+            icon: '🔧',
+        },
+    ]);
+});
+
+app.post('/api/pipeline/validate', (req, res) => {
+    res.json({ valid: true, errors: [] });
+});
+
+app.get('/api/investigations/:id/pipeline', (req, res) => {
+    const { id } = req.params;
+    const inv = overrideDetail[id]
+        || detailedInvestigations[id]
+        || currentInvestigations.find(i => i.id === id);
+    if (inv && inv.pipeline) return res.json(inv.pipeline);
+    res.json(null);
 });
 
 // ---- Retrospect ----
@@ -604,9 +661,15 @@ app.post('/__control/set-onboarding', (req, res) => {
     res.json({ ok: true });
 });
 
+app.post('/__control/set-settings-override', (req, res) => {
+    overrideSettings = req.body.settings || null;
+    res.json({ ok: true });
+});
+
 app.post('/__control/reset', (_req, res) => {
     currentInvestigations = investigationsIndex.investigations;
     overrideDetail = {};
+    overrideSettings = null;
     authStatus = { authenticated: true, username: 'user@microsoft.com' };
     onboardingComplete = true;
     analyzeHang = false;

@@ -73,6 +73,87 @@
       "result": "| NodeName | Partitions |\n|----------|------------|\n| _Node_3  | 12         |\n| _Node_5  | 10         |\n| _Node_1  | 8          |\n| _Node_2  | 6          |\n| _Node_4  | 6          |\n| _Node_6  | 6          |\n| _Node_7  | 0          |\n| _Node_8  | 0          |"
     }
   ],
+  "pipeline": {
+    "stages": [
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "color": "#10b981",
+        "icon": "🤖",
+        "status": "running",
+        "retryCount": 0,
+        "startedAt": 1749810000000
+      },
+      {
+        "agentId": "builtin-validator",
+        "agentName": "Validator",
+        "color": "#f59e0b",
+        "icon": "🛡️",
+        "status": "pending",
+        "retryCount": 0
+      },
+      {
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "color": "#6366f1",
+        "icon": "🔧",
+        "status": "pending",
+        "retryCount": 0
+      },
+      {
+        "agentId": "builtin-retrospect",
+        "agentName": "Retrospect",
+        "color": "#8b5cf6",
+        "icon": "✨",
+        "status": "pending",
+        "retryCount": 0
+      }
+    ],
+    "currentStageIndex": 0,
+    "definition": {
+      "id": "default-pipeline",
+      "name": "Default Pipeline",
+      "stages": [
+        { "agentId": "builtin-investigator", "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
+        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+      ]
+    },
+    "conversationLog": [
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "thought",
+        "content": "Starting investigation into throttling exceptions on app-prd-eus2p-01. Reading knowledge base guides first.",
+        "timestamp": 1749810000000,
+        "stageIndex": 0
+      },
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "action",
+        "content": "Querying throttle exception distribution across services",
+        "timestamp": 1749810060000,
+        "stageIndex": 0,
+        "metadata": { "toolName": "run_query" }
+      },
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "observation",
+        "content": "Found 5 services with elevated throttling. ProcessingService has 3,400 throttle events in the past hour.",
+        "timestamp": 1749810120000,
+        "stageIndex": 0
+      }
+    ]
+  },
   "logs": [
     "Investigation started",
     "MCP tools connected",

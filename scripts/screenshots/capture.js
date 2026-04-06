@@ -548,6 +548,41 @@ async function captureSettingsAppearance(page) {
     await screenshot(page, 'settings-appearance');
 }
 
+async function captureSettingsPipelineEmpty(page) {
+    console.log('\n📸 Settings — Pipeline (empty)...');
+    // Override settings to remove pipeline so the empty builder is shown
+    const base = loadFixture('settings.json');
+    const noPipeline = { ...base.settings };
+    delete noPipeline.pipeline;
+    await controlPost('/__control/set-settings-override', { settings: noPipeline });
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(1000);
+
+    const pipelineTab = page.locator('button:has-text("Pipeline")').first();
+    if (await pipelineTab.isVisible()) {
+        await pipelineTab.click();
+        await page.waitForTimeout(800);
+    }
+
+    await screenshot(page, 'settings-pipeline-empty');
+    await resetMock();
+}
+
+async function captureSettingsPipeline(page) {
+    console.log('\n📸 Settings — Pipeline (default)...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(1000);
+
+    const pipelineTab = page.locator('button:has-text("Pipeline")').first();
+    if (await pipelineTab.isVisible()) {
+        await pipelineTab.click();
+        await page.waitForTimeout(800);
+    }
+
+    await screenshot(page, 'settings-pipeline');
+}
+
 async function captureInvestigationNotes(page) {
     console.log('\n📸 Investigation Notes...');
     await resetMock();
@@ -911,6 +946,8 @@ async function main() {
 
         // Settings
         await captureSettings(page);
+        await captureSettingsPipelineEmpty(page);
+        await captureSettingsPipeline(page);
         await captureSettingsConnections(page);
         await captureSettingsSchedules(page);
         await captureSettingsAnalytics(page);
@@ -944,7 +981,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 37 screenshots captured successfully!');
+        console.log('  ✅ All 39 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 
