@@ -38,5 +38,33 @@
       "investigationsPath": "investigations"
     }
   ],
-  "activeProductId": "my-product"
+  "activeProductId": "my-product",
+
+  "pipeline": {
+    "id": "default-pipeline",
+    "name": "Investigate & Validate",
+    "stages": [
+      {
+        "agent": {
+          "id": "investigator",
+          "name": "Investigator",
+          "source": "builtin",
+          "builtinType": "investigator"
+        }
+      },
+      {
+        "agent": {
+          "id": "validator",
+          "name": "Validator",
+          "source": "file",
+          "promptPath": "prompts/examples/ValidatorPrompt.md"
+        },
+        "canReject": true,
+        "onReject": "loop",
+        "rejectTarget": "previous",
+        "maxRetries": 2,
+        "inputMode": "conversation"
+      }
+    ]
+  }
 }

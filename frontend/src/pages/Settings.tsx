@@ -7,6 +7,7 @@ import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
 import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
+import { PipelineBuilder } from '../components/PipelineBuilder';
 import { useNotification, getNotifEnabled, setNotifEnabled, getNotifSound, setNotifSound, getNotifEvents, setNotifEvents, ALL_NOTIF_EVENTS, type NotifEvent } from '../hooks/useNotification';
 
 // Path config item component
@@ -239,6 +240,11 @@ export const Settings = () => {
     const [showFileBrowser, setShowFileBrowser] = useState(false);
     const [browserMode, setBrowserMode] = useState<'file' | 'directory'>('file');
 
+    // Pipeline configuration state
+    const [builtinAgents, setBuiltinAgents] = useState<import('../types/pipeline').AgentDefinition[]>([]);
+    const [pipelineConfig, setPipelineConfig] = useState<import('../types/pipeline').PipelineDefinition | null>(null);
+    const [pipelineJson, setPipelineJson] = useState('');
+
     const [config, setConfig] = useState({
         maxConcurrentInvestigations: 3,
         maxSteps: 50,
@@ -256,6 +262,8 @@ export const Settings = () => {
         loadModels();
         loadProducts();
         loadProviders();
+        // Load pipeline builtins
+        api.getPipelineBuiltins().then(setBuiltinAgents).catch(() => {});
     }, []);
 
     const loadProviders = async () => {
@@ -372,6 +380,11 @@ export const Settings = () => {
             if (typeof settings.analyticsVisible === 'boolean') {
                 localStorage.setItem('inv-analytics', String(settings.analyticsVisible));
             }
+            // Sync pipeline config
+            if (settings.pipeline) {
+                setPipelineConfig(settings.pipeline);
+                setPipelineJson(JSON.stringify(settings.pipeline, null, 2));
+            }
         } catch (err) {
             console.error("Failed to load settings:", err);
             setError("Failed to load settings from server.");
@@ -399,6 +412,7 @@ export const Settings = () => {
                 notifSound: notifSoundOn,
                 notifEvents,
                 analyticsWidgets: selectedWidgets,
+                pipeline: pipelineConfig || undefined,
             });
             setSaveSuccess(true);
             setDirty(false);
@@ -503,6 +517,7 @@ export const Settings = () => {
         { id: 'products', label: 'Products', icon: <Package size={18} /> },
         { id: 'connections', label: 'Connections', icon: <Plug size={18} /> },
         { id: 'agent', label: 'Agent Behavior', icon: <Cpu size={18} /> },
+        { id: 'pipeline', label: 'Pipeline', icon: <GitBranch size={18} /> },
         { id: 'schedules', label: 'Schedules', icon: <Calendar size={18} /> },
         { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
         { id: 'appearance', label: 'Appearance', icon: <Layout size={18} /> },
@@ -1294,6 +1309,31 @@ export const Settings = () => {
                                     <p className="text-xs text-slate-500">LLM model used to extract and classify recommendations from investigation reports. A smaller model works well for this structured extraction task. Default: <strong className="text-slate-400">gpt-4o-mini</strong>.</p>
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'pipeline' && (
+                        <div className="space-y-8 animate-fade-in">
+                            <div>
+                                <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+                                    <GitBranch className="text-cyan-400" /> Multi-Agent Pipeline
+                                </h2>
+                                <p className="text-slate-400">
+                                    Build a multi-agent pipeline by adding agents and configuring how they interact.
+                                    Drag stages to reorder. Click a stage to configure rejection behavior and input modes.
+                                </p>
+                            </div>
+
+                            <PipelineBuilder
+                                value={pipelineConfig}
+                                onChange={(pipeline) => {
+                                    setPipelineConfig(pipeline);
+                                    setPipelineJson(pipeline ? JSON.stringify(pipeline, null, 2) : '');
+                                    setDirty(true);
+                                }}
+                                builtinAgents={builtinAgents}
+                                availableModels={availableModels}
+                            />
                         </div>
                     )}
 

@@ -243,6 +243,39 @@ describe('AgentRunner', () => {
             expect(state.finalReport).toBe('All done!');
         });
 
+        it('injects stageContext conversationLog into system prompt', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: { name: 'finish', arguments: JSON.stringify({ report: 'ok' }) },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).stageContext = {
+                stageIndex: 1,
+                agentName: 'Reviewer',
+                conversationLog: [
+                    { agentName: 'Investigator', role: 'thought', content: 'Analyzed the issue' },
+                    { agentName: 'Investigator', role: 'action', content: 'Queried logs' },
+                ],
+            };
+
+            await runner.start('Review the investigation');
+
+            // The system prompt should contain the conversation log text
+            const messages = mockOpenAI.chat.completions.create.mock.calls[0][0].messages;
+            const systemMsg = messages.find((m: any) => m.role === 'system');
+            expect(systemMsg.content).toContain('Prior Agent Conversation');
+            expect(systemMsg.content).toContain('[Investigator] (thought): Analyzed the issue');
+            expect(systemMsg.content).toContain('[Investigator] (action): Queried logs');
+        });
+
         it('extracts verdict from finish tool args', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValue({
                 choices: [{
@@ -3824,6 +3857,103 @@ describe('AgentRunner', () => {
                 typeof t.content === 'string' &&
                 t.content.includes('(no report content)')
             )).toBe(true);
+        });
+
+        it('resets pipeline stage states when pipeline is present', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: 'Pipeline report',
+                thoughts: ['thought1'],
+                actions: [null],
+            });
+            (runner as any).state.pipeline = {
+                stages: [
+                    { status: 'completed', verdict: 'approved', feedback: 'ok', report: 'r', retryCount: 1, startedAt: 100, completedAt: 200 },
+                    { status: 'completed', verdict: 'flagged', feedback: 'x', report: 'r2', retryCount: 0, startedAt: 300, completedAt: 400 },
+                ],
+                currentStageIndex: 1,
+                conversationLog: [{ role: 'report', content: 'test' }],
+            };
+
+            runner.contestReport('Fix pipeline');
+
+            const pipeline = (runner as any).state.pipeline;
+            expect(pipeline.stages[0].status).toBe('pending');
+            expect(pipeline.stages[0].verdict).toBeUndefined();
+            expect(pipeline.stages[0].feedback).toBeUndefined();
+            expect(pipeline.stages[0].report).toBeUndefined();
+            expect(pipeline.stages[0].retryCount).toBe(0);
+            expect(pipeline.stages[0].startedAt).toBeUndefined();
+            expect(pipeline.stages[0].completedAt).toBeUndefined();
+            expect(pipeline.stages[1].status).toBe('pending');
+            expect(pipeline.currentStageIndex).toBe(0);
+            expect(pipeline.conversationLog).toEqual([]);
+        });
+    });
+
+    describe('tagEvent', () => {
+        it('returns data unchanged when no stageContext', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const data = { tool: 'test' };
+            expect((runner as any).tagEvent(data)).toBe(data);
+        });
+
+        it('wraps string data with agent identity', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).stageContext = {
+                agentId: 'agent-1',
+                agentName: 'Test Agent',
+                agentColor: '#ff0000',
+                agentIcon: '🔍',
+                stageIndex: 0,
+                conversationLog: [],
+            };
+            const result = (runner as any).tagEvent('hello');
+            expect(result.content).toBe('hello');
+            expect(result.agentId).toBe('agent-1');
+            expect(result.agentName).toBe('Test Agent');
+            expect(result.agentColor).toBe('#ff0000');
+            expect(result.stageIndex).toBe(0);
+        });
+
+        it('merges agent identity into object data', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).stageContext = {
+                agentId: 'agent-2',
+                agentName: 'Agent Two',
+                agentColor: '#00ff00',
+                agentIcon: '🛠️',
+                stageIndex: 1,
+                conversationLog: [],
+            };
+            const result = (runner as any).tagEvent({ tool: 'test', data: 123 });
+            expect(result.tool).toBe('test');
+            expect(result.data).toBe(123);
+            expect(result.agentId).toBe('agent-2');
+            expect(result.stageIndex).toBe(1);
+        });
+
+        it('returns non-string non-object data unchanged with stageContext', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).stageContext = {
+                agentId: 'agent-1',
+                agentName: 'Test',
+                stageIndex: 0,
+                conversationLog: [],
+            };
+            expect((runner as any).tagEvent(42)).toBe(42);
+            expect((runner as any).tagEvent(null)).toBeNull();
+        });
+    });
+
+    describe('loadSystemPrompt', () => {
+        it('uses stageContext systemPromptOverride when present', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).stageContext = {
+                systemPromptOverride: 'Custom pipeline prompt for this stage',
+                conversationLog: [],
+            };
+            expect((runner as any).loadSystemPrompt()).toBe('Custom pipeline prompt for this stage');
         });
     });
 

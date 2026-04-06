@@ -8,6 +8,7 @@ import * as pdfRenderer from '../pdfRenderer';
 import * as SchedulerModule from '../schedules/Scheduler';
 import { EventEmitter } from 'events';
 import { AgentRunner, type InvestigationState } from '../agent/Runner';
+import { PipelineOrchestrator } from '../agent/pipeline';
 import {
     __testUtils,
     applyStaticServing,
@@ -6454,5 +6455,844 @@ describe('getDefaultRepoRoot', () => {
         // Should be a real path that differs from the backend directory
         expect(path.isAbsolute(result)).toBe(true);
         expect(result).not.toContain('backend');
+    });
+});
+
+describe('pipeline endpoints and integration', () => {
+    beforeEach(() => {
+        __testUtils.resetRuntimeState();
+        __testUtils.setConfig(JSON.parse(JSON.stringify(defaultConfig)));
+        __testUtils.setPersistedConfig(JSON.parse(JSON.stringify(defaultPersistedConfig)));
+    });
+
+    it('GET /api/pipeline/builtins returns built-in agents', async () => {
+        const response = await api().get('/api/pipeline/builtins');
+        expect(response.status).toBe(200);
+        expect(Array.isArray(response.body)).toBe(true);
+        const types = response.body.map((a: any) => a.builtinType);
+        expect(types).toContain('investigator');
+        expect(types).toContain('retrospect');
+    });
+
+    it('POST /api/pipeline/validate accepts valid pipeline', async () => {
+        const response = await api().post('/api/pipeline/validate').send({
+            id: 'test',
+            stages: [
+                { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+            ],
+        });
+        expect(response.status).toBe(200);
+        expect(response.body.valid).toBe(true);
+    });
+
+    it('POST /api/pipeline/validate rejects invalid pipeline', async () => {
+        const response = await api().post('/api/pipeline/validate').send({
+            id: 'test',
+            stages: [],
+        });
+        expect(response.status).toBe(200);
+        expect(response.body.valid).toBe(false);
+        expect(response.body.error).toBeDefined();
+    });
+
+    it('GET /api/investigations/:id/pipeline returns 404 when no pipeline data', async () => {
+        __testUtils.getHistory().set('no-pipe', makeState({ id: 'no-pipe' }) as any);
+        const response = await api().get('/api/investigations/no-pipe/pipeline');
+        expect(response.status).toBe(404);
+    });
+
+    it('GET /api/investigations/:id/pipeline returns pipeline from history', async () => {
+        const state = makeState({ id: 'pipe-hist' });
+        (state as any).pipeline = {
+            stages: [{ status: 'completed', agentName: 'Test' }],
+            currentStageIndex: 0,
+            definition: { id: 'def', stages: [] },
+            conversationLog: [],
+        };
+        __testUtils.getHistory().set('pipe-hist', state as any);
+        const response = await api().get('/api/investigations/pipe-hist/pipeline');
+        expect(response.status).toBe(200);
+        expect(response.body.stages).toHaveLength(1);
+    });
+
+    it('GET /api/investigations/:id/pipeline returns pipeline from active runner', async () => {
+        const runner = makeRunner({ id: 'pipe-active' });
+        (runner as any).state.pipeline = {
+            stages: [{ status: 'running', agentName: 'Active' }],
+            currentStageIndex: 0,
+            definition: { id: 'def', stages: [] },
+            conversationLog: [],
+        };
+        __testUtils.getRunners().set('pipe-active', runner as any);
+        const response = await api().get('/api/investigations/pipe-active/pipeline');
+        expect(response.status).toBe(200);
+        expect(response.body.stages[0].agentName).toBe('Active');
+    });
+
+    it('GET /api/investigations/:id/pipeline returns pipeline from active orchestrator', async () => {
+        const { PipelineOrchestrator } = await import('../agent/pipeline/PipelineOrchestrator');
+        const fakeLlm = { type: 'fake' } as any;
+        const fakeConfig = { systemPromptPath: '', repoRoot: '', maxSteps: 10, model: 'test', investigationsPath: '/tmp' } as any;
+        const pipeline = {
+            id: 'test-pipe',
+            stages: [{ agent: { id: 'a', name: 'OrchAgent', source: 'inline' as const, promptContent: 'x' } }],
+        };
+        const orch = new PipelineOrchestrator(pipeline, fakeLlm, fakeConfig);
+        __testUtils.getPipelineOrchestrators().set('orch-pipe', orch);
+        const response = await api().get('/api/investigations/orch-pipe/pipeline');
+        expect(response.status).toBe(200);
+        expect(response.body.stages[0].agentName).toBe('OrchAgent');
+        __testUtils.getPipelineOrchestrators().delete('orch-pipe');
+    });
+
+    it('GET /api/investigations/:id injects live pipeline state from orchestrator', async () => {
+        const { PipelineOrchestrator } = await import('../agent/pipeline/PipelineOrchestrator');
+        const fakeLlm = { type: 'fake' } as any;
+        const fakeConfig = { systemPromptPath: '', repoRoot: '', maxSteps: 10, model: 'test', investigationsPath: '/tmp' } as any;
+        const pipeline = {
+            id: 'test-pipe',
+            stages: [{ agent: { id: 'a', name: 'LiveAgent', source: 'inline' as const, promptContent: 'x' } }],
+        };
+        const orch = new PipelineOrchestrator(pipeline, fakeLlm, fakeConfig);
+
+        // Set up a runner in history without pipeline state
+        const runner = makeRunner({ id: 'live-pipe', status: 'running' });
+        __testUtils.getRunners().set('live-pipe', runner as any);
+        __testUtils.getPipelineOrchestrators().set('live-pipe', orch);
+
+        const response = await api().get('/api/investigations/live-pipe');
+        expect(response.status).toBe(200);
+        expect(response.body.pipeline).toBeDefined();
+        expect(response.body.pipeline.stages[0].agentName).toBe('LiveAgent');
+
+        __testUtils.getPipelineOrchestrators().delete('live-pipe');
+    });
+
+    it('cleanupRunner removes pipeline orchestrator', async () => {
+        const { PipelineOrchestrator } = await import('../agent/pipeline/PipelineOrchestrator');
+        const fakeLlm = { type: 'fake' } as any;
+        const fakeConfig = { systemPromptPath: '', repoRoot: '', maxSteps: 10, model: 'test', investigationsPath: '/tmp' } as any;
+        const pipeline = {
+            id: 'cleanup-pipe',
+            stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: 'x' } }],
+        };
+        const orch = new PipelineOrchestrator(pipeline, fakeLlm, fakeConfig);
+        __testUtils.getPipelineOrchestrators().set('cleanup-test', orch);
+
+        const runner = makeRunner({ id: 'cleanup-test' });
+        __testUtils.getRunners().set('cleanup-test', runner as any);
+
+        cleanupRunner('cleanup-test');
+        expect(__testUtils.getPipelineOrchestrators().has('cleanup-test')).toBe(false);
+        expect(__testUtils.getRunners().has('cleanup-test')).toBe(false);
+    });
+
+    it('POST /api/investigations creates pipeline investigation when pipeline config present', async () => {
+        setFakeLlmProvider();
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'test-pipeline',
+                stages: [
+                    { agent: { id: 'inv', name: 'Investigator', source: 'inline', promptContent: 'Investigate {{GOAL}}' } },
+                    { agent: { id: 'rev', name: 'Reviewer', source: 'inline', promptContent: 'Review {{REPORT}}' } },
+                ],
+            },
+        });
+
+        const runSpy = vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockResolvedValue({
+            status: 'completed', thoughts: [], actions: [], fullHistory: [], fullActions: [], logs: [],
+            finalReport: 'done', recommendations: [], verdict: 'approved', pipeline: { stages: [] },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'Test pipeline investigation',
+            target: 'stamp-1',
+            timeRange: 'last 24 hours',
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.body.id).toBeDefined();
+        // The investigation should be set up as a pipeline
+        const id = response.body.id;
+        expect(__testUtils.getRunners().has(id)).toBe(true);
+        expect(__testUtils.getPipelineOrchestrators().has(id)).toBe(true);
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete(id);
+        cleanupRunner(id);
+    });
+
+    it('contest on active runner triggers pipeline restart when pipeline definition present', async () => {
+        setFakeLlmProvider();
+        // Use a never-resolving promise so the .then() cleanup doesn't remove the orchestrator before assertion
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
+        const runner = makeRunner({ id: 'contest-pipe', status: 'completed', query: 'Test query' });
+        (runner as any).state.pipeline = {
+            definition: {
+                id: 'pipe-def',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+            stages: [
+                { status: 'completed', agentName: 'A' },
+                { status: 'completed', agentName: 'B' },
+            ],
+            currentStageIndex: 1,
+            conversationLog: [],
+        };
+        __testUtils.getRunners().set('contest-pipe', runner as any);
+
+        const response = await api().post('/api/investigations/contest-pipe/action').send({
+            action: 'contest',
+            message: 'Redo the pipeline',
+        });
+        expect(response.status).toBe(200);
+        expect(runner.contestReport).toHaveBeenCalledWith('Redo the pipeline');
+        expect(runner.log).toHaveBeenCalled();
+        // Pipeline orchestrator should be created
+        expect(__testUtils.getPipelineOrchestrators().has('contest-pipe')).toBe(true);
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete('contest-pipe');
+    });
+
+    it('contest on history runner triggers pipeline restart when pipeline definition present', async () => {
+        setFakeLlmProvider();
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockResolvedValue({
+            status: 'completed', thoughts: [], actions: [], fullHistory: [], fullActions: [], logs: [],
+            finalReport: 'done', recommendations: [], verdict: 'approved', pipeline: { stages: [] },
+        });
+        const state = makeState({
+            id: 'hist-pipe-contest',
+            status: 'completed',
+            query: 'Test query',
+        });
+        (state as any).pipeline = {
+            definition: {
+                id: 'pipe-def',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+            stages: [
+                { status: 'completed', agentName: 'A' },
+                { status: 'completed', agentName: 'B' },
+            ],
+            currentStageIndex: 1,
+            conversationLog: [],
+        };
+        __testUtils.getHistory().set('hist-pipe-contest', state as any);
+
+        const contestSpy = vi.spyOn(AgentRunner.prototype as any, 'contestReport');
+        const logSpy = vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+        const response = await api().post('/api/investigations/hist-pipe-contest/action').send({
+            action: 'contest',
+            message: 'Redo pipeline from history',
+        });
+        expect(response.status).toBe(200);
+        expect(contestSpy).toHaveBeenCalledWith('Redo pipeline from history');
+        expect(__testUtils.getPipelineOrchestrators().has('hist-pipe-contest')).toBe(true);
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete('hist-pipe-contest');
+        cleanupRunner('hist-pipe-contest');
+    });
+
+    it('attachPipelineListeners forwards thought/action/log events to runner state', async () => {
+        setFakeLlmProvider();
+        // Use never-resolving to keep the orchestrator alive
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'events-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'Event test',
+            target: 'event-target',
+            timeRange: 'last 1 hour',
+        });
+        expect(response.status).toBe(200);
+        const id = response.body.id;
+
+        const orchestrator = __testUtils.getPipelineOrchestrators().get(id);
+        expect(orchestrator).toBeDefined();
+
+        // Emit events on the orchestrator
+        orchestrator!.emit('thought', { content: 'test thought' });
+        orchestrator!.emit('action', { tool: 'test_tool' });
+        orchestrator!.emit('log', 'test log entry');
+        orchestrator!.emit('stage-start', { stage: 0 });
+        orchestrator!.emit('stage-complete', { stage: 0 });
+
+        // Wait for saveToDisk async operations
+        await new Promise(r => setTimeout(r, 50));
+
+        // Verify events accumulated in runner state
+        const runner = __testUtils.getRunners().get(id) as any;
+        expect(runner.state.thoughts).toContainEqual({ content: 'test thought' });
+        expect(runner.state.actions).toContainEqual({ tool: 'test_tool' });
+        expect(runner.state.logs).toContain('test log entry');
+        // syncRunnerState should have set pipeline state
+        expect(runner.state.pipeline).toBeDefined();
+
+        // Make saveArtifacts throw to cover the catch branch in saveToDisk (line 707)
+        runner.saveArtifacts = vi.fn().mockRejectedValue(new Error('disk full'));
+        orchestrator!.emit('stage-start', { stage: 1 });
+        await new Promise(r => setTimeout(r, 50));
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete(id);
+        cleanupRunner(id);
+    });
+
+    it('createPipelineInvestigation .then() handler cleans up after completion', async () => {
+        setFakeLlmProvider();
+        let resolveRun!: (value: any) => void;
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+            new Promise(r => { resolveRun = r; })
+        );
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'then-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'Then test',
+            target: 'then-target',
+            timeRange: 'last 1 hour',
+        });
+        expect(response.status).toBe(200);
+        const id = response.body.id;
+        expect(__testUtils.getPipelineOrchestrators().has(id)).toBe(true);
+
+        // Make saveArtifacts throw to cover the catch block (line 2000)
+        const runner = __testUtils.getRunners().get(id) as any;
+        runner.saveArtifacts = vi.fn().mockRejectedValue(new Error('disk full'));
+
+        // Now resolve the run — triggers the .then() handler
+        resolveRun({
+            status: 'completed', thoughts: ['final'], actions: [], fullHistory: [],
+            fullActions: [], logs: [], finalReport: 'done', recommendations: [],
+            verdict: 'approved', pipeline: { stages: [] },
+        });
+
+        // Wait for microtasks
+        await new Promise(r => setTimeout(r, 50));
+
+        // After .then() runs, cleanup should have removed the orchestrator and added to history
+        expect(__testUtils.getHistory().has(id)).toBe(true);
+    });
+
+    it('createPipelineInvestigation .catch() handler sets failed state', async () => {
+        setFakeLlmProvider();
+        let rejectRun!: (err: any) => void;
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+            new Promise((_, rej) => { rejectRun = rej; })
+        );
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'catch-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'Catch test',
+            target: 'catch-target',
+            timeRange: 'last 1 hour',
+        });
+        expect(response.status).toBe(200);
+        const id = response.body.id;
+
+        // Trigger the .catch() handler
+        rejectRun(new Error('Pipeline crash'));
+
+        // Wait for microtasks
+        await new Promise(r => setTimeout(r, 50));
+
+        // After .catch() runs, state should be 'failed' and saved to history
+        const state = __testUtils.getHistory().get(id);
+        expect(state).toBeDefined();
+        expect(state!.status).toBe('failed');
+    });
+
+    it('restartPipelineForContest .then() handler updates runner state on completion', async () => {
+        setFakeLlmProvider();
+        let resolveRun!: (value: any) => void;
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+            new Promise(r => { resolveRun = r; })
+        );
+
+        const state = makeState({
+            id: 'contest-then',
+            status: 'completed',
+            query: 'Test query',
+        });
+        (state as any).pipeline = {
+            definition: {
+                id: 'pipe-def',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+            stages: [{ status: 'completed' }, { status: 'completed' }],
+            currentStageIndex: 1,
+            conversationLog: [],
+        };
+        __testUtils.getHistory().set('contest-then', state as any);
+
+        vi.spyOn(AgentRunner.prototype as any, 'contestReport');
+        vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+        const response = await api().post('/api/investigations/contest-then/action').send({
+            action: 'contest',
+            message: 'Redo it',
+        });
+        expect(response.status).toBe(200);
+
+        // Make saveArtifacts throw to cover the catch block (line 2085-2086)
+        const runner = __testUtils.getRunners().get('contest-then') as any;
+        if (runner) runner.saveArtifacts = vi.fn().mockRejectedValue(new Error('disk full'));
+
+        // Resolve the pipeline run
+        resolveRun({
+            status: 'completed', thoughts: ['contest done'], actions: [], fullHistory: [],
+            fullActions: [], logs: [], finalReport: 'contested done', recommendations: [],
+            verdict: 'approved', pipeline: { stages: [] }, retrospect: null,
+        });
+
+        // Wait for microtasks
+        await new Promise(r => setTimeout(r, 50));
+
+        // The .then() handler should have updated the runner state and saved to history
+        expect(__testUtils.getHistory().has('contest-then')).toBe(true);
+    });
+
+    it('restartPipelineForContest .catch() handler sets failed state', async () => {
+        setFakeLlmProvider();
+        let rejectRun!: (err: any) => void;
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+            new Promise((_, rej) => { rejectRun = rej; })
+        );
+
+        const state = makeState({
+            id: 'contest-catch',
+            status: 'completed',
+            query: 'Test query',
+        });
+        (state as any).pipeline = {
+            definition: {
+                id: 'pipe-def',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+            stages: [{ status: 'completed' }, { status: 'completed' }],
+            currentStageIndex: 1,
+            conversationLog: [],
+        };
+        __testUtils.getHistory().set('contest-catch', state as any);
+
+        vi.spyOn(AgentRunner.prototype as any, 'contestReport');
+        vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+        const response = await api().post('/api/investigations/contest-catch/action').send({
+            action: 'contest',
+            message: 'Redo it',
+        });
+        expect(response.status).toBe(200);
+
+        // Trigger the .catch() handler
+        rejectRun(new Error('Contest pipeline crash'));
+
+        // Wait for microtasks
+        await new Promise(r => setTimeout(r, 50));
+
+        // After .catch() runs, state should be 'failed' and saved to history
+        const state2 = __testUtils.getHistory().get('contest-catch');
+        expect(state2).toBeDefined();
+        expect(state2!.status).toBe('failed');
+    });
+
+    it('pipeline event handlers handle missing runner gracefully', async () => {
+        setFakeLlmProvider();
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'no-runner-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'No runner test',
+            target: 'nr-target',
+            timeRange: 'last 1 hour',
+        });
+        const id = response.body.id;
+        const orchestrator = __testUtils.getPipelineOrchestrators().get(id)!;
+
+        // Remove the runner from the map to test the !runner early return branches
+        __testUtils.getRunners().delete(id);
+
+        // These should not throw — they hit the early return in syncRunnerState/saveToDisk
+        orchestrator.emit('thought', { content: 'orphan thought' });
+        orchestrator.emit('action', { tool: 'orphan action' });
+        orchestrator.emit('log', 'orphan log');
+        orchestrator.emit('stage-start', { stage: 0 });
+        orchestrator.emit('stage-complete', { stage: 0 });
+        await new Promise(r => setTimeout(r, 50));
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete(id);
+    });
+
+    it('pipeline event handlers init missing arrays on runner state', async () => {
+        setFakeLlmProvider();
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'init-arrays-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'Init arrays test',
+            target: 'ia-target',
+            timeRange: 'last 1 hour',
+        });
+        const id = response.body.id;
+        const orchestrator = __testUtils.getPipelineOrchestrators().get(id)!;
+
+        // Delete arrays from runner state to test the init branches
+        const runner = __testUtils.getRunners().get(id)! as any;
+        delete runner.state.thoughts;
+        delete runner.state.actions;
+        delete runner.state.logs;
+
+        orchestrator.emit('thought', { content: 'new thought' });
+        orchestrator.emit('action', { tool: 'new action' });
+        orchestrator.emit('log', 'new log');
+
+        expect(runner.state.thoughts).toContainEqual({ content: 'new thought' });
+        expect(runner.state.actions).toContainEqual({ tool: 'new action' });
+        expect(runner.state.logs).toContain('new log');
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete(id);
+        cleanupRunner(id);
+    });
+
+    it('createPipelineInvestigation with model in metadata', async () => {
+        setFakeLlmProvider();
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'model-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'Model test',
+            target: 'model-target',
+            timeRange: 'last 1 hour',
+            model: 'gpt-4o-test',
+        });
+        expect(response.status).toBe(200);
+        const id = response.body.id;
+        const runner = __testUtils.getRunners().get(id) as any;
+        expect(runner.state.model).toBe('gpt-4o-test');
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete(id);
+        cleanupRunner(id);
+    });
+
+    it('createPipelineInvestigation .then() with non-completed status does not cleanup', async () => {
+        setFakeLlmProvider();
+        let resolveRun!: (value: any) => void;
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+            new Promise(r => { resolveRun = r; })
+        );
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'running-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'Running test',
+            target: 'running-target',
+            timeRange: 'last 1 hour',
+        });
+        const id = response.body.id;
+
+        // Resolve with 'running' status (not completed/failed/aborted)
+        resolveRun({
+            status: 'running', thoughts: [], actions: [], fullHistory: [],
+            fullActions: [], logs: [], finalReport: '', recommendations: [],
+            verdict: null, pipeline: { stages: [] },
+        });
+
+        await new Promise(r => setTimeout(r, 50));
+
+        // Runner should still be in the map since status is not terminal
+        expect(__testUtils.getRunners().has(id) || __testUtils.getHistory().has(id)).toBe(true);
+    });
+
+    it('restartPipelineForContest with no pipelineDef returns early', async () => {
+        setFakeLlmProvider();
+        const state = makeState({
+            id: 'no-pipe-def',
+            status: 'completed',
+            query: 'Test query',
+        });
+        // Set pipeline without definition
+        (state as any).pipeline = {
+            definition: null,
+            stages: [],
+            currentStageIndex: 0,
+            conversationLog: [],
+        };
+        __testUtils.getHistory().set('no-pipe-def', state as any);
+
+        vi.spyOn(AgentRunner.prototype as any, 'contestReport');
+        vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+        // This should work without crashing — the restartPipelineForContest returns early
+        const response = await api().post('/api/investigations/no-pipe-def/action').send({
+            action: 'contest',
+            message: 'Redo it',
+        });
+        expect(response.status).toBe(200);
+        // No orchestrator should be created since pipelineDef is null
+        expect(__testUtils.getPipelineOrchestrators().has('no-pipe-def')).toBe(false);
+
+        cleanupRunner('no-pipe-def');
+    });
+
+    it('createPipelineInvestigation passes createdBy when provided', async () => {
+        setFakeLlmProvider();
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'createdby-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'CreatedBy test',
+            target: 'cb-target',
+            timeRange: 'last 1 hour',
+            createdBy: 'admin-user',
+        });
+        expect(response.status).toBe(200);
+        const id = response.body.id;
+        const runner = __testUtils.getRunners().get(id) as any;
+        expect(runner.state.createdBy).toBe('admin-user');
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete(id);
+        cleanupRunner(id);
+    });
+
+    it('createPipelineInvestigation via createInvestigation without createdBy (scheduler path)', () => {
+        setFakeLlmProvider();
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'sched-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        // Call createInvestigation directly without createdBy (simulates scheduler)
+        const result = createInvestigation({
+            query: 'Scheduled query',
+            target: 'sched-target',
+            timeRange: 'last 1 hour',
+            source: 'scheduled',
+        });
+        expect(result.id).toBeDefined();
+        const runner = __testUtils.getRunners().get(result.id) as any;
+        expect(runner.state.createdBy).toBe('scheduler');
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete(result.id);
+        cleanupRunner(result.id);
+    });
+
+    it('createPipelineInvestigation via createInvestigation without createdBy and manual source', () => {
+        setFakeLlmProvider();
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'manual-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        // Call createInvestigation directly without createdBy and with manual source
+        const result = createInvestigation({
+            query: 'Manual query',
+            target: 'manual-target',
+            timeRange: 'last 1 hour',
+            source: 'manual',
+        });
+        expect(result.id).toBeDefined();
+        const runner = __testUtils.getRunners().get(result.id) as any;
+        expect(runner.state.createdBy).toBeUndefined();
+
+        // Clean up
+        __testUtils.getPipelineOrchestrators().delete(result.id);
+        cleanupRunner(result.id);
+    });
+
+    it('createPipelineInvestigation .catch() handles saveArtifacts failure', async () => {
+        setFakeLlmProvider();
+        let rejectRun!: (err: any) => void;
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+            new Promise((_, rej) => { rejectRun = rej; })
+        );
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'catch-save-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'Catch save test',
+            target: 'cs-target',
+            timeRange: 'last 1 hour',
+        });
+        const id = response.body.id;
+
+        // Make saveArtifacts throw inside the .catch() handler
+        const runner = __testUtils.getRunners().get(id) as any;
+        runner.saveArtifacts = vi.fn().mockRejectedValue(new Error('disk error'));
+
+        rejectRun(new Error('Pipeline crash'));
+        await new Promise(r => setTimeout(r, 50));
+
+        const state = __testUtils.getHistory().get(id);
+        expect(state).toBeDefined();
+        expect(state!.status).toBe('failed');
+    });
+
+    it('restartPipelineForContest .catch() handles saveArtifacts failure', async () => {
+        setFakeLlmProvider();
+        let rejectRun!: (err: any) => void;
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+            new Promise((_, rej) => { rejectRun = rej; })
+        );
+
+        const state = makeState({
+            id: 'contest-catch-save',
+            status: 'completed',
+            query: 'Test query',
+            model: 'gpt-4o',
+        });
+        (state as any).pipeline = {
+            definition: {
+                id: 'pipe-def',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+            stages: [{ status: 'completed' }, { status: 'completed' }],
+            currentStageIndex: 1,
+            conversationLog: [],
+        };
+        __testUtils.getHistory().set('contest-catch-save', state as any);
+
+        vi.spyOn(AgentRunner.prototype as any, 'contestReport');
+        vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+        vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockRejectedValue(new Error('disk error'));
+
+        const response = await api().post('/api/investigations/contest-catch-save/action').send({
+            action: 'contest',
+            message: 'Redo',
+        });
+        expect(response.status).toBe(200);
+
+        rejectRun(new Error('Contest pipeline crash'));
+        await new Promise(r => setTimeout(r, 50));
+
+        const state2 = __testUtils.getHistory().get('contest-catch-save');
+        expect(state2).toBeDefined();
+        expect(state2!.status).toBe('failed');
     });
 });

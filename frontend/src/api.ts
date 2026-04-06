@@ -120,6 +120,8 @@ export interface Investigation {
     implementationRunning?: boolean;
     // Free-form user notes
     userNotes?: string;
+    // Multi-agent pipeline state
+    pipeline?: import('./types/pipeline').PipelineState;
 }
 
 export interface PaginatedResponse<T> {
@@ -909,5 +911,30 @@ export const api = {
     deleteSavedQuery: async (id: string): Promise<void> => {
         const response = await fetch(`${API_URL}/query-bank/${encodeURIComponent(id)}`, { method: 'DELETE' });
         if (!response.ok) throw new Error('Failed to delete saved query');
+    },
+
+    // ── Pipeline / Multi-Agent ──────────────────────────────────────────
+
+    getPipelineBuiltins: async (): Promise<import('./types/pipeline').AgentDefinition[]> => {
+        const response = await fetch(`${API_URL}/pipeline/builtins`);
+        if (!response.ok) throw new Error('Failed to fetch pipeline builtins');
+        return response.json();
+    },
+
+    getInvestigationPipeline: async (id: string): Promise<import('./types/pipeline').PipelineState | null> => {
+        const response = await fetch(`${API_URL}/investigations/${encodeURIComponent(id)}/pipeline`);
+        if (response.status === 404) return null;
+        if (!response.ok) throw new Error('Failed to fetch pipeline state');
+        return response.json();
+    },
+
+    validatePipeline: async (definition: import('./types/pipeline').PipelineDefinition): Promise<{ valid: boolean; error?: string }> => {
+        const response = await fetch(`${API_URL}/pipeline/validate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(definition),
+        });
+        if (!response.ok) throw new Error('Failed to validate pipeline');
+        return response.json();
     },
 };

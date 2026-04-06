@@ -1,3 +1,5 @@
+import type { PipelineDefinition } from './pipeline';
+
 export interface Product {
     id: string;
     name: string;
@@ -6,4 +8,5 @@ export interface Product {
     knowledgeBasePath: string;
     workingDirectory: string;
     investigationsPath: string;
+    pipeline?: PipelineDefinition;
 }
