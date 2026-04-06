@@ -92,6 +92,7 @@ export const About = () => {
                 <div className="flex items-center justify-center gap-3 pt-4 flex-wrap">
                     {([
                         [Zap,          'text-amber-400',   'bg-amber-500/10 border-amber-500/20',   'Autonomous agent loops'],
+                        [GitBranch,    'text-cyan-400',    'bg-cyan-500/10 border-cyan-500/20',     'Multi-agent pipelines'],
                         [Radio,        'text-sky-400',     'bg-sky-500/10 border-sky-500/20',       'Real-time tool streaming'],
                         [Sparkles,     'text-purple-400',  'bg-purple-500/10 border-purple-500/20', 'Self-improving knowledge base'],
                         [Lock,         'text-emerald-400', 'bg-emerald-500/10 border-emerald-500/20','Zero credentials stored'],
@@ -271,22 +272,25 @@ export const About = () => {
                     <PipelineStep n={1} icon={<Lock className="w-4 h-4 text-brand-400" />}
                         title="LLM provider configuration"
                         desc="Choose your LLM provider — OpenAI, Anthropic, Azure OpenAI, GitHub Copilot, or local Ollama. Configure via the Settings page or config file." />
-                    <PipelineStep n={2} icon={<Brain className="w-4 h-4 text-purple-400" />}
+                    <PipelineStep n={2} icon={<GitBranch className="w-4 h-4 text-cyan-400" />}
+                        title="Multi-agent pipeline orchestration"
+                        desc="A configurable pipeline routes the investigation through sequential agents — Investigator, Validator, Proposer, Retrospect. Each stage can reject and loop back, with shared conversation context flowing between agents." />
+                    <PipelineStep n={3} icon={<Brain className="w-4 h-4 text-purple-400" />}
                         title="Agentic investigation loop"
-                        desc="An agentic loop powered by your chosen model reads your knowledge base guides, runs queries via MCP tool servers, reads logs, and reasons iteratively until it reaches a conclusion." />
-                    <PipelineStep n={3} icon={<PenLine className="w-4 h-4 text-teal-400" />}
+                        desc="The Investigator agent reads your knowledge base guides, runs queries via MCP tool servers, reads logs, and reasons iteratively until it reaches a conclusion." />
+                    <PipelineStep n={4} icon={<PenLine className="w-4 h-4 text-teal-400" />}
                         title="Real-time control"
                         desc="Pause, resume, switch models mid-run, or inject messages into the running agent's context to redirect its approach. A configurable max-steps limit auto-pauses the agent at your safety threshold." />
-                    <PipelineStep n={4} icon={<FileText className="w-4 h-4 text-sky-400" />}
+                    <PipelineStep n={5} icon={<FileText className="w-4 h-4 text-sky-400" />}
                         title="Structured report generation"
                         desc="The agent produces a markdown report with root cause analysis, evidence, timeline, and recommended actions. All artifacts are persisted to disk." />
-                    <PipelineStep n={5} icon={<RotateCcw className="w-4 h-4 text-amber-400" />}
+                    <PipelineStep n={6} icon={<RotateCcw className="w-4 h-4 text-amber-400" />}
                         title="Contest & resume"
                         desc="Disagree with the report? Contest it with your feedback. The investigation resumes with your corrections injected — the agent re-examines its findings and produces an improved report." />
-                    <PipelineStep n={6} icon={<Sparkles className="w-4 h-4 text-purple-400" />}
+                    <PipelineStep n={7} icon={<Sparkles className="w-4 h-4 text-purple-400" />}
                         title="Retrospective analysis"
-                        desc="A second agent pass reads the knowledge base and the full investigation transcript, then calls propose_change for each guide improvement it identifies." />
-                    <PipelineStep n={7} last icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                        desc="The Retrospect agent reads the knowledge base and the full investigation transcript, then calls propose_change for each guide improvement it identifies." />
+                    <PipelineStep n={8} last icon={<CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                         title="Review and apply"
                         desc="You review each proposed change in an inline diff, approve or reject, then apply — the knowledge base improves incrementally with every investigation." />
                 </div>
