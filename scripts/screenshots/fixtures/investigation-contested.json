@@ -46,5 +46,25 @@
     "Additional queries executed",
     "Report updated with corrections"
   ],
+  "pipeline": {
+    "stages": [
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "completed", "retryCount": 0, "startedAt": 1749790000000, "completedAt": 1749790120000 },
+      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "completed", "verdict": "Findings validated", "retryCount": 0, "startedAt": 1749790120000, "completedAt": 1749790240000 },
+      { "agentId": "builtin-proposer", "agentName": "Proposer", "color": "#6366f1", "icon": "🔧", "status": "completed", "retryCount": 0, "startedAt": 1749790240000, "completedAt": 1749790360000 },
+      { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "completed", "retryCount": 0, "startedAt": 1749790360000, "completedAt": 1749790480000 }
+    ],
+    "currentStageIndex": 3,
+    "definition": {
+      "id": "default-pipeline",
+      "name": "Default Pipeline",
+      "stages": [
+        { "agentId": "builtin-investigator", "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
+        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+      ]
+    },
+    "conversationLog": []
+  },
   "finalReport": "# Dead Letter Queue Overflow Investigation (Updated)\n\n## Summary\n\nThe DLQ on `app-prd-eus-01` experienced a critical overflow at **2025-06-12 18:30 UTC** — **84x** increase from baseline.\n\n## Root Cause\n\nUpstream schema update introduced `ExtendedProperties_v2` (dynamic type) → data writer serialization failure.\n\n## Impact (Revised)\n\n- **Total Affected Messages**: ~42,000\n- **Affected Workspaces**: **9** (revised from initial estimate of 3)\n- **CMK Impact**: 2 CMK-encrypted workspaces experienced cascading `CMKDecryptionFailedException`\n\n## Recommendations\n\n1. Deploy data writer fix with `dynamic` type support\n2. Add CMK-aware error handling to prevent cascade failures\n3. Implement schema evolution detection"
 }

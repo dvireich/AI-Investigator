@@ -48,6 +48,29 @@
       "result": "| TimeGenerated           | CommitId | Version   | ChangeDescription                        |\n|-------------------------|----------|-----------|------------------------------------------|\n| 2025-06-13T08:15:00Z    | b4c9e1f2 | 3.42.1    | Delta Service: Enable adaptive batching  |\n| 2025-06-12T22:00:00Z    | a1d7f3e8 | 3.42.0    | BlobReader: Fix buffer pool race cond.   |"
     }
   ],
+  "pipeline": {
+    "stages": [
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "running", "retryCount": 0, "startedAt": 1749820000000 },
+      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "pending", "retryCount": 0 },
+      { "agentId": "builtin-proposer", "agentName": "Proposer", "color": "#6366f1", "icon": "🔧", "status": "pending", "retryCount": 0 },
+      { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "pending", "retryCount": 0 }
+    ],
+    "currentStageIndex": 0,
+    "definition": {
+      "id": "default-pipeline",
+      "name": "Default Pipeline",
+      "stages": [
+        { "agentId": "builtin-investigator", "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
+        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+      ]
+    },
+    "conversationLog": [
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Starting investigation into high ingestion latency on app-prd-eus2p-01.", "timestamp": 1749820000000, "stageIndex": 0 },
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "action", "content": "Querying E2E latency percentiles and stage breakdown", "timestamp": 1749820030000, "stageIndex": 0, "metadata": { "toolName": "run_query" } }
+    ]
+  },
   "logs": [
     "Investigation started",
     "MCP tools connected",

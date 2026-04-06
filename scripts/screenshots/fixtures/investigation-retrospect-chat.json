@@ -15,6 +15,26 @@
   "actions": [],
   "logs": ["Investigation started", "Investigation completed"],
   "finalReport": "# Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `svc-prd-neu-01` peaked at 2,800 failures/hour.\n\n## Root Cause\n\nCluster capacity throttling during bulk backfill.",
+  "pipeline": {
+    "stages": [
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "completed", "retryCount": 0, "startedAt": 1749780000000, "completedAt": 1749780120000 },
+      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "completed", "verdict": "Findings validated", "retryCount": 0, "startedAt": 1749780120000, "completedAt": 1749780240000 },
+      { "agentId": "builtin-proposer", "agentName": "Proposer", "color": "#6366f1", "icon": "🔧", "status": "completed", "retryCount": 0, "startedAt": 1749780240000, "completedAt": 1749780360000 },
+      { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "completed", "retryCount": 0, "startedAt": 1749780360000, "completedAt": 1749780480000 }
+    ],
+    "currentStageIndex": 3,
+    "definition": {
+      "id": "default-pipeline",
+      "name": "Default Pipeline",
+      "stages": [
+        { "agentId": "builtin-investigator", "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
+        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+      ]
+    },
+    "conversationLog": []
+  },
   "retrospect": {
     "messages": [
       {
