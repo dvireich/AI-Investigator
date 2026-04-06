@@ -112,6 +112,9 @@ vi.mock('../../api', () => ({
             { id: 'rec_P1_2', priority: 'P1', title: 'Add logging', description: 'More telemetry needed', category: 'code' },
         ]),
         getSettings: vi.fn().mockResolvedValue({ maxSteps: 50 }),
+        getInvestigationPipeline: vi.fn().mockResolvedValue(null),
+        getPipelineBuiltins: vi.fn().mockResolvedValue([]),
+        validatePipeline: vi.fn().mockResolvedValue({ valid: true }),
     },
     BASE_URL: 'http://localhost:3000',
 }));
