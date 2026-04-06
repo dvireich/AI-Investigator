@@ -256,6 +256,11 @@ export const About = () => {
                         bg="bg-slate-900/60 border-slate-800 hover:border-fuchsia-500/20"
                         title="Concurrent schedule limit"
                         desc="Control how many scheduled investigations can run simultaneously. Set a global concurrency cap in Settings to prevent resource exhaustion." />
+                    <FeatureCard icon={<GitBranch className="w-4 h-4" />}
+                        color="bg-cyan-500/10 border border-cyan-500/20 text-cyan-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-cyan-500/20"
+                        title="Multi-agent pipelines"
+                        desc="Orchestrate sequential agent workflows — Investigator, Validator, Retrospect, Proposer. Drag-and-drop stage builder with rejection loops, per-stage model overrides, and shared conversation context." />
                 </div>
             </section>
 
@@ -331,6 +336,7 @@ export const About = () => {
                         [ListOrdered,       'text-lime-400',    'Server-side pagination — fast load times with thousands of investigations'],
                         [ShieldCheck,       'text-emerald-400', 'Error boundary & 404 — graceful error recovery and friendly not-found page'],
                         [Gauge,             'text-fuchsia-400', 'Concurrent schedule limit — cap simultaneous scheduled investigation runs'],
+                        [GitBranch,         'text-cyan-400',    'Multi-agent pipelines — drag-and-drop stage builder with rejection loops and per-stage model overrides'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
                             <Icon className={`w-4 h-4 ${color} shrink-0`} />

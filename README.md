@@ -6,6 +6,8 @@
 
 An agentic system that runs, monitors, and learns from investigations — complete with MCP-powered tool execution, real-time streaming, and a self-improving knowledge base.
 
+<img src="docs/hero-banner.png" alt="AI Investigator — Multi-Agent Pipeline" width="700" />
+
 [![CI](https://img.shields.io/github/actions/workflow/status/dvireich/AI-Investigator/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/dvireich/AI-Investigator/actions/workflows/ci.yml)
 [![Backend Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/dvireich/096789943db66abdcf5fad4b2cc40794/raw/backend-coverage.json&style=for-the-badge&logo=vitest&logoColor=white)](https://github.com/dvireich/AI-Investigator/actions/workflows/ci.yml)
 [![Frontend Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/dvireich/096789943db66abdcf5fad4b2cc40794/raw/frontend-coverage.json&style=for-the-badge&logo=vitest&logoColor=white)](https://github.com/dvireich/AI-Investigator/actions/workflows/ci.yml)
@@ -67,6 +69,7 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **First-Launch Onboarding** | Multi-step setup wizard guides new users through LLM provider selection and product discovery |
 | **Auto-Update Checking** | Checks for new releases on startup, shows a floating notification card with download and release notes links. Session-only dismiss |
 | **Implementation Agent** | Select recommendations from the final report and let an AI coding agent propose exact code changes |
+| **Multi-Agent Pipelines** | Orchestrate sequential agent workflows (Investigator → Validator → Proposer → Retrospect) with rejection loops and shared context |
 
 ---
 
@@ -350,6 +353,22 @@ Attach freeform markdown notes to any investigation. The rich-text editor suppor
 
 ---
 
+### 32. Settings — Multi-Agent Pipeline
+
+Build multi-agent investigation workflows with a drag-and-drop pipeline editor. Add stages from four built-in agents (Investigator, Validator, Proposer, Retrospect), configure rejection loops, per-stage model overrides, and timeout limits. The Validator stage can reject findings back to the Investigator for re-analysis, with configurable retry limits.
+
+**Empty state** — the pipeline builder before any stages are added, showing the agent palette and help guide:
+
+![Settings — Pipeline (empty)](docs/screenshots/settings-pipeline-empty.png)
+
+**Recommended pipeline** — the default 4-stage pipeline (Investigator → Validator → Proposer → Retrospect) with rejection loops configured:
+
+![Settings — Pipeline (default)](docs/screenshots/settings-pipeline.png)
+
+<!-- Screenshot: Two pipeline screenshots — empty builder with agent palette, and the recommended 4-stage pipeline with rejection loop arrows. -->
+
+---
+
 ## Features
 
 ### 🔄 Investigation Lifecycle
@@ -419,6 +438,25 @@ The **retrospective agent** additionally has:
 | `propose_change` | Propose a file change with `type` (edit/create), `filePath`, `description`, and `content` |
 | `read_file` | Read knowledge base files (capped at 12K chars per file, with deduplication) |
 | `list_dir` | List directory contents |
+
+### 🤖 Multi-Agent Pipelines
+
+Orchestrate sequential agent workflows where multiple specialized agents collaborate on a single investigation:
+
+- **Pipeline Builder** — Drag-and-drop visual editor in Settings → Pipeline tab. Add stages, reorder them, and configure each stage's behavior
+- **Built-in Agents** — Four pre-configured agents ready to use:
+  | Agent | Role |
+  |-------|------|
+  | 🤖 **Investigator** | Runs the main investigation loop with full MCP tool access |
+  | 🛡️ **Validator** | Reviews findings for accuracy, completeness, and evidence quality |
+  | 🔧 **Proposer** | Reads findings and proposes targeted code changes |
+  | ✨ **Retrospect** | Analyzes against the knowledge base and proposes improvements |
+- **Rejection Loops** — Validator (or any agent with `canReject`) can send work back to the previous stage with feedback. Three rejection modes: **loop** (re-run), **flag** (mark and continue), **abort** (stop pipeline)
+- **Retry Limits** — Configurable `maxRetries` per stage (hard cap: 5) prevents infinite loops
+- **Per-Stage Overrides** — Each stage can override the model, timeout (minutes), and tool access (whitelist/blacklist)
+- **Shared Conversation Context** — All agents share a `ConversationEntry[]` log with thoughts, actions, observations, reports, verdicts, and handoffs. Input mode per stage: `conversation` (full history) or `report-only` (last report)
+- **Real-Time Progress** — WebSocket events (`stage-start`, `stage-complete`, `stage-reject`) drive a live pipeline stepper and conversation timeline on the investigation detail page
+- **Custom Agents** — Define your own agents with inline prompts or file-based prompt paths, custom tool access, and MCP server configurations
 
 ### 📊 Real-Time Streaming
 
@@ -1396,7 +1434,7 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 37 files in `docs/screenshots/`:
+The capture script produces these 39 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
@@ -1420,23 +1458,25 @@ The capture script produces these 37 files in `docs/screenshots/`:
 | 18 | `proposals-panel.png` | Retrospective tab — expanded proposals |
 | 19 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
 | 20 | `settings.png` | Settings — Products tab expanded |
-| 21 | `settings-connections.png` | Settings — Connections tab (LLM provider + MCP servers + incident provider) |
-| 22 | `settings-schedules.png` | Settings — Schedules tab (concurrency, retention, report model) |
-| 23 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
-| 24 | `settings-appearance.png` | Settings — Appearance tab (view, sort, page size, browser notifications) |
-| 25 | `auth-flow.png` | Unauthenticated state |
-| 26 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
-| 27 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
-| 28 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
-| 29 | `schedule-form.png` | Schedule creation wizard with query bank |
-| 30 | `query-bank.png` | New Investigation — query bank dropdown |
-| 31 | `investigation-notes.png` | Investigation detail — Notes tab with markdown editor |
-| 32 | `about-page.png` | About — feature showcase, pipeline, version info |
-| 33 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
-| 34 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
-| 35 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
-| 36 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
-| 37 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
+| 21 | `settings-pipeline-empty.png` | Settings — Pipeline tab (empty builder with agent palette) |
+| 22 | `settings-pipeline.png` | Settings — Pipeline tab (recommended 4-stage pipeline) |
+| 23 | `settings-connections.png` | Settings — Connections tab (LLM provider + MCP servers + incident provider) |
+| 24 | `settings-schedules.png` | Settings — Schedules tab (concurrency, retention, report model) |
+| 25 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
+| 26 | `settings-appearance.png` | Settings — Appearance tab (view, sort, page size, browser notifications) |
+| 27 | `auth-flow.png` | Unauthenticated state |
+| 28 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
+| 29 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
+| 30 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
+| 31 | `schedule-form.png` | Schedule creation wizard with query bank |
+| 32 | `query-bank.png` | New Investigation — query bank dropdown |
+| 33 | `investigation-notes.png` | Investigation detail — Notes tab with markdown editor |
+| 34 | `about-page.png` | About — feature showcase, pipeline, version info |
+| 35 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 36 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 37 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 38 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 39 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
 
 ### Architecture
 

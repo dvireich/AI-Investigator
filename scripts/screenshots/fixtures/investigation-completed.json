@@ -52,5 +52,180 @@
     "Executing 12 queries...",
     "Investigation completed — report generated"
   ],
+  "pipeline": {
+    "stages": [
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "color": "#10b981",
+        "icon": "🤖",
+        "status": "completed",
+        "report": "Investigation Report: Schema change in ExtendedProperties_v2 column caused DLQ overflow at 18:30 UTC. ~42,000 messages affected.",
+        "retryCount": 0,
+        "startedAt": 1749790000000,
+        "completedAt": 1749790120000
+      },
+      {
+        "agentId": "builtin-validator",
+        "agentName": "Validator",
+        "color": "#f59e0b",
+        "icon": "🛡️",
+        "status": "completed",
+        "verdict": "Findings validated with high confidence",
+        "feedback": "Root cause confirmed — schema change at 18:15 correlates with DLQ spike at 18:30. Evidence is comprehensive.",
+        "retryCount": 0,
+        "startedAt": 1749790120000,
+        "completedAt": 1749790240000
+      },
+      {
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "color": "#6366f1",
+        "icon": "🔧",
+        "status": "completed",
+        "report": "Proposed 3 code changes: dynamic column handler in DataWriter.cs, JSON fallback serializer, and schema evolution detector.",
+        "retryCount": 0,
+        "startedAt": 1749790240000,
+        "completedAt": 1749790360000
+      },
+      {
+        "agentId": "builtin-retrospect",
+        "agentName": "Retrospect",
+        "color": "#8b5cf6",
+        "icon": "✨",
+        "status": "completed",
+        "report": "Knowledge base updated with 2 proposed changes: DLQ troubleshooting guide and schema evolution runbook.",
+        "retryCount": 0,
+        "startedAt": 1749790360000,
+        "completedAt": 1749790480000
+      }
+    ],
+    "currentStageIndex": 3,
+    "definition": {
+      "id": "default-pipeline",
+      "name": "Default Pipeline",
+      "stages": [
+        { "agentId": "builtin-investigator", "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
+        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+      ]
+    },
+    "conversationLog": [
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "thought",
+        "content": "Starting investigation into DLQ overflow on app-prd-eus-01. Will query message rates and error distribution.",
+        "timestamp": 1749790000000,
+        "stageIndex": 0
+      },
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "action",
+        "content": "Querying DLQ message rate and error distribution across the 24h window",
+        "timestamp": 1749790030000,
+        "stageIndex": 0,
+        "metadata": { "toolName": "run_query" }
+      },
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "report",
+        "content": "Schema change in ExtendedProperties_v2 column caused DLQ overflow. 42K messages affected across SecurityEvent and CommonSecurityLog tables.",
+        "timestamp": 1749790100000,
+        "stageIndex": 0
+      },
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "handoff",
+        "content": "Handing off to Validator for review",
+        "timestamp": 1749790120000,
+        "stageIndex": 0
+      },
+      {
+        "agentId": "builtin-validator",
+        "agentName": "Validator",
+        "agentColor": "#f59e0b",
+        "agentIcon": "🛡️",
+        "role": "thought",
+        "content": "Reviewing investigation findings. Checking evidence quality and root cause correlation.",
+        "timestamp": 1749790130000,
+        "stageIndex": 1
+      },
+      {
+        "agentId": "builtin-validator",
+        "agentName": "Validator",
+        "agentColor": "#f59e0b",
+        "agentIcon": "🛡️",
+        "role": "observation",
+        "content": "Schema change timestamp (18:15) correlates with DLQ spike (18:30). 15-min lag matches ingestion pipeline propagation time.",
+        "timestamp": 1749790180000,
+        "stageIndex": 1
+      },
+      {
+        "agentId": "builtin-validator",
+        "agentName": "Validator",
+        "agentColor": "#f59e0b",
+        "agentIcon": "🛡️",
+        "role": "verdict",
+        "content": "✅ Approved — findings validated with high confidence. Error correlation 97.3% InvalidBlobContentException.",
+        "timestamp": 1749790240000,
+        "stageIndex": 1
+      },
+      {
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "agentColor": "#6366f1",
+        "agentIcon": "🔧",
+        "role": "thought",
+        "content": "Reading validated findings to propose implementation changes for the data writer.",
+        "timestamp": 1749790250000,
+        "stageIndex": 2
+      },
+      {
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "agentColor": "#6366f1",
+        "agentIcon": "🔧",
+        "role": "action",
+        "content": "Proposing 3 code changes: dynamic column handler, JSON fallback serializer, schema evolution detector",
+        "timestamp": 1749790300000,
+        "stageIndex": 2,
+        "metadata": { "proposalCount": 3 }
+      },
+      {
+        "agentId": "builtin-retrospect",
+        "agentName": "Retrospect",
+        "agentColor": "#8b5cf6",
+        "agentIcon": "✨",
+        "role": "thought",
+        "content": "Analyzing investigation against knowledge base. Looking for gaps in troubleshooting guides.",
+        "timestamp": 1749790370000,
+        "stageIndex": 3
+      },
+      {
+        "agentId": "builtin-retrospect",
+        "agentName": "Retrospect",
+        "agentColor": "#8b5cf6",
+        "agentIcon": "✨",
+        "role": "action",
+        "content": "Proposing 2 knowledge base changes: DLQ troubleshooting guide update and new schema evolution runbook",
+        "timestamp": 1749790440000,
+        "stageIndex": 3,
+        "metadata": { "proposalCount": 2 }
+      }
+    ]
+  },
   "finalReport": "# Dead Letter Queue Overflow Investigation\n\n## Summary\n\nThe DLQ on `app-prd-eus-01` experienced a critical overflow event starting at **2025-06-12 18:30 UTC**, with the message rate increasing from the normal baseline of ~50 messages/hour to **4,200 messages/hour** — an **84x increase**.\n\n## Root Cause\n\nA schema change in the upstream telemetry (deployed at 18:15 UTC) introduced a new `dynamic` column (`ExtendedProperties_v2`) that the data writer attempted to serialize as a primitive string. This caused `InvalidBlobContentException` for every affected message.\n\n### Timeline\n\n| Time (UTC) | Event |\n|---|---|\n| 18:15 | Upstream schema update deployed (adds `ExtendedProperties_v2`) |\n| 18:30 | First `InvalidBlobContentException` errors appear |\n| 19:00 | DLQ rate reaches 820 msg/hr |\n| 20:00 | DLQ rate reaches 1,200 msg/hr |\n| 22:00 | DLQ rate stabilizes at ~4,200 msg/hr |\n\n## Impact\n\n- **Total Affected Messages**: ~42,000 messages moved to DLQ over 10 hours\n- **Data Tables Impacted**: `SecurityEvent`, `CommonSecurityLog`\n- **Customer Impact**: 3 workspaces experienced delayed ingestion (~2 hours)\n- **Error Breakdown**:\n  - `InvalidBlobContentException`: 40,890 (97.3%)\n  - `BlobNotFoundException`: 820 (2.0%)\n  - `TimeoutException`: 290 (0.7%)\n\n## Evidence\n\n### Query: DLQ Message Rate\n```\nServiceMetrics\n| where Stamp == 'app-prd-eus-01'\n| where MetricName == 'DLQMessageCount'\n| summarize sum(Value) by bin(TimeGenerated, 1h)\n| order by TimeGenerated desc\n```\n\n### Query: Error Distribution\n```\nServiceTraces\n| where Stamp == 'app-prd-eus-01'\n| where Level == 'Error'\n| where Message has 'InvalidBlobContent'\n| summarize count() by ErrorType = extract('Exception: (\\\\w+)', 1, Message)\n```\n\n### Query: Schema Change Detection\n```\nSchemaChanges\n| where TimeGenerated between(datetime(2025-06-12T17:00:00Z) .. datetime(2025-06-12T19:00:00Z))\n| where ColumnName == 'ExtendedProperties_v2'\n| project TimeGenerated, TableName, ColumnName, ColumnType, ChangeType\n```\n\n## Recommendations\n\n1. **Immediate**: Deploy data writer fix to handle `dynamic` column types, then replay DLQ messages\n2. **Short-term**: Add `dynamic` type detection and graceful fallback (serialize as JSON string) to the serializer\n3. **Long-term**: Implement schema evolution detection in the pipeline intake, with automated alerts when new column types appear\n4. **Monitoring**: Add metric for DLQ growth rate with auto-alerting when rate exceeds 5x baseline"
 }
