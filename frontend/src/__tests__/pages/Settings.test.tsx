@@ -74,6 +74,7 @@ vi.mock('../../api', () => ({
         configureLlmProvider: vi.fn().mockResolvedValue({}),
         exportSettings: vi.fn().mockResolvedValue(undefined),
         importSettings: vi.fn().mockResolvedValue({ imported: 3, config: { model: 'gpt-4o', maxSteps: 50 } }),
+        getPipelineBuiltins: vi.fn().mockResolvedValue([]),
     },
 }));
 
