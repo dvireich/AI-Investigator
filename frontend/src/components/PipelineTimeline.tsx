@@ -228,7 +228,7 @@ const ConversationBubble: React.FC<{ entry: ConversationEntry }> = React.memo(({
                 </span>
 
                 {/* Role badge with icon */}
-                {cfg.label && (
+                {cfg?.label && (
                     <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-medium ${
                         isReport ? 'bg-blue-500/15 text-blue-400 border border-blue-500/20' :
                         isVerdict ? 'bg-purple-500/15 text-purple-400 border border-purple-500/20' :

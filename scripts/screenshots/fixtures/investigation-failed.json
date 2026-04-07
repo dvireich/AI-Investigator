@@ -72,7 +72,7 @@
     },
     "conversationLog": [
       { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Starting investigation. Attempting to query databases.", "timestamp": 1749770000000, "stageIndex": 0 },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "error", "content": "Authentication failed after 3 retries. Investigation cannot proceed.", "timestamp": 1749770060000, "stageIndex": 0 }
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Authentication failed after 3 retries. Investigation cannot proceed.", "timestamp": 1749770060000, "stageIndex": 0 }
     ]
   },
   "logs": [

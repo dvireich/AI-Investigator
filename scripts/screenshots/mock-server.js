@@ -230,7 +230,14 @@ app.post('/api/auth/login', (_req, res) => {
 // ---- Settings ----
 
 app.get('/api/settings', (_req, res) => {
-    res.json(overrideSettings || settingsData.settings);
+    if (overrideSettings) {
+        res.json(overrideSettings);
+    } else {
+        // Include pipeline at top level so the frontend sees settings.pipeline
+        const resp = { ...settingsData.settings };
+        if (settingsData.pipeline) resp.pipeline = settingsData.pipeline;
+        res.json(resp);
+    }
 });
 
 app.post('/api/settings', (req, res) => {
