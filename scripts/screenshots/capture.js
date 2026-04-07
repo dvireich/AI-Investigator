@@ -357,10 +357,11 @@ async function captureImplementRecommendations(page) {
 
 async function captureFailedInvestigation(page) {
     console.log('\n📸 Failed Investigation...');
+    await resetMock();
     const inv = loadFixture('investigation-failed.json');
     await setDetailOverride(inv.id, inv);
-    await navigateTo(page, `/investigation/${inv.id}`);
-    await page.waitForTimeout(800);
+    await page.goto(`${VITE_URL}/investigation/${inv.id}`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(2000);
     await screenshot(page, 'failed-investigation');
 }
 
@@ -580,7 +581,7 @@ async function captureSettingsPipeline(page) {
         await page.waitForTimeout(800);
     }
 
-    await screenshot(page, 'settings-pipeline');
+    await screenshot(page, 'settings-pipeline', { fullPage: true });
 }
 
 async function captureInvestigationNotes(page) {

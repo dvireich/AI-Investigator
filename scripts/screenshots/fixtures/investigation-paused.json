@@ -47,6 +47,29 @@
       "result": "| TableName          | CacheMissCount |\n|--------------------|----------------|\n| SecurityEvent      | 12840          |\n| Syslog             | 8560           |\n| CommonSecurityLog  | 5490           |\n| Perf               | 2100           |\n| Event              | 1350           |"
     }
   ],
+  "pipeline": {
+    "stages": [
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "running", "retryCount": 0, "startedAt": 1749800000000 },
+      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "pending", "retryCount": 0 },
+      { "agentId": "builtin-proposer", "agentName": "Proposer", "color": "#6366f1", "icon": "🔧", "status": "pending", "retryCount": 0 },
+      { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "pending", "retryCount": 0 }
+    ],
+    "currentStageIndex": 0,
+    "definition": {
+      "id": "default-pipeline",
+      "name": "Default Pipeline",
+      "stages": [
+        { "agentId": "builtin-investigator", "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
+        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+      ]
+    },
+    "conversationLog": [
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Starting investigation into BlobReader cache miss cascade.", "timestamp": 1749800000000, "stageIndex": 0 },
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "action", "content": "Querying cache hit ratio and miss distribution", "timestamp": 1749800030000, "stageIndex": 0, "metadata": { "toolName": "run_query" } }
+    ]
+  },
   "logs": [
     "Investigation started",
     "MCP tools connected",
