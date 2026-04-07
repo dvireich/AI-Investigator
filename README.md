@@ -1113,6 +1113,10 @@ From your phone you can:
 
 The tunnel stays active as long as your laptop is running. Close it with `Stop-Dashboard.ps1` or by shutting the tunnel console window.
 
+---
+
+## Configuration
+
 Configuration is managed through the Settings UI or directly in `backend/config.json` (copy from `config.sample.json` to get started):
 
 | Setting | Default | Description |
