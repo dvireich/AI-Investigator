@@ -143,12 +143,19 @@ export class PipelineOrchestrator extends EventEmitter {
                     mcpServers: agent.mcpServers || this.baseConfig.mcpServers,
                 };
 
+                // For retrospect stages, keep finalReport so it can analyze
+                // prior stages' output. For other stages, reset it.
+                const isRetrospectStage = agent.builtinType === 'retrospect';
+
                 // Create a runner for this stage
                 const runner = new AgentRunner(stageConfig, this.llmProvider, {
                     ...currentState,
-                    status: 'running',
+                    // Retrospect needs 'completed' status (it refuses to run on 'running')
+                    // and needs the finalReport from prior stages for analysis.
+                    status: isRetrospectStage ? 'completed' : 'running',
                     // Reset per-stage state (keep accumulated thoughts for the timeline)
-                    finalReport: undefined,
+                    // but keep finalReport for retrospect so it can analyze the investigation
+                    finalReport: isRetrospectStage ? currentState.finalReport : undefined,
                 });
 
                 this.currentRunner = runner;
@@ -180,11 +187,32 @@ export class PipelineOrchestrator extends EventEmitter {
 
                 // Execute with timeout
                 const timeout = stage.timeout ? stage.timeout * 60_000 : undefined;
-                await this.runWithTimeout(runner, initialQuery, timeout);
+                if (isRetrospectStage) {
+                    // Retrospect stages use the dedicated retrospect tool loop
+                    // which reads KB files and proposes changes, rather than
+                    // running as a regular investigation.
+                    await this.runRetrospectStage(runner, timeout);
+                } else {
+                    await this.runWithTimeout(runner, initialQuery, timeout);
+                }
 
                 // Collect results
                 const result = runner.getStageResult();
                 const runnerState = (runner as any).state as InvestigationState;
+
+                // For retrospect stages, build a report from the retrospect state
+                // since runRetrospectiveAnalysis() doesn't set finalReport.
+                if (isRetrospectStage) {
+                    const runnerRetro = runnerState.retrospect;
+                    const proposalCount = runnerRetro?.proposals?.length || 0;
+                    // Extract the last assistant message as the report text
+                    const lastAssistantMsg = runnerRetro?.messages
+                        ?.filter((m: any) => m.role === 'assistant')
+                        ?.pop()?.content || '';
+                    const retroReport = lastAssistantMsg || 
+                        `Knowledge base analysis complete. ${proposalCount} change${proposalCount === 1 ? '' : 's'} proposed.`;
+                    result.report = retroReport;
+                }
 
                 // Append this agent's key outputs to the conversation log
                 if (result.report) {
@@ -240,20 +268,27 @@ export class PipelineOrchestrator extends EventEmitter {
                 // shows them directly instead of re-running analysis from scratch.
                 if (agent.builtinType === 'retrospect') {
                     const runnerRetro = runnerState.retrospect;
-                    const proposals = runnerRetro?.proposals || [];
-                    const reportText = result.report || 'Pipeline retrospect stage completed.';
-                    const proposalSummary = proposals.length > 0
-                        ? `${proposals.length} proposed change${proposals.length === 1 ? '' : 's'} generated.`
-                        : 'No changes were proposed.';
-                    currentState.retrospect = {
-                        messages: [
-                            { role: 'user', content: '[Auto-Analysis] Pipeline retrospect stage' },
-                            { role: 'assistant', content: `${reportText}\n\n---\n\n**Analysis complete.** ${proposalSummary}` },
-                        ],
-                        proposals,
-                        analysisComplete: true,
-                        completed: true,
-                    };
+                    if (runnerRetro) {
+                        // runRetrospectiveAnalysis() already populated the full
+                        // retrospect state (messages, proposals, analysisComplete).
+                        // Carry it over directly so the UI shows the real tool
+                        // activity, proposals, and completion status.
+                        currentState.retrospect = {
+                            ...runnerRetro,
+                            completed: true,
+                        };
+                    } else {
+                        // Fallback if retrospect state somehow wasn't populated
+                        currentState.retrospect = {
+                            messages: [
+                                { role: 'user', content: '[Auto-Analysis] Pipeline retrospect stage' },
+                                { role: 'assistant', content: 'Pipeline retrospect stage completed.\n\n---\n\n**Analysis complete.** No changes were proposed.' },
+                            ],
+                            proposals: [],
+                            analysisComplete: true,
+                            completed: true,
+                        };
+                    }
                 }
 
                 // Clean up runner
@@ -570,6 +605,28 @@ export class PipelineOrchestrator extends EventEmitter {
 
         await Promise.race([
             runner.start(query),
+            timeoutPromise,
+        ]);
+    }
+
+    /**
+     * Run a retrospect stage using the dedicated retrospect tool loop.
+     */
+    private async runRetrospectStage(
+        runner: AgentRunner,
+        timeoutMs?: number
+    ): Promise<void> {
+        if (!timeoutMs) {
+            await runner.runRetrospectiveAnalysis();
+            return;
+        }
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
+        });
+
+        await Promise.race([
+            runner.runRetrospectiveAnalysis(),
             timeoutPromise,
         ]);
     }

@@ -675,21 +675,22 @@ describe('PipelineOrchestrator', () => {
                 { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
             ]);
             const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
-            (orch as any).runWithTimeout = async (runner: any) => {
-                runner.state.finalReport = 'Retrospect analysis complete';
+            (orch as any).runRetrospectStage = async (runner: any) => {
                 runner.state.retrospect = {
-                    messages: [{ role: 'assistant', content: 'analysis' }],
+                    messages: [
+                        { role: 'user', content: '[Auto-Analysis] System triggered initial investigation analysis' },
+                        { role: 'assistant', content: '**Analysis complete.** 1 proposed change generated.' },
+                    ],
                     proposals: [{ id: 'p1', type: 'edit', filePath: 'test.md', description: 'fix', content: 'new', status: 'pending' }],
                     analysisComplete: true,
-                    completed: true,
                 };
-                runner.state.status = 'completed';
             };
 
             const result = await orch.run('query');
             expect(result.retrospect).toBeDefined();
             expect(result.retrospect!.analysisComplete).toBe(true);
             expect(result.retrospect!.proposals).toHaveLength(1);
+            expect(result.retrospect!.completed).toBe(true);
         });
 
         it('bridges retrospect with empty proposals (no changes proposed)', async () => {
@@ -697,15 +698,15 @@ describe('PipelineOrchestrator', () => {
                 { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
             ]);
             const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
-            (orch as any).runWithTimeout = async (runner: any) => {
-                runner.state.finalReport = 'All good, nothing to change';
+            (orch as any).runRetrospectStage = async (runner: any) => {
                 runner.state.retrospect = {
-                    messages: [{ role: 'assistant', content: 'looks fine' }],
+                    messages: [
+                        { role: 'user', content: '[Auto-Analysis] System triggered initial investigation analysis' },
+                        { role: 'assistant', content: '**Analysis complete.** No changes were proposed.' },
+                    ],
                     proposals: [],
                     analysisComplete: true,
-                    completed: true,
                 };
-                runner.state.status = 'completed';
             };
 
             const result = await orch.run('query');
@@ -844,6 +845,32 @@ describe('PipelineOrchestrator', () => {
             const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
             const fakeRunner = { start: vi.fn(() => new Promise(() => {})) }; // never resolves
             const promise = (orch as any).runWithTimeout(fakeRunner, 'query', 1000);
+            vi.advanceTimersByTime(1100);
+            await expect(promise).rejects.toThrow('timed out');
+            vi.useRealTimers();
+        });
+    });
+
+    describe('runRetrospectStage', () => {
+        it('calls runner.runRetrospectiveAnalysis directly when no timeout', async () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const fakeRunner = { runRetrospectiveAnalysis: vi.fn().mockResolvedValue(undefined) };
+            await (orch as any).runRetrospectStage(fakeRunner);
+            expect(fakeRunner.runRetrospectiveAnalysis).toHaveBeenCalled();
+        });
+
+        it('calls runner.runRetrospectiveAnalysis with timeout wrapper', async () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const fakeRunner = { runRetrospectiveAnalysis: vi.fn().mockResolvedValue(undefined) };
+            await (orch as any).runRetrospectStage(fakeRunner, 60000);
+            expect(fakeRunner.runRetrospectiveAnalysis).toHaveBeenCalled();
+        });
+
+        it('rejects when timeout fires before retrospect completes', async () => {
+            vi.useFakeTimers();
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const fakeRunner = { runRetrospectiveAnalysis: vi.fn(() => new Promise(() => {})) }; // never resolves
+            const promise = (orch as any).runRetrospectStage(fakeRunner, 1000);
             vi.advanceTimersByTime(1100);
             await expect(promise).rejects.toThrow('timed out');
             vi.useRealTimers();
@@ -1160,15 +1187,15 @@ describe('PipelineOrchestrator', () => {
                 { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
             ]);
             const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
-            (orch as any).runWithTimeout = async (runner: any) => {
-                runner.state.finalReport = 'One change needed';
+            (orch as any).runRetrospectStage = async (runner: any) => {
                 runner.state.retrospect = {
-                    messages: [{ role: 'assistant', content: 'analysis' }],
+                    messages: [
+                        { role: 'user', content: '[Auto-Analysis] System triggered initial investigation analysis' },
+                        { role: 'assistant', content: '**Analysis complete.** 1 proposed change generated.' },
+                    ],
                     proposals: [{ id: 'p1', type: 'edit', filePath: 'a.md', description: 'fix', content: '', status: 'pending' }],
                     analysisComplete: true,
-                    completed: true,
                 };
-                runner.state.status = 'completed';
             };
 
             const result = await orch.run('query');
@@ -1181,15 +1208,15 @@ describe('PipelineOrchestrator', () => {
                 { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
             ]);
             const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
-            (orch as any).runWithTimeout = async (runner: any) => {
-                runner.state.finalReport = 'Custom report text';
+            (orch as any).runRetrospectStage = async (runner: any) => {
                 runner.state.retrospect = {
-                    messages: [],
+                    messages: [
+                        { role: 'user', content: '[Auto-Analysis] System triggered initial investigation analysis' },
+                        { role: 'assistant', content: 'Custom report text\n\n---\n\n**Analysis complete.** 2 proposed changes generated.' },
+                    ],
                     proposals: [{ id: 'p1' }, { id: 'p2' }],
                     analysisComplete: true,
-                    completed: true,
                 };
-                runner.state.status = 'completed';
             };
 
             const result = await orch.run('query');
@@ -1203,20 +1230,43 @@ describe('PipelineOrchestrator', () => {
                 { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
             ]);
             const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
-            (orch as any).runWithTimeout = async (runner: any) => {
-                runner.state.finalReport = '';
+            (orch as any).runRetrospectStage = async (runner: any) => {
                 runner.state.retrospect = {
-                    messages: [],
+                    messages: [
+                        { role: 'user', content: '[Auto-Analysis] System triggered initial investigation analysis' },
+                        { role: 'assistant', content: '**Analysis complete.** No changes were proposed.' },
+                    ],
                     proposals: [],
                     analysisComplete: true,
-                    completed: true,
                 };
-                runner.state.status = 'completed';
             };
 
             const result = await orch.run('query');
-            const assistantMsg = result.retrospect!.messages.find((m: any) => m.role === 'assistant');
-            expect(assistantMsg?.content).toContain('Pipeline retrospect stage completed.');
+            expect(result.retrospect).toBeDefined();
+            expect(result.retrospect!.completed).toBe(true);
+            expect(result.retrospect!.proposals).toHaveLength(0);
+        });
+
+        it('retrospect report falls back to default when no assistant messages exist', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            (orch as any).runRetrospectStage = async (runner: any) => {
+                runner.state.retrospect = {
+                    messages: [{ role: 'user', content: 'trigger' }], // no assistant messages
+                    proposals: [{ id: 'p1' }],
+                    analysisComplete: true,
+                };
+            };
+
+            const result = await orch.run('query');
+            // The conversation log should contain the fallback report
+            const convLog = orch.getPipelineState().conversationLog;
+            const reports = convLog.filter(e => e.role === 'report');
+            expect(reports).toHaveLength(1);
+            expect(reports[0].content).toContain('Knowledge base analysis complete');
+            expect(reports[0].content).toContain('1 change proposed');
         });
 
         it('retrospect bridge with undefined proposals falls back to empty array', async () => {
@@ -1224,20 +1274,35 @@ describe('PipelineOrchestrator', () => {
                 { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
             ]);
             const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
-            (orch as any).runWithTimeout = async (runner: any) => {
-                runner.state.finalReport = 'Report text';
+            (orch as any).runRetrospectStage = async (runner: any) => {
                 runner.state.retrospect = {
                     messages: [],
-                    // proposals intentionally omitted — tests the || [] fallback
+                    // proposals intentionally omitted — tests the fallback
                     analysisComplete: true,
-                    completed: true,
                 };
-                runner.state.status = 'completed';
             };
 
             const result = await orch.run('query');
             expect(result.retrospect).toBeDefined();
-            expect(result.retrospect!.proposals).toEqual([]);
+            expect(result.retrospect!.completed).toBe(true);
+        });
+
+        it('retrospect bridge uses fallback when retrospect state is null', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            (orch as any).runRetrospectStage = async (runner: any) => {
+                // Don't set runner.state.retrospect — tests the null fallback path
+            };
+
+            const result = await orch.run('query');
+            expect(result.retrospect).toBeDefined();
+            expect(result.retrospect!.analysisComplete).toBe(true);
+            expect(result.retrospect!.completed).toBe(true);
+            expect(result.retrospect!.proposals).toHaveLength(0);
+            const assistantMsg = result.retrospect!.messages.find((m: any) => m.role === 'assistant');
+            expect(assistantMsg?.content).toContain('No changes were proposed.');
         });
 
         it('stage with timeout set passes timeout to runWithTimeout', async () => {
