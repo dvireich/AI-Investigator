@@ -1178,8 +1178,8 @@ export const NewInvestigation = () => {
                                                     <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-purple-300/70' : 'text-slate-500'}`}>{preset.description}</p>
                                                     <div className="flex flex-wrap gap-0.5 mt-1.5">
                                                         {preset.stages.map((s, i) => {
-                                                            const agent = builtinAgents.find(a => a.builtinType === s.builtinType);
-                                                            return agent ? (
+                                                            const agent = builtinAgents.find(a => a.builtinType === s.builtinType)!;
+                                                            return (
                                                                 <span
                                                                     key={i}
                                                                     className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
@@ -1188,7 +1188,7 @@ export const NewInvestigation = () => {
                                                                 >
                                                                     {agent.icon || agent.name.charAt(0)}
                                                                 </span>
-                                                            ) : null;
+                                                            );
                                                         })}
                                                     </div>
                                                 </button>

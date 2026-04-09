@@ -2154,3 +2154,277 @@ describe('NewInvestigation additional coverage', () => {
         });
     });
 });
+
+// ── Workflow Preset & Agent Configuration Coverage ─────────────────────
+
+describe('NewInvestigation workflow presets', () => {
+    const mockBuiltinAgents = [
+        { id: 'a1', name: 'Investigator', source: 'builtin' as const, builtinType: 'investigator', color: '#3b82f6', icon: '🔍' },
+        { id: 'a2', name: 'Validator', source: 'builtin' as const, builtinType: 'validator', color: '#10b981', icon: '✅' },
+        { id: 'a3', name: 'Implementation', source: 'builtin' as const, builtinType: 'implementation', color: '#f59e0b', icon: '🔧' },
+        { id: 'a4', name: 'Retrospect', source: 'builtin' as const, builtinType: 'retrospect', color: '#8b5cf6', icon: '📚' },
+        { id: 'a5', name: 'Planner', source: 'builtin' as const, builtinType: 'planner', color: '#06b6d4', icon: '📋' },
+        { id: 'a6', name: 'Triage', source: 'builtin' as const, builtinType: 'triage', color: '#ef4444', icon: '🚦' },
+        { id: 'a7', name: 'Devils Advocate', source: 'builtin' as const, builtinType: 'devils-advocate', color: '#dc2626', icon: '😈' },
+        { id: 'a8', name: 'Summarizer', source: 'builtin' as const, builtinType: 'summarizer', color: '#14b8a6', icon: '📝' },
+        { id: 'a9', name: 'Enrichment', source: 'builtin' as const, builtinType: 'enrichment', color: '#a855f7', icon: '🔗' },
+        { id: 'a10', name: 'Timeline', source: 'builtin' as const, builtinType: 'timeline', color: '#0ea5e9', icon: '⏱️' },
+        { id: 'a11', name: 'Remediation', source: 'builtin' as const, builtinType: 'remediation', color: '#22c55e', icon: '🩹' },
+        { id: 'a12', name: 'Correlator', source: 'builtin' as const, builtinType: 'correlator', color: '#f97316', icon: '🔀' },
+        { id: 'a13', name: 'Compliance', source: 'builtin' as const, builtinType: 'compliance', color: '#6366f1', icon: '📜' },
+    ];
+
+    beforeEach(async () => {
+        vi.clearAllMocks();
+        const { api } = await import('../../api');
+        vi.mocked(api.listModels).mockResolvedValue(['gpt-4o']);
+        vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', timeRange: 'ago(1h)' } as any);
+        vi.mocked(api.listProducts).mockResolvedValue([{ id: 'p1', name: 'Product 1' }] as any);
+        vi.mocked(api.getActiveProduct).mockResolvedValue({ id: 'p1' } as any);
+        vi.mocked(api.checkIncidentStatus).mockResolvedValue({ available: false });
+        vi.mocked(api.getSavedQueries).mockResolvedValue([]);
+        vi.mocked(api.validateProduct).mockResolvedValue({ valid: true, paths: [] } as any);
+        vi.mocked(api.startInvestigation).mockResolvedValue({ id: 'inv-1' });
+        vi.mocked(api.getPipelineBuiltins).mockResolvedValue(mockBuiltinAgents as any);
+    });
+
+    it('renders workflow preset cards when builtin agents are available', async () => {
+        renderNewInvestigation();
+        await waitFor(() => {
+            expect(screen.getByText('Agent Workflow')).toBeInTheDocument();
+        });
+        // Standard preset should be visible
+        expect(screen.getByText('Standard')).toBeInTheDocument();
+    });
+
+    it('shows configured pipeline card when settings has pipeline', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSettings).mockResolvedValue({
+            model: 'gpt-4o',
+            timeRange: 'ago(1h)',
+            pipeline: {
+                id: 'custom-1',
+                name: 'My Custom Pipeline',
+                stages: [
+                    { agent: { id: 'a1', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#3b82f6', icon: '🔍' }, inputMode: 'conversation' },
+                    { agent: { id: 'a2', name: 'Validator', source: 'builtin', builtinType: 'validator', color: '#10b981', icon: '✅' }, inputMode: 'conversation' },
+                ],
+            },
+        } as any);
+
+        renderNewInvestigation();
+        await waitFor(() => {
+            expect(screen.getByText('My Custom Pipeline')).toBeInTheDocument();
+        });
+        expect(screen.getByText('CONFIGURED')).toBeInTheDocument();
+        expect(screen.getByText(/Your pipeline from Settings/)).toBeInTheDocument();
+    });
+
+    it('selects a preset and submits with pipeline payload', async () => {
+        const { api } = await import('../../api');
+        const user = userEvent.setup();
+        renderNewInvestigation();
+
+        await waitFor(() => screen.getByText('Agent Workflow'));
+        // Click the 'Deep Investigation' preset
+        await user.click(screen.getByText('Deep Investigation'));
+
+        // Fill target & submit
+        await user.type(screen.getByPlaceholderText(/my-app-prd/i), 'test-target');
+        const submitButton = screen.getByRole('button', { name: /start investigation/i });
+        await user.click(submitButton);
+
+        await waitFor(() => {
+            expect(api.startInvestigation).toHaveBeenCalled();
+        });
+        // pipeline payload should be passed
+        const callArgs = vi.mocked(api.startInvestigation).mock.calls[0][0] as any;
+        expect(callArgs.pipeline).toBeDefined();
+        expect(callArgs.pipeline.name).toBe('Deep Investigation');
+    });
+
+    it('submits without pipeline override when configured workflow is selected', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSettings).mockResolvedValue({
+            model: 'gpt-4o',
+            timeRange: 'ago(1h)',
+            pipeline: {
+                id: 'custom-1',
+                name: 'My Pipeline',
+                stages: [
+                    { agent: { id: 'a1', name: 'Investigator', source: 'builtin', color: '#3b82f6', icon: '🔍' }, inputMode: 'conversation' },
+                    { agent: { id: 'a2', name: 'Validator', source: 'builtin', color: '#10b981', icon: '✅' }, inputMode: 'conversation' },
+                ],
+            },
+        } as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+
+        await waitFor(() => screen.getByText('CONFIGURED'));
+        // 'configured' should be auto-selected, fill target and submit
+        await user.type(screen.getByPlaceholderText(/my-app-prd/i), 'test-target');
+        const submitButton = screen.getByRole('button', { name: /start investigation/i });
+        await user.click(submitButton);
+
+        await waitFor(() => {
+            expect(api.startInvestigation).toHaveBeenCalled();
+        });
+        // pipeline should be undefined (uses settings pipeline, no override)
+        const callArgs = vi.mocked(api.startInvestigation).mock.calls[0][0] as any;
+        expect(callArgs.pipeline).toBeUndefined();
+    });
+
+    it('paginates workflow cards when there are many presets', async () => {
+        const { api } = await import('../../api');
+        // With configured pipeline + 6 presets = 7 items, needs 2 pages
+        vi.mocked(api.getSettings).mockResolvedValue({
+            model: 'gpt-4o',
+            timeRange: 'ago(1h)',
+            pipeline: {
+                id: 'cfg-1',
+                name: 'Configured',
+                stages: [
+                    { agent: { id: 'a1', name: 'Investigator', source: 'builtin', color: '#3b82f6', icon: '🔍' }, inputMode: 'conversation' },
+                    { agent: { id: 'a2', name: 'Validator', source: 'builtin', color: '#10b981', icon: '✅' }, inputMode: 'conversation' },
+                ],
+            },
+        } as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+
+        await waitFor(() => screen.getByText('1/2'));
+
+        // Page 1 should show 6 items, page 2 should show the rest
+        // Click next page
+        const nextButtons = screen.getAllByRole('button').filter(b => b.querySelector('.lucide-chevron-right'));
+        expect(nextButtons.length).toBeGreaterThan(0);
+        await user.click(nextButtons[0]);
+
+        await waitFor(() => screen.getByText('2/2'));
+
+        // Click prev page to go back
+        const prevButtons = screen.getAllByRole('button').filter(b => b.querySelector('.lucide-chevron-left'));
+        expect(prevButtons.length).toBeGreaterThan(0);
+        await user.click(prevButtons[0]);
+
+        await waitFor(() => screen.getByText('1/2'));
+    });
+
+    it('shows DEFAULT badge on Standard preset when no configured pipeline', async () => {
+        renderNewInvestigation();
+        await waitFor(() => {
+            expect(screen.getByText('DEFAULT')).toBeInTheDocument();
+        });
+    });
+
+    it('renders agent icon circles for preset stages', async () => {
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText('Standard'));
+        // Standard preset has 4 stages, each rendered as a colored circle
+        // Find the Standard card and verify agent circles exist
+        const standardCard = screen.getByText('Standard').closest('button');
+        expect(standardCard).toBeTruthy();
+        const circles = standardCard!.querySelectorAll('span.w-4.h-4.rounded-full');
+        expect(circles.length).toBe(4); // investigator, validator, implementation, retrospect
+    });
+
+    it('submits without pipeline when buildPipelinePreset throws (covers catch block)', async () => {
+        const { api } = await import('../../api');
+        const PB = await import('../../components/PipelineBuilder');
+        const originalBuild = PB.buildPipelinePreset;
+        const spy = vi.spyOn(PB, 'buildPipelinePreset').mockImplementation(() => {
+            throw new Error('No agents available');
+        });
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+
+        await waitFor(() => screen.getByText('Standard'));
+        // Select Standard preset (it renders because agents exist, but build will throw)
+        await user.click(screen.getByText('Standard'));
+        await user.type(screen.getByPlaceholderText(/my-app-prd/i), 'test-target');
+        await user.click(screen.getByRole('button', { name: /start investigation/i }));
+
+        await waitFor(() => {
+            expect(api.startInvestigation).toHaveBeenCalled();
+        });
+        // Pipeline should be undefined because buildPipelinePreset threw
+        const callArgs = vi.mocked(api.startInvestigation).mock.calls[0][0] as any;
+        expect(callArgs.pipeline).toBeUndefined();
+        spy.mockRestore();
+    });
+
+    it('renders preset agent circles without icon (uses name initial)', async () => {
+        const { api } = await import('../../api');
+        // Provide agents without icons to cover agent.name.charAt(0) branch
+        vi.mocked(api.getPipelineBuiltins).mockResolvedValue([
+            { id: 'a1', name: 'Investigator', source: 'builtin' as const, builtinType: 'investigator', color: '#3b82f6' },
+            { id: 'a2', name: 'Validator', source: 'builtin' as const, builtinType: 'validator', color: '#10b981' },
+            { id: 'a3', name: 'Implementation', source: 'builtin' as const, builtinType: 'implementation', color: '#f59e0b' },
+            { id: 'a4', name: 'Retrospect', source: 'builtin' as const, builtinType: 'retrospect' },
+        ] as any);
+
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText('Standard'));
+        const standardCard = screen.getByText('Standard').closest('button');
+        expect(standardCard).toBeTruthy();
+        // Verify circles render with name initial (no icon) and default color
+        const circles = standardCard!.querySelectorAll('span.w-4.h-4.rounded-full');
+        expect(circles.length).toBe(4);
+    });
+
+    it('covers configured pipeline card with empty name and sparse stages', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSettings).mockResolvedValue({
+            model: 'gpt-4o',
+            timeRange: 'ago(1h)',
+            pipeline: {
+                id: 'sparse-1',
+                name: '', // empty name triggers 'Custom Pipeline' fallback
+                stages: [
+                    // Stage without agent — covers agent?.color||'#6b7280', agent?.name||'Stage 1', agent?.icon||(i+1)
+                    { inputMode: 'conversation' },
+                    // Stage with agent without color/icon — covers agent.name.charAt(0) fallback
+                    { agent: { id: 'x', name: 'TestAgent', source: 'builtin' }, inputMode: 'conversation' },
+                ],
+            },
+        } as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => {
+            expect(screen.getByText('Custom Pipeline')).toBeInTheDocument();
+        });
+        expect(screen.getByText('CONFIGURED')).toBeInTheDocument();
+        expect(screen.getByText(/Your pipeline from Settings. 2 stages/)).toBeInTheDocument();
+    });
+
+    it('clicks configured card to select it after selecting a preset', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSettings).mockResolvedValue({
+            model: 'gpt-4o',
+            timeRange: 'ago(1h)',
+            pipeline: {
+                id: 'custom-1',
+                name: 'My Pipeline',
+                stages: [
+                    { agent: { id: 'a1', name: 'Inv', source: 'builtin', color: '#3b82f6', icon: '🔍' }, inputMode: 'conversation' },
+                    { agent: { id: 'a2', name: 'Val', source: 'builtin', color: '#10b981', icon: '✅' }, inputMode: 'conversation' },
+                ],
+            },
+        } as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText('CONFIGURED'));
+
+        // Select a preset first
+        await user.click(screen.getByText('Standard'));
+        // Then click back to configured
+        await user.click(screen.getByText('My Pipeline'));
+        // Should navigate back to configured selection
+        expect(screen.getByText('CONFIGURED')).toBeInTheDocument();
+    });
+});
