@@ -1807,10 +1807,12 @@ interface CreateInvestigationParams {
     scheduleId?: string;
     title?: string;
     createdBy?: string;
+    /** Optional pipeline override — takes precedence over product/global pipeline config */
+    pipeline?: PipelineDefinition;
 }
 
 export function createInvestigation(params: CreateInvestigationParams): { id: string; runner: AgentRunner } {
-    const { query, target, timeRange, correlationId, category, incidentId, model, productId, maxSteps, source, scheduleId, title, createdBy } = params;
+    const { query, target, timeRange, correlationId, category, incidentId, model, productId, maxSteps, source, scheduleId, title, createdBy, pipeline: pipelineOverride } = params;
 
     // Determine which config to use (product-specific or global)
     let effectiveConfig: typeof config = config;
@@ -1866,8 +1868,8 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
         throw new Error('No LLM provider configured. Update settings to configure an LLM provider.');
     }
 
-    // Check if a multi-agent pipeline is configured
-    const pipelineDef = effectiveConfig.pipeline;
+    // Check if a multi-agent pipeline is configured (per-investigation override takes priority)
+    const pipelineDef = pipelineOverride || effectiveConfig.pipeline;
     if (pipelineDef && pipelineDef.stages && pipelineDef.stages.length > 1) {
         const pipelineCreatedBy = createdBy ?? (source === 'scheduled' ? 'scheduler' : undefined);
         return createPipelineInvestigation(pipelineDef, effectiveConfig, activeLlmProvider, fullQuery, {
@@ -2106,7 +2108,7 @@ function restartPipelineForContest(runner: AgentRunner, id: string): void {
 }
 
 app.post('/api/investigations', async (req, res) => {
-    const { query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy } = req.body;
+    const { query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy, pipeline } = req.body;
 
     // Resolve createdBy: use provided value, fall back to OS username
     let resolvedCreatedBy = createdBy;
@@ -2133,7 +2135,7 @@ app.post('/api/investigations', async (req, res) => {
     }
 
     try {
-        const { id } = createInvestigation({ query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy: resolvedCreatedBy });
+        const { id } = createInvestigation({ query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy: resolvedCreatedBy, pipeline });
         res.json({ id, status: 'running' });
     } catch (err: any) {
         return res.status(400).json({ error: err.message });

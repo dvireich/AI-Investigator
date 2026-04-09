@@ -24,6 +24,7 @@ export interface Product {
     knowledgeBasePath: string;
     workingDirectory: string;
     investigationsPath: string;
+    pipeline?: import('./types/pipeline').PipelineDefinition;
 }
 
 export interface PathValidationResult {
