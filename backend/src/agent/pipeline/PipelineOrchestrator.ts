@@ -191,17 +191,7 @@ export class PipelineOrchestrator extends EventEmitter {
                     // Retrospect stages use the dedicated retrospect tool loop
                     // which reads KB files and proposes changes, rather than
                     // running as a regular investigation.
-                    if (timeout) {
-                        const timeoutPromise = new Promise<never>((_, reject) => {
-                            setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeout / 60_000)} minutes`)), timeout);
-                        });
-                        await Promise.race([
-                            runner.runRetrospectiveAnalysis(),
-                            timeoutPromise,
-                        ]);
-                    } else {
-                        await runner.runRetrospectiveAnalysis();
-                    }
+                    await this.runRetrospectStage(runner, timeout);
                 } else {
                     await this.runWithTimeout(runner, initialQuery, timeout);
                 }
@@ -615,6 +605,28 @@ export class PipelineOrchestrator extends EventEmitter {
 
         await Promise.race([
             runner.start(query),
+            timeoutPromise,
+        ]);
+    }
+
+    /**
+     * Run a retrospect stage using the dedicated retrospect tool loop.
+     */
+    private async runRetrospectStage(
+        runner: AgentRunner,
+        timeoutMs?: number
+    ): Promise<void> {
+        if (!timeoutMs) {
+            await runner.runRetrospectiveAnalysis();
+            return;
+        }
+
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
+        });
+
+        await Promise.race([
+            runner.runRetrospectiveAnalysis(),
             timeoutPromise,
         ]);
     }
