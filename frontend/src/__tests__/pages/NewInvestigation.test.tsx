@@ -29,6 +29,7 @@ vi.mock('../../api', () => ({
         updateSavedQuery: vi.fn().mockResolvedValue({ id: 'q1', name: 'Updated Query' }),
         deleteSavedQuery: vi.fn().mockResolvedValue({}),
         fetchIncident: vi.fn(),
+        getPipelineBuiltins: vi.fn().mockResolvedValue([]),
     },
 }));
 
@@ -58,6 +59,7 @@ describe('NewInvestigation', () => {
         vi.mocked(api.createSavedQuery).mockResolvedValue({ id: 'q1', name: 'My Query' } as any);
         vi.mocked(api.updateSavedQuery).mockResolvedValue({ id: 'q1', name: 'Updated Query' } as any);
         vi.mocked(api.deleteSavedQuery).mockResolvedValue({} as any);
+        vi.mocked(api.getPipelineBuiltins).mockResolvedValue([]);
     });
 
     it('renders form heading', async () => {
