@@ -3611,6 +3611,180 @@ describe('server utilities and routes', () => {
             expect(startSpy).toHaveBeenCalledWith('Resume investigation');
         });
 
+        it('resumes a paused pipeline investigation via the orchestrator instead of runner.start', async () => {
+            setFakeLlmProvider();
+            const pipelineState = makeState({
+                id: 'pipe-resume',
+                status: 'paused',
+                query: 'Pipeline query',
+            });
+            (pipelineState as any).pipeline = {
+                definition: {
+                    id: 'pipe-def',
+                    stages: [
+                        { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                        { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                    ],
+                },
+                stages: [{ status: 'running' }, { status: 'pending' }],
+                currentStageIndex: 0,
+                conversationLog: [],
+            };
+            __testUtils.getHistory().set('pipe-resume', pipelineState as any);
+
+            let resolveRun!: (value: any) => void;
+            const runSpy = vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+                new Promise(r => { resolveRun = r; })
+            );
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+            vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+            const response = await api().post('/api/investigations/pipe-resume/action').send({ action: 'resume' });
+            expect(response.status).toBe(200);
+
+            // Pipeline orchestrator.run() should be called instead of runner.start()
+            expect(runSpy).toHaveBeenCalled();
+            expect(startSpy).not.toHaveBeenCalled();
+
+            // Resolve to clean up
+            resolveRun({
+                status: 'completed', thoughts: [], actions: [], fullHistory: [],
+                fullActions: [], logs: [], finalReport: 'done', recommendations: [],
+                verdict: 'approved', pipeline: { stages: [] }, retrospect: null,
+            });
+            await new Promise(r => setTimeout(r, 50));
+        });
+
+        it('resume-all uses the orchestrator for paused pipeline investigations', async () => {
+            setFakeLlmProvider();
+            __testUtils.setConfig({ maxConcurrentInvestigations: 0 });
+            const pipeState = makeState({ id: 'pipe-bulk-resume', status: 'paused', query: 'Pipeline bulk' });
+            (pipeState as any).pipeline = {
+                definition: {
+                    id: 'pipe-def',
+                    stages: [
+                        { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    ],
+                },
+                stages: [{ status: 'pending' }],
+                currentStageIndex: 0,
+                conversationLog: [],
+            };
+            const plainState = makeState({ id: 'plain-bulk-resume', status: 'paused', query: 'Plain query' });
+            __testUtils.getHistory().set('pipe-bulk-resume', pipeState as any);
+            __testUtils.getHistory().set('plain-bulk-resume', plainState as any);
+
+            let resolveRun!: (value: any) => void;
+            const runSpy = vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+                new Promise(r => { resolveRun = r; })
+            );
+            const startSpy = vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+            vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+            const response = await api().post('/api/investigations/resume-all').send({});
+            expect(response.status).toBe(200);
+            expect(response.body.resumed).toBe(2);
+
+            // Pipeline investigation should use orchestrator, plain should use start
+            expect(runSpy).toHaveBeenCalledTimes(1);
+            expect(startSpy).toHaveBeenCalledTimes(1);
+
+            // Resolve to clean up
+            resolveRun({
+                status: 'completed', thoughts: [], actions: [], fullHistory: [],
+                fullActions: [], logs: [], finalReport: 'done', recommendations: [],
+                verdict: 'approved', pipeline: { stages: [] }, retrospect: null,
+            });
+            await new Promise(r => setTimeout(r, 50));
+        });
+
+        it('resumePipelineInvestigation .then() handler updates runner state on completion', async () => {
+            setFakeLlmProvider();
+            let resolveRun!: (value: any) => void;
+            vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+                new Promise(r => { resolveRun = r; })
+            );
+
+            const state = makeState({ id: 'pipe-then', status: 'paused', query: 'Pipeline query' });
+            (state as any).pipeline = {
+                definition: {
+                    id: 'pipe-def',
+                    stages: [
+                        { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    ],
+                },
+                stages: [{ status: 'running' }],
+                currentStageIndex: 0,
+                conversationLog: [],
+            };
+            __testUtils.getHistory().set('pipe-then', state as any);
+
+            vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+            const response = await api().post('/api/investigations/pipe-then/action').send({ action: 'resume' });
+            expect(response.status).toBe(200);
+
+            // Make saveArtifacts throw to cover the catch block in .then()
+            const runner = __testUtils.getRunners().get('pipe-then') as any;
+            if (runner) runner.saveArtifacts = vi.fn().mockRejectedValue(new Error('disk full'));
+
+            resolveRun({
+                status: 'completed', thoughts: ['pipe done'], actions: [{ tool: 'finish' }],
+                fullHistory: ['h'], fullActions: ['a'], logs: ['log'],
+                finalReport: 'Pipeline done', recommendations: ['rec'],
+                verdict: 'approved', pipeline: { stages: [{ status: 'completed' }] }, retrospect: null,
+            });
+
+            await new Promise(r => setTimeout(r, 50));
+
+            const hist = __testUtils.getHistory().get('pipe-then');
+            expect(hist).toBeDefined();
+            expect(hist!.status).toBe('completed');
+            expect(hist!.finalReport).toBe('Pipeline done');
+        });
+
+        it('resumePipelineInvestigation .catch() handler sets failed state and handles save failure', async () => {
+            setFakeLlmProvider();
+            let rejectRun!: (err: any) => void;
+            vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+                new Promise((_, rej) => { rejectRun = rej; })
+            );
+
+            const state = makeState({
+                id: 'pipe-catch',
+                status: 'paused',
+                query: '',
+                model: 'gpt-4o',
+            });
+            (state as any).pipeline = {
+                definition: {
+                    id: 'pipe-def',
+                    stages: [
+                        { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    ],
+                },
+                stages: [{ status: 'running' }],
+                currentStageIndex: 0,
+                conversationLog: [],
+            };
+            __testUtils.getHistory().set('pipe-catch', state as any);
+
+            vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+            // Set saveArtifacts to reject before the runner is created
+            // so the .catch() handler's inner try/catch is exercised
+            vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockRejectedValue(new Error('disk error'));
+
+            const response = await api().post('/api/investigations/pipe-catch/action').send({ action: 'resume' });
+            expect(response.status).toBe(200);
+
+            rejectRun(new Error('Pipeline crashed'));
+            await new Promise(r => setTimeout(r, 100));
+
+            const hist = __testUtils.getHistory().get('pipe-catch');
+            expect(hist).toBeDefined();
+            expect(hist!.status).toBe('failed');
+        });
+
         it('updates models and active runner actions', async () => {
             const runner = makeRunner({ id: 'active-2', status: 'running', scheduleId: 'sched-1' });
             const scheduleStore = { update: vi.fn() };

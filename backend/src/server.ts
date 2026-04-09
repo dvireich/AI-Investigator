@@ -2033,6 +2033,89 @@ function createPipelineInvestigation(
 }
 
 /**
+ * Resume a pipeline investigation from disk.
+ * Creates a new PipelineOrchestrator and re-runs the full pipeline.
+ * Used by both individual resume and bulk resume-all when the investigation
+ * was originally started as a pipeline.
+ */
+function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
+    const state = (runner as any).state as InvestigationState;
+    const pipelineDef = state.pipeline!.definition!;
+
+    const effectiveCfg = getEffectiveConfig(state);
+    const agentConfig: import('./agent/Runner').AgentConfig = {
+        systemPromptPath: effectiveCfg.systemPromptPath,
+        retrospectPromptPath: effectiveCfg.retrospectPromptPath,
+        knowledgeBasePath: effectiveCfg.knowledgeBasePath,
+        repoRoot: effectiveCfg.repoRoot,
+        mcpServers: effectiveCfg.mcpServers,
+        maxSteps: effectiveCfg.maxSteps,
+        model: state.model!,
+        workingDirectory: effectiveCfg.workingDirectory,
+        investigationsPath: effectiveCfg.investigationsPath,
+    };
+
+    const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig);
+    (runner as any)._isPipeline = true;
+    pipelineOrchestrators.set(id, orchestrator);
+    attachPipelineListeners(orchestrator, id);
+
+    const query = state.query || 'Resume investigation';
+    orchestrator.run(query, {
+        id,
+        query,
+        target: state.target,
+        timeRange: state.timeRange,
+        correlationId: state.correlationId,
+        category: state.category,
+        incidentId: state.incidentId,
+        productId: state.productId,
+        source: state.source,
+        scheduleId: state.scheduleId,
+        title: state.title,
+        createdBy: state.createdBy,
+    }).then(async (finalState) => {
+        const runnerState = (runner as any).state;
+        Object.assign(runnerState, {
+            status: finalState.status,
+            thoughts: finalState.thoughts,
+            actions: finalState.actions,
+            fullHistory: finalState.fullHistory,
+            fullActions: finalState.fullActions,
+            logs: finalState.logs,
+            finalReport: finalState.finalReport,
+            recommendations: finalState.recommendations,
+            verdict: finalState.verdict,
+            pipeline: finalState.pipeline,
+            retrospect: finalState.retrospect,
+        });
+
+        try { await (runner as any).saveArtifacts(); } catch (e: any) {
+            console.error(`[Pipeline] Failed to save artifacts for ${id}:`, e.message);
+        }
+
+        history.set(id, runnerState);
+        invalidateListCache();
+
+        if (['completed', 'failed', 'aborted'].includes(runnerState.status)) {
+            cleanupRunner(id);
+            console.log(`[Pipeline] Resumed investigation ${id} finished (${runnerState.status}).`);
+        }
+    }).catch(async (err) => {
+        console.error(`[Pipeline] Resumed investigation ${id} crashed:`, err);
+        const runnerState = (runner as any).state;
+        if (runnerState) {
+            runnerState.status = 'failed';
+            history.set(id, runnerState);
+            /* v8 ignore next */
+            try { await (runner as any).saveArtifacts(); } catch { /* best-effort */ }
+        }
+        cleanupRunner(id);
+        invalidateListCache();
+    });
+}
+
+/**
  * Restart a pipeline investigation after contest.
  * Creates a new PipelineOrchestrator from the saved pipeline definition
  * and runs it with the contest feedback already injected in the runner state.
@@ -2541,6 +2624,11 @@ app.post('/api/investigations/:id/action', async (req, res) => {
                 scheduleStore.update(state.scheduleId, { activeInvestigationId: id });
             }
 
+            // Pipeline investigations need the orchestrator, not a plain runner loop
+            if (state.pipeline?.definition) {
+                resumePipelineInvestigation(runner, id);
+                runner.log(`Resuming pipeline investigation ${id} from disk...`);
+            } else {
             // Restart execution loop
             // Use stored query or default
             const query = state.query || "Resume investigation";
@@ -2555,6 +2643,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             });
 
             runner.log(`Resuming investigation ${id} from disk...`);
+            }
         } else if (action === 'pause') {
             // Runner already stopped, just update status in history
             state.status = 'paused';
@@ -2737,17 +2826,23 @@ app.post('/api/investigations/resume-all', async (req, res) => {
             attachRunnerListeners(runner, id);
             runner.resume();
 
-            const query = state.query || 'Resume investigation';
-            runner.start(query).then(() => {
-                history.set(id, (runner as any).state);
-            }).catch(err => {
-                console.error(`Runner ${id} failed:`, err);
-            }).finally(() => {
-                history.set(id, (runner as any).state);
-                cleanupRunner(id);
-            });
+            // Pipeline investigations need the orchestrator, not a plain runner loop
+            if (state.pipeline?.definition) {
+                resumePipelineInvestigation(runner, id);
+                runner.log(`Resuming pipeline investigation ${id} (bulk resume-all)...`);
+            } else {
+                const query = state.query || 'Resume investigation';
+                runner.start(query).then(() => {
+                    history.set(id, (runner as any).state);
+                }).catch(err => {
+                    console.error(`Runner ${id} failed:`, err);
+                }).finally(() => {
+                    history.set(id, (runner as any).state);
+                    cleanupRunner(id);
+                });
 
-            runner.log(`Resuming investigation ${id} (bulk resume-all)...`);
+                runner.log(`Resuming investigation ${id} (bulk resume-all)...`);
+            }
             resumed.push(id);
         } catch (e: any) {
             console.error(`Failed to resume ${id}:`, e.message);
