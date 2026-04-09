@@ -2407,18 +2407,27 @@ ${recsText}
             (a: any) => a && a.tool === 'finish'
         );
 
-        // Only use this.state.verdict as fallback if it's a valid pipeline verdict
-        // (approved/rejected/flagged). Health-check verdicts (healthy/warning/critical/etc.)
-        // must NOT leak into pipeline stage verdicts.
+        // Map health-check verdicts to pipeline equivalents so agents that
+        // accidentally use 'critical' / 'warning' / 'healthy' still trigger
+        // the correct pipeline rejection logic.
+        const HEALTH_TO_PIPELINE: Record<string, string> = {
+            healthy: 'approved',
+            warning: 'flagged',
+            critical: 'rejected',
+        };
         const PIPELINE_VERDICTS = new Set(['approved', 'rejected', 'flagged']);
-        const explicitVerdict = lastFinishAction?.args?.verdict;
+        const rawVerdict = lastFinishAction?.args?.verdict;
+        const mappedVerdict = rawVerdict
+            ? (PIPELINE_VERDICTS.has(rawVerdict) ? rawVerdict : HEALTH_TO_PIPELINE[rawVerdict] || rawVerdict)
+            : undefined;
+
         const fallbackVerdict = PIPELINE_VERDICTS.has(this.state.verdict as string)
             ? this.state.verdict
-            : undefined;
+            : (this.state.verdict ? HEALTH_TO_PIPELINE[this.state.verdict] : undefined);
 
         return {
             report: this.state.finalReport,
-            verdict: explicitVerdict || fallbackVerdict,
+            verdict: mappedVerdict || fallbackVerdict,
             feedback: lastFinishAction?.args?.feedback,
         };
     }

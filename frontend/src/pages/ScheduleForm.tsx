@@ -8,7 +8,7 @@ import type { SavedQuery } from '../api';
 import type { ScheduleDefinition } from '../types/schedule';
 import type { Product } from '../types/product';
 import { TIME_PRESETS, SCHEDULE_INTERVAL_PRESETS } from '../constants';
-import { parseFlexibleTimestamp, toDateTimeLocalValue } from '../utils/timestamp';
+import { parseFlexibleTimestamp, toDateTimeLocalValue, toDateTimeUTCValue, formatDateDisplayUTC, datetimeLocalToISO } from '../utils/timestamp';
 import {
     Clock, Command, AlertTriangle, ArrowRight, ArrowLeft, Sparkles, Zap,
     Target, CheckCircle2, AlertCircle, Calendar, Timer, Settings, Loader2, Package,
@@ -47,6 +47,14 @@ export const ScheduleForm = () => {
     const [endTimeText, setEndTimeText] = useState('');
     const [startTimeValid, setStartTimeValid] = useState<boolean | null>(null);
     const [endTimeValid, setEndTimeValid] = useState<boolean | null>(null);
+
+    // Time zone mode
+    const [timeZoneMode, setTimeZoneMode] = useState<'utc' | 'local'>('utc');
+    const toDateTimeValue = (date: Date) => timeZoneMode === 'utc' ? toDateTimeUTCValue(date) : toDateTimeLocalValue(date);
+    const formatParsedDisplay = (value: string) => {
+        const d = timeZoneMode === 'utc' ? new Date(value + 'Z') : new Date(value);
+        return timeZoneMode === 'utc' ? formatDateDisplayUTC(d) : formatDateDisplay(d);
+    };
 
     // Data
     const [products, setProducts] = useState<Product[]>([]);
@@ -97,6 +105,9 @@ export const ScheduleForm = () => {
                 .then(settings => {
                     if (settings.model) setSelectedModel(settings.model);
                     if (settings.defaultTimeRange) setTimePreset(settings.defaultTimeRange);
+                    if (settings.defaultTimeZoneMode === 'utc' || settings.defaultTimeZoneMode === 'local') {
+                        setTimeZoneMode(settings.defaultTimeZoneMode);
+                    }
                 })
                 .catch(err => console.error('Failed to load settings defaults:', err));
         }
@@ -148,7 +159,7 @@ export const ScheduleForm = () => {
         const parsed = parseFlexibleTimestamp(text);
         if (parsed) {
             setStartTimeValid(true);
-            setCustomStart(toDateTimeLocalValue(parsed));
+            setCustomStart(toDateTimeValue(parsed));
         } else {
             setStartTimeValid(false);
         }
@@ -164,7 +175,7 @@ export const ScheduleForm = () => {
         const parsed = parseFlexibleTimestamp(text);
         if (parsed) {
             setEndTimeValid(true);
-            setCustomEnd(toDateTimeLocalValue(parsed));
+            setCustomEnd(toDateTimeValue(parsed));
         } else {
             setEndTimeValid(false);
         }
@@ -173,8 +184,8 @@ export const ScheduleForm = () => {
     const handleStartPickerChange = (val: string) => {
         setCustomStart(val);
         if (val) {
-            const d = new Date(val);
-            setStartTimeText(formatDateDisplay(d));
+            const d = timeZoneMode === 'utc' ? new Date(val + 'Z') : new Date(val);
+            setStartTimeText(timeZoneMode === 'utc' ? formatDateDisplayUTC(d) : formatDateDisplay(d));
             setStartTimeValid(true);
         }
     };
@@ -182,17 +193,32 @@ export const ScheduleForm = () => {
     const handleEndPickerChange = (val: string) => {
         setCustomEnd(val);
         if (val) {
-            const d = new Date(val);
-            setEndTimeText(formatDateDisplay(d));
+            const d = timeZoneMode === 'utc' ? new Date(val + 'Z') : new Date(val);
+            setEndTimeText(timeZoneMode === 'utc' ? formatDateDisplayUTC(d) : formatDateDisplay(d));
             setEndTimeValid(true);
         }
     };
+
+    // Re-convert existing text inputs when timezone mode changes
+    useEffect(() => {
+        if (startTimeText) {
+            const parsed = parseFlexibleTimestamp(startTimeText);
+            if (parsed) setCustomStart(toDateTimeValue(parsed));
+        }
+        if (endTimeText) {
+            const parsed = parseFlexibleTimestamp(endTimeText);
+            if (parsed) setCustomEnd(toDateTimeValue(parsed));
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [timeZoneMode]);
 
     // Compute the final timeRange value
     const getTimeRange = (): string => {
         if (timeMode === 'preset') return timePreset;
         if (customStart && customEnd) {
-            return `${customStart}|${customEnd}`;
+            const startISO = datetimeLocalToISO(customStart, timeZoneMode === 'utc');
+            const endISO = datetimeLocalToISO(customEnd, timeZoneMode === 'utc');
+            return `${startISO} to ${endISO}`;
         }
         return 'ago(1h)';
     };
@@ -265,10 +291,10 @@ export const ScheduleForm = () => {
             if (match) {
                 const startDate = new Date(match[1]);
                 const endDate = new Date(match[2]);
-                setCustomStart(toDateTimeLocalValue(startDate));
-                setCustomEnd(toDateTimeLocalValue(endDate));
-                setStartTimeText(formatDateDisplay(startDate));
-                setEndTimeText(formatDateDisplay(endDate));
+                setCustomStart(toDateTimeValue(startDate));
+                setCustomEnd(toDateTimeValue(endDate));
+                setStartTimeText(timeZoneMode === 'utc' ? formatDateDisplayUTC(startDate) : formatDateDisplay(startDate));
+                setEndTimeText(timeZoneMode === 'utc' ? formatDateDisplayUTC(endDate) : formatDateDisplay(endDate));
                 setStartTimeValid(true);
                 setEndTimeValid(true);
             }
@@ -287,8 +313,8 @@ export const ScheduleForm = () => {
             let effectiveTimeRange = timePreset;
             let effectiveTimeMode: 'preset' | 'custom' = 'preset';
             if (timeMode === 'custom' && customStart && customEnd) {
-                const startISO = new Date(customStart).toISOString();
-                const endISO = new Date(customEnd).toISOString();
+                const startISO = datetimeLocalToISO(customStart, timeZoneMode === 'utc');
+                const endISO = datetimeLocalToISO(customEnd, timeZoneMode === 'utc');
                 effectiveTimeRange = `between(datetime(${startISO}) .. datetime(${endISO}))`;
                 effectiveTimeMode = 'custom';
             }
@@ -647,10 +673,24 @@ export const ScheduleForm = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-4 animate-fade-in">
+                                    {/* UTC / Local toggle */}
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Zone:</span>
+                                        <div className="flex items-center bg-slate-800 rounded-lg p-0.5 gap-0.5 border border-slate-700/40">
+                                            <button type="button" onClick={() => setTimeZoneMode('utc')}
+                                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${timeZoneMode === 'utc' ? 'bg-brand-500/20 text-brand-300 border border-brand-500/20' : 'text-slate-500 hover:text-slate-300 border border-transparent'}`}>
+                                                UTC
+                                            </button>
+                                            <button type="button" onClick={() => setTimeZoneMode('local')}
+                                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${timeZoneMode === 'local' ? 'bg-brand-500/20 text-brand-300 border border-brand-500/20' : 'text-slate-500 hover:text-slate-300 border border-transparent'}`}>
+                                                Local
+                                            </button>
+                                        </div>
+                                    </div>
                                     {/* Start Time */}
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                                            Start Time (Local)
+                                            Start Time ({timeZoneMode === 'utc' ? 'UTC' : 'Local'})
                                         </label>
                                         <div className="relative flex gap-2">
                                             <input
@@ -689,7 +729,7 @@ export const ScheduleForm = () => {
                                         )}
                                         {startTimeValid === true && customStart && (
                                             <p className="text-xs text-green-400 flex items-center gap-1">
-                                                <CheckCircle2 className="w-3 h-3" /> Parsed: {formatDateDisplay(new Date(customStart))}
+                                                <CheckCircle2 className="w-3 h-3" /> Parsed: {formatParsedDisplay(customStart)}
                                             </p>
                                         )}
                                     </div>
@@ -697,7 +737,7 @@ export const ScheduleForm = () => {
                                     {/* End Time */}
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                                            End Time (Local)
+                                            End Time ({timeZoneMode === 'utc' ? 'UTC' : 'Local'})
                                         </label>
                                         <div className="relative flex gap-2">
                                             <input
@@ -736,7 +776,7 @@ export const ScheduleForm = () => {
                                         )}
                                         {endTimeValid === true && customEnd && (
                                             <p className="text-xs text-green-400 flex items-center gap-1">
-                                                <CheckCircle2 className="w-3 h-3" /> Parsed: {formatDateDisplay(new Date(customEnd))}
+                                                <CheckCircle2 className="w-3 h-3" /> Parsed: {formatParsedDisplay(customEnd)}
                                             </p>
                                         )}
                                     </div>

@@ -1032,6 +1032,60 @@ describe('PipelineOrchestrator', () => {
             expect(result.status).toBe('completed');
         });
 
+        it('handles flagged verdict with loop strategy', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'x' } },
+                { agent: { id: 'rev', name: 'Rev', source: 'inline', promptContent: 'x' }, canReject: true, onReject: 'loop', rejectTarget: 0, maxRetries: 1 },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let callCount = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                callCount++;
+                if (callCount === 2) {
+                    // Reviewer uses 'flagged' instead of 'rejected' — should still trigger loop
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'flagged', feedback: 'Issues found' } }];
+                    runner.state.verdict = 'flagged';
+                } else if (callCount === 4) {
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'approved' } }];
+                    runner.state.verdict = 'approved';
+                } else {
+                    runner.state.finalReport = `report-v${callCount}`;
+                }
+                runner.state.status = 'completed';
+            };
+
+            const result = await orch.run('query');
+            expect(callCount).toBe(4); // inv, rev(flagged→loop), inv(retry), rev(approve)
+            expect(result.status).toBe('completed');
+        });
+
+        it('handles health-check verdict mapped to rejection', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'x' } },
+                { agent: { id: 'da', name: 'DA', source: 'inline', promptContent: 'x' }, canReject: true, onReject: 'loop', rejectTarget: 0, maxRetries: 1 },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let callCount = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                callCount++;
+                if (callCount === 2) {
+                    // Agent uses 'critical' (health-check verdict) — should be mapped to 'rejected' by getStageResult
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'critical', feedback: 'Blind spots' } }];
+                    runner.state.verdict = 'critical';
+                } else if (callCount === 4) {
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'approved' } }];
+                    runner.state.verdict = 'approved';
+                } else {
+                    runner.state.finalReport = `report-v${callCount}`;
+                }
+                runner.state.status = 'completed';
+            };
+
+            const result = await orch.run('query');
+            expect(callCount).toBe(4); // inv, da(critical→rejected→loop), inv(retry), da(approve)
+            expect(result.status).toBe('completed');
+        });
+
         it('uses report-only input mode when configured', async () => {
             const pipeline = makePipeline([
                 { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },

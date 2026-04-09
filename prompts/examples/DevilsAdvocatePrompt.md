@@ -41,11 +41,11 @@ Call the `finish` tool with:
   - **Confirmation Bias Check**: Where the investigation may have been one-sided
   - **Strength Assessment**: Which findings survived scrutiny and which are weak
   - **Overall Confidence**: Your assessment of how robust the conclusions are
-- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"`
+- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"` — **you MUST use one of these exact values** (do NOT use `"critical"`, `"warning"`, `"healthy"`, or any other value):
   - `"approved"` — Findings survived adversarial scrutiny; conclusions are robust
-  - `"rejected"` — Found significant alternative explanations or contradicting evidence that undermines the conclusions
-  - `"flagged"` — Some concerns identified but findings are largely defensible
-- `feedback`: Specific counter-evidence or alternative explanations that need to be addressed
+  - `"rejected"` — Found significant issues: missed root causes, contradicting evidence, incomplete analysis, or blind spots that change the conclusions. **Use this when findings need re-investigation.**
+  - `"flagged"` — Minor concerns that don't invalidate the conclusions but should be noted
+- `feedback`: When rejecting or flagging, explain specifically what needs to be fixed or re-examined. This feedback is sent back to the previous agent for re-investigation.
 
 ## Guidelines
 - Be genuinely adversarial — don't just rubber-stamp the findings

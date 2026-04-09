@@ -684,12 +684,101 @@ describe('ScheduleForm', () => {
             await user.click(customTab);
 
             await waitFor(() => {
+                expect(screen.getByText('Start Time (UTC)')).toBeInTheDocument();
+                expect(screen.getByText('End Time (UTC)')).toBeInTheDocument();
+            });
+        });
+
+        it('validates start time format - valid ISO format', async () => {
+            const user = userEvent.setup();
+            renderScheduleForm();
+            
+            await waitFor(() => {
+                expect(screen.getByRole('heading', { name: 'Create Schedule' })).toBeInTheDocument();
+            });
+
+            const customTab = screen.getByRole('button', { name: /custom range/i });
+            await user.click(customTab);
+
+            // Verify UTC labels are shown by default
+            await waitFor(() => {
+                expect(screen.getByText('Start Time (UTC)')).toBeInTheDocument();
+            });
+        });
+
+        it('toggles timezone mode between UTC and Local', async () => {
+            const user = userEvent.setup();
+            renderScheduleForm();
+
+            await waitFor(() => {
+                expect(screen.getByRole('heading', { name: 'Create Schedule' })).toBeInTheDocument();
+            });
+
+            const customTab = screen.getByRole('button', { name: /custom range/i });
+            await user.click(customTab);
+            await waitFor(() => screen.getByText('Start Time (UTC)'));
+
+            // Switch to Local
+            await user.click(screen.getByRole('button', { name: 'Local' }));
+            await waitFor(() => {
+                expect(screen.getByText('Start Time (Local)')).toBeInTheDocument();
+            });
+
+            // Switch back to UTC
+            await user.click(screen.getByRole('button', { name: 'UTC' }));
+            await waitFor(() => {
+                expect(screen.getByText('Start Time (UTC)')).toBeInTheDocument();
+            });
+        });
+
+        it('loads defaultTimeZoneMode from settings', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', defaultTimeRange: 'ago(1h)', defaultTimeZoneMode: 'local' } as any);
+
+            const user = userEvent.setup();
+            renderScheduleForm();
+
+            await waitFor(() => {
+                expect(screen.getByRole('heading', { name: 'Create Schedule' })).toBeInTheDocument();
+            });
+
+            const customTab = screen.getByRole('button', { name: /custom range/i });
+            await user.click(customTab);
+            await waitFor(() => {
                 expect(screen.getByText('Start Time (Local)')).toBeInTheDocument();
                 expect(screen.getByText('End Time (Local)')).toBeInTheDocument();
             });
         });
 
-        it('validates start time format - valid ISO format', async () => {
+        it('reconverts existing time inputs when timezone mode changes', async () => {
+            const user = userEvent.setup();
+            renderScheduleForm();
+
+            await waitFor(() => {
+                expect(screen.getByRole('heading', { name: 'Create Schedule' })).toBeInTheDocument();
+            });
+
+            const customTab = screen.getByRole('button', { name: /custom range/i });
+            await user.click(customTab);
+
+            const startInput = screen.getByPlaceholderText(/2024-03-15 14:30/i);
+            const endInput = screen.getByPlaceholderText(/2024-03-15 16:00/i);
+            await user.type(startInput, '2024-03-15T14:30:00.000Z');
+            await user.type(endInput, '2024-03-15T16:00:00.000Z');
+            await waitFor(() => {
+                const parsed = screen.getAllByText(/Parsed:/);
+                expect(parsed.length).toBe(2);
+            });
+
+            // Toggle to Local — both values should reconvert
+            await user.click(screen.getByRole('button', { name: 'Local' }));
+            await waitFor(() => {
+                expect(screen.getByText('Start Time (Local)')).toBeInTheDocument();
+                expect(screen.getByText('End Time (Local)')).toBeInTheDocument();
+            });
+        });
+
+        it('validates start time format - valid ISO format (original)', async () => {
             const user = userEvent.setup();
             renderScheduleForm();
             
@@ -847,7 +936,7 @@ describe('ScheduleForm', () => {
 
             await waitFor(() => {
                 expect(api.createSchedule).toHaveBeenCalledWith(expect.objectContaining({
-                    timeRange: expect.stringContaining('|'),
+                    timeRange: expect.stringContaining(' to '),
                 }));
             });
         });
@@ -1630,6 +1719,66 @@ describe('ScheduleForm', () => {
             await waitFor(() => {
                 const customTab = screen.getByRole('button', { name: /custom range/i });
                 expect(customTab).toHaveClass('bg-slate-700');
+            });
+        });
+
+        it('loads query with custom time range in local mode', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', defaultTimeRange: 'ago(1h)', defaultTimeZoneMode: 'local' } as any);
+            const customRangeQuery: SavedQuery = {
+                id: 'q-local',
+                name: 'Local Time Query',
+                target: 'local-stamp',
+                timeRange: 'between(datetime(2024-03-15T14:00:00Z) .. datetime(2024-03-15T16:00:00Z))',
+                timeMode: 'custom',
+                createdAt: '2024-01-01',
+                updatedAt: '2024-01-01',
+            };
+            vi.mocked(api.getSavedQueries).mockResolvedValue([customRangeQuery]);
+
+            const user = userEvent.setup();
+            renderScheduleForm();
+
+            await waitFor(() => {
+                expect(screen.getByText(/select a saved query/i)).toBeInTheDocument();
+            });
+
+            const dropdownBtn = screen.getByRole('button', { name: /select a saved query/i });
+            await user.click(dropdownBtn);
+
+            const queryOption = screen.getByText('Local Time Query');
+            await user.click(queryOption);
+
+            await waitFor(() => {
+                const customTab = screen.getByRole('button', { name: /custom range/i });
+                expect(customTab).toHaveClass('bg-slate-700');
+            });
+        });
+
+        it('uses local mode for datetime picker when set', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', defaultTimeRange: 'ago(1h)', defaultTimeZoneMode: 'local' } as any);
+
+            const user = userEvent.setup();
+            renderScheduleForm();
+
+            await waitFor(() => {
+                expect(screen.getByRole('heading', { name: 'Create Schedule' })).toBeInTheDocument();
+            });
+
+            const customTab = screen.getByRole('button', { name: /custom range/i });
+            await user.click(customTab);
+
+            await waitFor(() => screen.getByText('Start Time (Local)'));
+
+            // Use picker in local mode
+            const hiddenInputs = document.querySelectorAll('input[type="datetime-local"]');
+            fireEvent.change(hiddenInputs[0] as HTMLInputElement, { target: { value: '2024-03-15T14:00' } });
+            fireEvent.change(hiddenInputs[1] as HTMLInputElement, { target: { value: '2024-03-15T16:00' } });
+
+            await waitFor(() => {
+                const parsed = screen.getAllByText(/parsed:/i);
+                expect(parsed.length).toBe(2);
             });
         });
 

@@ -295,8 +295,12 @@ export class PipelineOrchestrator extends EventEmitter {
                 runner.dispose();
                 this.currentRunner = null;
 
-                // Handle rejection
-                if (stage.canReject && result.verdict === 'rejected') {
+                // Handle rejection — trigger on 'rejected' or 'flagged' verdict
+                // ('flagged' with issues significant enough to flag should still loop
+                //  when onReject is 'loop', since LLMs often use 'flagged' for findings
+                //  that clearly warrant re-investigation)
+                const isRejection = stage.canReject && (result.verdict === 'rejected' || result.verdict === 'flagged');
+                if (isRejection) {
                     stageState.status = 'rejected';
 
                     this.emit('stage-reject', {

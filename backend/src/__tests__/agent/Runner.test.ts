@@ -5163,6 +5163,94 @@ describe('AgentRunner', () => {
         });
     });
 
+    describe('getStageResult - verdict mapping', () => {
+        it('returns pipeline verdicts as-is', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"rejected","feedback":"bad"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('rejected');
+            expect(result.feedback).toBe('bad');
+            expect(result.report).toBe('r');
+        });
+
+        it('maps "critical" to "rejected"', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"critical","feedback":"blind spots"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('rejected');
+        });
+
+        it('maps "warning" to "flagged"', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"warning"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('flagged');
+        });
+
+        it('maps "healthy" to "approved"', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"healthy"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('approved');
+        });
+
+        it('passes through unknown verdicts unchanged', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"unknown_value"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('unknown_value');
+        });
+
+        it('falls back to mapped state.verdict when finish has no verdict', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            // Manually set state.verdict to a health-check value to test fallback mapping
+            (runner as any).state.verdict = 'critical';
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('rejected');
+        });
+
+        it('returns pipeline state.verdict as fallback when finish has no verdict', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            (runner as any).state.verdict = 'approved';
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('approved');
+        });
+
+        it('returns undefined verdict when no verdict is available', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            (runner as any).state.verdict = undefined;
+            const result = runner.getStageResult();
+            expect(result.verdict).toBeUndefined();
+        });
+    });
+
     describe('initRetrospect - migration guards', () => {
         it('initializes missing retrospect fields on legacy state objects', () => {
             const runner = new AgentRunner(makeConfig(), provider, {

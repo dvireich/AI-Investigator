@@ -6,7 +6,7 @@ import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
 import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, ChevronLeft, ChevronRight, X, Check, Pencil, GitBranch } from 'lucide-react';
 import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../constants';
-import { parseFlexibleTimestamp, toDateTimeLocalValue } from '../utils/timestamp';
+import { parseFlexibleTimestamp, toDateTimeLocalValue, toDateTimeUTCValue, formatDateDisplayUTC, datetimeLocalToISO } from '../utils/timestamp';
 import { PIPELINE_PRESETS, buildPipelinePreset } from '../components/PipelineBuilder';
 import type { AgentDefinition } from '../types/pipeline';
 
@@ -88,6 +88,27 @@ export const NewInvestigation = () => {
     const startPickerRef = useRef<HTMLInputElement>(null);
     const endPickerRef = useRef<HTMLInputElement>(null);
     const saveSuccessTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+    // Time zone mode: 'utc' or 'local'
+    const [timeZoneMode, setTimeZoneMode] = useState<'utc' | 'local'>('utc');
+    const toDateTimeValue = (date: Date) => timeZoneMode === 'utc' ? toDateTimeUTCValue(date) : toDateTimeLocalValue(date);
+    const formatParsedDisplay = (value: string) => {
+        const d = timeZoneMode === 'utc' ? new Date(value + 'Z') : new Date(value);
+        return timeZoneMode === 'utc' ? formatDateDisplayUTC(d) : formatDateDisplay(d);
+    };
+
+    // Re-convert existing text inputs when timezone mode changes
+    useEffect(() => {
+        if (startTimeText) {
+            const parsed = parseFlexibleTimestamp(startTimeText);
+            if (parsed) setCustomStart(toDateTimeValue(parsed));
+        }
+        if (endTimeText) {
+            const parsed = parseFlexibleTimestamp(endTimeText);
+            if (parsed) setCustomEnd(toDateTimeValue(parsed));
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [timeZoneMode]);
     useEffect(() => () => { clearTimeout(saveSuccessTimerRef.current); }, []);
 
     // Validate and sync time text with customStart/customEnd
@@ -101,7 +122,7 @@ export const NewInvestigation = () => {
         const parsed = parseFlexibleTimestamp(text);
         if (parsed) {
             setStartTimeValid(true);
-            setCustomStart(toDateTimeLocalValue(parsed));
+            setCustomStart(toDateTimeValue(parsed));
         } else {
             setStartTimeValid(false);
             setCustomStart('');
@@ -118,7 +139,7 @@ export const NewInvestigation = () => {
         const parsed = parseFlexibleTimestamp(text);
         if (parsed) {
             setEndTimeValid(true);
-            setCustomEnd(toDateTimeLocalValue(parsed));
+            setCustomEnd(toDateTimeValue(parsed));
         } else {
             setEndTimeValid(false);
             setCustomEnd('');
@@ -129,8 +150,8 @@ export const NewInvestigation = () => {
     const handleStartPickerChange = (value: string) => {
         setCustomStart(value);
         if (value) {
-            const date = new Date(value);
-            setStartTimeText(formatDateDisplay(date));
+            const date = timeZoneMode === 'utc' ? new Date(value + 'Z') : new Date(value);
+            setStartTimeText(timeZoneMode === 'utc' ? formatDateDisplayUTC(date) : formatDateDisplay(date));
             setStartTimeValid(true);
         }
     };
@@ -138,8 +159,8 @@ export const NewInvestigation = () => {
     const handleEndPickerChange = (value: string) => {
         setCustomEnd(value);
         if (value) {
-            const date = new Date(value);
-            setEndTimeText(formatDateDisplay(date));
+            const date = timeZoneMode === 'utc' ? new Date(value + 'Z') : new Date(value);
+            setEndTimeText(timeZoneMode === 'utc' ? formatDateDisplayUTC(date) : formatDateDisplay(date));
             setEndTimeValid(true);
         }
     };
@@ -176,6 +197,9 @@ export const NewInvestigation = () => {
             }
             if (settings.defaultTimeRange) {
                 setTimePreset(settings.defaultTimeRange);
+            }
+            if (settings.defaultTimeZoneMode === 'utc' || settings.defaultTimeZoneMode === 'local') {
+                setTimeZoneMode(settings.defaultTimeZoneMode);
             }
             // Check for a configured pipeline (global or product-level)
             if (settings.pipeline && settings.pipeline.stages && settings.pipeline.stages.length > 1) {
@@ -338,8 +362,8 @@ export const NewInvestigation = () => {
                 setLoading(false);
                 return;
             }
-            const startISO = new Date(customStart).toISOString();
-            const endISO = new Date(customEnd).toISOString();
+            const startISO = datetimeLocalToISO(customStart, timeZoneMode === 'utc');
+            const endISO = datetimeLocalToISO(customEnd, timeZoneMode === 'utc');
             // Format as time range description
             effectiveTimeRange = `${startISO} to ${endISO}`;
         }
@@ -380,10 +404,10 @@ export const NewInvestigation = () => {
             if (match) {
                 const startDate = new Date(match[1]);
                 const endDate = new Date(match[2]);
-                setCustomStart(toDateTimeLocalValue(startDate));
-                setCustomEnd(toDateTimeLocalValue(endDate));
-                setStartTimeText(formatDateDisplay(startDate));
-                setEndTimeText(formatDateDisplay(endDate));
+                setCustomStart(toDateTimeValue(startDate));
+                setCustomEnd(toDateTimeValue(endDate));
+                setStartTimeText(timeZoneMode === 'utc' ? formatDateDisplayUTC(startDate) : formatDateDisplay(startDate));
+                setEndTimeText(timeZoneMode === 'utc' ? formatDateDisplayUTC(endDate) : formatDateDisplay(endDate));
                 setStartTimeValid(true);
                 setEndTimeValid(true);
             }
@@ -393,7 +417,7 @@ export const NewInvestigation = () => {
         }
         setLoadedQueryId(sq.id);
         setQueryBankOpen(false);
-    }, [formData.model]);
+    }, [formData.model, timeZoneMode]);
 
     const handleSaveQuery = async () => {
         const name = saveQueryName.trim();
@@ -955,9 +979,23 @@ export const NewInvestigation = () => {
                                 </div>
                             ) : (
                                 <div className="space-y-4 animate-fade-in">
+                                    {/* UTC / Local toggle */}
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Zone:</span>
+                                        <div className="flex items-center bg-slate-800 rounded-lg p-0.5 gap-0.5 border border-slate-700/40">
+                                            <button type="button" onClick={() => setTimeZoneMode('utc')}
+                                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${timeZoneMode === 'utc' ? 'bg-brand-500/20 text-brand-300 border border-brand-500/20' : 'text-slate-500 hover:text-slate-300 border border-transparent'}`}>
+                                                UTC
+                                            </button>
+                                            <button type="button" onClick={() => setTimeZoneMode('local')}
+                                                className={`px-3 py-1 rounded-md text-xs font-bold transition-all ${timeZoneMode === 'local' ? 'bg-brand-500/20 text-brand-300 border border-brand-500/20' : 'text-slate-500 hover:text-slate-300 border border-transparent'}`}>
+                                                Local
+                                            </button>
+                                        </div>
+                                    </div>
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                                            Start Time (Local)
+                                            Start Time ({timeZoneMode === 'utc' ? 'UTC' : 'Local'})
                                         </label>
                                         <div className="relative flex gap-2">
                                             <input
@@ -996,13 +1034,13 @@ export const NewInvestigation = () => {
                                         )}
                                         {startTimeValid === true && customStart && (
                                             <p className="text-xs text-green-400 flex items-center gap-1">
-                                                <CheckCircle2 className="w-3 h-3" /> Parsed: {formatDateDisplay(new Date(customStart))}
+                                                <CheckCircle2 className="w-3 h-3" /> Parsed: {formatParsedDisplay(customStart)}
                                             </p>
                                         )}
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
-                                            End Time (Local)
+                                            End Time ({timeZoneMode === 'utc' ? 'UTC' : 'Local'})
                                         </label>
                                         <div className="relative flex gap-2">
                                             <input
@@ -1041,7 +1079,7 @@ export const NewInvestigation = () => {
                                         )}
                                         {endTimeValid === true && customEnd && (
                                             <p className="text-xs text-green-400 flex items-center gap-1">
-                                                <CheckCircle2 className="w-3 h-3" /> Parsed: {formatDateDisplay(new Date(customEnd))}
+                                                <CheckCircle2 className="w-3 h-3" /> Parsed: {formatParsedDisplay(customEnd)}
                                             </p>
                                         )}
                                     </div>

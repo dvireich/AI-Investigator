@@ -911,6 +911,8 @@ let config: {
     analyticsVisible: boolean;
     // Multi-agent pipeline configuration
     pipeline?: PipelineDefinition;
+    // Time zone preference for custom time ranges
+    defaultTimeZoneMode: 'utc' | 'local';
 } = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
@@ -944,6 +946,7 @@ let config: {
     analyticsWidgets: ['trend', 'targetActivity', 'successRate'],
     analyticsVisible: true,
     pipeline: undefined,
+    defaultTimeZoneMode: 'utc',
 };
 
 // Track what's persisted on disk — prevents internal defaults from leaking into the config file.
@@ -971,6 +974,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'defaultView', 'defaultSortOrder', 'defaultPageSize',
     'analyticsWidgets', 'analyticsVisible',
     'pipeline',
+    'defaultTimeZoneMode',
 ]);
 
 function saveConfigToDisk() {

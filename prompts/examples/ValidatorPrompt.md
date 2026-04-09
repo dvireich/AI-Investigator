@@ -34,11 +34,11 @@ Review the investigation report produced by a prior agent and validate whether t
 
 You MUST call the `finish` tool with:
 - `summary`: Your detailed validation analysis (markdown)
-- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"`
+- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"` — **you MUST use one of these exact values** (do NOT use `"critical"`, `"warning"`, `"healthy"`, or any other value):
   - `"approved"` — findings are accurate and complete
-  - `"rejected"` — findings have significant issues that need re-investigation
+  - `"rejected"` — findings have significant issues that need re-investigation. **Use this when the report's conclusions are wrong, incomplete, or unsupported.**
   - `"flagged"` — findings are mostly correct but have minor concerns worth noting
-- `feedback`: If rejecting or flagging, explain what specifically needs to be fixed or re-examined
+- `feedback`: If rejecting or flagging, explain what specifically needs to be fixed or re-examined. This feedback is sent back to the previous agent for re-investigation.
 
 ## Guidelines
 - Be specific — quote the exact findings you agree or disagree with
