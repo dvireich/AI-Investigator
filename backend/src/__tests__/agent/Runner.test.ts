@@ -3518,6 +3518,7 @@ describe('AgentRunner', () => {
         it('creates investigation directory and saves state', async () => {
             const runner = new AgentRunner(makeConfig(), provider, {
                 target: 'my-stamp',
+                title: 'Log Analytics Latency',
             });
 
             const sizeBefore = mockFsState.size;
@@ -4213,12 +4214,13 @@ describe('AgentRunner', () => {
 
             // Use a non-numeric id to cover the ternary false branch
             const today = new Date().toISOString().split('T')[0];
-            const statePath = n(`/investigations/${today}_UnknownTarget_abc123/state.json`);
+            const statePath = n(`/investigations/${today}_UnknownTarget_Restore-Coverage_abc123/state.json`);
             mockFsState.set(statePath, JSON.stringify(savedState));
 
             const runner = new AgentRunner(makeConfig(), provider, {
                 id: 'abc123',
                 status: 'completed',
+                title: 'Restore Coverage',
                 finalReport: '## New Report',
                 contestCount: 1,
             });

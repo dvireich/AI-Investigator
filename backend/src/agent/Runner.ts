@@ -2033,8 +2033,10 @@ ${recsText}
         const startDate = !isNaN(Number(this.state.id)) ? new Date(Number(this.state.id)) : new Date();
         const timestamp = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
         const safeStamp = (this.state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
+        const safeTitle = this.state.title ? this.state.title.replace(/[^a-zA-Z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 50) : '';
         const safeId = this.state.id.replace(/[^a-zA-Z0-9]/g, '');
-        const folderName = `${timestamp}_${safeStamp}_${safeId}`;
+        const nameParts = [timestamp, safeStamp, ...(safeTitle ? [safeTitle] : []), safeId];
+        const folderName = nameParts.join('_');
 
         const investigationDir = path.join(baseDir, folderName);
         await fsp.mkdir(investigationDir, { recursive: true });
@@ -2266,8 +2268,10 @@ ${recsText}
             const startDate = !isNaN(Number(this.state.id)) ? new Date(Number(this.state.id)) : new Date();
             const timestamp = startDate.toISOString().split('T')[0];
             const safeStamp = (this.state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
+            const safeTitle = this.state.title ? this.state.title.replace(/[^a-zA-Z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 50) : '';
             const safeId = this.state.id.replace(/[^a-zA-Z0-9]/g, '');
-            const folderName = `${timestamp}_${safeStamp}_${safeId}`;
+            const nameParts = [timestamp, safeStamp, ...(safeTitle ? [safeTitle] : []), safeId];
+            const folderName = nameParts.join('_');
             const statePath = path.join(baseDir, folderName, 'state.json');
 
             if (fs.existsSync(statePath)) {
