@@ -3818,6 +3818,84 @@ describe('server utilities and routes', () => {
             expect(runner.abort).toHaveBeenCalled();
         });
 
+        it('signals the pipeline orchestrator on pause/abort/intervene/resume for active pipeline investigations', async () => {
+            const runner = makeRunner({ id: 'active-pipe-ctl', status: 'running' });
+            __testUtils.getRunners().set('active-pipe-ctl', runner as any);
+
+            // Create a mock orchestrator with the pipeline control methods
+            const mockOrch = {
+                pause: vi.fn(),
+                resume: vi.fn(),
+                abort: vi.fn(),
+                intervene: vi.fn(),
+            };
+            __testUtils.getPipelineOrchestrators().set('active-pipe-ctl', mockOrch as any);
+
+            let response = await api().post('/api/investigations/active-pipe-ctl/action').send({ action: 'pause' });
+            expect(response.status).toBe(200);
+            expect(runner.pause).toHaveBeenCalled();
+            expect(mockOrch.pause).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/active-pipe-ctl/action').send({ action: 'resume' });
+            expect(response.status).toBe(200);
+            expect(runner.resume).toHaveBeenCalled();
+            expect(mockOrch.resume).toHaveBeenCalled();
+
+            response = await api().post('/api/investigations/active-pipe-ctl/action').send({ action: 'intervene', message: 'Focus on errors' });
+            expect(response.status).toBe(200);
+            expect(runner.intervene).toHaveBeenCalledWith('Focus on errors');
+            expect(mockOrch.intervene).toHaveBeenCalledWith('Focus on errors');
+
+            response = await api().post('/api/investigations/active-pipe-ctl/action').send({ action: 'abort' });
+            expect(response.status).toBe(200);
+            expect(runner.abort).toHaveBeenCalled();
+            expect(mockOrch.abort).toHaveBeenCalled();
+
+            __testUtils.getPipelineOrchestrators().delete('active-pipe-ctl');
+        });
+
+        it('cleans up previous orchestrator listeners when resuming a pipeline investigation', async () => {
+            setFakeLlmProvider();
+            const state = makeState({ id: 'pipe-cleanup-resume', status: 'paused', query: 'Pipeline query' });
+            (state as any).pipeline = {
+                definition: {
+                    id: 'pipe-def',
+                    stages: [
+                        { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                        { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                    ],
+                },
+                stages: [{ status: 'running' }, { status: 'pending' }],
+                currentStageIndex: 0,
+                conversationLog: [],
+            };
+            __testUtils.getHistory().set('pipe-cleanup-resume', state as any);
+
+            // Put an old orchestrator in the map
+            const oldOrch = { removeAllListeners: vi.fn() };
+            __testUtils.getPipelineOrchestrators().set('pipe-cleanup-resume', oldOrch as any);
+
+            let resolveRun!: (value: any) => void;
+            vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(
+                new Promise(r => { resolveRun = r; })
+            );
+            vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+            vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+            const response = await api().post('/api/investigations/pipe-cleanup-resume/action').send({ action: 'resume' });
+            expect(response.status).toBe(200);
+
+            // Old orchestrator's listeners should have been removed
+            expect(oldOrch.removeAllListeners).toHaveBeenCalled();
+
+            resolveRun({
+                status: 'completed', thoughts: [], actions: [], fullHistory: [],
+                fullActions: [], logs: [], finalReport: 'done', recommendations: [],
+                verdict: 'approved', pipeline: { stages: [] }, retrospect: null,
+            });
+            await new Promise(r => setTimeout(r, 50));
+        });
+
         it('returns 409 when contesting while implementation is running', async () => {
             const runner = makeRunner({ id: 'active-impl', status: 'running' });
             (runner as any).state.implementationRunning = true;
@@ -6820,6 +6898,10 @@ describe('pipeline endpoints and integration', () => {
         };
         __testUtils.getRunners().set('contest-pipe', runner as any);
 
+        // Put a stale orchestrator in the map to verify it gets cleaned up
+        const oldOrch = { removeAllListeners: vi.fn() };
+        __testUtils.getPipelineOrchestrators().set('contest-pipe', oldOrch as any);
+
         const response = await api().post('/api/investigations/contest-pipe/action').send({
             action: 'contest',
             message: 'Redo the pipeline',
@@ -6827,6 +6909,8 @@ describe('pipeline endpoints and integration', () => {
         expect(response.status).toBe(200);
         expect(runner.contestReport).toHaveBeenCalledWith('Redo the pipeline');
         expect(runner.log).toHaveBeenCalled();
+        // Old orchestrator should have been cleaned up
+        expect(oldOrch.removeAllListeners).toHaveBeenCalled();
         // Pipeline orchestrator should be created
         expect(__testUtils.getPipelineOrchestrators().has('contest-pipe')).toBe(true);
 

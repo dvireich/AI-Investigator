@@ -406,6 +406,33 @@ export class PipelineOrchestrator extends EventEmitter {
     }
 
     /**
+     * Pause the pipeline (and current runner if active).
+     */
+    pause(): void {
+        if (this.currentRunner) {
+            this.currentRunner.pause();
+        }
+    }
+
+    /**
+     * Resume the pipeline (and current runner if active).
+     */
+    resume(): void {
+        if (this.currentRunner) {
+            this.currentRunner.resume();
+        }
+    }
+
+    /**
+     * Queue a user intervention for the currently-executing stage runner.
+     */
+    intervene(message: string): void {
+        if (this.currentRunner) {
+            this.currentRunner.intervene(message);
+        }
+    }
+
+    /**
      * Abort the pipeline (and current runner if active).
      */
     abort(): void {

@@ -2057,6 +2057,9 @@ function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
 
     const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig);
     (runner as any)._isPipeline = true;
+    // Clean up previous orchestrator listeners before replacing
+    const prevOrch = pipelineOrchestrators.get(id);
+    if (prevOrch) prevOrch.removeAllListeners();
     pipelineOrchestrators.set(id, orchestrator);
     attachPipelineListeners(orchestrator, id);
 
@@ -2139,6 +2142,9 @@ function restartPipelineForContest(runner: AgentRunner, id: string): void {
 
     const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig);
     (runner as any)._isPipeline = true;
+    // Clean up previous orchestrator listeners before replacing
+    const prevOrch = pipelineOrchestrators.get(id);
+    if (prevOrch) prevOrch.removeAllListeners();
     pipelineOrchestrators.set(id, orchestrator);
     attachPipelineListeners(orchestrator, id);
 
@@ -2724,18 +2730,30 @@ app.post('/api/investigations/:id/action', async (req, res) => {
 
     if (!runner) return res.status(404).json({ error: 'Runner not found' });
 
-    if (action === 'pause') runner.pause();
+    // For pipeline investigations, signal the orchestrator so the currently-executing
+    // stage runner receives the pause/abort/intervene — not just the anchor runner.
+    const orchestrator = pipelineOrchestrators.get(id);
+
+    if (action === 'pause') {
+        runner.pause();
+        if (orchestrator) orchestrator.pause();
+    }
     if (action === 'resume') {
         runner.resume();
+        if (orchestrator) orchestrator.resume();
         // Re-link to schedule if this is a scheduled investigation
         const st = (runner as any).state as InvestigationState;
         if (st?.scheduleId && scheduleStore) {
             scheduleStore.update(st.scheduleId, { activeInvestigationId: id });
         }
     }
-    if (action === 'abort') runner.abort();
+    if (action === 'abort') {
+        runner.abort();
+        if (orchestrator) orchestrator.abort();
+    }
     if (action === 'intervene' && message) {
         runner.intervene(message);
+        if (orchestrator) orchestrator.intervene(message);
     }
     if (action === 'contest' && message) {
         // Block contest while implementation is running to avoid state corruption

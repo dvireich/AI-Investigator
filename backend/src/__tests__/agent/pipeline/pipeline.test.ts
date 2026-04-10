@@ -736,6 +736,49 @@ describe('PipelineOrchestrator', () => {
         });
     });
 
+    describe('pause / resume / intervene', () => {
+        it('pause() delegates to the current stage runner', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const mockRunner = { pause: vi.fn(), resume: vi.fn(), intervene: vi.fn() };
+            (orch as any).currentRunner = mockRunner;
+            orch.pause();
+            expect(mockRunner.pause).toHaveBeenCalled();
+        });
+
+        it('pause() is a no-op when no runner is active', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            expect((orch as any).currentRunner).toBeNull();
+            // Should not throw
+            orch.pause();
+        });
+
+        it('resume() delegates to the current stage runner', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const mockRunner = { pause: vi.fn(), resume: vi.fn(), intervene: vi.fn() };
+            (orch as any).currentRunner = mockRunner;
+            orch.resume();
+            expect(mockRunner.resume).toHaveBeenCalled();
+        });
+
+        it('resume() is a no-op when no runner is active', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            orch.resume();
+        });
+
+        it('intervene() delegates message to the current stage runner', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const mockRunner = { pause: vi.fn(), resume: vi.fn(), intervene: vi.fn() };
+            (orch as any).currentRunner = mockRunner;
+            orch.intervene('check the logs');
+            expect(mockRunner.intervene).toHaveBeenCalledWith('check the logs');
+        });
+
+        it('intervene() is a no-op when no runner is active', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            orch.intervene('hello');
+        });
+    });
+
     describe('getPipelineState', () => {
         it('returns the current pipeline state', () => {
             const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
