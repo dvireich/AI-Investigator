@@ -35,6 +35,7 @@ export class PipelineOrchestrator extends EventEmitter {
     private pipelineState: PipelineState;
     private aborted: boolean = false;
     private currentRunner: AgentRunner | null = null;
+    private pendingIntervention: string | null = null;
 
     constructor(
         pipeline: PipelineDefinition,
@@ -176,6 +177,12 @@ export class PipelineOrchestrator extends EventEmitter {
                 });
 
                 this.currentRunner = runner;
+
+                // Deliver any intervention that arrived between stages
+                if (this.pendingIntervention) {
+                    runner.intervene(this.pendingIntervention);
+                    this.pendingIntervention = null;
+                }
 
                 // Set stage context
                 const stageContext: StageContext = {
@@ -397,6 +404,12 @@ export class PipelineOrchestrator extends EventEmitter {
                 stageState.completedAt = Date.now();
                 this.log(`Stage ${stageIndex} (${agent.name}) failed: ${error.message}`);
 
+                // Clean up the failed stage runner to avoid resource leaks
+                if (this.currentRunner) {
+                    this.currentRunner.dispose();
+                    this.currentRunner = null;
+                }
+
                 currentState.status = 'failed';
                 currentState.pipeline = this.pipelineState;
                 this.emit('stage-complete', {
@@ -444,8 +457,10 @@ export class PipelineOrchestrator extends EventEmitter {
      * Queue a user intervention for the currently-executing stage runner.
      */
     intervene(message: string): void {
+        this.pendingIntervention = message;
         if (this.currentRunner) {
             this.currentRunner.intervene(message);
+            this.pendingIntervention = null;
         }
     }
 

@@ -3890,6 +3890,37 @@ describe('AgentRunner', () => {
             expect(pipeline.currentStageIndex).toBe(0);
             expect(pipeline.conversationLog).toEqual([]);
         });
+
+        it('snapshots pipeline state before resetting for later restore', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: 'Pipeline report',
+                thoughts: ['thought1'],
+                actions: [null],
+            });
+            (runner as any).state.pipeline = {
+                stages: [
+                    { agentId: 'a', agentName: 'Planner', status: 'completed', retryCount: 0, report: 'plan' },
+                    { agentId: 'b', agentName: 'Investigator', status: 'completed', retryCount: 0, report: 'investigation' },
+                ],
+                currentStageIndex: 1,
+                conversationLog: [{ role: 'report', content: 'shared log' }],
+                definition: { id: 'test', stages: [] },
+            };
+
+            runner.contestReport('Redo investigation');
+
+            const snapshot = (runner as any).state._priorPipelineSnapshot;
+            expect(snapshot).toBeDefined();
+            // Snapshot should contain the pre-contest values
+            expect(snapshot.stages[0].status).toBe('completed');
+            expect(snapshot.stages[0].report).toBe('plan');
+            expect(snapshot.stages[1].status).toBe('completed');
+            expect(snapshot.currentStageIndex).toBe(1);
+            expect(snapshot.conversationLog).toEqual([{ role: 'report', content: 'shared log' }]);
+            // It should be a deep clone (not the same reference)
+            expect(snapshot.stages).not.toBe((runner as any).state.pipeline.stages);
+        });
     });
 
     describe('tagEvent', () => {
@@ -4491,6 +4522,49 @@ describe('AgentRunner', () => {
 
             const state = (runner as any).state as InvestigationState;
             expect(state.finalReport).toBe(originalReport);
+        });
+
+        it('restores pipeline state from prior snapshot after contest', async () => {
+            const originalReport = '## Pipeline Report\n\nAll stages completed.';
+            const contestedReport = '## Contested Pipeline Report';
+            const stateData = buildContestedState(originalReport, contestedReport);
+
+            // Add pipeline state that was snapshotted before contest
+            (stateData as any)._priorPipelineSnapshot = {
+                stages: [
+                    { agentId: 'a', agentName: 'Planner', status: 'completed', retryCount: 0, report: 'plan done' },
+                    { agentId: 'b', agentName: 'Investigator', status: 'completed', retryCount: 0, report: 'investigation done' },
+                ],
+                currentStageIndex: 1,
+                conversationLog: [{ role: 'report', content: 'Prior investigation log' }],
+                definition: { id: 'test-pipe', stages: [] },
+            };
+            // Current pipeline state (post-contest reset)
+            (stateData as any).pipeline = {
+                stages: [
+                    { agentId: 'a', agentName: 'Planner', status: 'pending', retryCount: 0 },
+                    { agentId: 'b', agentName: 'Investigator', status: 'pending', retryCount: 0 },
+                ],
+                currentStageIndex: 0,
+                conversationLog: [],
+                definition: { id: 'test-pipe', stages: [] },
+            };
+
+            const runner = new AgentRunner(makeConfig(), provider, stateData);
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            // Pipeline state should be restored from the snapshot
+            expect(state.pipeline!.stages[0].status).toBe('completed');
+            expect(state.pipeline!.stages[1].status).toBe('completed');
+            expect(state.pipeline!.stages[0].report).toBe('plan done');
+            expect(state.pipeline!.currentStageIndex).toBe(1);
+            expect(state.pipeline!.conversationLog).toEqual([{ role: 'report', content: 'Prior investigation log' }]);
+            // Snapshot should be cleared after restore
+            expect((state as any)._priorPipelineSnapshot).toBeUndefined();
         });
     });
 

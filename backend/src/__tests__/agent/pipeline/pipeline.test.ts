@@ -771,11 +771,45 @@ describe('PipelineOrchestrator', () => {
             (orch as any).currentRunner = mockRunner;
             orch.intervene('check the logs');
             expect(mockRunner.intervene).toHaveBeenCalledWith('check the logs');
+            // pendingIntervention should be cleared after immediate delivery
+            expect((orch as any).pendingIntervention).toBeNull();
         });
 
-        it('intervene() is a no-op when no runner is active', () => {
+        it('intervene() queues message when no runner is active', () => {
             const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
             orch.intervene('hello');
+            expect((orch as any).pendingIntervention).toBe('hello');
+        });
+
+        it('pending intervention is delivered when the next stage starts', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 's1', name: 'S1', source: 'inline', promptContent: 'x' } },
+                { agent: { id: 's2', name: 'S2', source: 'inline', promptContent: 'y' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let stage2InterveneCalled = false;
+            let stageCount = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                stageCount++;
+                runner.state.finalReport = `report-${stageCount}`;
+                runner.state.status = 'completed';
+                if (stageCount === 1) {
+                    // After stage 1 completes, runner.dispose() sets currentRunner = null.
+                    // Simulating that window: queue an intervention before stage 2 starts.
+                    // We'll actually send it right after the first runWithTimeout returns
+                    // by intercepting at stage 2.
+                }
+                if (stageCount === 2) {
+                    stage2InterveneCalled = runner.pendingInterventions?.length > 0;
+                }
+            };
+
+            // Queue intervention before run — simulate the between-stages window
+            orch.intervene('focus on auth logs');
+
+            await orch.run('query');
+            // The intervention should have been delivered (pendingIntervention cleared)
+            expect((orch as any).pendingIntervention).toBeNull();
         });
     });
 
@@ -893,6 +927,23 @@ describe('PipelineOrchestrator', () => {
             const result = await orch.run('query');
             expect(result.status).toBe('failed');
             expect(orch.getPipelineState().stages[0].status).toBe('failed');
+        });
+
+        it('disposes the stage runner when a stage fails', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 's', name: 'S', source: 'inline', promptContent: 'x' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            const disposeSpy = vi.fn();
+            (orch as any).runWithTimeout = async () => {
+                // Attach a spy to the runner that was just created
+                (orch as any).currentRunner.dispose = disposeSpy;
+                throw new Error('Stage exploded');
+            };
+
+            await orch.run('query');
+            expect(disposeSpy).toHaveBeenCalled();
+            expect((orch as any).currentRunner).toBeNull();
         });
 
         it('handles abort during run', async () => {

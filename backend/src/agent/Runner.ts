@@ -95,6 +95,8 @@ export interface InvestigationState {
     userNotes?: string;
     // Multi-agent pipeline state
     pipeline?: PipelineState;
+    // Snapshot of pipeline state before contest (used by restoreToLastCheckpoint)
+    _priorPipelineSnapshot?: PipelineState;
 }
 
 /** Tracks the state of a multi-agent pipeline execution. */
@@ -2225,6 +2227,11 @@ ${recsText}
         // Reset retrospective (it analyzed a now-rejected report)
         this.state.retrospect = { messages: [], proposals: [], analysisComplete: false, completed: false };
 
+        // Snapshot pipeline state before resetting so restoreToLastCheckpoint can recover it
+        if (this.state.pipeline) {
+            this.state._priorPipelineSnapshot = JSON.parse(JSON.stringify(this.state.pipeline));
+        }
+
         // Reset pipeline stage states so the stepper shows fresh progress
         if (this.state.pipeline?.stages) {
             for (const stage of this.state.pipeline.stages) {
@@ -2340,6 +2347,12 @@ ${recsText}
         } catch (err: any) {
             this.log(`Warning: recommendation extraction failed during restore: ${err.message}`);
             this.state.recommendations = [];
+        }
+
+        // Restore pipeline state from the pre-contest snapshot
+        if (this.state._priorPipelineSnapshot) {
+            this.state.pipeline = this.state._priorPipelineSnapshot;
+            this.state._priorPipelineSnapshot = undefined;
         }
 
         // Reset retrospect (it analyzed the now-deleted post-contest report)
