@@ -2064,6 +2064,21 @@ function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
     attachPipelineListeners(orchestrator, id);
 
     const query = state.query || 'Resume investigation';
+
+    // Determine which stage to resume from based on saved pipeline state.
+    // Find the first non-completed stage so we skip stages that already ran.
+    const savedPipeline = state.pipeline!;
+    /* v8 ignore next -- defensive: pipeline state always has stages */
+    const savedStages = savedPipeline.stages || [];
+    let resumeStageIndex = 0;
+    for (let i = 0; i < savedStages.length; i++) {
+        if (savedStages[i].status === 'completed' || savedStages[i].status === 'rejected') {
+            resumeStageIndex = i + 1;
+        } else {
+            break;
+        }
+    }
+
     orchestrator.run(query, {
         id,
         query,
@@ -2077,6 +2092,11 @@ function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
         scheduleId: state.scheduleId,
         title: state.title,
         createdBy: state.createdBy,
+    }, {
+        stageIndex: resumeStageIndex,
+        /* v8 ignore next -- defensive: pipeline state always has conversationLog */
+        conversationLog: savedPipeline.conversationLog || [],
+        stageStates: savedStages,
     }).then(async (finalState) => {
         const runnerState = (runner as any).state;
         Object.assign(runnerState, {
@@ -2815,26 +2835,56 @@ app.post('/api/investigations/:id/action', async (req, res) => {
 app.post('/api/investigations/resume-all', async (req, res) => {
     try {
     invalidateListCache();
-    const paused: string[] = [];
+
+    // Collect paused investigations from history (not currently in runners map)
+    const pausedFromDisk: string[] = [];
     for (const [id, state] of history.entries()) {
         if (state.status === 'paused' && !runners.has(id)) {
-            paused.push(id);
+            pausedFromDisk.push(id);
         }
     }
 
-    if (paused.length === 0) {
+    // Collect in-memory paused runners (still in runners map with paused status)
+    const pausedInMemory: string[] = [];
+    for (const [id, runner] of runners.entries()) {
+        if ((runner as any).state?.status === 'paused') {
+            pausedInMemory.push(id);
+        }
+    }
+
+    const totalPaused = pausedFromDisk.length + pausedInMemory.length;
+    if (totalPaused === 0) {
         return res.json({ resumed: 0, skipped: 0, ids: [] });
     }
 
     // Respect maxConcurrentInvestigations — count currently running; 0 = unlimited
     const currentlyRunning = Array.from(runners.values()).filter(r => (r as any).state?.status === 'running').length;
     const slotsAvailable = config.maxConcurrentInvestigations === 0
-        ? paused.length
+        ? totalPaused
         : Math.max(0, config.maxConcurrentInvestigations - currentlyRunning);
 
-    const toResume = paused.slice(0, slotsAvailable);
-    const skipped = paused.length - toResume.length;
+    // Resume in-memory paused runners first (they just need unpause, no rehydration)
     const resumed: string[] = [];
+    let slotsRemaining = slotsAvailable;
+
+    for (const id of pausedInMemory) {
+        if (slotsRemaining <= 0) break;
+        const runner = runners.get(id)!;
+        runner.resume();
+        const orchestrator = pipelineOrchestrators.get(id);
+        if (orchestrator) orchestrator.resume();
+        // Re-link to schedule if needed
+        const st = (runner as any).state as InvestigationState;
+        if (st?.scheduleId && scheduleStore) {
+            scheduleStore.update(st.scheduleId, { activeInvestigationId: id });
+        }
+        resumed.push(id);
+        slotsRemaining--;
+    }
+
+    // Resume from-disk paused investigations (need rehydration)
+    const toResume = pausedFromDisk.slice(0, slotsRemaining);
+    const skipped = totalPaused - resumed.length - toResume.length;
 
     for (const id of toResume) {
         try {

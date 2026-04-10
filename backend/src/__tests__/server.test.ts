@@ -3698,6 +3698,112 @@ describe('server utilities and routes', () => {
             await new Promise(r => setTimeout(r, 50));
         });
 
+        it('resume-all resumes in-memory paused runners without rehydration', async () => {
+            setFakeLlmProvider();
+            __testUtils.setConfig({ maxConcurrentInvestigations: 0 });
+
+            // Create an in-memory paused runner (still in runners map)
+            const inMemRunner = makeRunner({ id: 'in-mem-paused', status: 'paused', scheduleId: 'sched-in-mem' });
+            __testUtils.getRunners().set('in-mem-paused', inMemRunner as any);
+            __testUtils.getHistory().set('in-mem-paused', (inMemRunner as any).state);
+
+            // Create a mock orchestrator for the in-memory runner
+            const mockOrch = { resume: vi.fn() };
+            __testUtils.getPipelineOrchestrators().set('in-mem-paused', mockOrch as any);
+
+            // Also add a disk-paused investigation to verify both paths work
+            const diskState = makeState({ id: 'disk-paused', status: 'paused', query: 'from disk' });
+            __testUtils.getHistory().set('disk-paused', diskState as any);
+
+            const scheduleStore = { update: vi.fn() };
+            __testUtils.setScheduleStore(scheduleStore as any);
+
+            vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+            vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+            const response = await api().post('/api/investigations/resume-all').send({});
+            expect(response.status).toBe(200);
+            expect(response.body.resumed).toBe(2);
+            expect(response.body.ids).toContain('in-mem-paused');
+            expect(response.body.ids).toContain('disk-paused');
+
+            // In-memory runner should have been resumed directly
+            expect(inMemRunner.resume).toHaveBeenCalled();
+            expect(mockOrch.resume).toHaveBeenCalled();
+            // Schedule re-link
+            expect(scheduleStore.update).toHaveBeenCalledWith('sched-in-mem', { activeInvestigationId: 'in-mem-paused' });
+
+            __testUtils.getPipelineOrchestrators().delete('in-mem-paused');
+        });
+
+        it('resume-all respects slot limits for in-memory paused runners', async () => {
+            setFakeLlmProvider();
+            // maxConcurrentInvestigations = 1, with 1 currently running runner
+            __testUtils.setConfig({ maxConcurrentInvestigations: 1 });
+
+            // Create a running runner to fill the slot
+            const runningRunner = makeRunner({ id: 'running-slot', status: 'running' });
+            __testUtils.getRunners().set('running-slot', runningRunner as any);
+
+            // Create two in-memory paused runners
+            const pausedRunner1 = makeRunner({ id: 'paused-slot-1', status: 'paused' });
+            const pausedRunner2 = makeRunner({ id: 'paused-slot-2', status: 'paused' });
+            __testUtils.getRunners().set('paused-slot-1', pausedRunner1 as any);
+            __testUtils.getRunners().set('paused-slot-2', pausedRunner2 as any);
+            __testUtils.getHistory().set('paused-slot-1', (pausedRunner1 as any).state);
+            __testUtils.getHistory().set('paused-slot-2', (pausedRunner2 as any).state);
+
+            const response = await api().post('/api/investigations/resume-all').send({});
+            expect(response.status).toBe(200);
+            // All slots are full (1 running), so 0 should be resumed, 2 should be skipped
+            expect(response.body.resumed).toBe(0);
+            expect(response.body.skipped).toBe(2);
+        });
+
+        it('resumePipelineInvestigation passes resumeFrom with correct stage index', async () => {
+            setFakeLlmProvider();
+            let capturedResumeFrom: any;
+            vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockImplementation(
+                (_query: string, _meta: any, resumeFrom: any) => {
+                    capturedResumeFrom = resumeFrom;
+                    return new Promise(() => {}); // never resolves
+                }
+            );
+            vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+            const state = makeState({ id: 'pipe-resume-from', status: 'paused', query: 'Test query' });
+            (state as any).pipeline = {
+                definition: {
+                    id: 'pipe-def',
+                    stages: [
+                        { agent: { id: 'a', name: 'Planner', source: 'inline', promptContent: 'x' } },
+                        { agent: { id: 'b', name: 'Investigator', source: 'inline', promptContent: 'y' } },
+                        { agent: { id: 'c', name: 'Validator', source: 'inline', promptContent: 'z' } },
+                    ],
+                },
+                stages: [
+                    { status: 'completed', agentName: 'Planner', report: 'plan done' },
+                    { status: 'completed', agentName: 'Investigator', report: 'investigation done' },
+                    { status: 'pending', agentName: 'Validator' },
+                ],
+                currentStageIndex: 2,
+                conversationLog: [{ role: 'report', content: 'Prior conversation entry' }],
+            };
+            __testUtils.getHistory().set('pipe-resume-from', state as any);
+
+            const response = await api().post('/api/investigations/pipe-resume-from/action').send({ action: 'resume' });
+            expect(response.status).toBe(200);
+
+            // resumeFrom should reflect that 2 stages are completed, start at index 2
+            expect(capturedResumeFrom).toBeDefined();
+            expect(capturedResumeFrom.stageIndex).toBe(2);
+            expect(capturedResumeFrom.conversationLog).toEqual([{ role: 'report', content: 'Prior conversation entry' }]);
+            expect(capturedResumeFrom.stageStates).toHaveLength(3);
+            expect(capturedResumeFrom.stageStates[0].status).toBe('completed');
+            expect(capturedResumeFrom.stageStates[1].status).toBe('completed');
+            expect(capturedResumeFrom.stageStates[2].status).toBe('pending');
+        });
+
         it('resumePipelineInvestigation .then() handler updates runner state on completion', async () => {
             setFakeLlmProvider();
             let resolveRun!: (value: any) => void;

@@ -72,10 +72,14 @@ export class PipelineOrchestrator extends EventEmitter {
      *
      * Creates an AgentRunner for each stage, feeds it the conversation context,
      * collects results, handles rejection loops, and returns the final state.
+     *
+     * @param resumeFrom - When resuming a paused pipeline, pass the saved stage
+     *   index and conversation log so the orchestrator skips already-completed stages.
      */
     async run(
         initialQuery: string,
-        initialMetadata: Partial<InvestigationState> = {}
+        initialMetadata: Partial<InvestigationState> = {},
+        resumeFrom?: { stageIndex: number; conversationLog: ConversationEntry[]; stageStates: PipelineStageState[] },
     ): Promise<InvestigationState> {
         let currentState: InvestigationState = {
             id: Date.now().toString(),
@@ -90,7 +94,20 @@ export class PipelineOrchestrator extends EventEmitter {
             ...initialMetadata,
         };
 
+        // When resuming, restore conversation log and stage statuses from saved state
         let stageIndex = 0;
+        if (resumeFrom) {
+            stageIndex = resumeFrom.stageIndex;
+            this.conversationLog = [...resumeFrom.conversationLog];
+            this.pipelineState.conversationLog = this.conversationLog;
+            // Restore completed/rejected stage statuses
+            for (let i = 0; i < resumeFrom.stageStates.length && i < this.pipelineState.stages.length; i++) {
+                const saved = resumeFrom.stageStates[i];
+                if (saved.status === 'completed' || saved.status === 'rejected') {
+                    Object.assign(this.pipelineState.stages[i], saved);
+                }
+            }
+        }
 
         while (stageIndex < this.pipeline.stages.length && !this.aborted) {
             const stage = this.pipeline.stages[stageIndex];

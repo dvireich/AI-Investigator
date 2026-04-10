@@ -838,6 +838,49 @@ describe('PipelineOrchestrator', () => {
             expect(result.finalReport).toBe('Done');
         });
 
+        it('skips completed stages when resumeFrom is provided', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'a', name: 'Planner', source: 'inline', promptContent: 'plan' } },
+                { agent: { id: 'b', name: 'Investigator', source: 'inline', promptContent: 'investigate' } },
+                { agent: { id: 'c', name: 'Validator', source: 'inline', promptContent: 'validate' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+
+            const stageStartEvents: any[] = [];
+            orch.on('stage-start', (data: any) => stageStartEvents.push(data));
+
+            (orch as any).runWithTimeout = async (runner: any) => {
+                runner.state.finalReport = 'Stage report';
+                runner.state.status = 'completed';
+            };
+
+            const result = await orch.run('test query', {}, {
+                stageIndex: 2,  // Skip stages 0 and 1
+                conversationLog: [
+                    { agentId: 'a', agentName: 'Planner', role: 'report', content: 'Plan done', timestamp: 1 },
+                    { agentId: 'b', agentName: 'Investigator', role: 'report', content: 'Investigation done', timestamp: 2 },
+                ],
+                stageStates: [
+                    { agentId: 'a', agentName: 'Planner', color: '#fff', icon: 'P', status: 'completed', retryCount: 0, report: 'Plan done' },
+                    { agentId: 'b', agentName: 'Investigator', color: '#fff', icon: 'I', status: 'completed', retryCount: 0, report: 'Investigate done' },
+                    { agentId: 'c', agentName: 'Validator', color: '#fff', icon: 'V', status: 'pending', retryCount: 0 },
+                ],
+            });
+
+            // Only stage 2 should have run
+            expect(stageStartEvents).toHaveLength(1);
+            expect(stageStartEvents[0].stageIndex).toBe(2);
+            expect(stageStartEvents[0].agentName).toBe('Validator');
+
+            // Earlier stages should be marked as completed in pipeline state
+            const pState = orch.getPipelineState();
+            expect(pState.stages[0].status).toBe('completed');
+            expect(pState.stages[1].status).toBe('completed');
+            expect(pState.stages[2].status).toBe('completed');
+
+            expect(result.status).toBe('completed');
+        });
+
         it('handles stage failure', async () => {
             const pipeline = makePipeline([
                 { agent: { id: 's', name: 'S', source: 'inline', promptContent: 'x' } },
