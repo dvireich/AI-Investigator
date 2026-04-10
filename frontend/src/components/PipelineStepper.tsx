@@ -11,7 +11,9 @@ const statusIcon: Record<PipelineStageState['status'], string> = {
     running: '●',
     completed: '✓',
     rejected: '↩',
+    skipped: '−',
     failed: '✗',
+    aborted: '⊘',
 };
 
 /**
@@ -29,8 +31,9 @@ export const PipelineStepper: React.FC<PipelineStepperProps> = React.memo(({ sta
                 const isDone = stage.status === 'completed';
                 const isRejected = stage.status === 'rejected';
                 const isFailed = stage.status === 'failed';
+                const isAborted = stage.status === 'aborted';
                 const isPending = stage.status === 'pending';
-                const color = stage.color || (isActive ? '#3b82f6' : isDone ? '#22c55e' : isRejected ? '#f59e0b' : isFailed ? '#ef4444' : '#64748b');
+                const color = stage.color || (isActive ? '#3b82f6' : isDone ? '#22c55e' : isRejected ? '#f59e0b' : isFailed || isAborted ? '#ef4444' : '#64748b');
 
                 return (
                     <React.Fragment key={stage.agentId + '-' + index}>

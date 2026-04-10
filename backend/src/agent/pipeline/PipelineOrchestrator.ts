@@ -35,7 +35,7 @@ export class PipelineOrchestrator extends EventEmitter {
     private pipelineState: PipelineState;
     private aborted: boolean = false;
     private currentRunner: AgentRunner | null = null;
-    private pendingIntervention: string | null = null;
+    private pendingInterventions: string[] = [];
 
     constructor(
         pipeline: PipelineDefinition,
@@ -178,11 +178,11 @@ export class PipelineOrchestrator extends EventEmitter {
 
                 this.currentRunner = runner;
 
-                // Deliver any intervention that arrived between stages
-                if (this.pendingIntervention) {
-                    runner.intervene(this.pendingIntervention);
-                    this.pendingIntervention = null;
+                // Deliver any interventions that arrived between stages
+                for (const msg of this.pendingInterventions) {
+                    runner.intervene(msg);
                 }
+                this.pendingInterventions = [];
 
                 // Set stage context
                 const stageContext: StageContext = {
@@ -428,6 +428,15 @@ export class PipelineOrchestrator extends EventEmitter {
         }
         if (this.aborted) {
             currentState.status = 'aborted';
+            // Mark any stage left in 'running' as 'aborted' so the UI stepper
+            // doesn't show a completed chip for a stage that was cut short.
+            for (const s of this.pipelineState.stages) {
+                /* v8 ignore next 4 -- defensive: stage should not normally remain 'running' after loop exits */
+                if (s.status === 'running') {
+                    s.status = 'aborted';
+                    s.completedAt = Date.now();
+                }
+            }
         }
 
         currentState.pipeline = this.pipelineState;
@@ -457,10 +466,10 @@ export class PipelineOrchestrator extends EventEmitter {
      * Queue a user intervention for the currently-executing stage runner.
      */
     intervene(message: string): void {
-        this.pendingIntervention = message;
         if (this.currentRunner) {
             this.currentRunner.intervene(message);
-            this.pendingIntervention = null;
+        } else {
+            this.pendingInterventions.push(message);
         }
     }
 
@@ -478,7 +487,7 @@ export class PipelineOrchestrator extends EventEmitter {
      * Get current pipeline state (for API polling).
      */
     getPipelineState(): PipelineState {
-        return this.pipelineState;
+        return { ...this.pipelineState, stages: this.pipelineState.stages.map(s => ({ ...s })) };
     }
 
     // ─── Private helpers ───

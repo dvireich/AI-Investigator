@@ -117,7 +117,7 @@ export interface PipelineStageState {
     agentName: string;
     color?: string;
     icon?: string;
-    status: 'pending' | 'running' | 'completed' | 'rejected' | 'skipped' | 'failed';
+    status: 'pending' | 'running' | 'completed' | 'rejected' | 'skipped' | 'failed' | 'aborted';
     /** Set when the agent produces a verdict (only meaningful when stage has canReject: true). */
     verdict?: 'approved' | 'rejected' | 'flagged';
     /** Rejection/flag explanation from the agent. */
