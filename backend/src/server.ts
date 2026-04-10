@@ -2092,6 +2092,13 @@ function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
         scheduleId: state.scheduleId,
         title: state.title,
         createdBy: state.createdBy,
+        // Carry forward accumulated state so earlier stages aren't lost on resume
+        /* v8 ignore next 5 -- defensive: state arrays always present at resume time */
+        thoughts: state.thoughts || [],
+        actions: state.actions || [],
+        fullHistory: state.fullHistory || [],
+        fullActions: state.fullActions || [],
+        logs: state.logs || [],
     }, {
         stageIndex: resumeStageIndex,
         /* v8 ignore next -- defensive: pipeline state always has conversationLog */
@@ -2183,6 +2190,13 @@ function restartPipelineForContest(runner: AgentRunner, id: string): void {
         title: state.title,
         createdBy: state.createdBy,
         contestCount: state.contestCount,
+        // Carry forward accumulated state so pre-contest history survives for retrospect/restore
+        /* v8 ignore next 5 -- defensive: state arrays always present at contest time */
+        thoughts: state.thoughts || [],
+        actions: state.actions || [],
+        fullHistory: state.fullHistory || [],
+        fullActions: state.fullActions || [],
+        logs: state.logs || [],
     }).then(async (finalState) => {
         const runnerState = (runner as any).state;
         Object.assign(runnerState, {
@@ -2756,7 +2770,15 @@ app.post('/api/investigations/:id/action', async (req, res) => {
 
     if (action === 'pause') {
         runner.pause();
-        if (orchestrator) orchestrator.pause();
+        if (orchestrator) {
+            orchestrator.pause();
+            // Sync orchestrator's current pipeline state to the anchor runner
+            // so it's persisted correctly when saved to disk
+            (runner as any).state.pipeline = {
+                ...(runner as any).state.pipeline,
+                ...orchestrator.getPipelineState(),
+            };
+        }
     }
     if (action === 'resume') {
         runner.resume();
@@ -2934,6 +2956,14 @@ app.post('/api/server/restart', (req, res) => {
     // 1. Pause all running investigations, save state, and dispose resources
     for (const [id, runner] of runners.entries()) {
         try {
+            // Sync pipeline orchestrator state before pausing so it's persisted correctly
+            const orch = pipelineOrchestrators.get(id);
+            if (orch) {
+                (runner as any).state.pipeline = {
+                    ...(runner as any).state.pipeline,
+                    ...orch.getPipelineState(),
+                };
+            }
             runner.pause();
             history.set(id, (runner as any).state);
             console.log(`  Paused runner ${id} before restart.`);

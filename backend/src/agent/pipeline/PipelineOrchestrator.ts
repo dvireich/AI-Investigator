@@ -647,14 +647,19 @@ export class PipelineOrchestrator extends EventEmitter {
             return;
         }
 
+        let timerId: ReturnType<typeof setTimeout>;
         const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
+            timerId = setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
         });
 
-        await Promise.race([
-            runner.start(query),
-            timeoutPromise,
-        ]);
+        try {
+            await Promise.race([
+                runner.start(query),
+                timeoutPromise,
+            ]);
+        } finally {
+            clearTimeout(timerId!);
+        }
     }
 
     /**
@@ -669,14 +674,19 @@ export class PipelineOrchestrator extends EventEmitter {
             return;
         }
 
+        let timerId: ReturnType<typeof setTimeout>;
         const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
+            timerId = setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
         });
 
-        await Promise.race([
-            runner.runRetrospectiveAnalysis(),
-            timeoutPromise,
-        ]);
+        try {
+            await Promise.race([
+                runner.runRetrospectiveAnalysis(),
+                timeoutPromise,
+            ]);
+        } finally {
+            clearTimeout(timerId!);
+        }
     }
 
     private log(msg: string): void {

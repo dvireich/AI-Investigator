@@ -3804,6 +3804,51 @@ describe('server utilities and routes', () => {
             expect(capturedResumeFrom.stageStates[2].status).toBe('pending');
         });
 
+        it('resumePipelineInvestigation passes accumulated state arrays in metadata', async () => {
+            setFakeLlmProvider();
+            let capturedMeta: any;
+            vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockImplementation(
+                (_query: string, meta: any) => {
+                    capturedMeta = meta;
+                    return new Promise(() => {}); // never resolves
+                }
+            );
+            vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+            const state = makeState({
+                id: 'pipe-resume-accum', status: 'paused', query: 'Test query',
+                thoughts: ['thought-from-stage-0', 'thought-from-stage-1'],
+                actions: [{ tool: 'kusto_query' } as any, { tool: 'finish' } as any],
+                logs: ['log-0', 'log-1'],
+            });
+            (state as any).fullHistory = ['full-thought-0', 'full-thought-1'];
+            (state as any).fullActions = ['full-action-0', 'full-action-1'];
+            (state as any).pipeline = {
+                definition: {
+                    id: 'pipe-def',
+                    stages: [
+                        { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                        { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                    ],
+                },
+                stages: [
+                    { status: 'completed', agentName: 'A' },
+                    { status: 'pending', agentName: 'B' },
+                ],
+                currentStageIndex: 1,
+                conversationLog: [],
+            };
+            __testUtils.getHistory().set('pipe-resume-accum', state as any);
+
+            await api().post('/api/investigations/pipe-resume-accum/action').send({ action: 'resume' });
+
+            expect(capturedMeta.thoughts).toEqual(['thought-from-stage-0', 'thought-from-stage-1']);
+            expect(capturedMeta.actions).toEqual([{ tool: 'kusto_query' }, { tool: 'finish' }]);
+            expect(capturedMeta.fullHistory).toEqual(['full-thought-0', 'full-thought-1']);
+            expect(capturedMeta.fullActions).toEqual(['full-action-0', 'full-action-1']);
+            expect(capturedMeta.logs).toEqual(['log-0', 'log-1']);
+        });
+
         it('resumePipelineInvestigation .then() handler updates runner state on completion', async () => {
             setFakeLlmProvider();
             let resolveRun!: (value: any) => void;
@@ -3934,6 +3979,12 @@ describe('server utilities and routes', () => {
                 resume: vi.fn(),
                 abort: vi.fn(),
                 intervene: vi.fn(),
+                removeAllListeners: vi.fn(),
+                getPipelineState: vi.fn().mockReturnValue({
+                    currentStageIndex: 0,
+                    stages: [],
+                    conversationLog: [],
+                }),
             };
             __testUtils.getPipelineOrchestrators().set('active-pipe-ctl', mockOrch as any);
 
@@ -3958,6 +4009,37 @@ describe('server utilities and routes', () => {
             expect(mockOrch.abort).toHaveBeenCalled();
 
             __testUtils.getPipelineOrchestrators().delete('active-pipe-ctl');
+        });
+
+        it('pause syncs orchestrator pipeline state to the anchor runner', async () => {
+            const runner = makeRunner({ id: 'pipe-pause-sync', status: 'running' });
+            __testUtils.getRunners().set('pipe-pause-sync', runner as any);
+
+            const mockOrch = {
+                pause: vi.fn(),
+                resume: vi.fn(),
+                abort: vi.fn(),
+                intervene: vi.fn(),
+                removeAllListeners: vi.fn(),
+                getPipelineState: vi.fn().mockReturnValue({
+                    currentStageIndex: 2,
+                    stages: [{ status: 'completed' }, { status: 'completed' }, { status: 'running' }],
+                    conversationLog: [{ role: 'report', content: 'stage 2 log' }],
+                }),
+            };
+            // Ensure the runner has an existing pipeline property
+            runner.state.pipeline = { currentStageIndex: 0, stages: [{ status: 'pending' }], conversationLog: [] } as any;
+            __testUtils.getPipelineOrchestrators().set('pipe-pause-sync', mockOrch as any);
+
+            const response = await api().post('/api/investigations/pipe-pause-sync/action').send({ action: 'pause' });
+            expect(response.status).toBe(200);
+            expect(mockOrch.pause).toHaveBeenCalled();
+            // Pipeline state should have been synced from orchestrator
+            expect(runner.state.pipeline.currentStageIndex).toBe(2);
+            expect(runner.state.pipeline.stages).toHaveLength(3);
+            expect(runner.state.pipeline.conversationLog).toEqual([{ role: 'report', content: 'stage 2 log' }]);
+
+            __testUtils.getPipelineOrchestrators().delete('pipe-pause-sync');
         });
 
         it('cleans up previous orchestrator listeners when resuming a pipeline investigation', async () => {
@@ -5080,6 +5162,35 @@ describe('server utilities and routes', () => {
                 expect(runner.pause).toHaveBeenCalled();
                 // Runners should be cleared after restart
                 expect(__testUtils.getRunners().size).toBe(0);
+        });
+
+        it('syncs pipeline orchestrator state before pausing runners on restart', async () => {
+                const runner = makeRunner({ id: 'pipe-restart-sync', status: 'running' });
+                runner.state.pipeline = { currentStageIndex: 0, stages: [{ status: 'pending' }], conversationLog: [] } as any;
+                __testUtils.getRunners().set('pipe-restart-sync', runner as any);
+
+                const mockOrch = {
+                    removeAllListeners: vi.fn(),
+                    getPipelineState: vi.fn().mockReturnValue({
+                        currentStageIndex: 3,
+                        stages: [
+                            { status: 'completed' }, { status: 'completed' },
+                            { status: 'completed' }, { status: 'running' },
+                        ],
+                        conversationLog: [{ role: 'report', content: 'synced log' }],
+                    }),
+                };
+                __testUtils.getPipelineOrchestrators().set('pipe-restart-sync', mockOrch as any);
+
+                const response = await api().post('/api/server/restart').send({});
+                expect(response.status).toBe(200);
+
+                // The runner object was synced before pause — check via the retained reference
+                // (loadHistory replaces in-memory history from disk, so we check the runner's state directly)
+                expect(mockOrch.getPipelineState).toHaveBeenCalled();
+                expect(runner.state.pipeline.currentStageIndex).toBe(3);
+                expect(runner.state.pipeline.stages).toHaveLength(4);
+                expect(runner.state.pipeline.conversationLog).toEqual([{ role: 'report', content: 'synced log' }]);
         });
 
         it('continues restart when a runner pause throws', async () => {
@@ -7204,6 +7315,57 @@ describe('pipeline endpoints and integration', () => {
         const state = __testUtils.getHistory().get(id);
         expect(state).toBeDefined();
         expect(state!.status).toBe('failed');
+    });
+
+    it('restartPipelineForContest passes accumulated state arrays in metadata', async () => {
+        setFakeLlmProvider();
+        let capturedMeta: any;
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockImplementation(
+            (_query: string, meta: any) => {
+                capturedMeta = meta;
+                return new Promise(() => {}); // never resolves
+            }
+        );
+
+        const state = makeState({
+            id: 'contest-accum',
+            status: 'completed',
+            query: 'Test query',
+            thoughts: ['pre-contest-thought', 'Report Contested: feedback'],
+            actions: [{ tool: 'kusto_query' } as any, null as any],
+            logs: ['log-pre-contest'],
+        });
+        (state as any).fullHistory = ['full-thought-1', 'full-thought-2', 'Report Contested: feedback'];
+        (state as any).fullActions = ['full-action-1', 'full-action-2', null];
+        (state as any).contestCount = 1;
+        (state as any).pipeline = {
+            definition: {
+                id: 'pipe-def',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+            stages: [{ status: 'completed' }, { status: 'completed' }],
+            currentStageIndex: 1,
+            conversationLog: [],
+        };
+        __testUtils.getHistory().set('contest-accum', state as any);
+
+        vi.spyOn(AgentRunner.prototype as any, 'contestReport');
+        vi.spyOn(AgentRunner.prototype as any, 'log').mockImplementation(() => undefined);
+
+        await api().post('/api/investigations/contest-accum/action').send({
+            action: 'contest',
+            message: 'Try harder',
+        });
+
+        expect(capturedMeta.thoughts).toBeDefined();
+        expect(capturedMeta.fullHistory).toEqual(['full-thought-1', 'full-thought-2', 'Report Contested: feedback']);
+        expect(capturedMeta.fullActions).toEqual(['full-action-1', 'full-action-2', null]);
+        expect(capturedMeta.logs).toBeDefined();
+        // contestReport() increments contestCount from 1 to 2 before restartPipelineForContest runs
+        expect(capturedMeta.contestCount).toBe(2);
     });
 
     it('restartPipelineForContest .then() handler updates runner state on completion', async () => {

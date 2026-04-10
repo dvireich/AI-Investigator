@@ -1230,6 +1230,15 @@ describe('PipelineOrchestrator', () => {
             await expect(promise).rejects.toThrow('timed out');
             vi.useRealTimers();
         });
+
+        it('clears the timeout timer when runner completes before timeout', async () => {
+            const clearSpy = vi.spyOn(global, 'clearTimeout');
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const fakeRunner = { start: vi.fn().mockResolvedValue(undefined) };
+            await (orch as any).runWithTimeout(fakeRunner, 'test-query', 60000);
+            expect(clearSpy).toHaveBeenCalled();
+            clearSpy.mockRestore();
+        });
     });
 
     describe('runRetrospectStage', () => {
@@ -1255,6 +1264,15 @@ describe('PipelineOrchestrator', () => {
             vi.advanceTimersByTime(1100);
             await expect(promise).rejects.toThrow('timed out');
             vi.useRealTimers();
+        });
+
+        it('clears the timeout timer when retrospect completes before timeout', async () => {
+            const clearSpy = vi.spyOn(global, 'clearTimeout');
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const fakeRunner = { runRetrospectiveAnalysis: vi.fn().mockResolvedValue(undefined) };
+            await (orch as any).runRetrospectStage(fakeRunner, 60000);
+            expect(clearSpy).toHaveBeenCalled();
+            clearSpy.mockRestore();
         });
     });
 
