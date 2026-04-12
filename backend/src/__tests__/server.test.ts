@@ -4059,6 +4059,7 @@ describe('server utilities and routes', () => {
                 id: 'old-shared-id',
                 status: 'running',
                 productId: 'prod-defaults',
+                title: 'Log Analytics Latency',
                 thoughts: 'bad-thoughts',
                 actions: 'bad-actions',
                 logs: 'bad-logs',

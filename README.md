@@ -67,7 +67,8 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **First-Launch Onboarding** | Multi-step setup wizard guides new users through LLM provider selection and product discovery |
 | **Auto-Update Checking** | Checks for new releases on startup, shows a floating notification card with download and release notes links. Session-only dismiss |
 | **Implementation Agent** | Select recommendations from the final report and let an AI coding agent propose exact code changes |
-| **Multi-Agent Pipelines** | Orchestrate sequential agent workflows (Investigator → Validator → Proposer → Retrospect) with rejection loops and shared context |
+| **Multi-Agent Pipelines** | Orchestrate sequential agent workflows with 13 built-in agents, 7 workflow presets, rejection loops, and shared context |
+| **Agent Workflow Presets** | Choose from pre-built workflow templates (Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis) or use your own configured pipeline when starting an investigation |
 
 ---
 
@@ -93,11 +94,11 @@ The main dashboard shows all investigations as color-coded cards with live statu
 
 ### 3. New Investigation
 
-Launch investigations with structured context: target name, category, time window (8 quick presets or custom range), and model selection. Toggle between **Standard** and **Incident** modes to start from an incident ID with auto-extracted context.
+Launch investigations with structured context: target name, category, time window (8 quick presets or custom range), model selection, and agent workflow. Toggle between **Standard** and **Incident** modes to start from an incident ID with auto-extracted context. The **Agent Workflow** selector lets you pick from pre-built pipeline templates or your own configured pipeline — with paginated cards showing agent stage previews.
 
 ![New Investigation Form](docs/screenshots/new-investigation.png)
 
-<!-- Screenshot: The full form with Target Scope (target, category dropdown, correlation ID), Time Window section with preset buttons, and Agent Configuration with model selector. -->
+<!-- Screenshot: The full form with Target Scope (target, category dropdown, correlation ID), Time Window section with preset buttons, and Agent Configuration with workflow selector and model dropdown. -->
 
 ---
 
@@ -353,7 +354,7 @@ Attach freeform markdown notes to any investigation. The rich-text editor suppor
 
 ### 32. Settings — Multi-Agent Pipeline
 
-Build multi-agent investigation workflows with a drag-and-drop pipeline editor. Add stages from four built-in agents (Investigator, Validator, Proposer, Retrospect), configure rejection loops, per-stage model overrides, and timeout limits. The Validator stage can reject findings back to the Investigator for re-analysis, with configurable retry limits.
+Build multi-agent investigation workflows with a drag-and-drop pipeline editor. Add stages from 13 built-in agents across three tiers (Core: Investigator, Validator, Proposer, Retrospect; Analysis: Planner, Triage, Correlator, Devil's Advocate, Summarizer; Specialist: Remediation, Timeline, Enrichment, Compliance). Configure rejection loops, per-stage model overrides, and timeout limits. Each agent has descriptive hover tooltips showing its role. Choose from 7 pre-built workflow presets when starting an investigation, or use your own configured pipeline.
 
 **Empty state** — the pipeline builder before any stages are added, showing the agent palette and help guide:
 
@@ -442,13 +443,33 @@ The **retrospective agent** additionally has:
 Orchestrate sequential agent workflows where multiple specialized agents collaborate on a single investigation:
 
 - **Pipeline Builder** — Drag-and-drop visual editor in Settings → Pipeline tab. Add stages, reorder them, and configure each stage's behavior
-- **Built-in Agents** — Four pre-configured agents ready to use:
+- **Built-in Agents** — Thirteen pre-configured agents across three tiers:
   | Agent | Role |
   |-------|------|
   | 🤖 **Investigator** | Runs the main investigation loop with full MCP tool access |
   | 🛡️ **Validator** | Reviews findings for accuracy, completeness, and evidence quality |
   | 🔧 **Proposer** | Reads findings and proposes targeted code changes |
   | ✨ **Retrospect** | Analyzes against the knowledge base and proposes improvements |
+  | 📋 **Planner** | Creates structured investigation plans before execution begins |
+  | 🚦 **Triage** | Fast initial assessment — classifies severity and routes to the right workflow |
+  | 🔗 **Correlator** | Cross-references findings across data sources to identify patterns |
+  | 😈 **Devil's Advocate** | Challenges conclusions and probes for blind spots |
+  | 📊 **Summarizer** | Distills verbose findings into concise executive summaries |
+  | 🩹 **Remediation** | Proposes concrete fix steps and mitigation actions |
+  | ⏱️ **Timeline** | Reconstructs chronological event sequences from investigation data |
+  | 🔎 **Enrichment** | Gathers additional context from external sources and documentation |
+  | 📜 **Compliance** | Audits findings against security policies and regulatory requirements |
+- **Workflow Presets** — Seven pre-built pipeline templates selectable per investigation:
+  | Preset | Stages |
+  |--------|--------|
+  | ⚡ **Standard** | Investigator → Validator → Proposer → Retrospect |
+  | 🔬 **Deep Investigation** | Planner → Investigator → Correlator → Devil's Advocate → Validator → Summarizer → Retrospect |
+  | 🚨 **Incident Response** | Triage → Enrichment → Correlator → Timeline → Investigator → Remediation → Summarizer |
+  | 💚 **Quick Health Check** | Investigator → Validator → Retrospect |
+  | 📋 **Compliance Review** | Investigator → Validator → Compliance → Summarizer → Retrospect |
+  | 🔍 **Root Cause Analysis** | Correlator → Timeline → Investigator → Devil's Advocate → Remediation → Summarizer |
+  | ⚙️ **Configured** | Your custom pipeline from Settings (auto-selected when configured) |
+- **Per-Investigation Workflow** — Choose a workflow preset when starting each investigation. The Agent Workflow selector shows paginated cards with agent stage previews. Your configured pipeline from Settings is auto-selected when present
 - **Rejection Loops** — Validator (or any agent with `canReject`) can send work back to the previous stage with feedback. Three rejection modes: **loop** (re-run), **flag** (mark and continue), **abort** (stop pipeline)
 - **Retry Limits** — Configurable `maxRetries` per stage (hard cap: 5) prevents infinite loops
 - **Per-Stage Overrides** — Each stage can override the model, timeout (minutes), and tool access (whitelist/blacklist)

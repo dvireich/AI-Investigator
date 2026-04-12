@@ -19,6 +19,15 @@ import {
     createInvestigatorAgent,
     createRetrospectAgent,
     createImplementationAgent,
+    createPlannerAgent,
+    createTriageAgent,
+    createCorrelatorAgent,
+    createDevilsAdvocateAgent,
+    createSummarizerAgent,
+    createRemediationAgent,
+    createTimelineAgent,
+    createEnrichmentAgent,
+    createComplianceAgent,
     BUILTIN_AGENTS,
 } from '../../../agent/pipeline/builtinAgents';
 import { createValidatorAgent } from '../../../agent/pipeline/builtinAgents';
@@ -333,6 +342,175 @@ describe('builtinAgents', () => {
         });
     });
 
+    describe('createPlannerAgent', () => {
+        it('creates with defaults', () => {
+            const agent = createPlannerAgent();
+            expect(agent.id).toBe('builtin-planner');
+            expect(agent.name).toBe('Planner');
+            expect(agent.source).toBe('builtin');
+            expect(agent.builtinType).toBe('planner');
+            expect(agent.color).toBe('#0ea5e9');
+            expect(agent.promptPath).toBe('prompts/examples/PlannerPrompt.md');
+            expect(agent.tools?.mode).toBe('whitelist');
+            expect(agent.tools?.list).toContain('read_file');
+            expect(agent.tools?.list).toContain('list_dir');
+        });
+
+        it('allows overrides', () => {
+            const agent = createPlannerAgent({ name: 'Custom Planner' });
+            expect(agent.name).toBe('Custom Planner');
+        });
+    });
+
+    describe('createTriageAgent', () => {
+        it('creates with defaults', () => {
+            const agent = createTriageAgent();
+            expect(agent.id).toBe('builtin-triage');
+            expect(agent.name).toBe('Triage');
+            expect(agent.source).toBe('builtin');
+            expect(agent.builtinType).toBe('triage');
+            expect(agent.color).toBe('#f43f5e');
+            expect(agent.promptPath).toBe('prompts/examples/TriagePrompt.md');
+            expect(agent.tools).toBeUndefined(); // full tool access
+        });
+
+        it('allows overrides', () => {
+            const agent = createTriageAgent({ model: 'gpt-4' });
+            expect(agent.model).toBe('gpt-4');
+        });
+    });
+
+    describe('createCorrelatorAgent', () => {
+        it('creates with defaults', () => {
+            const agent = createCorrelatorAgent();
+            expect(agent.id).toBe('builtin-correlator');
+            expect(agent.name).toBe('Correlator');
+            expect(agent.source).toBe('builtin');
+            expect(agent.builtinType).toBe('correlator');
+            expect(agent.color).toBe('#06b6d4');
+            expect(agent.promptPath).toBe('prompts/examples/CorrelatorPrompt.md');
+            expect(agent.tools?.mode).toBe('whitelist');
+            expect(agent.tools?.list).toContain('search_code');
+        });
+
+        it('allows overrides', () => {
+            const agent = createCorrelatorAgent({ name: 'My Correlator' });
+            expect(agent.name).toBe('My Correlator');
+        });
+    });
+
+    describe('createDevilsAdvocateAgent', () => {
+        it('creates with defaults', () => {
+            const agent = createDevilsAdvocateAgent();
+            expect(agent.id).toBe('builtin-devils-advocate');
+            expect(agent.name).toBe("Devil's Advocate");
+            expect(agent.source).toBe('builtin');
+            expect(agent.builtinType).toBe('devils-advocate');
+            expect(agent.color).toBe('#ef4444');
+            expect(agent.promptPath).toBe('prompts/examples/DevilsAdvocatePrompt.md');
+            expect(agent.tools).toBeUndefined(); // full tool access
+        });
+
+        it('allows overrides', () => {
+            const agent = createDevilsAdvocateAgent({ maxSteps: 20 });
+            expect(agent.maxSteps).toBe(20);
+        });
+    });
+
+    describe('createSummarizerAgent', () => {
+        it('creates with defaults', () => {
+            const agent = createSummarizerAgent();
+            expect(agent.id).toBe('builtin-summarizer');
+            expect(agent.name).toBe('Summarizer');
+            expect(agent.source).toBe('builtin');
+            expect(agent.builtinType).toBe('summarizer');
+            expect(agent.color).toBe('#14b8a6');
+            expect(agent.promptPath).toBe('prompts/examples/SummarizerPrompt.md');
+            expect(agent.tools?.mode).toBe('whitelist');
+            expect(agent.tools?.list).toContain('read_file');
+        });
+
+        it('allows overrides', () => {
+            const agent = createSummarizerAgent({ name: 'Brief Summary' });
+            expect(agent.name).toBe('Brief Summary');
+        });
+    });
+
+    describe('createRemediationAgent', () => {
+        it('creates with defaults', () => {
+            const agent = createRemediationAgent();
+            expect(agent.id).toBe('builtin-remediation');
+            expect(agent.name).toBe('Remediation Advisor');
+            expect(agent.source).toBe('builtin');
+            expect(agent.builtinType).toBe('remediation');
+            expect(agent.color).toBe('#f97316');
+            expect(agent.promptPath).toBe('prompts/examples/RemediationPrompt.md');
+            expect(agent.tools?.mode).toBe('whitelist');
+            expect(agent.tools?.list).toContain('propose_change');
+        });
+
+        it('allows overrides', () => {
+            const agent = createRemediationAgent({ color: '#000' });
+            expect(agent.color).toBe('#000');
+        });
+    });
+
+    describe('createTimelineAgent', () => {
+        it('creates with defaults', () => {
+            const agent = createTimelineAgent();
+            expect(agent.id).toBe('builtin-timeline');
+            expect(agent.name).toBe('Timeline Reconstructor');
+            expect(agent.source).toBe('builtin');
+            expect(agent.builtinType).toBe('timeline');
+            expect(agent.color).toBe('#a855f7');
+            expect(agent.promptPath).toBe('prompts/examples/TimelinePrompt.md');
+            expect(agent.tools?.mode).toBe('whitelist');
+            expect(agent.tools?.list).toContain('read_file');
+        });
+
+        it('allows overrides', () => {
+            const agent = createTimelineAgent({ icon: '🕐' });
+            expect(agent.icon).toBe('🕐');
+        });
+    });
+
+    describe('createEnrichmentAgent', () => {
+        it('creates with defaults', () => {
+            const agent = createEnrichmentAgent();
+            expect(agent.id).toBe('builtin-enrichment');
+            expect(agent.name).toBe('Data Enrichment');
+            expect(agent.source).toBe('builtin');
+            expect(agent.builtinType).toBe('enrichment');
+            expect(agent.color).toBe('#3b82f6');
+            expect(agent.promptPath).toBe('prompts/examples/EnrichmentPrompt.md');
+            expect(agent.tools).toBeUndefined(); // full tool access
+        });
+
+        it('allows overrides', () => {
+            const agent = createEnrichmentAgent({ name: 'Context Gatherer' });
+            expect(agent.name).toBe('Context Gatherer');
+        });
+    });
+
+    describe('createComplianceAgent', () => {
+        it('creates with defaults', () => {
+            const agent = createComplianceAgent();
+            expect(agent.id).toBe('builtin-compliance');
+            expect(agent.name).toBe('Compliance Auditor');
+            expect(agent.source).toBe('builtin');
+            expect(agent.builtinType).toBe('compliance');
+            expect(agent.color).toBe('#84cc16');
+            expect(agent.promptPath).toBe('prompts/examples/CompliancePrompt.md');
+            expect(agent.tools?.mode).toBe('whitelist');
+            expect(agent.tools?.list).toContain('read_file');
+        });
+
+        it('allows overrides', () => {
+            const agent = createComplianceAgent({ description: 'Custom desc' });
+            expect(agent.description).toBe('Custom desc');
+        });
+    });
+
     describe('getBuiltinAgent', () => {
         it('returns investigator agent', () => {
             const agent = getBuiltinAgent('investigator');
@@ -355,6 +533,60 @@ describe('builtinAgents', () => {
             expect(agent!.builtinType).toBe('validator');
         });
 
+        it('returns planner agent', () => {
+            const agent = getBuiltinAgent('planner');
+            expect(agent).toBeDefined();
+            expect(agent!.builtinType).toBe('planner');
+        });
+
+        it('returns triage agent', () => {
+            const agent = getBuiltinAgent('triage');
+            expect(agent).toBeDefined();
+            expect(agent!.builtinType).toBe('triage');
+        });
+
+        it('returns correlator agent', () => {
+            const agent = getBuiltinAgent('correlator');
+            expect(agent).toBeDefined();
+            expect(agent!.builtinType).toBe('correlator');
+        });
+
+        it('returns devils-advocate agent', () => {
+            const agent = getBuiltinAgent('devils-advocate');
+            expect(agent).toBeDefined();
+            expect(agent!.builtinType).toBe('devils-advocate');
+        });
+
+        it('returns summarizer agent', () => {
+            const agent = getBuiltinAgent('summarizer');
+            expect(agent).toBeDefined();
+            expect(agent!.builtinType).toBe('summarizer');
+        });
+
+        it('returns remediation agent', () => {
+            const agent = getBuiltinAgent('remediation');
+            expect(agent).toBeDefined();
+            expect(agent!.builtinType).toBe('remediation');
+        });
+
+        it('returns timeline agent', () => {
+            const agent = getBuiltinAgent('timeline');
+            expect(agent).toBeDefined();
+            expect(agent!.builtinType).toBe('timeline');
+        });
+
+        it('returns enrichment agent', () => {
+            const agent = getBuiltinAgent('enrichment');
+            expect(agent).toBeDefined();
+            expect(agent!.builtinType).toBe('enrichment');
+        });
+
+        it('returns compliance agent', () => {
+            const agent = getBuiltinAgent('compliance');
+            expect(agent).toBeDefined();
+            expect(agent!.builtinType).toBe('compliance');
+        });
+
         it('returns undefined for unknown type', () => {
             expect(getBuiltinAgent('nonexistent')).toBeUndefined();
         });
@@ -374,6 +606,15 @@ describe('builtinAgents', () => {
             expect(types).toContain('retrospect');
             expect(types).toContain('implementation');
             expect(types).toContain('validator');
+            expect(types).toContain('planner');
+            expect(types).toContain('triage');
+            expect(types).toContain('correlator');
+            expect(types).toContain('devils-advocate');
+            expect(types).toContain('summarizer');
+            expect(types).toContain('remediation');
+            expect(types).toContain('timeline');
+            expect(types).toContain('enrichment');
+            expect(types).toContain('compliance');
         });
     });
 });

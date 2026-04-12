@@ -446,7 +446,7 @@ export function shouldIncludeInvestigationInList(state: Partial<InvestigationSta
 
     const storagePath = storagePathCache.get(state.id)
         || (state as StoredInvestigationState)._storagePath
-        || getInvestigationStoragePath(state as { id: string; target?: string; productId?: string });
+        || getInvestigationStoragePath(state as { id: string; target?: string; title?: string; productId?: string });
 
     const activeProduct = products.find(p => p.id === activeProductId);
     if (activeProduct?.investigationsPath && isPathWithinDirectory(storagePath, activeProduct.investigationsPath)) {
@@ -469,13 +469,13 @@ export function hasPersistedInvestigationState(state: Partial<InvestigationState
 
     const storagePath = storagePathCache.get(state.id)
         || stored._storagePath
-        || getInvestigationStoragePath(state as { id: string; target?: string; productId?: string });
+        || getInvestigationStoragePath(state as { id: string; target?: string; title?: string; productId?: string });
 
     return fs.existsSync(path.join(storagePath, 'state.json'));
 }
 
 /** Compute the on-disk storage path for a given investigation state. */
-export function getInvestigationStoragePath(state: { id: string; target?: string; productId?: string }): string {
+export function getInvestigationStoragePath(state: { id: string; target?: string; title?: string; productId?: string }): string {
     let baseDir: string;
     if (state.productId && config.products?.length) {
         const product = config.products.find(p => p.id === state.productId);
@@ -486,8 +486,11 @@ export function getInvestigationStoragePath(state: { id: string; target?: string
     const startDate = !isNaN(Number(state.id)) ? new Date(Number(state.id)) : new Date();
     const timestamp = startDate.toISOString().split('T')[0];
     const safeTarget = (state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
+    let safeTitle = '';
+    try { safeTitle = state.title ? state.title.replace(/[^a-zA-Z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 50) : ''; } catch { /* ignore */ }
     const safeId = String(state.id).replace(/[^a-zA-Z0-9]/g, '');
-    return path.join(baseDir, `${timestamp}_${safeTarget}_${safeId}`);
+    const nameParts = [timestamp, safeTarget, ...(safeTitle ? [safeTitle] : []), safeId];
+    return path.join(baseDir, nameParts.join('_'));
 }
 
 export function loadHistory() {
@@ -1807,10 +1810,12 @@ interface CreateInvestigationParams {
     scheduleId?: string;
     title?: string;
     createdBy?: string;
+    /** Optional pipeline override — takes precedence over product/global pipeline config */
+    pipeline?: PipelineDefinition;
 }
 
 export function createInvestigation(params: CreateInvestigationParams): { id: string; runner: AgentRunner } {
-    const { query, target, timeRange, correlationId, category, incidentId, model, productId, maxSteps, source, scheduleId, title, createdBy } = params;
+    const { query, target, timeRange, correlationId, category, incidentId, model, productId, maxSteps, source, scheduleId, title, createdBy, pipeline: pipelineOverride } = params;
 
     // Determine which config to use (product-specific or global)
     let effectiveConfig: typeof config = config;
@@ -1866,8 +1871,8 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
         throw new Error('No LLM provider configured. Update settings to configure an LLM provider.');
     }
 
-    // Check if a multi-agent pipeline is configured
-    const pipelineDef = effectiveConfig.pipeline;
+    // Check if a multi-agent pipeline is configured (per-investigation override takes priority)
+    const pipelineDef = pipelineOverride || effectiveConfig.pipeline;
     if (pipelineDef && pipelineDef.stages && pipelineDef.stages.length > 1) {
         const pipelineCreatedBy = createdBy ?? (source === 'scheduled' ? 'scheduler' : undefined);
         return createPipelineInvestigation(pipelineDef, effectiveConfig, activeLlmProvider, fullQuery, {
@@ -2106,7 +2111,7 @@ function restartPipelineForContest(runner: AgentRunner, id: string): void {
 }
 
 app.post('/api/investigations', async (req, res) => {
-    const { query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy } = req.body;
+    const { query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy, pipeline } = req.body;
 
     // Resolve createdBy: use provided value, fall back to OS username
     let resolvedCreatedBy = createdBy;
@@ -2133,7 +2138,7 @@ app.post('/api/investigations', async (req, res) => {
     }
 
     try {
-        const { id } = createInvestigation({ query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy: resolvedCreatedBy });
+        const { id } = createInvestigation({ query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy: resolvedCreatedBy, pipeline });
         res.json({ id, status: 'running' });
     } catch (err: any) {
         return res.status(400).json({ error: err.message });
@@ -3230,8 +3235,10 @@ app.post('/api/investigations/import', async (req, res) => {
         const startDate = new Date(Number(newId));
         const timestamp = startDate.toISOString().split('T')[0];
         const safeTarget = (state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
+        const safeTitle = state.title ? state.title.replace(/[^a-zA-Z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 50) : '';
         const safeId = newId.replace(/[^a-zA-Z0-9]/g, '');
-        const folderName = `${timestamp}_${safeTarget}_${safeId}`;
+        const nameParts = [timestamp, safeTarget, ...(safeTitle ? [safeTitle] : []), safeId];
+        const folderName = nameParts.join('_');
         investigationDir = path.join(investigationsDir, folderName);
 
         ensureDirectoryExists(investigationDir);

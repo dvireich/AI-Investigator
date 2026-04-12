@@ -268,17 +268,32 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                     >
                         <Code size={14} />
                     </button>
-                    {builtinAgents.length >= 4 && (
+                    <div className="relative group/presets">
                         <button
-                            onClick={() => {
-                                try { onChange(buildDefaultPipeline(builtinAgents)); } catch { /* ignore */ }
-                            }}
-                            className="px-2.5 py-1.5 text-xs text-emerald-400 hover:text-emerald-300 bg-slate-800/60 border border-slate-700/50 rounded-lg transition-colors"
-                            title="Reset to recommended default pipeline"
+                            className="px-2.5 py-1.5 text-xs text-emerald-400 hover:text-emerald-300 bg-slate-800/60 border border-slate-700/50 rounded-lg transition-colors flex items-center gap-1"
+                            title="Load a workflow template"
                         >
                             <RotateCcw size={13} />
+                            <ChevronDown size={10} />
                         </button>
-                    )}
+                        <div className="absolute right-0 top-full mt-1 w-72 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl opacity-0 invisible group-hover/presets:opacity-100 group-hover/presets:visible transition-all duration-150 z-50 py-1">
+                            {PIPELINE_PRESETS.filter(preset =>
+                                preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))
+                            ).map(preset => (
+                                <button
+                                    key={preset.id}
+                                    onClick={() => { try { onChange(buildPipelinePreset(preset.id, builtinAgents)); } catch { /* ignore */ } }}
+                                    className="w-full text-left px-3 py-2 hover:bg-slate-800 transition-colors flex items-start gap-2"
+                                >
+                                    <span className="text-sm mt-0.5">{preset.icon}</span>
+                                    <div className="min-w-0">
+                                        <div className="text-xs font-medium text-slate-200">{preset.name}</div>
+                                        <div className="text-[10px] text-slate-500 leading-snug">{preset.description}</div>
+                                    </div>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             )}
 
@@ -289,11 +304,10 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                         if (builtinAgents.length > 0) addStage(builtinAgents[0]);
                         else { setEditingAgentForStage(null); setShowAgentModal(true); }
                     }}
-                    onLoadDefault={builtinAgents.length >= 4 ? () => {
-                        try {
-                            onChange(buildDefaultPipeline(builtinAgents));
-                        } catch { /* ignore if builtins not yet loaded */ }
-                    } : undefined}
+                    onLoadPreset={(presetId) => {
+                        try { onChange(buildPipelinePreset(presetId, builtinAgents)); } catch { /* ignore */ }
+                    }}
+                    builtinAgents={builtinAgents}
                 />
             ) : (
                 <div className="space-y-1">
@@ -414,73 +428,245 @@ const AgentChip: React.FC<{
     agent: AgentDefinition;
     onClick: () => void;
 }> = React.memo(({ agent, onClick }) => (
-    <button
-        onClick={onClick}
-        className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/60 hover:bg-slate-800 rounded-lg border border-slate-700/40 hover:border-slate-600 text-xs transition-colors group"
-        title={`Add ${agent.name} to pipeline`}
-    >
-        <span
-            className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
-            style={{ backgroundColor: agent.color || '#6b7280' }}
+    <div className="relative group/chip">
+        <button
+            onClick={onClick}
+            className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/60 hover:bg-slate-800 rounded-lg border border-slate-700/40 hover:border-slate-600 text-xs transition-colors group"
         >
-            {agent.icon || agent.name.charAt(0).toUpperCase()}
-        </span>
-        <span className="text-slate-300 group-hover:text-white font-medium">{agent.name}</span>
-        <Plus size={10} className="text-slate-600 group-hover:text-cyan-400" />
-    </button>
+            <span
+                className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white flex-shrink-0"
+                style={{ backgroundColor: agent.color || '#6b7280' }}
+            >
+                {agent.icon || agent.name.charAt(0).toUpperCase()}
+            </span>
+            <span className="text-slate-300 group-hover:text-white font-medium">{agent.name}</span>
+            <Plus size={10} className="text-slate-600 group-hover:text-cyan-400" />
+        </button>
+        {agent.description && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg shadow-xl text-[11px] text-slate-300 leading-relaxed w-64 opacity-0 invisible group-hover/chip:opacity-100 group-hover/chip:visible transition-all duration-150 pointer-events-none z-50">
+                <div className="font-semibold text-white mb-0.5">{agent.name}</div>
+                {agent.description}
+                <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-2 h-2 bg-slate-900 border-b border-r border-slate-600 rotate-45" />
+            </div>
+        )}
+    </div>
 ));
 AgentChip.displayName = 'AgentChip';
 
 /** Build the default recommended pipeline */
 function buildDefaultPipeline(builtinAgents: AgentDefinition[]): PipelineDefinition {
-    const find = (type: string) => builtinAgents.find(a => a.builtinType === type);
-    const investigator = find('investigator');
-    const validator = find('validator');
-    const proposer = find('implementation');
-    const retrospect = find('retrospect');
+    return buildPipelinePreset('default', builtinAgents);
+}
 
-    if (!investigator || !validator || !proposer || !retrospect) {
-        throw new Error('Missing required builtin agents for default pipeline');
+// ── Pipeline Presets ────────────────────────────────────────────────
+
+export interface PipelinePreset {
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    /** Ordered list of builtinType strings for stages */
+    stages: {
+        builtinType: string;
+        canReject?: boolean;
+        onReject?: 'loop' | 'flag' | 'abort';
+        rejectTarget?: number | 'previous';
+        maxRetries?: number;
+    }[];
+}
+
+export const PIPELINE_PRESETS: PipelinePreset[] = [
+    {
+        id: 'default',
+        name: 'Standard',
+        description: 'Balanced pipeline: investigate, validate, propose changes, and improve knowledge base.',
+        icon: '⚡',
+        stages: [
+            { builtinType: 'investigator' },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 2 },
+            { builtinType: 'implementation' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+    {
+        id: 'deep-investigation',
+        name: 'Deep Investigation',
+        description: 'Thorough pipeline with planning, adversarial review, and executive summary for complex issues.',
+        icon: '🔬',
+        stages: [
+            { builtinType: 'planner' },
+            { builtinType: 'investigator' },
+            { builtinType: 'devils-advocate', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'summarizer' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+    {
+        id: 'incident-response',
+        name: 'Incident Response',
+        description: 'Fast triage, enrichment, timeline reconstruction, and remediation for active incidents.',
+        icon: '🚨',
+        stages: [
+            { builtinType: 'triage' },
+            { builtinType: 'enrichment' },
+            { builtinType: 'investigator' },
+            { builtinType: 'timeline' },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'remediation' },
+            { builtinType: 'summarizer' },
+        ],
+    },
+    {
+        id: 'quick-health-check',
+        name: 'Quick Health Check',
+        description: 'Lightweight pipeline for scheduled health checks and routine monitoring.',
+        icon: '💚',
+        stages: [
+            { builtinType: 'triage' },
+            { builtinType: 'investigator' },
+            { builtinType: 'validator' },
+        ],
+    },
+    {
+        id: 'compliance-review',
+        name: 'Compliance Review',
+        description: 'Investigation followed by security and compliance auditing with rejection authority.',
+        icon: '📜',
+        stages: [
+            { builtinType: 'investigator' },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 2 },
+            { builtinType: 'compliance', canReject: true, onReject: 'flag' },
+            { builtinType: 'implementation' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+    {
+        id: 'root-cause-analysis',
+        name: 'Root Cause Analysis',
+        description: 'Correlate with past incidents, reconstruct timeline, and generate remediation plan.',
+        icon: '🔍',
+        stages: [
+            { builtinType: 'planner' },
+            { builtinType: 'investigator' },
+            { builtinType: 'correlator' },
+            { builtinType: 'timeline' },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'remediation' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+];
+
+/**
+ * Build a PipelineDefinition from a preset, resolving builtinType references
+ * against the available agents. Skips stages for agents not available.
+ */
+export function buildPipelinePreset(presetId: string, builtinAgents: AgentDefinition[]): PipelineDefinition {
+    const preset = PIPELINE_PRESETS.find(p => p.id === presetId);
+    if (!preset) throw new Error(`Unknown pipeline preset: ${presetId}`);
+
+    const find = (type: string) => builtinAgents.find(a => a.builtinType === type);
+
+    const pipelineStages: PipelineStage[] = [];
+    for (const stageDef of preset.stages) {
+        const agent = find(stageDef.builtinType);
+        if (!agent) continue; // skip stages for agents not available
+        const stage: PipelineStage = {
+            agent: { ...agent },
+            inputMode: 'conversation',
+        };
+        if (stageDef.canReject) stage.canReject = true;
+        if (stageDef.onReject) stage.onReject = stageDef.onReject;
+        if (stageDef.rejectTarget !== undefined) stage.rejectTarget = stageDef.rejectTarget;
+        if (stageDef.maxRetries !== undefined) stage.maxRetries = stageDef.maxRetries;
+        pipelineStages.push(stage);
+    }
+
+    if (pipelineStages.length === 0) {
+        throw new Error(`No agents available for preset "${preset.name}"`);
     }
 
     return {
-        id: 'default-pipeline',
-        name: 'Default Pipeline',
-        stages: [
-            { agent: { ...investigator }, inputMode: 'conversation' },
-            { agent: { ...validator }, inputMode: 'conversation', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 2 },
-            { agent: { ...proposer }, inputMode: 'conversation' },
-            { agent: { ...retrospect }, inputMode: 'conversation' },
-        ],
+        id: `preset-${preset.id}`,
+        name: preset.name,
+        stages: pipelineStages,
     };
 }
 
 /** Empty state when no stages exist */
-const EmptyState: React.FC<{ onAddFirst: () => void; onLoadDefault?: () => void }> = ({ onAddFirst, onLoadDefault }) => (
-    <div className="border-2 border-dashed border-slate-700 rounded-2xl p-10 text-center">
-        <div className="w-14 h-14 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Cpu className="text-slate-500" size={24} />
-        </div>
-        <h3 className="text-sm font-bold text-slate-300 mb-1">No pipeline configured</h3>
-        <p className="text-xs text-slate-500 mb-4 max-w-sm mx-auto">
-            Click an agent from the palette above, or add a custom agent to start building your multi-agent pipeline.
-        </p>
-        <button
-            onClick={onAddFirst}
-            className="px-4 py-2 bg-cyan-600/20 text-cyan-400 rounded-lg border border-cyan-500/30 text-xs font-medium hover:bg-cyan-600/30 transition-colors"
-        >
-            <Plus size={12} className="inline mr-1" /> Add first stage
-        </button>
-        {onLoadDefault && (
+const EmptyState: React.FC<{
+    onAddFirst: () => void;
+    onLoadPreset: (presetId: string) => void;
+    builtinAgents: AgentDefinition[];
+}> = ({ onAddFirst, onLoadPreset, builtinAgents }) => {
+    // Only show presets whose agents are all available
+    const availablePresets = PIPELINE_PRESETS.filter(preset =>
+        preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))
+    );
+
+    return (
+        <div className="border-2 border-dashed border-slate-700 rounded-2xl p-8 text-center space-y-5">
+            <div className="w-14 h-14 bg-slate-800 rounded-full flex items-center justify-center mx-auto">
+                <Cpu className="text-slate-500" size={24} />
+            </div>
+            <div>
+                <h3 className="text-sm font-bold text-slate-300 mb-1">No pipeline configured</h3>
+                <p className="text-xs text-slate-500 max-w-md mx-auto">
+                    Pick a workflow template below, or drag agents from the palette to build your own.
+                </p>
+            </div>
+
+            {/* Preset cards */}
+            {availablePresets.length > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 max-w-2xl mx-auto">
+                    {availablePresets.map(preset => (
+                        <button
+                            key={preset.id}
+                            onClick={() => onLoadPreset(preset.id)}
+                            className={`group text-left p-3 rounded-xl border transition-all hover:scale-[1.02] ${
+                                preset.id === 'default'
+                                    ? 'bg-cyan-950/40 border-cyan-700/50 hover:border-cyan-500/60 hover:bg-cyan-950/60'
+                                    : 'bg-slate-800/50 border-slate-700/40 hover:border-slate-500/50 hover:bg-slate-800/80'
+                            }`}
+                        >
+                            <div className="flex items-center gap-2 mb-1.5">
+                                <span className="text-base">{preset.icon}</span>
+                                <span className="text-xs font-bold text-slate-200 group-hover:text-white">{preset.name}</span>
+                                {preset.id === 'default' && (
+                                    <span className="text-[9px] bg-cyan-600/30 text-cyan-400 px-1.5 py-0.5 rounded-full font-medium">recommended</span>
+                                )}
+                            </div>
+                            <p className="text-[10px] text-slate-500 group-hover:text-slate-400 leading-relaxed line-clamp-2">{preset.description}</p>
+                            <div className="flex flex-wrap gap-0.5 mt-2">
+                                {preset.stages.map((s, i) => {
+                                    const agent = builtinAgents.find(a => a.builtinType === s.builtinType);
+                                    return agent ? (
+                                        <span
+                                            key={i}
+                                            className="w-4 h-4 rounded-full flex items-center justify-center text-[8px]"
+                                            style={{ backgroundColor: agent.color || '#6b7280' }}
+                                            title={agent.name}
+                                        >
+                                            {agent.icon || agent.name.charAt(0)}
+                                        </span>
+                                    ) : null;
+                                })}
+                            </div>
+                        </button>
+                    ))}
+                </div>
+            )}
+
             <button
-                onClick={onLoadDefault}
-                className="ml-2 px-4 py-2 bg-emerald-600/20 text-emerald-400 rounded-lg border border-emerald-500/30 text-xs font-medium hover:bg-emerald-600/30 transition-colors"
+                onClick={onAddFirst}
+                className="px-4 py-2 bg-slate-700/40 text-slate-400 rounded-lg border border-slate-600/30 text-xs font-medium hover:bg-slate-700/60 hover:text-slate-300 transition-colors"
             >
-                ⚡ Load recommended pipeline
+                <Plus size={12} className="inline mr-1" /> Build from scratch
             </button>
-        )}
-    </div>
-);
+        </div>
+    );
+};
 
 /** A single stage card in the pipeline lane */
 const StageCard: React.FC<{

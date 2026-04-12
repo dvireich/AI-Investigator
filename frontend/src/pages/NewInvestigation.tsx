@@ -4,9 +4,11 @@ import { api, type IncidentPreview, type IncidentProgressEvent, type Product, ty
 import { useToast } from '../components/Toast';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
-import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, X, Check, Pencil } from 'lucide-react';
+import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, ChevronLeft, ChevronRight, X, Check, Pencil, GitBranch } from 'lucide-react';
 import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../constants';
 import { parseFlexibleTimestamp, toDateTimeLocalValue } from '../utils/timestamp';
+import { PIPELINE_PRESETS, buildPipelinePreset } from '../components/PipelineBuilder';
+import type { AgentDefinition } from '../types/pipeline';
 
 /** Format Date to display string */
 function formatDateDisplay(date: Date): string {
@@ -51,6 +53,12 @@ export const NewInvestigation = () => {
 
     // Investigation Mode State
     const [mode, setMode] = useState<InvestigationMode>('standard');
+
+    // Workflow Preset State
+    const [builtinAgents, setBuiltinAgents] = useState<AgentDefinition[]>([]);
+    const [selectedWorkflow, setSelectedWorkflow] = useState<string>(''); // set dynamically after settings load
+    const [configuredPipeline, setConfiguredPipeline] = useState<import('../types/pipeline').PipelineDefinition | null>(null);
+    const [workflowPage, setWorkflowPage] = useState(0);
 
     // Incident State
     const [incidentId, setIncidentId] = useState('');
@@ -169,6 +177,10 @@ export const NewInvestigation = () => {
             if (settings.defaultTimeRange) {
                 setTimePreset(settings.defaultTimeRange);
             }
+            // Check for a configured pipeline (global or product-level)
+            if (settings.pipeline && settings.pipeline.stages && settings.pipeline.stages.length > 1) {
+                setConfiguredPipeline(settings.pipeline as import('../types/pipeline').PipelineDefinition);
+            }
         }).catch(err => console.error("Failed to load settings:", err));
 
         // Load products and active product
@@ -196,6 +208,11 @@ export const NewInvestigation = () => {
         api.getSavedQueries()
             .then(queries => setSavedQueries(queries))
             .catch(err => console.error('Failed to load saved queries:', err));
+
+        // Load builtin agents for workflow presets
+        api.getPipelineBuiltins()
+            .then(agents => setBuiltinAgents(agents))
+            .catch(err => console.error('Failed to load pipeline builtins:', err));
     }, []);
 
     // Validate product paths whenever selection changes
@@ -208,6 +225,15 @@ export const NewInvestigation = () => {
             .then(v => setProductValidation(v))
             .catch(() => setProductValidation(null));
     }, [selectedProductId]);
+
+    // Auto-select workflow: use configured pipeline if it exists, else 'default' preset
+    useEffect(() => {
+        if (configuredPipeline) {
+            setSelectedWorkflow('configured');
+        } else {
+            setSelectedWorkflow('default');
+        }
+    }, [configuredPipeline]);
 
     const handleFetchIncident = async () => {
         if (!incidentId.trim()) return;
@@ -244,6 +270,17 @@ export const NewInvestigation = () => {
         e.preventDefault();
         setLoading(true);
 
+        // Build pipeline from selected workflow preset (if agents are available)
+        // 'configured' means use the already-configured pipeline from settings — don't override
+        let pipelinePayload: any = undefined;
+        if (selectedWorkflow && selectedWorkflow !== 'configured' && builtinAgents.length > 0) {
+            try {
+                pipelinePayload = buildPipelinePreset(selectedWorkflow, builtinAgents);
+            } catch {
+                // If preset fails (missing agents), proceed without pipeline
+            }
+        }
+
         // Incident mode: incidentId is required, target/timeRange are optional
         if (mode === 'incident') {
             if (!incidentId.trim()) {
@@ -257,7 +294,8 @@ export const NewInvestigation = () => {
                     title: formData.title.trim() || undefined,
                     incidentId: incidentId.trim(),
                     timeRange: incidentPreview?.timeRange || timePreset,
-                    productId: selectedProductId || undefined
+                    productId: selectedProductId || undefined,
+                    pipeline: pipelinePayload,
                 };
                 // Include target if available (from preview or manual entry)
                 if (formData.target) payload.target = formData.target;
@@ -311,7 +349,8 @@ export const NewInvestigation = () => {
                 ...formData,
                 title: formData.title.trim() || undefined,
                 timeRange: effectiveTimeRange,
-                productId: selectedProductId || undefined
+                productId: selectedProductId || undefined,
+                pipeline: pipelinePayload,
             };
             const result = await api.startInvestigation(payload);
             navigate(`/investigation/${result.id}`);
@@ -1024,6 +1063,141 @@ export const NewInvestigation = () => {
                                 <h2 className="text-lg font-bold text-white">Agent Configuration</h2>
                             </div>
                         </div>
+
+                        {/* Workflow Preset Selector */}
+                        {builtinAgents.length > 0 && (() => {
+                            const hasConfiguredPipeline = !!configuredPipeline;
+                            const availablePresets = PIPELINE_PRESETS.filter(preset =>
+                                preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))
+                            );
+
+                            // Build unified list: configured pipeline first, then presets
+                            type WorkflowItem = { type: 'configured' } | { type: 'preset'; preset: typeof availablePresets[number] };
+                            const allItems: WorkflowItem[] = [
+                                ...(hasConfiguredPipeline ? [{ type: 'configured' as const }] : []),
+                                ...availablePresets.map(preset => ({ type: 'preset' as const, preset })),
+                            ];
+                            const PAGE_SIZE = 6; // 2 rows × 3 columns
+                            const totalPages = Math.ceil(allItems.length / PAGE_SIZE);
+                            const pageItems = allItems.slice(workflowPage * PAGE_SIZE, (workflowPage + 1) * PAGE_SIZE);
+
+                            return (
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between">
+                                        <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                                            <GitBranch className="w-3 h-3" /> Agent Workflow
+                                        </label>
+                                        {totalPages > 1 && (
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setWorkflowPage(p => Math.max(0, p - 1))}
+                                                    disabled={workflowPage === 0}
+                                                    className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
+                                                </button>
+                                                <span className="text-[10px] text-slate-500 tabular-nums min-w-[2rem] text-center">
+                                                    {workflowPage + 1}/{totalPages}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setWorkflowPage(p => Math.min(totalPages - 1, p + 1))}
+                                                    disabled={workflowPage >= totalPages - 1}
+                                                    className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                        {pageItems.map((item, idx) => {
+                                            if (item.type === 'configured') {
+                                                const isSelected = selectedWorkflow === 'configured';
+                                                return (
+                                                    <button
+                                                        key="configured"
+                                                        type="button"
+                                                        onClick={() => setSelectedWorkflow('configured')}
+                                                        className={`text-left p-2.5 rounded-xl border transition-all ${
+                                                            isSelected
+                                                                ? 'bg-purple-950/50 border-purple-500/50 ring-1 ring-purple-500/20'
+                                                                : 'bg-slate-800/40 border-slate-700/40 hover:border-slate-600 hover:bg-slate-800/70'
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2 mb-1">
+                                                            <span className="text-sm">⚙️</span>
+                                                            <span className={`text-xs font-bold ${isSelected ? 'text-purple-200' : 'text-slate-300'}`}>
+                                                                {configuredPipeline!.name || 'Custom Pipeline'}
+                                                            </span>
+                                                            <span className="text-[8px] bg-emerald-600/30 text-emerald-400 px-1 py-0.5 rounded-full font-bold">CONFIGURED</span>
+                                                        </div>
+                                                        <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-purple-300/70' : 'text-slate-500'}`}>
+                                                            Your pipeline from Settings. {configuredPipeline!.stages.length} stages.
+                                                        </p>
+                                                        <div className="flex flex-wrap gap-0.5 mt-1.5">
+                                                            {configuredPipeline!.stages.map((stage, i) => {
+                                                                const agent = stage.agent;
+                                                                const color = agent?.color || '#6b7280';
+                                                                return (
+                                                                    <span
+                                                                        key={i}
+                                                                        className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
+                                                                        style={{ backgroundColor: color }}
+                                                                        title={agent?.name || `Stage ${i + 1}`}
+                                                                    >
+                                                                        {agent?.icon || agent?.name?.charAt(0) || (i + 1)}
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </button>
+                                                );
+                                            }
+                                            const { preset } = item;
+                                            const isSelected = selectedWorkflow === preset.id;
+                                            return (
+                                                <button
+                                                    key={preset.id}
+                                                    type="button"
+                                                    onClick={() => setSelectedWorkflow(preset.id)}
+                                                    className={`text-left p-2.5 rounded-xl border transition-all ${
+                                                        isSelected
+                                                            ? 'bg-purple-950/50 border-purple-500/50 ring-1 ring-purple-500/20'
+                                                            : 'bg-slate-800/40 border-slate-700/40 hover:border-slate-600 hover:bg-slate-800/70'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <span className="text-sm">{preset.icon}</span>
+                                                        <span className={`text-xs font-bold ${isSelected ? 'text-purple-200' : 'text-slate-300'}`}>{preset.name}</span>
+                                                        {preset.id === 'default' && !hasConfiguredPipeline && (
+                                                            <span className="text-[8px] bg-purple-600/30 text-purple-400 px-1 py-0.5 rounded-full font-bold">DEFAULT</span>
+                                                        )}
+                                                    </div>
+                                                    <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-purple-300/70' : 'text-slate-500'}`}>{preset.description}</p>
+                                                    <div className="flex flex-wrap gap-0.5 mt-1.5">
+                                                        {preset.stages.map((s, i) => {
+                                                            const agent = builtinAgents.find(a => a.builtinType === s.builtinType)!;
+                                                            return (
+                                                                <span
+                                                                    key={i}
+                                                                    className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
+                                                                    style={{ backgroundColor: agent.color || '#6b7280' }}
+                                                                    title={agent.name}
+                                                                >
+                                                                    {agent.icon || agent.name.charAt(0)}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            );
+                        })()}
 
                         <div className="space-y-2 group/input">
                             <label htmlFor="inv-model" className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2 group-focus-within/input:text-purple-500 transition-colors">
