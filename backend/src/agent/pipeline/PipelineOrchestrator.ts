@@ -56,6 +56,7 @@ export class PipelineOrchestrator extends EventEmitter {
                 return {
                     agentId: agent.id,
                     agentName: agent.name,
+                    description: agent.description,
                     color: agent.color!,
                     icon: agent.icon!,
                     status: 'pending' as const,
@@ -281,7 +282,9 @@ export class PipelineOrchestrator extends EventEmitter {
                     fullHistory: runnerState.fullHistory,
                     fullActions: runnerState.fullActions,
                     logs: [...currentState.logs, ...runnerState.logs],
-                    finalReport: result.report || currentState.finalReport,
+                    // Retrospect stages report on doc/playbook changes — keep the
+                    // investigation summary produced by an earlier stage (e.g. Summarizer).
+                    finalReport: isRetrospectStage ? currentState.finalReport : (result.report || currentState.finalReport),
                     recommendations: runnerState.recommendations || currentState.recommendations,
                     verdict: (result.verdict as any) || currentState.verdict,
                     pipeline: this.pipelineState,

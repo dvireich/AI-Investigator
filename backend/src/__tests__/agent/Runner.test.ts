@@ -5323,6 +5323,25 @@ describe('AgentRunner', () => {
             const result = runner.getStageResult();
             expect(result.verdict).toBeUndefined();
         });
+
+        it('uses the LAST finish action when multiple exist (accumulated pipeline actions)', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"stage3-report","verdict":"flagged","feedback":"needs work"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            // Simulate accumulated actions from prior pipeline stages
+            (runner as any).state.actions = [
+                { tool: 'finish', args: { report: 'stage1-report' } }, // Stage 1: no verdict
+                null,
+                { tool: 'finish', args: { report: 'stage2-report', verdict: 'approved' } }, // Stage 2: approved
+            ];
+            await runner.start('query');
+            const result = runner.getStageResult();
+            // Should pick the LAST finish (stage 3's flagged), not stage 1's empty or stage 2's approved
+            expect(result.verdict).toBe('flagged');
+            expect(result.feedback).toBe('needs work');
+            expect(result.report).toBe('stage3-report');
+        });
     });
 
     describe('initRetrospect - migration guards', () => {

@@ -62,6 +62,7 @@ export interface PipelineDefinition {
 export interface PipelineStageState {
     agentId: string;
     agentName: string;
+    description?: string;
     color?: string;
     icon?: string;
     status: 'pending' | 'running' | 'completed' | 'rejected' | 'skipped' | 'failed' | 'aborted';

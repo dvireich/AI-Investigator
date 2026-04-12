@@ -115,6 +115,7 @@ export interface PipelineState {
 export interface PipelineStageState {
     agentId: string;
     agentName: string;
+    description?: string;
     color?: string;
     icon?: string;
     status: 'pending' | 'running' | 'completed' | 'rejected' | 'skipped' | 'failed' | 'aborted';
@@ -2415,10 +2416,14 @@ ${recsText}
      */
     getStageResult(): { report?: string; verdict?: string; feedback?: string } {
         // The finish tool may have set verdict on state (health check style)
-        // or the args may include pipeline-style verdict/feedback
-        const lastFinishAction = this.state.actions.find(
-            (a: any) => a && a.tool === 'finish'
-        );
+        // or the args may include pipeline-style verdict/feedback.
+        // Use reverse search so we pick THIS stage's finish action, not an
+        // earlier stage's — the actions array is accumulated across pipeline stages.
+        let lastFinishAction: any;
+        for (let i = this.state.actions.length - 1; i >= 0; i--) {
+            const a = this.state.actions[i];
+            if (a && a.tool === 'finish') { lastFinishAction = a; break; }
+        }
 
         // Map health-check verdicts to pipeline equivalents so agents that
         // accidentally use 'critical' / 'warning' / 'healthy' still trigger

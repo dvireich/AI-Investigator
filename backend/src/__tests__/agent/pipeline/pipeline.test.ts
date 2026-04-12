@@ -1164,6 +1164,41 @@ describe('PipelineOrchestrator', () => {
             expect(assistantMsg?.content).toContain('No changes were proposed.');
         });
 
+        it('retrospect stage does not overwrite finalReport from a prior stage', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'sum', name: 'Summarizer', source: 'inline', promptContent: 'summarize' } },
+                { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+
+            // Stage 0 (Summarizer): sets a detailed finalReport
+            let stageIdx = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                if (stageIdx === 0) {
+                    runner.state.finalReport = 'Detailed investigation summary with data tables';
+                    runner.state.status = 'completed';
+                }
+                stageIdx++;
+            };
+            // Stage 1 (Retrospect): generates its own report about doc changes
+            (orch as any).runRetrospectStage = async (runner: any) => {
+                runner.state.retrospect = {
+                    messages: [
+                        { role: 'assistant', content: 'Updated 2 playbook files.' },
+                    ],
+                    proposals: [{ id: 'p1', type: 'edit', filePath: 'guide.md', description: 'add checklist', content: 'new', status: 'pending' }],
+                    analysisComplete: true,
+                };
+            };
+
+            const result = await orch.run('query');
+            // The finalReport should be the Summarizer's report, NOT the Retrospect's
+            expect(result.finalReport).toBe('Detailed investigation summary with data tables');
+            // Retrospect results should still be bridged
+            expect(result.retrospect).toBeDefined();
+            expect(result.retrospect!.proposals).toHaveLength(1);
+        });
+
         it('handles rejection with loop strategy', async () => {
             const pipeline = makePipeline([
                 { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'x' } },
