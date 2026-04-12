@@ -431,15 +431,6 @@ export class PipelineOrchestrator extends EventEmitter {
         }
         if (this.aborted) {
             currentState.status = 'aborted';
-            // Mark any stage left in 'running' as 'aborted' so the UI stepper
-            // doesn't show a completed chip for a stage that was cut short.
-            for (const s of this.pipelineState.stages) {
-                /* v8 ignore next 4 -- defensive: stage should not normally remain 'running' after loop exits */
-                if (s.status === 'running') {
-                    s.status = 'aborted';
-                    s.completedAt = Date.now();
-                }
-            }
         }
 
         currentState.pipeline = this.pipelineState;

@@ -2068,7 +2068,6 @@ function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
     // Determine which stage to resume from based on saved pipeline state.
     // Find the first non-completed stage so we skip stages that already ran.
     const savedPipeline = state.pipeline!;
-    /* v8 ignore next -- defensive: pipeline state always has stages */
     const savedStages = savedPipeline.stages || [];
     let resumeStageIndex = 0;
     for (let i = 0; i < savedStages.length; i++) {
@@ -2093,15 +2092,13 @@ function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
         title: state.title,
         createdBy: state.createdBy,
         // Carry forward accumulated state so earlier stages aren't lost on resume
-        /* v8 ignore next 5 -- defensive: state arrays always present at resume time */
-        thoughts: state.thoughts || [],
-        actions: state.actions || [],
-        fullHistory: state.fullHistory || [],
-        fullActions: state.fullActions || [],
-        logs: state.logs || [],
+        thoughts: state.thoughts,
+        actions: state.actions,
+        fullHistory: state.fullHistory,
+        fullActions: state.fullActions,
+        logs: state.logs,
     }, {
         stageIndex: resumeStageIndex,
-        /* v8 ignore next -- defensive: pipeline state always has conversationLog */
         conversationLog: savedPipeline.conversationLog || [],
         stageStates: savedStages,
     }).then(async (finalState) => {
@@ -2137,7 +2134,6 @@ function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
         if (runnerState) {
             runnerState.status = 'failed';
             history.set(id, runnerState);
-            /* v8 ignore next */
             try { await (runner as any).saveArtifacts(); } catch { /* best-effort */ }
         }
         cleanupRunner(id);
@@ -2191,12 +2187,11 @@ function restartPipelineForContest(runner: AgentRunner, id: string): void {
         createdBy: state.createdBy,
         contestCount: state.contestCount,
         // Carry forward accumulated state so pre-contest history survives for retrospect/restore
-        /* v8 ignore next 5 -- defensive: state arrays always present at contest time */
-        thoughts: state.thoughts || [],
-        actions: state.actions || [],
-        fullHistory: state.fullHistory || [],
-        fullActions: state.fullActions || [],
-        logs: state.logs || [],
+        thoughts: state.thoughts,
+        actions: state.actions,
+        fullHistory: state.fullHistory,
+        fullActions: state.fullActions,
+        logs: state.logs,
     }).then(async (finalState) => {
         const runnerState = (runner as any).state;
         Object.assign(runnerState, {
