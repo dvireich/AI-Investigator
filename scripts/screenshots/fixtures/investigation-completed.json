@@ -55,6 +55,17 @@
   "pipeline": {
     "stages": [
       {
+        "agentId": "builtin-planner",
+        "agentName": "Planner",
+        "color": "#0ea5e9",
+        "icon": "📋",
+        "status": "completed",
+        "report": "Investigation plan: 1) Query DLQ message rates over 24h, 2) Identify dominant error types, 3) Correlate with upstream changes, 4) Assess workspace impact.",
+        "retryCount": 0,
+        "startedAt": 1749789800000,
+        "completedAt": 1749789900000
+      },
+      {
         "agentId": "builtin-investigator",
         "agentName": "Investigator",
         "color": "#10b981",
@@ -66,6 +77,18 @@
         "completedAt": 1749790120000
       },
       {
+        "agentId": "builtin-devils-advocate",
+        "agentName": "Devil's Advocate",
+        "color": "#ef4444",
+        "icon": "😈",
+        "status": "completed",
+        "verdict": "Findings hold up under scrutiny",
+        "feedback": "Challenged the single-cause hypothesis — confirmed no concurrent deployments or config changes contributed. The 15-min propagation lag is consistent with pipeline architecture.",
+        "retryCount": 0,
+        "startedAt": 1749790120000,
+        "completedAt": 1749790180000
+      },
+      {
         "agentId": "builtin-validator",
         "agentName": "Validator",
         "color": "#f59e0b",
@@ -74,19 +97,19 @@
         "verdict": "Findings validated with high confidence",
         "feedback": "Root cause confirmed — schema change at 18:15 correlates with DLQ spike at 18:30. Evidence is comprehensive.",
         "retryCount": 0,
-        "startedAt": 1749790120000,
-        "completedAt": 1749790240000
+        "startedAt": 1749790180000,
+        "completedAt": 1749790300000
       },
       {
-        "agentId": "builtin-proposer",
-        "agentName": "Proposer",
-        "color": "#6366f1",
-        "icon": "🔧",
+        "agentId": "builtin-summarizer",
+        "agentName": "Summarizer",
+        "color": "#14b8a6",
+        "icon": "📊",
         "status": "completed",
-        "report": "Proposed 3 code changes: dynamic column handler in DataWriter.cs, JSON fallback serializer, and schema evolution detector.",
+        "report": "Executive summary: Upstream schema change introduced dynamic column causing 42K DLQ messages. Root cause confirmed with high confidence. Three remediation actions proposed.",
         "retryCount": 0,
-        "startedAt": 1749790240000,
-        "completedAt": 1749790360000
+        "startedAt": 1749790300000,
+        "completedAt": 1749790380000
       },
       {
         "agentId": "builtin-retrospect",
@@ -96,31 +119,53 @@
         "status": "completed",
         "report": "Knowledge base updated with 2 proposed changes: DLQ troubleshooting guide and schema evolution runbook.",
         "retryCount": 0,
-        "startedAt": 1749790360000,
+        "startedAt": 1749790380000,
         "completedAt": 1749790480000
       }
     ],
-    "currentStageIndex": 3,
+    "currentStageIndex": 5,
     "definition": {
-      "id": "default-pipeline",
-      "name": "Default Pipeline",
+      "id": "deep-investigation",
+      "name": "Deep Investigation",
       "stages": [
+        { "agentId": "builtin-planner", "inputMode": "conversation" },
         { "agentId": "builtin-investigator", "inputMode": "conversation" },
-        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
-        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
         { "agentId": "builtin-retrospect", "inputMode": "conversation" }
       ]
     },
     "conversationLog": [
+      {
+        "agentId": "builtin-planner",
+        "agentName": "Planner",
+        "agentColor": "#0ea5e9",
+        "agentIcon": "📋",
+        "role": "thought",
+        "content": "Analyzing scope: DLQ overflow on app-prd-eus-01, 24h window. Will create structured investigation plan.",
+        "timestamp": 1749789800000,
+        "stageIndex": 0
+      },
+      {
+        "agentId": "builtin-planner",
+        "agentName": "Planner",
+        "agentColor": "#0ea5e9",
+        "agentIcon": "📋",
+        "role": "report",
+        "content": "Investigation plan: 1) Query DLQ rates, 2) Identify error types, 3) Correlate upstream changes, 4) Assess workspace impact.",
+        "timestamp": 1749789900000,
+        "stageIndex": 0
+      },
       {
         "agentId": "builtin-investigator",
         "agentName": "Investigator",
         "agentColor": "#10b981",
         "agentIcon": "🤖",
         "role": "thought",
-        "content": "Starting investigation into DLQ overflow on app-prd-eus-01. Will query message rates and error distribution.",
+        "content": "Following plan — starting with DLQ message rates over 24h window on app-prd-eus-01.",
         "timestamp": 1749790000000,
-        "stageIndex": 0
+        "stageIndex": 1
       },
       {
         "agentId": "builtin-investigator",
@@ -130,7 +175,7 @@
         "role": "action",
         "content": "Querying DLQ message rate and error distribution across the 24h window",
         "timestamp": 1749790030000,
-        "stageIndex": 0,
+        "stageIndex": 1,
         "metadata": { "toolName": "run_query" }
       },
       {
@@ -141,7 +186,7 @@
         "role": "report",
         "content": "Schema change in ExtendedProperties_v2 column caused DLQ overflow. 42K messages affected across SecurityEvent and CommonSecurityLog tables.",
         "timestamp": 1749790100000,
-        "stageIndex": 0
+        "stageIndex": 1
       },
       {
         "agentId": "builtin-investigator",
@@ -149,9 +194,29 @@
         "agentColor": "#10b981",
         "agentIcon": "🤖",
         "role": "handoff",
-        "content": "Handing off to Validator for review",
+        "content": "Handing off to Devil's Advocate for adversarial review",
         "timestamp": 1749790120000,
-        "stageIndex": 0
+        "stageIndex": 1
+      },
+      {
+        "agentId": "builtin-devils-advocate",
+        "agentName": "Devil's Advocate",
+        "agentColor": "#ef4444",
+        "agentIcon": "😈",
+        "role": "thought",
+        "content": "Challenging the single-cause hypothesis. Were there concurrent deployments or config changes?",
+        "timestamp": 1749790125000,
+        "stageIndex": 2
+      },
+      {
+        "agentId": "builtin-devils-advocate",
+        "agentName": "Devil's Advocate",
+        "agentColor": "#ef4444",
+        "agentIcon": "😈",
+        "role": "verdict",
+        "content": "✅ Approved — no concurrent changes found. The 15-min propagation lag is consistent with pipeline architecture.",
+        "timestamp": 1749790180000,
+        "stageIndex": 2
       },
       {
         "agentId": "builtin-validator",
@@ -160,8 +225,8 @@
         "agentIcon": "🛡️",
         "role": "thought",
         "content": "Reviewing investigation findings. Checking evidence quality and root cause correlation.",
-        "timestamp": 1749790130000,
-        "stageIndex": 1
+        "timestamp": 1749790185000,
+        "stageIndex": 3
       },
       {
         "agentId": "builtin-validator",
@@ -170,8 +235,8 @@
         "agentIcon": "🛡️",
         "role": "observation",
         "content": "Schema change timestamp (18:15) correlates with DLQ spike (18:30). 15-min lag matches ingestion pipeline propagation time.",
-        "timestamp": 1749790180000,
-        "stageIndex": 1
+        "timestamp": 1749790240000,
+        "stageIndex": 3
       },
       {
         "agentId": "builtin-validator",
@@ -180,29 +245,18 @@
         "agentIcon": "🛡️",
         "role": "verdict",
         "content": "✅ Approved — findings validated with high confidence. Error correlation 97.3% InvalidBlobContentException.",
-        "timestamp": 1749790240000,
-        "stageIndex": 1
-      },
-      {
-        "agentId": "builtin-proposer",
-        "agentName": "Proposer",
-        "agentColor": "#6366f1",
-        "agentIcon": "🔧",
-        "role": "thought",
-        "content": "Reading validated findings to propose implementation changes for the data writer.",
-        "timestamp": 1749790250000,
-        "stageIndex": 2
-      },
-      {
-        "agentId": "builtin-proposer",
-        "agentName": "Proposer",
-        "agentColor": "#6366f1",
-        "agentIcon": "🔧",
-        "role": "action",
-        "content": "Proposing 3 code changes: dynamic column handler, JSON fallback serializer, schema evolution detector",
         "timestamp": 1749790300000,
-        "stageIndex": 2,
-        "metadata": { "proposalCount": 3 }
+        "stageIndex": 3
+      },
+      {
+        "agentId": "builtin-summarizer",
+        "agentName": "Summarizer",
+        "agentColor": "#14b8a6",
+        "agentIcon": "📊",
+        "role": "report",
+        "content": "Executive summary: Upstream schema change introduced dynamic column causing 42K DLQ messages. Root cause confirmed with high confidence. Three remediation actions proposed.",
+        "timestamp": 1749790380000,
+        "stageIndex": 4
       },
       {
         "agentId": "builtin-retrospect",
@@ -211,8 +265,8 @@
         "agentIcon": "✨",
         "role": "thought",
         "content": "Analyzing investigation against knowledge base. Looking for gaps in troubleshooting guides.",
-        "timestamp": 1749790370000,
-        "stageIndex": 3
+        "timestamp": 1749790385000,
+        "stageIndex": 5
       },
       {
         "agentId": "builtin-retrospect",
@@ -222,7 +276,7 @@
         "role": "action",
         "content": "Proposing 2 knowledge base changes: DLQ troubleshooting guide update and new schema evolution runbook",
         "timestamp": 1749790440000,
-        "stageIndex": 3,
+        "stageIndex": 5,
         "metadata": { "proposalCount": 2 }
       }
     ]

@@ -17,19 +17,23 @@
   "finalReport": "# Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `svc-prd-neu-01` peaked at 2,800 failures/hour.\n\n## Root Cause\n\nCluster capacity throttling during bulk backfill.",
   "pipeline": {
     "stages": [
+      { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749779800000, "completedAt": 1749779900000 },
       { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "completed", "retryCount": 0, "startedAt": 1749780000000, "completedAt": 1749780120000 },
-      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "completed", "verdict": "Findings validated", "retryCount": 0, "startedAt": 1749780120000, "completedAt": 1749780240000 },
-      { "agentId": "builtin-proposer", "agentName": "Proposer", "color": "#6366f1", "icon": "🔧", "status": "completed", "retryCount": 0, "startedAt": 1749780240000, "completedAt": 1749780360000 },
+      { "agentId": "builtin-devils-advocate", "agentName": "Devil's Advocate", "color": "#ef4444", "icon": "😈", "status": "completed", "retryCount": 0, "startedAt": 1749780120000, "completedAt": 1749780180000 },
+      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "completed", "verdict": "Findings validated", "retryCount": 0, "startedAt": 1749780180000, "completedAt": 1749780300000 },
+      { "agentId": "builtin-summarizer", "agentName": "Summarizer", "color": "#14b8a6", "icon": "📊", "status": "completed", "retryCount": 0, "startedAt": 1749780300000, "completedAt": 1749780360000 },
       { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "completed", "retryCount": 0, "startedAt": 1749780360000, "completedAt": 1749780480000 }
     ],
-    "currentStageIndex": 3,
+    "currentStageIndex": 5,
     "definition": {
-      "id": "default-pipeline",
-      "name": "Default Pipeline",
+      "id": "deep-investigation",
+      "name": "Deep Investigation",
       "stages": [
+        { "agentId": "builtin-planner", "inputMode": "conversation" },
         { "agentId": "builtin-investigator", "inputMode": "conversation" },
-        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
-        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
         { "agentId": "builtin-retrospect", "inputMode": "conversation" }
       ]
     },

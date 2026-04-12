@@ -50,25 +50,31 @@
   ],
   "pipeline": {
     "stages": [
+      { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749819800000, "completedAt": 1749819900000, "report": "Investigation plan: 1) Query E2E latency percentiles over 6h window, 2) Break down latency by pipeline stage, 3) Check recent deployments for correlation, 4) Examine Delta Service metrics if implicated." },
       { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "running", "retryCount": 0, "startedAt": 1749820000000 },
+      { "agentId": "builtin-devils-advocate", "agentName": "Devil's Advocate", "color": "#ef4444", "icon": "😈", "status": "pending", "retryCount": 0 },
       { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "pending", "retryCount": 0 },
-      { "agentId": "builtin-proposer", "agentName": "Proposer", "color": "#6366f1", "icon": "🔧", "status": "pending", "retryCount": 0 },
+      { "agentId": "builtin-summarizer", "agentName": "Summarizer", "color": "#14b8a6", "icon": "📊", "status": "pending", "retryCount": 0 },
       { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "pending", "retryCount": 0 }
     ],
-    "currentStageIndex": 0,
+    "currentStageIndex": 1,
     "definition": {
-      "id": "default-pipeline",
-      "name": "Default Pipeline",
+      "id": "deep-investigation",
+      "name": "Deep Investigation",
       "stages": [
+        { "agentId": "builtin-planner", "inputMode": "conversation" },
         { "agentId": "builtin-investigator", "inputMode": "conversation" },
-        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
-        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
         { "agentId": "builtin-retrospect", "inputMode": "conversation" }
       ]
     },
     "conversationLog": [
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Starting investigation into high ingestion latency on app-prd-eus2p-01.", "timestamp": 1749820000000, "stageIndex": 0 },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "action", "content": "Querying E2E latency percentiles and stage breakdown", "timestamp": 1749820030000, "stageIndex": 0, "metadata": { "toolName": "run_query" } }
+      { "agentId": "builtin-planner", "agentName": "Planner", "agentColor": "#0ea5e9", "agentIcon": "📋", "role": "thought", "content": "Analyzing investigation scope: high ingestion latency on app-prd-eus2p-01 over 6h. Planning structured approach.", "timestamp": 1749819800000, "stageIndex": 0 },
+      { "agentId": "builtin-planner", "agentName": "Planner", "agentColor": "#0ea5e9", "agentIcon": "📋", "role": "report", "content": "Investigation plan: 1) Query E2E latency percentiles, 2) Break down by pipeline stage, 3) Check recent deployments, 4) Deep-dive implicated service.", "timestamp": 1749819900000, "stageIndex": 0 },
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Following the plan — starting with E2E latency percentiles for app-prd-eus2p-01.", "timestamp": 1749820000000, "stageIndex": 1 },
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "action", "content": "Querying E2E latency percentiles and stage breakdown", "timestamp": 1749820030000, "stageIndex": 1, "metadata": { "toolName": "run_query" } }
     ]
   },
   "logs": [

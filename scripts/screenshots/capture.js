@@ -71,7 +71,7 @@ async function screenshot(page, name, opts = {}) {
     const filePath = join(SCREENSHOTS_DIR, `${name}.png`);
     // Capture to buffer first, then write with retry to handle transient
     // file-lock errors (antivirus, VS Code file watcher, etc.)
-    const buffer = await page.screenshot({ fullPage: false, ...opts });
+    const buffer = await page.screenshot({ fullPage: true, ...opts });
     for (let attempt = 1; attempt <= 3; attempt++) {
         try {
             writeFileSync(filePath, buffer);
@@ -353,6 +353,23 @@ async function captureImplementRecommendations(page) {
     }
 
     await screenshot(page, 'implement-recommendations');
+}
+
+async function capturePipelineTimeline(page) {
+    console.log('\n📸 Investigation Pipeline Timeline...');
+    const inv = loadFixture('investigation-live-session.json');
+    await setDetailOverride(inv.id, inv);
+    await navigateTo(page, `/investigation/${inv.id}`);
+    await page.waitForTimeout(1000);
+
+    // Click the Pipeline tab
+    const pipelineTab = page.locator('button:has-text("Pipeline")').first();
+    if (await pipelineTab.isVisible()) {
+        await pipelineTab.click();
+        await page.waitForTimeout(800);
+    }
+
+    await screenshot(page, 'investigation-pipeline-timeline');
 }
 
 async function captureFailedInvestigation(page) {
@@ -936,6 +953,9 @@ async function main() {
         await captureConsentReport(page);
         await captureInvestigationConsentResume(page);
 
+        // Pipeline Timeline
+        await capturePipelineTimeline(page);
+
         // Failed
         await captureFailedInvestigation(page);
 
@@ -982,7 +1002,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 39 screenshots captured successfully!');
+        console.log('  ✅ All 40 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

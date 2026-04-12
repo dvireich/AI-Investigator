@@ -25,9 +25,21 @@
   ],
   "activeProductId": "sample-product",
   "pipeline": {
-    "id": "default-pipeline",
-    "name": "Default Pipeline",
+    "id": "deep-investigation",
+    "name": "Deep Investigation",
     "stages": [
+      {
+        "agent": {
+          "id": "builtin-planner",
+          "name": "Planner",
+          "description": "Creates a structured investigation plan before execution. Analyzes the query scope and produces a step-by-step approach.",
+          "source": "builtin",
+          "builtinType": "planner",
+          "color": "#0ea5e9",
+          "icon": "📋"
+        },
+        "inputMode": "conversation"
+      },
       {
         "agent": {
           "id": "builtin-investigator",
@@ -39,6 +51,23 @@
           "icon": "🤖"
         },
         "inputMode": "conversation"
+      },
+      {
+        "agent": {
+          "id": "builtin-devils-advocate",
+          "name": "Devil's Advocate",
+          "description": "Challenges conclusions and probes for blind spots. Questions assumptions, checks for alternative explanations, and stress-tests the evidence.",
+          "source": "builtin",
+          "builtinType": "devils-advocate",
+          "promptPath": "prompts/examples/DevilsAdvocatePrompt.md",
+          "color": "#ef4444",
+          "icon": "😈"
+        },
+        "inputMode": "conversation",
+        "canReject": true,
+        "onReject": "loop",
+        "rejectTarget": 1,
+        "maxRetries": 1
       },
       {
         "agent": {
@@ -54,28 +83,18 @@
         "inputMode": "conversation",
         "canReject": true,
         "onReject": "loop",
-        "rejectTarget": "previous",
-        "maxRetries": 2
+        "rejectTarget": 1,
+        "maxRetries": 1
       },
       {
         "agent": {
-          "id": "builtin-proposer",
-          "name": "Proposer",
-          "description": "Reads investigation findings and proposes code changes for recommendations. Does not apply changes — only creates proposals for review.",
+          "id": "builtin-summarizer",
+          "name": "Summarizer",
+          "description": "Distills investigation findings into a concise executive summary with key metrics, timeline, and actionable recommendations.",
           "source": "builtin",
-          "builtinType": "implementation",
-          "color": "#6366f1",
-          "icon": "🔧",
-          "tools": {
-            "mode": "whitelist",
-            "list": [
-              "read_file",
-              "list_dir",
-              "propose_change",
-              "search_code",
-              "get_summary"
-            ]
-          }
+          "builtinType": "summarizer",
+          "color": "#14b8a6",
+          "icon": "📊"
         },
         "inputMode": "conversation"
       },
