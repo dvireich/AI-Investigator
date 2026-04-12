@@ -1449,6 +1449,42 @@ describe('Settings', () => {
             });
         });
 
+        it('displays default time zone mode selector', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+            await user.click(screen.getByText('Appearance'));
+            await waitFor(() => {
+                expect(screen.getByText('Default Time Zone Mode')).toBeInTheDocument();
+            });
+        });
+
+        it('changes default time zone mode when button is clicked', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+
+            await user.click(screen.getByText('Appearance'));
+            await waitFor(() => screen.getByText('Default Time Zone Mode'));
+
+            const tzSection = screen.getByText('Default Time Zone Mode').closest('div')?.parentElement;
+            const localBtn = within(tzSection!).getByText('Local');
+            await user.click(localBtn);
+
+            await waitFor(() => {
+                expect(localBtn.className).toContain('bg-brand-500');
+            });
+
+            // Click UTC to cover its onClick handler
+            const utcBtn = within(tzSection!).getByText('UTC');
+            await user.click(utcBtn);
+
+            await waitFor(() => {
+                expect(utcBtn.className).toContain('bg-brand-500');
+            });
+        });
+
         it('changes auto-refresh interval value', async () => {
             const user = userEvent.setup();
             renderSettings();

@@ -3890,6 +3890,37 @@ describe('AgentRunner', () => {
             expect(pipeline.currentStageIndex).toBe(0);
             expect(pipeline.conversationLog).toEqual([]);
         });
+
+        it('snapshots pipeline state before resetting for later restore', () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                status: 'completed',
+                finalReport: 'Pipeline report',
+                thoughts: ['thought1'],
+                actions: [null],
+            });
+            (runner as any).state.pipeline = {
+                stages: [
+                    { agentId: 'a', agentName: 'Planner', status: 'completed', retryCount: 0, report: 'plan' },
+                    { agentId: 'b', agentName: 'Investigator', status: 'completed', retryCount: 0, report: 'investigation' },
+                ],
+                currentStageIndex: 1,
+                conversationLog: [{ role: 'report', content: 'shared log' }],
+                definition: { id: 'test', stages: [] },
+            };
+
+            runner.contestReport('Redo investigation');
+
+            const snapshot = (runner as any).state._priorPipelineSnapshot;
+            expect(snapshot).toBeDefined();
+            // Snapshot should contain the pre-contest values
+            expect(snapshot.stages[0].status).toBe('completed');
+            expect(snapshot.stages[0].report).toBe('plan');
+            expect(snapshot.stages[1].status).toBe('completed');
+            expect(snapshot.currentStageIndex).toBe(1);
+            expect(snapshot.conversationLog).toEqual([{ role: 'report', content: 'shared log' }]);
+            // It should be a deep clone (not the same reference)
+            expect(snapshot.stages).not.toBe((runner as any).state.pipeline.stages);
+        });
     });
 
     describe('tagEvent', () => {
@@ -4491,6 +4522,49 @@ describe('AgentRunner', () => {
 
             const state = (runner as any).state as InvestigationState;
             expect(state.finalReport).toBe(originalReport);
+        });
+
+        it('restores pipeline state from prior snapshot after contest', async () => {
+            const originalReport = '## Pipeline Report\n\nAll stages completed.';
+            const contestedReport = '## Contested Pipeline Report';
+            const stateData = buildContestedState(originalReport, contestedReport);
+
+            // Add pipeline state that was snapshotted before contest
+            (stateData as any)._priorPipelineSnapshot = {
+                stages: [
+                    { agentId: 'a', agentName: 'Planner', status: 'completed', retryCount: 0, report: 'plan done' },
+                    { agentId: 'b', agentName: 'Investigator', status: 'completed', retryCount: 0, report: 'investigation done' },
+                ],
+                currentStageIndex: 1,
+                conversationLog: [{ role: 'report', content: 'Prior investigation log' }],
+                definition: { id: 'test-pipe', stages: [] },
+            };
+            // Current pipeline state (post-contest reset)
+            (stateData as any).pipeline = {
+                stages: [
+                    { agentId: 'a', agentName: 'Planner', status: 'pending', retryCount: 0 },
+                    { agentId: 'b', agentName: 'Investigator', status: 'pending', retryCount: 0 },
+                ],
+                currentStageIndex: 0,
+                conversationLog: [],
+                definition: { id: 'test-pipe', stages: [] },
+            };
+
+            const runner = new AgentRunner(makeConfig(), provider, stateData);
+            vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+            vi.spyOn(runner as any, 'saveArtifacts').mockResolvedValue(undefined);
+
+            await runner.restoreToLastCheckpoint();
+
+            const state = (runner as any).state as InvestigationState;
+            // Pipeline state should be restored from the snapshot
+            expect(state.pipeline!.stages[0].status).toBe('completed');
+            expect(state.pipeline!.stages[1].status).toBe('completed');
+            expect(state.pipeline!.stages[0].report).toBe('plan done');
+            expect(state.pipeline!.currentStageIndex).toBe(1);
+            expect(state.pipeline!.conversationLog).toEqual([{ role: 'report', content: 'Prior investigation log' }]);
+            // Snapshot should be cleared after restore
+            expect((state as any)._priorPipelineSnapshot).toBeUndefined();
         });
     });
 
@@ -5160,6 +5234,113 @@ describe('AgentRunner', () => {
             await runner.start('Health check');
             expect((runner as any).state.verdict).toBe('healthy');
             expect((runner as any).state.status).toBe('completed');
+        });
+    });
+
+    describe('getStageResult - verdict mapping', () => {
+        it('returns pipeline verdicts as-is', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"rejected","feedback":"bad"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('rejected');
+            expect(result.feedback).toBe('bad');
+            expect(result.report).toBe('r');
+        });
+
+        it('maps "critical" to "rejected"', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"critical","feedback":"blind spots"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('rejected');
+        });
+
+        it('maps "warning" to "flagged"', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"warning"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('flagged');
+        });
+
+        it('maps "healthy" to "approved"', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"healthy"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('approved');
+        });
+
+        it('passes through unknown verdicts unchanged', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"unknown_value"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('unknown_value');
+        });
+
+        it('falls back to mapped state.verdict when finish has no verdict', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            // Manually set state.verdict to a health-check value to test fallback mapping
+            (runner as any).state.verdict = 'critical';
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('rejected');
+        });
+
+        it('returns pipeline state.verdict as fallback when finish has no verdict', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            (runner as any).state.verdict = 'approved';
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('approved');
+        });
+
+        it('returns undefined verdict when no verdict is available', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('query');
+            (runner as any).state.verdict = undefined;
+            const result = runner.getStageResult();
+            expect(result.verdict).toBeUndefined();
+        });
+
+        it('uses the LAST finish action when multiple exist (accumulated pipeline actions)', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.', tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"stage3-report","verdict":"flagged","feedback":"needs work"}' } }] } }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            // Simulate accumulated actions from prior pipeline stages
+            (runner as any).state.actions = [
+                { tool: 'finish', args: { report: 'stage1-report' } }, // Stage 1: no verdict
+                null,
+                { tool: 'finish', args: { report: 'stage2-report', verdict: 'approved' } }, // Stage 2: approved
+            ];
+            await runner.start('query');
+            const result = runner.getStageResult();
+            // Should pick the LAST finish (stage 3's flagged), not stage 1's empty or stage 2's approved
+            expect(result.verdict).toBe('flagged');
+            expect(result.feedback).toBe('needs work');
+            expect(result.report).toBe('stage3-report');
         });
     });
 

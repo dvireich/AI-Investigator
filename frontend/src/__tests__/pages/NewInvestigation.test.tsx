@@ -698,6 +698,51 @@ describe('NewInvestigation', () => {
         });
     });
 
+    it('loads a saved query with custom time mode in local timezone', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', defaultTimeZoneMode: 'local' } as any);
+        vi.mocked(api.getSavedQueries).mockResolvedValue([
+            {
+                id: 'sq3', name: 'Local Custom Query', target: 'stamp-03',
+                query: 'Q', model: 'gpt-4o', timeMode: 'custom',
+                timeRange: 'between(datetime(2024-01-01T10:00:00.000Z) .. datetime(2024-01-01T12:00:00.000Z))',
+            },
+        ] as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Select a saved query/));
+
+        await user.click(screen.getByText(/Select a saved query/));
+        await user.click(screen.getByText('Local Custom Query'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Custom Range')).toBeInTheDocument();
+        });
+    });
+
+    it('uses local mode for datetime picker when configured', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', defaultTimeZoneMode: 'local' } as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Initiate Investigation/i));
+
+        await user.click(screen.getByText('Custom Range'));
+        await waitFor(() => screen.getByText('Start Time (Local)'));
+
+        // Use picker in local mode for both start and end
+        const hiddenInputs = document.querySelectorAll('input[type="datetime-local"]');
+        fireEvent.change(hiddenInputs[0] as HTMLInputElement, { target: { value: '2024-03-15T14:00' } });
+        fireEvent.change(hiddenInputs[1] as HTMLInputElement, { target: { value: '2024-03-15T16:00' } });
+
+        await waitFor(() => {
+            const parsed = screen.getAllByText(/parsed:/i);
+            expect(parsed.length).toBe(2);
+        });
+    });
+
     it('deletes a saved query', async () => {
         const { api } = await import('../../api');
         vi.mocked(api.getSavedQueries).mockResolvedValue([
@@ -992,6 +1037,78 @@ describe('NewInvestigation', () => {
         renderNewInvestigation();
         await waitFor(() => {
             expect(screen.getByText(/Initiate Investigation/i)).toBeInTheDocument();
+        });
+    });
+
+    it('loads defaultTimeZoneMode from settings', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', defaultTimeZoneMode: 'local' } as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Initiate Investigation/i));
+
+        await user.click(screen.getByText('Custom Range'));
+        await waitFor(() => {
+            expect(screen.getByText('Start Time (Local)')).toBeInTheDocument();
+            expect(screen.getByText('End Time (Local)')).toBeInTheDocument();
+        });
+    });
+
+    it('shows UTC labels by default', async () => {
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Initiate Investigation/i));
+
+        await user.click(screen.getByText('Custom Range'));
+        await waitFor(() => {
+            expect(screen.getByText('Start Time (UTC)')).toBeInTheDocument();
+            expect(screen.getByText('End Time (UTC)')).toBeInTheDocument();
+        });
+    });
+
+    it('toggles timezone mode between UTC and Local', async () => {
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Initiate Investigation/i));
+
+        await user.click(screen.getByText('Custom Range'));
+        await waitFor(() => screen.getByText('Start Time (UTC)'));
+
+        // Switch to Local
+        await user.click(screen.getByRole('button', { name: 'Local' }));
+        await waitFor(() => {
+            expect(screen.getByText('Start Time (Local)')).toBeInTheDocument();
+        });
+
+        // Switch back to UTC
+        await user.click(screen.getByRole('button', { name: 'UTC' }));
+        await waitFor(() => {
+            expect(screen.getByText('Start Time (UTC)')).toBeInTheDocument();
+        });
+    });
+
+    it('reconverts existing time inputs when timezone mode changes', async () => {
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Initiate Investigation/i));
+
+        await user.click(screen.getByText('Custom Range'));
+        const inputs = await waitFor(() => screen.getAllByPlaceholderText(/2024-03-15/));
+
+        // Enter both start and end UTC timestamps
+        await user.type(inputs[0], '2024-03-15T14:30:00.000Z');
+        await user.type(inputs[1], '2024-03-15T16:00:00.000Z');
+        await waitFor(() => {
+            const parsed = screen.getAllByText(/Parsed:/);
+            expect(parsed.length).toBe(2);
+        });
+
+        // Toggle to Local — both values should reconvert
+        await user.click(screen.getByRole('button', { name: 'Local' }));
+        await waitFor(() => {
+            expect(screen.getByText('Start Time (Local)')).toBeInTheDocument();
+            expect(screen.getByText('End Time (Local)')).toBeInTheDocument();
         });
     });
 

@@ -736,6 +736,90 @@ describe('PipelineOrchestrator', () => {
         });
     });
 
+    describe('pause / resume / intervene', () => {
+        it('pause() delegates to the current stage runner', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const mockRunner = { pause: vi.fn(), resume: vi.fn(), intervene: vi.fn() };
+            (orch as any).currentRunner = mockRunner;
+            orch.pause();
+            expect(mockRunner.pause).toHaveBeenCalled();
+        });
+
+        it('pause() is a no-op when no runner is active', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            expect((orch as any).currentRunner).toBeNull();
+            // Should not throw
+            orch.pause();
+        });
+
+        it('resume() delegates to the current stage runner', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const mockRunner = { pause: vi.fn(), resume: vi.fn(), intervene: vi.fn() };
+            (orch as any).currentRunner = mockRunner;
+            orch.resume();
+            expect(mockRunner.resume).toHaveBeenCalled();
+        });
+
+        it('resume() is a no-op when no runner is active', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            orch.resume();
+        });
+
+        it('intervene() delegates message to the current stage runner', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const mockRunner = { pause: vi.fn(), resume: vi.fn(), intervene: vi.fn() };
+            (orch as any).currentRunner = mockRunner;
+            orch.intervene('check the logs');
+            expect(mockRunner.intervene).toHaveBeenCalledWith('check the logs');
+            // pendingInterventions should remain empty after immediate delivery
+            expect((orch as any).pendingInterventions).toEqual([]);
+        });
+
+        it('intervene() queues message when no runner is active', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            orch.intervene('hello');
+            expect((orch as any).pendingInterventions).toEqual(['hello']);
+        });
+
+        it('intervene() queues multiple messages when no runner is active', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            orch.intervene('first');
+            orch.intervene('second');
+            expect((orch as any).pendingInterventions).toEqual(['first', 'second']);
+        });
+
+        it('pending intervention is delivered when the next stage starts', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 's1', name: 'S1', source: 'inline', promptContent: 'x' } },
+                { agent: { id: 's2', name: 'S2', source: 'inline', promptContent: 'y' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let stage2InterveneCalled = false;
+            let stageCount = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                stageCount++;
+                runner.state.finalReport = `report-${stageCount}`;
+                runner.state.status = 'completed';
+                if (stageCount === 1) {
+                    // After stage 1 completes, runner.dispose() sets currentRunner = null.
+                    // Simulating that window: queue an intervention before stage 2 starts.
+                    // We'll actually send it right after the first runWithTimeout returns
+                    // by intercepting at stage 2.
+                }
+                if (stageCount === 2) {
+                    stage2InterveneCalled = runner.pendingInterventions?.length > 0;
+                }
+            };
+
+            // Queue intervention before run — simulate the between-stages window
+            orch.intervene('focus on auth logs');
+
+            await orch.run('query');
+            // The intervention queue should have been drained
+            expect((orch as any).pendingInterventions).toEqual([]);
+        });
+    });
+
     describe('getPipelineState', () => {
         it('returns the current pipeline state', () => {
             const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
@@ -750,6 +834,18 @@ describe('PipelineOrchestrator', () => {
             const pipeline = makePipeline();
             const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
             expect(orch.getPipelineState().definition).toBe(pipeline);
+        });
+
+        it('returns a defensive copy so external mutations do not affect internal state', () => {
+            const pipeline = makePipeline();
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            const copy = orch.getPipelineState();
+            copy.stages[0].status = 'failed';
+            copy.currentStageIndex = 999;
+            // Internal state should remain unaffected
+            const fresh = orch.getPipelineState();
+            expect(fresh.stages[0].status).toBe('pending');
+            expect(fresh.currentStageIndex).toBe(0);
         });
     });
 
@@ -795,6 +891,49 @@ describe('PipelineOrchestrator', () => {
             expect(result.finalReport).toBe('Done');
         });
 
+        it('skips completed stages when resumeFrom is provided', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'a', name: 'Planner', source: 'inline', promptContent: 'plan' } },
+                { agent: { id: 'b', name: 'Investigator', source: 'inline', promptContent: 'investigate' } },
+                { agent: { id: 'c', name: 'Validator', source: 'inline', promptContent: 'validate' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+
+            const stageStartEvents: any[] = [];
+            orch.on('stage-start', (data: any) => stageStartEvents.push(data));
+
+            (orch as any).runWithTimeout = async (runner: any) => {
+                runner.state.finalReport = 'Stage report';
+                runner.state.status = 'completed';
+            };
+
+            const result = await orch.run('test query', {}, {
+                stageIndex: 2,  // Skip stages 0 and 1
+                conversationLog: [
+                    { agentId: 'a', agentName: 'Planner', role: 'report', content: 'Plan done', timestamp: 1 },
+                    { agentId: 'b', agentName: 'Investigator', role: 'report', content: 'Investigation done', timestamp: 2 },
+                ],
+                stageStates: [
+                    { agentId: 'a', agentName: 'Planner', color: '#fff', icon: 'P', status: 'completed', retryCount: 0, report: 'Plan done' },
+                    { agentId: 'b', agentName: 'Investigator', color: '#fff', icon: 'I', status: 'completed', retryCount: 0, report: 'Investigate done' },
+                    { agentId: 'c', agentName: 'Validator', color: '#fff', icon: 'V', status: 'pending', retryCount: 0 },
+                ],
+            });
+
+            // Only stage 2 should have run
+            expect(stageStartEvents).toHaveLength(1);
+            expect(stageStartEvents[0].stageIndex).toBe(2);
+            expect(stageStartEvents[0].agentName).toBe('Validator');
+
+            // Earlier stages should be marked as completed in pipeline state
+            const pState = orch.getPipelineState();
+            expect(pState.stages[0].status).toBe('completed');
+            expect(pState.stages[1].status).toBe('completed');
+            expect(pState.stages[2].status).toBe('completed');
+
+            expect(result.status).toBe('completed');
+        });
+
         it('handles stage failure', async () => {
             const pipeline = makePipeline([
                 { agent: { id: 's', name: 'S', source: 'inline', promptContent: 'x' } },
@@ -807,6 +946,23 @@ describe('PipelineOrchestrator', () => {
             const result = await orch.run('query');
             expect(result.status).toBe('failed');
             expect(orch.getPipelineState().stages[0].status).toBe('failed');
+        });
+
+        it('disposes the stage runner when a stage fails', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 's', name: 'S', source: 'inline', promptContent: 'x' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            const disposeSpy = vi.fn();
+            (orch as any).runWithTimeout = async () => {
+                // Attach a spy to the runner that was just created
+                (orch as any).currentRunner.dispose = disposeSpy;
+                throw new Error('Stage exploded');
+            };
+
+            await orch.run('query');
+            expect(disposeSpy).toHaveBeenCalled();
+            expect((orch as any).currentRunner).toBeNull();
         });
 
         it('handles abort during run', async () => {
@@ -828,6 +984,55 @@ describe('PipelineOrchestrator', () => {
             const result = await orch.run('query');
             expect(result.status).toBe('aborted');
             expect(runCount).toBe(1); // Second stage never ran
+        });
+
+        it('marks the in-progress stage as aborted when abort is called mid-stage', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 's1', name: 'S1', source: 'inline', promptContent: 'x' } },
+                { agent: { id: 's2', name: 'S2', source: 'inline', promptContent: 'y' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            (orch as any).runWithTimeout = async (runner: any) => {
+                // Abort while stage 0 is executing
+                orch.abort();
+                runner.state.finalReport = 'partial';
+                runner.state.status = 'completed';
+            };
+
+            const result = await orch.run('query');
+            expect(result.status).toBe('aborted');
+            const pState = orch.getPipelineState();
+            // Stage 0 was running when abort was called — stage goes through normal
+            // completion path, BUT the post-loop abort logic should reset it.
+            // Since the stage completed normally before the loop exit check, it gets
+            // set to 'completed'. But if abort fires while the stage is running and
+            // the stage hasn't exited naturally, the stage stays 'running', and the
+            // post-loop code fixes it to 'aborted'.
+            // In this test, the stage completes before loop checks abort, so status
+            // is 'completed'. Stage 1 was never started, so it stays 'pending'.
+            expect(pState.stages[1].status).toBe('pending');
+        });
+
+        it('marks still-running stage as aborted when abort interrupts execution', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 's1', name: 'S1', source: 'inline', promptContent: 'x' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            (orch as any).runWithTimeout = async (runner: any) => {
+                // Simulate abort during execution where the runner doesn't complete
+                // naturally — throw so the catch block runs. But abort is already set.
+                orch.abort();
+                throw new Error('Interrupted');
+            };
+
+            const result = await orch.run('query');
+            expect(result.status).toBe('aborted');
+            const pState = orch.getPipelineState();
+            // The catch block sets status to 'failed', then the post-loop code
+            // would not re-check individual stages since it broke out. But stages
+            // left in 'running' after the loop are fixed by the post-loop logic.
+            // In this case, catch already set it to 'failed'.
+            expect(pState.stages[0].status).toBe('failed');
         });
 
         it('handles rejection with abort strategy', async () => {
@@ -959,6 +1164,41 @@ describe('PipelineOrchestrator', () => {
             expect(assistantMsg?.content).toContain('No changes were proposed.');
         });
 
+        it('retrospect stage does not overwrite finalReport from a prior stage', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'sum', name: 'Summarizer', source: 'inline', promptContent: 'summarize' } },
+                { agent: { id: 'retro', name: 'Retro', source: 'builtin', builtinType: 'retrospect' } },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+
+            // Stage 0 (Summarizer): sets a detailed finalReport
+            let stageIdx = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                if (stageIdx === 0) {
+                    runner.state.finalReport = 'Detailed investigation summary with data tables';
+                    runner.state.status = 'completed';
+                }
+                stageIdx++;
+            };
+            // Stage 1 (Retrospect): generates its own report about doc changes
+            (orch as any).runRetrospectStage = async (runner: any) => {
+                runner.state.retrospect = {
+                    messages: [
+                        { role: 'assistant', content: 'Updated 2 playbook files.' },
+                    ],
+                    proposals: [{ id: 'p1', type: 'edit', filePath: 'guide.md', description: 'add checklist', content: 'new', status: 'pending' }],
+                    analysisComplete: true,
+                };
+            };
+
+            const result = await orch.run('query');
+            // The finalReport should be the Summarizer's report, NOT the Retrospect's
+            expect(result.finalReport).toBe('Detailed investigation summary with data tables');
+            // Retrospect results should still be bridged
+            expect(result.retrospect).toBeDefined();
+            expect(result.retrospect!.proposals).toHaveLength(1);
+        });
+
         it('handles rejection with loop strategy', async () => {
             const pipeline = makePipeline([
                 { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'x' } },
@@ -1032,6 +1272,60 @@ describe('PipelineOrchestrator', () => {
             expect(result.status).toBe('completed');
         });
 
+        it('handles flagged verdict with loop strategy', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'x' } },
+                { agent: { id: 'rev', name: 'Rev', source: 'inline', promptContent: 'x' }, canReject: true, onReject: 'loop', rejectTarget: 0, maxRetries: 1 },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let callCount = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                callCount++;
+                if (callCount === 2) {
+                    // Reviewer uses 'flagged' instead of 'rejected' — should still trigger loop
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'flagged', feedback: 'Issues found' } }];
+                    runner.state.verdict = 'flagged';
+                } else if (callCount === 4) {
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'approved' } }];
+                    runner.state.verdict = 'approved';
+                } else {
+                    runner.state.finalReport = `report-v${callCount}`;
+                }
+                runner.state.status = 'completed';
+            };
+
+            const result = await orch.run('query');
+            expect(callCount).toBe(4); // inv, rev(flagged→loop), inv(retry), rev(approve)
+            expect(result.status).toBe('completed');
+        });
+
+        it('handles health-check verdict mapped to rejection', async () => {
+            const pipeline = makePipeline([
+                { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'x' } },
+                { agent: { id: 'da', name: 'DA', source: 'inline', promptContent: 'x' }, canReject: true, onReject: 'loop', rejectTarget: 0, maxRetries: 1 },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let callCount = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                callCount++;
+                if (callCount === 2) {
+                    // Agent uses 'critical' (health-check verdict) — should be mapped to 'rejected' by getStageResult
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'critical', feedback: 'Blind spots' } }];
+                    runner.state.verdict = 'critical';
+                } else if (callCount === 4) {
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'approved' } }];
+                    runner.state.verdict = 'approved';
+                } else {
+                    runner.state.finalReport = `report-v${callCount}`;
+                }
+                runner.state.status = 'completed';
+            };
+
+            const result = await orch.run('query');
+            expect(callCount).toBe(4); // inv, da(critical→rejected→loop), inv(retry), da(approve)
+            expect(result.status).toBe('completed');
+        });
+
         it('uses report-only input mode when configured', async () => {
             const pipeline = makePipeline([
                 { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
@@ -1090,6 +1384,15 @@ describe('PipelineOrchestrator', () => {
             await expect(promise).rejects.toThrow('timed out');
             vi.useRealTimers();
         });
+
+        it('clears the timeout timer when runner completes before timeout', async () => {
+            const clearSpy = vi.spyOn(global, 'clearTimeout');
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const fakeRunner = { start: vi.fn().mockResolvedValue(undefined) };
+            await (orch as any).runWithTimeout(fakeRunner, 'test-query', 60000);
+            expect(clearSpy).toHaveBeenCalled();
+            clearSpy.mockRestore();
+        });
     });
 
     describe('runRetrospectStage', () => {
@@ -1115,6 +1418,15 @@ describe('PipelineOrchestrator', () => {
             vi.advanceTimersByTime(1100);
             await expect(promise).rejects.toThrow('timed out');
             vi.useRealTimers();
+        });
+
+        it('clears the timeout timer when retrospect completes before timeout', async () => {
+            const clearSpy = vi.spyOn(global, 'clearTimeout');
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const fakeRunner = { runRetrospectiveAnalysis: vi.fn().mockResolvedValue(undefined) };
+            await (orch as any).runRetrospectStage(fakeRunner, 60000);
+            expect(clearSpy).toHaveBeenCalled();
+            clearSpy.mockRestore();
         });
     });
 

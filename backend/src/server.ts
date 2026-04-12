@@ -911,6 +911,8 @@ let config: {
     analyticsVisible: boolean;
     // Multi-agent pipeline configuration
     pipeline?: PipelineDefinition;
+    // Time zone preference for custom time ranges
+    defaultTimeZoneMode: 'utc' | 'local';
 } = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
@@ -944,6 +946,7 @@ let config: {
     analyticsWidgets: ['trend', 'targetActivity', 'successRate'],
     analyticsVisible: true,
     pipeline: undefined,
+    defaultTimeZoneMode: 'utc',
 };
 
 // Track what's persisted on disk — prevents internal defaults from leaking into the config file.
@@ -971,6 +974,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'defaultView', 'defaultSortOrder', 'defaultPageSize',
     'analyticsWidgets', 'analyticsVisible',
     'pipeline',
+    'defaultTimeZoneMode',
 ]);
 
 function saveConfigToDisk() {
@@ -2029,6 +2033,115 @@ function createPipelineInvestigation(
 }
 
 /**
+ * Resume a pipeline investigation from disk.
+ * Creates a new PipelineOrchestrator and re-runs the full pipeline.
+ * Used by both individual resume and bulk resume-all when the investigation
+ * was originally started as a pipeline.
+ */
+function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
+    const state = (runner as any).state as InvestigationState;
+    const pipelineDef = state.pipeline!.definition!;
+
+    const effectiveCfg = getEffectiveConfig(state);
+    const agentConfig: import('./agent/Runner').AgentConfig = {
+        systemPromptPath: effectiveCfg.systemPromptPath,
+        retrospectPromptPath: effectiveCfg.retrospectPromptPath,
+        knowledgeBasePath: effectiveCfg.knowledgeBasePath,
+        repoRoot: effectiveCfg.repoRoot,
+        mcpServers: effectiveCfg.mcpServers,
+        maxSteps: effectiveCfg.maxSteps,
+        model: state.model!,
+        workingDirectory: effectiveCfg.workingDirectory,
+        investigationsPath: effectiveCfg.investigationsPath,
+    };
+
+    const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig);
+    (runner as any)._isPipeline = true;
+    // Clean up previous orchestrator listeners before replacing
+    const prevOrch = pipelineOrchestrators.get(id);
+    if (prevOrch) prevOrch.removeAllListeners();
+    pipelineOrchestrators.set(id, orchestrator);
+    attachPipelineListeners(orchestrator, id);
+
+    const query = state.query || 'Resume investigation';
+
+    // Determine which stage to resume from based on saved pipeline state.
+    // Find the first non-completed stage so we skip stages that already ran.
+    const savedPipeline = state.pipeline!;
+    const savedStages = savedPipeline.stages || [];
+    let resumeStageIndex = 0;
+    for (let i = 0; i < savedStages.length; i++) {
+        if (savedStages[i].status === 'completed' || savedStages[i].status === 'rejected') {
+            resumeStageIndex = i + 1;
+        } else {
+            break;
+        }
+    }
+
+    orchestrator.run(query, {
+        id,
+        query,
+        target: state.target,
+        timeRange: state.timeRange,
+        correlationId: state.correlationId,
+        category: state.category,
+        incidentId: state.incidentId,
+        productId: state.productId,
+        source: state.source,
+        scheduleId: state.scheduleId,
+        title: state.title,
+        createdBy: state.createdBy,
+        // Carry forward accumulated state so earlier stages aren't lost on resume
+        thoughts: state.thoughts,
+        actions: state.actions,
+        fullHistory: state.fullHistory,
+        fullActions: state.fullActions,
+        logs: state.logs,
+    }, {
+        stageIndex: resumeStageIndex,
+        conversationLog: savedPipeline.conversationLog || [],
+        stageStates: savedStages,
+    }).then(async (finalState) => {
+        const runnerState = (runner as any).state;
+        Object.assign(runnerState, {
+            status: finalState.status,
+            thoughts: finalState.thoughts,
+            actions: finalState.actions,
+            fullHistory: finalState.fullHistory,
+            fullActions: finalState.fullActions,
+            logs: finalState.logs,
+            finalReport: finalState.finalReport,
+            recommendations: finalState.recommendations,
+            verdict: finalState.verdict,
+            pipeline: finalState.pipeline,
+            retrospect: finalState.retrospect,
+        });
+
+        try { await (runner as any).saveArtifacts(); } catch (e: any) {
+            console.error(`[Pipeline] Failed to save artifacts for ${id}:`, e.message);
+        }
+
+        history.set(id, runnerState);
+        invalidateListCache();
+
+        if (['completed', 'failed', 'aborted'].includes(runnerState.status)) {
+            cleanupRunner(id);
+            console.log(`[Pipeline] Resumed investigation ${id} finished (${runnerState.status}).`);
+        }
+    }).catch(async (err) => {
+        console.error(`[Pipeline] Resumed investigation ${id} crashed:`, err);
+        const runnerState = (runner as any).state;
+        if (runnerState) {
+            runnerState.status = 'failed';
+            history.set(id, runnerState);
+            try { await (runner as any).saveArtifacts(); } catch { /* best-effort */ }
+        }
+        cleanupRunner(id);
+        invalidateListCache();
+    });
+}
+
+/**
  * Restart a pipeline investigation after contest.
  * Creates a new PipelineOrchestrator from the saved pipeline definition
  * and runs it with the contest feedback already injected in the runner state.
@@ -2052,6 +2165,9 @@ function restartPipelineForContest(runner: AgentRunner, id: string): void {
 
     const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig);
     (runner as any)._isPipeline = true;
+    // Clean up previous orchestrator listeners before replacing
+    const prevOrch = pipelineOrchestrators.get(id);
+    if (prevOrch) prevOrch.removeAllListeners();
     pipelineOrchestrators.set(id, orchestrator);
     attachPipelineListeners(orchestrator, id);
 
@@ -2070,6 +2186,12 @@ function restartPipelineForContest(runner: AgentRunner, id: string): void {
         title: state.title,
         createdBy: state.createdBy,
         contestCount: state.contestCount,
+        // Carry forward accumulated state so pre-contest history survives for retrospect/restore
+        thoughts: state.thoughts,
+        actions: state.actions,
+        fullHistory: state.fullHistory,
+        fullActions: state.fullActions,
+        logs: state.logs,
     }).then(async (finalState) => {
         const runnerState = (runner as any).state;
         Object.assign(runnerState, {
@@ -2537,6 +2659,11 @@ app.post('/api/investigations/:id/action', async (req, res) => {
                 scheduleStore.update(state.scheduleId, { activeInvestigationId: id });
             }
 
+            // Pipeline investigations need the orchestrator, not a plain runner loop
+            if (state.pipeline?.definition) {
+                resumePipelineInvestigation(runner, id);
+                runner.log(`Resuming pipeline investigation ${id} from disk...`);
+            } else {
             // Restart execution loop
             // Use stored query or default
             const query = state.query || "Resume investigation";
@@ -2551,6 +2678,7 @@ app.post('/api/investigations/:id/action', async (req, res) => {
             });
 
             runner.log(`Resuming investigation ${id} from disk...`);
+            }
         } else if (action === 'pause') {
             // Runner already stopped, just update status in history
             state.status = 'paused';
@@ -2631,18 +2759,38 @@ app.post('/api/investigations/:id/action', async (req, res) => {
 
     if (!runner) return res.status(404).json({ error: 'Runner not found' });
 
-    if (action === 'pause') runner.pause();
+    // For pipeline investigations, signal the orchestrator so the currently-executing
+    // stage runner receives the pause/abort/intervene — not just the anchor runner.
+    const orchestrator = pipelineOrchestrators.get(id);
+
+    if (action === 'pause') {
+        runner.pause();
+        if (orchestrator) {
+            orchestrator.pause();
+            // Sync orchestrator's current pipeline state to the anchor runner
+            // so it's persisted correctly when saved to disk
+            (runner as any).state.pipeline = {
+                ...(runner as any).state.pipeline,
+                ...orchestrator.getPipelineState(),
+            };
+        }
+    }
     if (action === 'resume') {
         runner.resume();
+        if (orchestrator) orchestrator.resume();
         // Re-link to schedule if this is a scheduled investigation
         const st = (runner as any).state as InvestigationState;
         if (st?.scheduleId && scheduleStore) {
             scheduleStore.update(st.scheduleId, { activeInvestigationId: id });
         }
     }
-    if (action === 'abort') runner.abort();
+    if (action === 'abort') {
+        runner.abort();
+        if (orchestrator) orchestrator.abort();
+    }
     if (action === 'intervene' && message) {
         runner.intervene(message);
+        if (orchestrator) orchestrator.intervene(message);
     }
     if (action === 'contest' && message) {
         // Block contest while implementation is running to avoid state corruption
@@ -2704,26 +2852,56 @@ app.post('/api/investigations/:id/action', async (req, res) => {
 app.post('/api/investigations/resume-all', async (req, res) => {
     try {
     invalidateListCache();
-    const paused: string[] = [];
+
+    // Collect paused investigations from history (not currently in runners map)
+    const pausedFromDisk: string[] = [];
     for (const [id, state] of history.entries()) {
         if (state.status === 'paused' && !runners.has(id)) {
-            paused.push(id);
+            pausedFromDisk.push(id);
         }
     }
 
-    if (paused.length === 0) {
+    // Collect in-memory paused runners (still in runners map with paused status)
+    const pausedInMemory: string[] = [];
+    for (const [id, runner] of runners.entries()) {
+        if ((runner as any).state?.status === 'paused') {
+            pausedInMemory.push(id);
+        }
+    }
+
+    const totalPaused = pausedFromDisk.length + pausedInMemory.length;
+    if (totalPaused === 0) {
         return res.json({ resumed: 0, skipped: 0, ids: [] });
     }
 
     // Respect maxConcurrentInvestigations — count currently running; 0 = unlimited
     const currentlyRunning = Array.from(runners.values()).filter(r => (r as any).state?.status === 'running').length;
     const slotsAvailable = config.maxConcurrentInvestigations === 0
-        ? paused.length
+        ? totalPaused
         : Math.max(0, config.maxConcurrentInvestigations - currentlyRunning);
 
-    const toResume = paused.slice(0, slotsAvailable);
-    const skipped = paused.length - toResume.length;
+    // Resume in-memory paused runners first (they just need unpause, no rehydration)
     const resumed: string[] = [];
+    let slotsRemaining = slotsAvailable;
+
+    for (const id of pausedInMemory) {
+        if (slotsRemaining <= 0) break;
+        const runner = runners.get(id)!;
+        runner.resume();
+        const orchestrator = pipelineOrchestrators.get(id);
+        if (orchestrator) orchestrator.resume();
+        // Re-link to schedule if needed
+        const st = (runner as any).state as InvestigationState;
+        if (st?.scheduleId && scheduleStore) {
+            scheduleStore.update(st.scheduleId, { activeInvestigationId: id });
+        }
+        resumed.push(id);
+        slotsRemaining--;
+    }
+
+    // Resume from-disk paused investigations (need rehydration)
+    const toResume = pausedFromDisk.slice(0, slotsRemaining);
+    const skipped = totalPaused - resumed.length - toResume.length;
 
     for (const id of toResume) {
         try {
@@ -2733,17 +2911,23 @@ app.post('/api/investigations/resume-all', async (req, res) => {
             attachRunnerListeners(runner, id);
             runner.resume();
 
-            const query = state.query || 'Resume investigation';
-            runner.start(query).then(() => {
-                history.set(id, (runner as any).state);
-            }).catch(err => {
-                console.error(`Runner ${id} failed:`, err);
-            }).finally(() => {
-                history.set(id, (runner as any).state);
-                cleanupRunner(id);
-            });
+            // Pipeline investigations need the orchestrator, not a plain runner loop
+            if (state.pipeline?.definition) {
+                resumePipelineInvestigation(runner, id);
+                runner.log(`Resuming pipeline investigation ${id} (bulk resume-all)...`);
+            } else {
+                const query = state.query || 'Resume investigation';
+                runner.start(query).then(() => {
+                    history.set(id, (runner as any).state);
+                }).catch(err => {
+                    console.error(`Runner ${id} failed:`, err);
+                }).finally(() => {
+                    history.set(id, (runner as any).state);
+                    cleanupRunner(id);
+                });
 
-            runner.log(`Resuming investigation ${id} (bulk resume-all)...`);
+                runner.log(`Resuming investigation ${id} (bulk resume-all)...`);
+            }
             resumed.push(id);
         } catch (e: any) {
             console.error(`Failed to resume ${id}:`, e.message);
@@ -2767,6 +2951,14 @@ app.post('/api/server/restart', (req, res) => {
     // 1. Pause all running investigations, save state, and dispose resources
     for (const [id, runner] of runners.entries()) {
         try {
+            // Sync pipeline orchestrator state before pausing so it's persisted correctly
+            const orch = pipelineOrchestrators.get(id);
+            if (orch) {
+                (runner as any).state.pipeline = {
+                    ...(runner as any).state.pipeline,
+                    ...orch.getPipelineState(),
+                };
+            }
             runner.pause();
             history.set(id, (runner as any).state);
             console.log(`  Paused runner ${id} before restart.`);

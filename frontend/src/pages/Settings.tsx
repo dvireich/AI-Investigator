@@ -1413,6 +1413,31 @@ export const Settings = () => {
 
                             <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm flex items-center justify-between">
                                 <div>
+                                    <h3 className="font-semibold text-slate-200">Default Time Zone Mode</h3>
+                                    <p className="text-sm text-slate-500">Whether custom time ranges default to UTC or local time.</p>
+                                </div>
+                                <div className="flex items-center bg-slate-800 rounded-xl p-1 gap-1 border border-slate-700/40">
+                                    <button
+                                        onClick={() => handleChange('defaultTimeZoneMode', 'utc')}
+                                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                                            (config as any).defaultTimeZoneMode === 'utc' || !(config as any).defaultTimeZoneMode ? 'bg-brand-500/20 text-brand-300 border border-brand-500/20' : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                                        }`}
+                                    >
+                                        UTC
+                                    </button>
+                                    <button
+                                        onClick={() => handleChange('defaultTimeZoneMode', 'local')}
+                                        className={`px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+                                            (config as any).defaultTimeZoneMode === 'local' ? 'bg-brand-500/20 text-brand-300 border border-brand-500/20' : 'text-slate-500 hover:text-slate-300 border border-transparent'
+                                        }`}
+                                    >
+                                        Local
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-800/40 p-6 rounded-2xl border border-slate-700/40 shadow-sm flex items-center justify-between">
+                                <div>
                                     <h3 className="font-semibold text-slate-200">Auto-refresh Interval</h3>
                                     <p className="text-sm text-slate-500">How often the dashboard updates in seconds.</p>
                                 </div>

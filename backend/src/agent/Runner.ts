@@ -95,6 +95,8 @@ export interface InvestigationState {
     userNotes?: string;
     // Multi-agent pipeline state
     pipeline?: PipelineState;
+    // Snapshot of pipeline state before contest (used by restoreToLastCheckpoint)
+    _priorPipelineSnapshot?: PipelineState;
 }
 
 /** Tracks the state of a multi-agent pipeline execution. */
@@ -113,9 +115,10 @@ export interface PipelineState {
 export interface PipelineStageState {
     agentId: string;
     agentName: string;
+    description?: string;
     color?: string;
     icon?: string;
-    status: 'pending' | 'running' | 'completed' | 'rejected' | 'skipped' | 'failed';
+    status: 'pending' | 'running' | 'completed' | 'rejected' | 'skipped' | 'failed' | 'aborted';
     /** Set when the agent produces a verdict (only meaningful when stage has canReject: true). */
     verdict?: 'approved' | 'rejected' | 'flagged';
     /** Rejection/flag explanation from the agent. */
@@ -2225,6 +2228,11 @@ ${recsText}
         // Reset retrospective (it analyzed a now-rejected report)
         this.state.retrospect = { messages: [], proposals: [], analysisComplete: false, completed: false };
 
+        // Snapshot pipeline state before resetting so restoreToLastCheckpoint can recover it
+        if (this.state.pipeline) {
+            this.state._priorPipelineSnapshot = JSON.parse(JSON.stringify(this.state.pipeline));
+        }
+
         // Reset pipeline stage states so the stepper shows fresh progress
         if (this.state.pipeline?.stages) {
             for (const stage of this.state.pipeline.stages) {
@@ -2342,6 +2350,12 @@ ${recsText}
             this.state.recommendations = [];
         }
 
+        // Restore pipeline state from the pre-contest snapshot
+        if (this.state._priorPipelineSnapshot) {
+            this.state.pipeline = this.state._priorPipelineSnapshot;
+            this.state._priorPipelineSnapshot = undefined;
+        }
+
         // Reset retrospect (it analyzed the now-deleted post-contest report)
         this.state.retrospect = { messages: [], proposals: [], analysisComplete: false, completed: false };
 
@@ -2402,23 +2416,36 @@ ${recsText}
      */
     getStageResult(): { report?: string; verdict?: string; feedback?: string } {
         // The finish tool may have set verdict on state (health check style)
-        // or the args may include pipeline-style verdict/feedback
-        const lastFinishAction = this.state.actions.find(
-            (a: any) => a && a.tool === 'finish'
-        );
+        // or the args may include pipeline-style verdict/feedback.
+        // Use reverse search so we pick THIS stage's finish action, not an
+        // earlier stage's — the actions array is accumulated across pipeline stages.
+        let lastFinishAction: any;
+        for (let i = this.state.actions.length - 1; i >= 0; i--) {
+            const a = this.state.actions[i];
+            if (a && a.tool === 'finish') { lastFinishAction = a; break; }
+        }
 
-        // Only use this.state.verdict as fallback if it's a valid pipeline verdict
-        // (approved/rejected/flagged). Health-check verdicts (healthy/warning/critical/etc.)
-        // must NOT leak into pipeline stage verdicts.
+        // Map health-check verdicts to pipeline equivalents so agents that
+        // accidentally use 'critical' / 'warning' / 'healthy' still trigger
+        // the correct pipeline rejection logic.
+        const HEALTH_TO_PIPELINE: Record<string, string> = {
+            healthy: 'approved',
+            warning: 'flagged',
+            critical: 'rejected',
+        };
         const PIPELINE_VERDICTS = new Set(['approved', 'rejected', 'flagged']);
-        const explicitVerdict = lastFinishAction?.args?.verdict;
+        const rawVerdict = lastFinishAction?.args?.verdict;
+        const mappedVerdict = rawVerdict
+            ? (PIPELINE_VERDICTS.has(rawVerdict) ? rawVerdict : HEALTH_TO_PIPELINE[rawVerdict] || rawVerdict)
+            : undefined;
+
         const fallbackVerdict = PIPELINE_VERDICTS.has(this.state.verdict as string)
             ? this.state.verdict
-            : undefined;
+            : (this.state.verdict ? HEALTH_TO_PIPELINE[this.state.verdict] : undefined);
 
         return {
             report: this.state.finalReport,
-            verdict: explicitVerdict || fallbackVerdict,
+            verdict: mappedVerdict || fallbackVerdict,
             feedback: lastFinishAction?.args?.feedback,
         };
     }

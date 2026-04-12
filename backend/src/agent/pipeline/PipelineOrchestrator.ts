@@ -35,6 +35,7 @@ export class PipelineOrchestrator extends EventEmitter {
     private pipelineState: PipelineState;
     private aborted: boolean = false;
     private currentRunner: AgentRunner | null = null;
+    private pendingInterventions: string[] = [];
 
     constructor(
         pipeline: PipelineDefinition,
@@ -55,6 +56,7 @@ export class PipelineOrchestrator extends EventEmitter {
                 return {
                     agentId: agent.id,
                     agentName: agent.name,
+                    description: agent.description,
                     color: agent.color!,
                     icon: agent.icon!,
                     status: 'pending' as const,
@@ -72,10 +74,14 @@ export class PipelineOrchestrator extends EventEmitter {
      *
      * Creates an AgentRunner for each stage, feeds it the conversation context,
      * collects results, handles rejection loops, and returns the final state.
+     *
+     * @param resumeFrom - When resuming a paused pipeline, pass the saved stage
+     *   index and conversation log so the orchestrator skips already-completed stages.
      */
     async run(
         initialQuery: string,
-        initialMetadata: Partial<InvestigationState> = {}
+        initialMetadata: Partial<InvestigationState> = {},
+        resumeFrom?: { stageIndex: number; conversationLog: ConversationEntry[]; stageStates: PipelineStageState[] },
     ): Promise<InvestigationState> {
         let currentState: InvestigationState = {
             id: Date.now().toString(),
@@ -90,7 +96,20 @@ export class PipelineOrchestrator extends EventEmitter {
             ...initialMetadata,
         };
 
+        // When resuming, restore conversation log and stage statuses from saved state
         let stageIndex = 0;
+        if (resumeFrom) {
+            stageIndex = resumeFrom.stageIndex;
+            this.conversationLog = [...resumeFrom.conversationLog];
+            this.pipelineState.conversationLog = this.conversationLog;
+            // Restore completed/rejected stage statuses
+            for (let i = 0; i < resumeFrom.stageStates.length && i < this.pipelineState.stages.length; i++) {
+                const saved = resumeFrom.stageStates[i];
+                if (saved.status === 'completed' || saved.status === 'rejected') {
+                    Object.assign(this.pipelineState.stages[i], saved);
+                }
+            }
+        }
 
         while (stageIndex < this.pipeline.stages.length && !this.aborted) {
             const stage = this.pipeline.stages[stageIndex];
@@ -159,6 +178,12 @@ export class PipelineOrchestrator extends EventEmitter {
                 });
 
                 this.currentRunner = runner;
+
+                // Deliver any interventions that arrived between stages
+                for (const msg of this.pendingInterventions) {
+                    runner.intervene(msg);
+                }
+                this.pendingInterventions = [];
 
                 // Set stage context
                 const stageContext: StageContext = {
@@ -257,7 +282,9 @@ export class PipelineOrchestrator extends EventEmitter {
                     fullHistory: runnerState.fullHistory,
                     fullActions: runnerState.fullActions,
                     logs: [...currentState.logs, ...runnerState.logs],
-                    finalReport: result.report || currentState.finalReport,
+                    // Retrospect stages report on doc/playbook changes — keep the
+                    // investigation summary produced by an earlier stage (e.g. Summarizer).
+                    finalReport: isRetrospectStage ? currentState.finalReport : (result.report || currentState.finalReport),
                     recommendations: runnerState.recommendations || currentState.recommendations,
                     verdict: (result.verdict as any) || currentState.verdict,
                     pipeline: this.pipelineState,
@@ -295,8 +322,12 @@ export class PipelineOrchestrator extends EventEmitter {
                 runner.dispose();
                 this.currentRunner = null;
 
-                // Handle rejection
-                if (stage.canReject && result.verdict === 'rejected') {
+                // Handle rejection — trigger on 'rejected' or 'flagged' verdict
+                // ('flagged' with issues significant enough to flag should still loop
+                //  when onReject is 'loop', since LLMs often use 'flagged' for findings
+                //  that clearly warrant re-investigation)
+                const isRejection = stage.canReject && (result.verdict === 'rejected' || result.verdict === 'flagged');
+                if (isRejection) {
                     stageState.status = 'rejected';
 
                     this.emit('stage-reject', {
@@ -376,6 +407,12 @@ export class PipelineOrchestrator extends EventEmitter {
                 stageState.completedAt = Date.now();
                 this.log(`Stage ${stageIndex} (${agent.name}) failed: ${error.message}`);
 
+                // Clean up the failed stage runner to avoid resource leaks
+                if (this.currentRunner) {
+                    this.currentRunner.dispose();
+                    this.currentRunner = null;
+                }
+
                 currentState.status = 'failed';
                 currentState.pipeline = this.pipelineState;
                 this.emit('stage-complete', {
@@ -402,6 +439,35 @@ export class PipelineOrchestrator extends EventEmitter {
     }
 
     /**
+     * Pause the pipeline (and current runner if active).
+     */
+    pause(): void {
+        if (this.currentRunner) {
+            this.currentRunner.pause();
+        }
+    }
+
+    /**
+     * Resume the pipeline (and current runner if active).
+     */
+    resume(): void {
+        if (this.currentRunner) {
+            this.currentRunner.resume();
+        }
+    }
+
+    /**
+     * Queue a user intervention for the currently-executing stage runner.
+     */
+    intervene(message: string): void {
+        if (this.currentRunner) {
+            this.currentRunner.intervene(message);
+        } else {
+            this.pendingInterventions.push(message);
+        }
+    }
+
+    /**
      * Abort the pipeline (and current runner if active).
      */
     abort(): void {
@@ -415,7 +481,7 @@ export class PipelineOrchestrator extends EventEmitter {
      * Get current pipeline state (for API polling).
      */
     getPipelineState(): PipelineState {
-        return this.pipelineState;
+        return { ...this.pipelineState, stages: this.pipelineState.stages.map(s => ({ ...s })) };
     }
 
     // ─── Private helpers ───
@@ -599,14 +665,19 @@ export class PipelineOrchestrator extends EventEmitter {
             return;
         }
 
+        let timerId: ReturnType<typeof setTimeout>;
         const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
+            timerId = setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
         });
 
-        await Promise.race([
-            runner.start(query),
-            timeoutPromise,
-        ]);
+        try {
+            await Promise.race([
+                runner.start(query),
+                timeoutPromise,
+            ]);
+        } finally {
+            clearTimeout(timerId!);
+        }
     }
 
     /**
@@ -621,14 +692,19 @@ export class PipelineOrchestrator extends EventEmitter {
             return;
         }
 
+        let timerId: ReturnType<typeof setTimeout>;
         const timeoutPromise = new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
+            timerId = setTimeout(() => reject(new Error(`Stage timed out after ${Math.round(timeoutMs / 60_000)} minutes`)), timeoutMs);
         });
 
-        await Promise.race([
-            runner.runRetrospectiveAnalysis(),
-            timeoutPromise,
-        ]);
+        try {
+            await Promise.race([
+                runner.runRetrospectiveAnalysis(),
+                timeoutPromise,
+            ]);
+        } finally {
+            clearTimeout(timerId!);
+        }
     }
 
     private log(msg: string): void {
