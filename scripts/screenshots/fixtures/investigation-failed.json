@@ -54,25 +54,30 @@
   ],
   "pipeline": {
     "stages": [
+      { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749769800000, "completedAt": 1749769900000, "report": "Investigation plan: 1) Query database metrics, 2) Check error logs, 3) Identify affected tenants." },
       { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "failed", "retryCount": 0, "startedAt": 1749770000000, "completedAt": 1749770060000, "error": "Consecutive failures exceeded limit (3)" },
+      { "agentId": "builtin-devils-advocate", "agentName": "Devil's Advocate", "color": "#ef4444", "icon": "😈", "status": "pending", "retryCount": 0 },
       { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "pending", "retryCount": 0 },
-      { "agentId": "builtin-proposer", "agentName": "Proposer", "color": "#6366f1", "icon": "🔧", "status": "pending", "retryCount": 0 },
+      { "agentId": "builtin-summarizer", "agentName": "Summarizer", "color": "#14b8a6", "icon": "📊", "status": "pending", "retryCount": 0 },
       { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "pending", "retryCount": 0 }
     ],
-    "currentStageIndex": 0,
+    "currentStageIndex": 1,
     "definition": {
-      "id": "default-pipeline",
-      "name": "Default Pipeline",
+      "id": "deep-investigation",
+      "name": "Deep Investigation",
       "stages": [
+        { "agentId": "builtin-planner", "inputMode": "conversation" },
         { "agentId": "builtin-investigator", "inputMode": "conversation" },
-        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
-        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
         { "agentId": "builtin-retrospect", "inputMode": "conversation" }
       ]
     },
     "conversationLog": [
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Starting investigation. Attempting to query databases.", "timestamp": 1749770000000, "stageIndex": 0 },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Authentication failed after 3 retries. Investigation cannot proceed.", "timestamp": 1749770060000, "stageIndex": 0 }
+      { "agentId": "builtin-planner", "agentName": "Planner", "agentColor": "#0ea5e9", "agentIcon": "📋", "role": "report", "content": "Plan: Query database metrics, check error logs, identify affected tenants.", "timestamp": 1749769900000, "stageIndex": 0 },
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Starting investigation. Attempting to query databases.", "timestamp": 1749770000000, "stageIndex": 1 },
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Authentication failed after 3 retries. Investigation cannot proceed.", "timestamp": 1749770060000, "stageIndex": 1 }
     ]
   },
   "logs": [

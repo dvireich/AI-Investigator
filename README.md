@@ -366,6 +366,14 @@ Build multi-agent investigation workflows with a drag-and-drop pipeline editor. 
 
 <!-- Screenshot: Two pipeline screenshots — empty builder with agent palette, and the recommended 4-stage pipeline with rejection loop arrows. -->
 
+### 33. Investigation — Pipeline Timeline
+
+When running a multi-agent workflow, the **Pipeline** tab shows real-time progress through each stage. The **PipelineStepper** at the top displays all agents with color-coded status (active glow for the running stage, checkmarks for completed, pending for upcoming). Below, the **PipelineTimeline** renders the full conversation log as a group-chat-style timeline — each agent's thoughts, actions, observations, and handoffs appear as color-coded bubbles with role badges (💭 Thought, ⚡ Action, 📋 Report, ⚖️ Verdict). Filter by agent using the filter bar at the top.
+
+![Investigation Pipeline Timeline](docs/screenshots/investigation-pipeline-timeline.png)
+
+<!-- Screenshot: Pipeline tab on investigation detail — PipelineStepper with 6-stage Deep Investigation pipeline and PipelineTimeline conversation below. -->
+
 ---
 
 ## Features
@@ -1495,11 +1503,12 @@ The capture script produces these 39 files in `docs/screenshots/`:
 | 32 | `query-bank.png` | New Investigation — query bank dropdown |
 | 33 | `investigation-notes.png` | Investigation detail — Notes tab with markdown editor |
 | 34 | `about-page.png` | About — feature showcase, pipeline, version info |
-| 35 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
-| 36 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
-| 37 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
-| 38 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
-| 39 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
+| 35 | `investigation-pipeline-timeline.png` | Investigation detail — Pipeline tab with stepper + conversation timeline |
+| 36 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 37 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 38 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 39 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 40 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
 
 ### Architecture
 

@@ -76,6 +76,17 @@
   "pipeline": {
     "stages": [
       {
+        "agentId": "builtin-planner",
+        "agentName": "Planner",
+        "color": "#0ea5e9",
+        "icon": "📋",
+        "status": "completed",
+        "retryCount": 0,
+        "startedAt": 1749809800000,
+        "completedAt": 1749809900000,
+        "report": "Investigation plan: 1) Query throttle exception distribution by node, 2) Check queue depth trends, 3) Look for recent scaling operations, 4) Analyze partition distribution."
+      },
+      {
         "agentId": "builtin-investigator",
         "agentName": "Investigator",
         "color": "#10b981",
@@ -83,6 +94,14 @@
         "status": "running",
         "retryCount": 0,
         "startedAt": 1749810000000
+      },
+      {
+        "agentId": "builtin-devils-advocate",
+        "agentName": "Devil's Advocate",
+        "color": "#ef4444",
+        "icon": "😈",
+        "status": "pending",
+        "retryCount": 0
       },
       {
         "agentId": "builtin-validator",
@@ -93,10 +112,10 @@
         "retryCount": 0
       },
       {
-        "agentId": "builtin-proposer",
-        "agentName": "Proposer",
-        "color": "#6366f1",
-        "icon": "🔧",
+        "agentId": "builtin-summarizer",
+        "agentName": "Summarizer",
+        "color": "#14b8a6",
+        "icon": "📊",
         "status": "pending",
         "retryCount": 0
       },
@@ -109,27 +128,49 @@
         "retryCount": 0
       }
     ],
-    "currentStageIndex": 0,
+    "currentStageIndex": 1,
     "definition": {
-      "id": "default-pipeline",
-      "name": "Default Pipeline",
+      "id": "deep-investigation",
+      "name": "Deep Investigation",
       "stages": [
+        { "agentId": "builtin-planner", "inputMode": "conversation" },
         { "agentId": "builtin-investigator", "inputMode": "conversation" },
-        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": "previous", "maxRetries": 2, "inputMode": "conversation" },
-        { "agentId": "builtin-proposer", "inputMode": "conversation" },
+        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
         { "agentId": "builtin-retrospect", "inputMode": "conversation" }
       ]
     },
     "conversationLog": [
+      {
+        "agentId": "builtin-planner",
+        "agentName": "Planner",
+        "agentColor": "#0ea5e9",
+        "agentIcon": "📋",
+        "role": "thought",
+        "content": "Analyzing scope: MessagingInfraThrottleException on svc-prd-wus2-03 over 2h window. Need to determine if this is capacity, partition, or configuration related.",
+        "timestamp": 1749809800000,
+        "stageIndex": 0
+      },
+      {
+        "agentId": "builtin-planner",
+        "agentName": "Planner",
+        "agentColor": "#0ea5e9",
+        "agentIcon": "📋",
+        "role": "report",
+        "content": "Investigation plan: 1) Query throttle exception distribution by node, 2) Check queue depth trends, 3) Look for recent scaling operations, 4) Analyze partition distribution across nodes.",
+        "timestamp": 1749809900000,
+        "stageIndex": 0
+      },
       {
         "agentId": "builtin-investigator",
         "agentName": "Investigator",
         "agentColor": "#10b981",
         "agentIcon": "🤖",
         "role": "thought",
-        "content": "Starting investigation into throttling exceptions on app-prd-eus2p-01. Reading knowledge base guides first.",
+        "content": "Following the plan — starting with throttle exception distribution by node on svc-prd-wus2-03.",
         "timestamp": 1749810000000,
-        "stageIndex": 0
+        "stageIndex": 1
       },
       {
         "agentId": "builtin-investigator",
@@ -139,7 +180,7 @@
         "role": "action",
         "content": "Querying throttle exception distribution across services",
         "timestamp": 1749810060000,
-        "stageIndex": 0,
+        "stageIndex": 1,
         "metadata": { "toolName": "run_query" }
       },
       {
@@ -150,7 +191,7 @@
         "role": "observation",
         "content": "Found 5 services with elevated throttling. ProcessingService has 3,400 throttle events in the past hour.",
         "timestamp": 1749810120000,
-        "stageIndex": 0
+        "stageIndex": 1
       }
     ]
   },
