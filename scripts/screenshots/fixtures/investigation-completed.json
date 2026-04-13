@@ -1,30 +1,30 @@
 {
   "id": "1749790000000",
   "status": "completed",
-  "title": "Dead letter queue overflow — app-prd-eus-01",
+  "title": "Pipeline latency analysis — oi-tds-prd-eus2p-02",
   "createdBy": "dvreich",
-  "query": "Investigate DLQ overflow on app-prd-eus-01",
-  "stamp": "app-prd-eus-01",
-  "timeRange": "ago(24h)",
-  "issueType": "dlq",
+  "query": "Investigate pipeline latency — P95 at 7.2s, max reaching 10s. Canary performance validation.",
+  "stamp": "oi-tds-prd-eus2p-02",
+  "timeRange": "ago(1h)",
+  "issueType": "latency",
   "model": "claude-sonnet-4-20250514",
   "productId": "sample-product",
   "productName": "sample-product",
-  "userNotes": "## Root Cause Summary\n\nThe DLQ overflow was caused by an **upstream schema change** that introduced a `dynamic` column (`ExtendedProperties_v2`) which the data writer couldn't serialize.\n\n### Key Findings\n- Schema update deployed at **18:15 UTC** — spike began 15 min later\n- ~42,000 messages affected across 3 workspaces\n- Error type: `InvalidBlobContentException` (97.3% of DLQ messages)\n\n### Action Items\n- [x] Hotfix deployed to handle dynamic columns\n- [ ] Add schema validation pre-check to pipeline\n- [ ] Update runbook for schema change coordination",
+  "userNotes": "## Root Cause Summary\n\nPipeline latency dominated by **two Azure Storage queue polling cycles** consuming 76% of total latency.\n\n### Key Findings\n- GDS Queue Wait: **1,886ms avg** (37% of total)\n- Streaming Queue Wait: **1,590ms avg** (31% of total)\n- P50 = 5,165ms, P95 = 7,226ms, Max = 9,879ms\n- 361K+ messages analyzed over 1 hour\n\n### Action Items\n- [ ] Reduce GDS queue polling interval (2s → 500ms)\n- [ ] Reduce streaming queue polling interval (1.5s → 500ms)\n- [ ] Reduce TableAggregation batching window",
   "thoughtCount": 12,
   "contestCount": 0,
   "thoughts": [
-    "Starting investigation into DLQ overflow on `app-prd-eus-01`. Let me check the DLQ message rate over the past 24 hours.",
+    "Starting investigation into pipeline latency on `oi-tds-prd-eus2p-02`. Let me query the end-to-end pipeline latency distribution from KustoIngestionService traces.",
     {
-      "content": "The DLQ message rate spiked dramatically at 18:30 UTC yesterday — from the baseline of ~50 messages/hour to **4,200 messages/hour**. This is a 84x increase. Let me check which error types are causing messages to be dead-lettered.",
+      "content": "The pipeline latency is **extremely stable** — P50 = 5,165ms, P95 = 7,226ms, Max = 9,879ms across 361K+ messages. This is steady-state behavior, not a spike. Let me break down latency per service using LagMetricMessageProcessor.",
       "type": "thought"
     },
     {
-      "content": "The errors are almost exclusively `InvalidBlobContentException` (97.3%). The exception details reference a type mismatch: the pipeline tried to serialize a `dynamic` column (`ExtendedProperties_v2`) as a primitive string.\n\nThis looks like a schema change in the upstream telemetry. Let me check when this column first appeared.",
+      "content": "Per-service lag metrics reveal the bottleneck. Cumulative lag at each service:\n- TeleductDriverService: 1,893ms (37%)\n- StreamingDriverService: 3,879ms (+1,986ms, 39%)\n- DestinationResolver: 3,888ms (+9ms)\n- TransformationService: 3,960ms (+72ms)\n- TableAggregation: 4,196ms (+236ms)\n- KustoIngestion: 4,929ms (+733ms)\n\n**76% of latency is in queue wait times**, not processing.",
       "type": "thought"
     },
     {
-      "content": "Confirmed: The `ExtendedProperties_v2` column was introduced in a upstream telemetry schema update deployed at 18:15 UTC — 15 minutes before the DLQ spike began. The data writer doesn't handle `dynamic` type columns, so every message with this column fails serialization.\n\n**Impact Assessment:**\n- ~42,000 messages moved to DLQ over 10 hours\n- Affected tables: `SecurityEvent`, `CommonSecurityLog`\n- 3 workspaces experienced delayed ingestion (~2 hours)",
+      "content": "Confirmed via EventTelemetry GdsMessageTrackingEvent: GDS queue wait = **1,886ms avg** (P50: 1,868ms). Streaming queue wait = **1,590ms avg** (P50: 1,478ms). These two queue hops alone account for 3,476ms — 68% of total latency.\n\n**Root Cause:** Structural pipeline latency from Azure Storage queue polling intervals, not a degradation or incident.",
       "type": "thought"
     }
   ],
@@ -33,23 +33,31 @@
       "type": "tool_use",
       "name": "run_query",
       "input": {
-        "query": "ServiceMetrics\n| where Stamp == 'app-prd-eus-01'\n| where MetricName == 'DLQMessageCount'\n| summarize MessageCount=sum(Value) by bin(TimeGenerated, 1h)\n| order by TimeGenerated desc"
+        "query": "TraceTelemetry\n| where ApplicationName contains 'oi-tds-prd-eus2p-02'\n| where message startswith '[KustoMessageProcessor] The pipeline latency'\n| parse message with * 'PipelineLatencyMs:' latencyMs:real ','\n| summarize Avg=avg(latencyMs), P50=percentile(latencyMs,50), P95=percentile(latencyMs,95), Max=max(latencyMs), Count=count()"
       },
-      "result": "| TimeGenerated           | MessageCount |\n|-------------------------|--------------|\n| 2025-06-13T04:00:00Z    | 4200         |\n| 2025-06-13T03:00:00Z    | 4150         |\n| 2025-06-13T02:00:00Z    | 4100         |\n| 2025-06-13T01:00:00Z    | 4180         |\n| 2025-06-13T00:00:00Z    | 4050         |\n| 2025-06-12T23:00:00Z    | 3900         |\n| 2025-06-12T22:00:00Z    | 3200         |\n| 2025-06-12T21:00:00Z    | 2800         |\n| 2025-06-12T20:00:00Z    | 1200         |\n| 2025-06-12T19:00:00Z    | 820          |\n| 2025-06-12T18:30:00Z    | 420          |\n| 2025-06-12T18:00:00Z    | 48           |"
+      "result": "| Avg       | P50       | P95       | Max        | Count   |\n|-----------|-----------|-----------|------------|---------|\\n| 5,139.9   | 5,164.5   | 7,226.1   | 9,879.4    | 361,161 |"
     },
     {
       "type": "tool_use",
       "name": "run_query",
       "input": {
-        "query": "ServiceTraces\n| where Stamp == 'app-prd-eus-01'\n| where Level == 'Error'\n| where TimeGenerated > ago(24h)\n| where Message has 'DLQ' or Message has 'dead letter'\n| summarize count() by ErrorType=extract('Exception: (\\\\w+)', 1, Message)"
+        "query": "EventTelemetry\n| where ApplicationName contains 'oi-tds-prd-eus2p-02'\n| where name == 'GdsMessageTrackingEvent'\n| extend QueueWaitMs = datetime_diff('millisecond', todatetime(QueueDequeueTime), todatetime(QueueEnqueueTime))\n| summarize Avg=avg(QueueWaitMs), P50=percentile(QueueWaitMs,50), P95=percentile(QueueWaitMs,95), Count=count()"
       },
-      "result": "| ErrorType                    | count_ |\n|------------------------------|--------|\n| InvalidBlobContentException  | 40890  |\n| BlobNotFoundException        | 820    |\n| TimeoutException             | 290    |"
+      "result": "| Avg       | P50    | P95    | Count   |\n|-----------|--------|--------|---------|\\n| 1,886.2   | 1,868  | 3,355  | 862,985 |"
+    },
+    {
+      "type": "tool_use",
+      "name": "run_query",
+      "input": {
+        "query": "TraceTelemetry\n| where ApplicationName contains 'oi-tds-prd-eus2p-02'\n| where message has 'MdmTeleductLagMetric'\n| summarize AvgLag=avg(LagMs), P50=percentile(LagMs,50) by ServiceName\n| order by AvgLag asc"
+      },
+      "result": "| ServiceName                | AvgLag  | P50     |\n|----------------------------|---------|---------|\n| TeleductDriverService      | 1,893   | 1,859   |\n| StreamingDriverService     | 3,879   | 3,856   |\n| DestinationResolverService | 3,888   | 3,870   |\n| TransformationService      | 3,960   | 3,941   |\n| TableAggregationService    | 4,196   | 4,178   |\n| KustoIngestionService      | 4,929   | 4,932   |"
     }
   ],
   "logs": [
     "Investigation started",
     "MCP tools connected",
-    "Executing 12 queries...",
+    "Executing 14 queries...",
     "Investigation completed — report generated"
   ],
   "pipeline": {
@@ -60,7 +68,7 @@
         "color": "#0ea5e9",
         "icon": "📋",
         "status": "completed",
-        "report": "Investigation plan: 1) Query DLQ message rates over 24h, 2) Identify dominant error types, 3) Correlate with upstream changes, 4) Assess workspace impact.",
+        "report": "Investigation plan: 1) Query pipeline latency distribution from KustoIngestionService, 2) Break down per-service lag using MdmTeleductLagMetric, 3) Analyze queue wait times via EventTelemetry, 4) Trace individual high-latency messages, 5) Check for errors/config changes.",
         "retryCount": 0,
         "startedAt": 1749789800000,
         "completedAt": 1749789900000
@@ -71,7 +79,7 @@
         "color": "#10b981",
         "icon": "🤖",
         "status": "completed",
-        "report": "Investigation Report: Schema change in ExtendedProperties_v2 column caused DLQ overflow at 18:30 UTC. ~42,000 messages affected.",
+        "report": "Investigation Report: Pipeline latency dominated by two Azure Storage queue polling cycles. GDS queue wait 1,886ms (37%) + Streaming queue wait 1,590ms (31%) = 76% of total latency. P50=5,165ms across 361K messages.",
         "retryCount": 0,
         "startedAt": 1749790000000,
         "completedAt": 1749790120000
@@ -83,7 +91,7 @@
         "icon": "😈",
         "status": "completed",
         "verdict": "Findings hold up under scrutiny",
-        "feedback": "Challenged the single-cause hypothesis — confirmed no concurrent deployments or config changes contributed. The 15-min propagation lag is consistent with pipeline architecture.",
+        "feedback": "Challenged the queue-polling hypothesis with alternative explanations (network latency, thread starvation, GC pauses). Queue wait times are provably consistent at ~1.9s across all 12 time buckets — this is structural, not transient.",
         "retryCount": 0,
         "startedAt": 1749790120000,
         "completedAt": 1749790180000
@@ -95,7 +103,7 @@
         "icon": "🛡️",
         "status": "completed",
         "verdict": "Findings validated with high confidence",
-        "feedback": "Root cause confirmed — schema change at 18:15 correlates with DLQ spike at 18:30. Evidence is comprehensive.",
+        "feedback": "Root cause confirmed — queue polling intervals mathematically account for 76% of observed latency. Cross-validated with 2 individual message traces showing identical patterns.",
         "retryCount": 0,
         "startedAt": 1749790180000,
         "completedAt": 1749790300000
@@ -106,7 +114,7 @@
         "color": "#14b8a6",
         "icon": "📊",
         "status": "completed",
-        "report": "Executive summary: Upstream schema change introduced dynamic column causing 42K DLQ messages. Root cause confirmed with high confidence. Three remediation actions proposed.",
+        "report": "Executive summary: Pipeline latency on oi-tds-prd-eus2p-02 caused by structural queue polling delays. Two queue hops consume 76% of P50 latency (5.1s). Three actionable recommendations to reduce P50 to ~2.5s.",
         "retryCount": 0,
         "startedAt": 1749790300000,
         "completedAt": 1749790380000
@@ -117,7 +125,7 @@
         "color": "#8b5cf6",
         "icon": "✨",
         "status": "completed",
-        "report": "Knowledge base updated with 2 proposed changes: DLQ troubleshooting guide and schema evolution runbook.",
+        "report": "Knowledge base updated with 3 proposed changes: queue polling metrics as Phase 0, per-service lag template, and latency waterfall methodology.",
         "retryCount": 0,
         "startedAt": 1749790380000,
         "completedAt": 1749790480000
@@ -143,7 +151,7 @@
         "agentColor": "#0ea5e9",
         "agentIcon": "📋",
         "role": "thought",
-        "content": "Analyzing scope: DLQ overflow on app-prd-eus-01, 24h window. Will create structured investigation plan.",
+        "content": "Analyzing scope: Pipeline latency on oi-tds-prd-eus2p-02, 1h window. Will create structured investigation plan using KQL queries against TraceTelemetry and EventTelemetry.",
         "timestamp": 1749789800000,
         "stageIndex": 0
       },
@@ -153,7 +161,7 @@
         "agentColor": "#0ea5e9",
         "agentIcon": "📋",
         "role": "report",
-        "content": "Investigation plan: 1) Query DLQ rates, 2) Identify error types, 3) Correlate upstream changes, 4) Assess workspace impact.",
+        "content": "Investigation plan: 1) Query pipeline latency distribution, 2) Per-service lag breakdown, 3) Queue wait analysis via EventTelemetry, 4) Individual message traces, 5) Error/config check.",
         "timestamp": 1749789900000,
         "stageIndex": 0
       },
@@ -163,7 +171,7 @@
         "agentColor": "#10b981",
         "agentIcon": "🤖",
         "role": "thought",
-        "content": "Following plan — starting with DLQ message rates over 24h window on app-prd-eus-01.",
+        "content": "Following plan — querying [KustoMessageProcessor] pipeline latency from TraceTelemetry on oi-tds-prd-eus2p-02.",
         "timestamp": 1749790000000,
         "stageIndex": 1
       },
@@ -173,7 +181,7 @@
         "agentColor": "#10b981",
         "agentIcon": "🤖",
         "role": "action",
-        "content": "Querying DLQ message rate and error distribution across the 24h window",
+        "content": "Querying pipeline latency distribution and per-service lag metrics via MdmTeleductLagMetric",
         "timestamp": 1749790030000,
         "stageIndex": 1,
         "metadata": { "toolName": "run_query" }
@@ -184,7 +192,7 @@
         "agentColor": "#10b981",
         "agentIcon": "🤖",
         "role": "report",
-        "content": "Schema change in ExtendedProperties_v2 column caused DLQ overflow. 42K messages affected across SecurityEvent and CommonSecurityLog tables.",
+        "content": "Pipeline latency dominated by two queue polling cycles. GDS queue: 1,886ms avg (37%). Streaming queue: 1,590ms avg (31%). Combined = 76% of P50 latency.",
         "timestamp": 1749790100000,
         "stageIndex": 1
       },
@@ -194,7 +202,7 @@
         "agentColor": "#10b981",
         "agentIcon": "🤖",
         "role": "handoff",
-        "content": "Handing off to Devil's Advocate for adversarial review",
+        "content": "Handing off to Devil's Advocate for adversarial review of queue-polling hypothesis",
         "timestamp": 1749790120000,
         "stageIndex": 1
       },
@@ -204,7 +212,7 @@
         "agentColor": "#ef4444",
         "agentIcon": "😈",
         "role": "thought",
-        "content": "Challenging the single-cause hypothesis. Were there concurrent deployments or config changes?",
+        "content": "Challenging the queue-polling hypothesis. Could network latency, thread starvation, or GC pauses explain the 1.9s gaps?",
         "timestamp": 1749790125000,
         "stageIndex": 2
       },
@@ -214,7 +222,7 @@
         "agentColor": "#ef4444",
         "agentIcon": "😈",
         "role": "verdict",
-        "content": "✅ Approved — no concurrent changes found. The 15-min propagation lag is consistent with pipeline architecture.",
+        "content": "✅ Approved — queue wait times are consistent across all 12 time buckets (1,850-1,918ms). This is structural, not a transient issue or artifact.",
         "timestamp": 1749790180000,
         "stageIndex": 2
       },
@@ -224,7 +232,7 @@
         "agentColor": "#f59e0b",
         "agentIcon": "🛡️",
         "role": "thought",
-        "content": "Reviewing investigation findings. Checking evidence quality and root cause correlation.",
+        "content": "Reviewing investigation findings. Checking evidence quality — verifying per-service lag metrics against individual message traces.",
         "timestamp": 1749790185000,
         "stageIndex": 3
       },
@@ -234,7 +242,7 @@
         "agentColor": "#f59e0b",
         "agentIcon": "🛡️",
         "role": "observation",
-        "content": "Schema change timestamp (18:15) correlates with DLQ spike (18:30). 15-min lag matches ingestion pipeline propagation time.",
+        "content": "Cross-validated: 2 individual message traces (9,879ms and 9,872ms) show identical queue-dominated patterns. Mathematical proof: P50 GDS wait + P50 Streaming wait = 3,346ms ≈ 65% of P50 total (5,165ms).",
         "timestamp": 1749790240000,
         "stageIndex": 3
       },
@@ -244,7 +252,7 @@
         "agentColor": "#f59e0b",
         "agentIcon": "🛡️",
         "role": "verdict",
-        "content": "✅ Approved — findings validated with high confidence. Error correlation 97.3% InvalidBlobContentException.",
+        "content": "✅ Approved — findings validated with high confidence. Queue wait times mathematically account for 76% of observed latency.",
         "timestamp": 1749790300000,
         "stageIndex": 3
       },
@@ -254,7 +262,7 @@
         "agentColor": "#14b8a6",
         "agentIcon": "📊",
         "role": "report",
-        "content": "Executive summary: Upstream schema change introduced dynamic column causing 42K DLQ messages. Root cause confirmed with high confidence. Three remediation actions proposed.",
+        "content": "Executive summary: Pipeline latency on oi-tds-prd-eus2p-02 caused by structural queue polling delays. Two queue hops consume 76% of latency. Three recommendations to reduce P50 from 5.1s to ~2.5s.",
         "timestamp": 1749790380000,
         "stageIndex": 4
       },
@@ -264,7 +272,7 @@
         "agentColor": "#8b5cf6",
         "agentIcon": "✨",
         "role": "thought",
-        "content": "Analyzing investigation against knowledge base. Looking for gaps in troubleshooting guides.",
+        "content": "Analyzing investigation against knowledge base. Looking for gaps in pipeline latency investigation methodology.",
         "timestamp": 1749790385000,
         "stageIndex": 5
       },
@@ -274,12 +282,12 @@
         "agentColor": "#8b5cf6",
         "agentIcon": "✨",
         "role": "action",
-        "content": "Proposing 2 knowledge base changes: DLQ troubleshooting guide update and new schema evolution runbook",
+        "content": "Proposing 3 knowledge base changes: queue polling as Phase 0, per-service lag metrics template, and latency waterfall methodology",
         "timestamp": 1749790440000,
         "stageIndex": 5,
-        "metadata": { "proposalCount": 2 }
+        "metadata": { "proposalCount": 3 }
       }
     ]
   },
-  "finalReport": "# Dead Letter Queue Overflow Investigation\n\n## Summary\n\nThe DLQ on `app-prd-eus-01` experienced a critical overflow event starting at **2025-06-12 18:30 UTC**, with the message rate increasing from the normal baseline of ~50 messages/hour to **4,200 messages/hour** — an **84x increase**.\n\n## Root Cause\n\nA schema change in the upstream telemetry (deployed at 18:15 UTC) introduced a new `dynamic` column (`ExtendedProperties_v2`) that the data writer attempted to serialize as a primitive string. This caused `InvalidBlobContentException` for every affected message.\n\n### Timeline\n\n| Time (UTC) | Event |\n|---|---|\n| 18:15 | Upstream schema update deployed (adds `ExtendedProperties_v2`) |\n| 18:30 | First `InvalidBlobContentException` errors appear |\n| 19:00 | DLQ rate reaches 820 msg/hr |\n| 20:00 | DLQ rate reaches 1,200 msg/hr |\n| 22:00 | DLQ rate stabilizes at ~4,200 msg/hr |\n\n## Impact\n\n- **Total Affected Messages**: ~42,000 messages moved to DLQ over 10 hours\n- **Data Tables Impacted**: `SecurityEvent`, `CommonSecurityLog`\n- **Customer Impact**: 3 workspaces experienced delayed ingestion (~2 hours)\n- **Error Breakdown**:\n  - `InvalidBlobContentException`: 40,890 (97.3%)\n  - `BlobNotFoundException`: 820 (2.0%)\n  - `TimeoutException`: 290 (0.7%)\n\n## Evidence\n\n### Query: DLQ Message Rate\n```\nServiceMetrics\n| where Stamp == 'app-prd-eus-01'\n| where MetricName == 'DLQMessageCount'\n| summarize sum(Value) by bin(TimeGenerated, 1h)\n| order by TimeGenerated desc\n```\n\n### Query: Error Distribution\n```\nServiceTraces\n| where Stamp == 'app-prd-eus-01'\n| where Level == 'Error'\n| where Message has 'InvalidBlobContent'\n| summarize count() by ErrorType = extract('Exception: (\\\\w+)', 1, Message)\n```\n\n### Query: Schema Change Detection\n```\nSchemaChanges\n| where TimeGenerated between(datetime(2025-06-12T17:00:00Z) .. datetime(2025-06-12T19:00:00Z))\n| where ColumnName == 'ExtendedProperties_v2'\n| project TimeGenerated, TableName, ColumnName, ColumnType, ChangeType\n```\n\n## Recommendations\n\n1. **Immediate**: Deploy data writer fix to handle `dynamic` column types, then replay DLQ messages\n2. **Short-term**: Add `dynamic` type detection and graceful fallback (serialize as JSON string) to the serializer\n3. **Long-term**: Implement schema evolution detection in the pipeline intake, with automated alerts when new column types appear\n4. **Monitoring**: Add metric for DLQ growth rate with auto-alerting when rate exceeds 5x baseline"
+  "finalReport": "# Pipeline Latency Investigation — oi-tds-prd-eus2p-02\n\n## Summary\n\nPipeline latency on `oi-tds-prd-eus2p-02` is dominated by **two Azure Storage queue polling cycles** that consume **76% of total end-to-end latency**. P50 = 5,165ms, P95 = 7,226ms, Max = 9,879ms across 361K+ messages.\n\n## Root Cause\n\nMessages spend most of their pipeline lifetime **waiting in queues to be polled**, not being processed. Two queue hops introduce a combined **3,476ms average wait**:\n\n| Queue | Avg Wait | P50 | P95 | % of Total |\n|---|---|---|---|---|\n| GDS Queue → TeleductDriver | 1,886ms | 1,868ms | 3,355ms | 37% |\n| Streaming Queue → StreamingDriver | 1,590ms | 1,478ms | 3,108ms | 31% |\n| **Combined Queue Wait** | **3,476ms** | | | **68%** |\n\n### Complete Latency Waterfall\n\n```\n0s        1s        2s        3s        4s        5s\n|---------|---------|---------|---------|---------|\n[===GDS Queue Wait===]                                 ~1,886ms (37%)\n                     [=TeleductDriver=]                ~750ms (15%)\n                              [==Streaming Queue==]    ~1,590ms (31%)\n                                        [Services]    ~914ms (17%)\n                                                      ══════════\n                                                      ~5,140ms total\n```\n\n## Per-Service Breakdown\n\n| # | Service | Cumulative Lag | Incremental | % |\n|---|---|---|---|---|\n| 1 | TeleductDriverService | 1,893ms | 1,893ms | 37% |\n| 2 | StreamingDriverService | 3,879ms | 1,986ms | 39% |\n| 3 | DestinationResolverService | 3,888ms | 9ms | <1% |\n| 4 | TransformationService | 3,960ms | 72ms | 1% |\n| 5 | TableAggregationService | 4,196ms | 236ms | 5% |\n| 6 | KustoIngestionService | 4,929ms | 733ms | 14% |\n\n## Evidence\n\n### Query: Pipeline Latency Distribution\n```kql\nTraceTelemetry\n| where ApplicationName contains 'oi-tds-prd-eus2p-02'\n| where message startswith '[KustoMessageProcessor] The pipeline latency'\n| parse message with * 'PipelineLatencyMs:' latencyMs:real ','\n| summarize Avg=avg(latencyMs), P50=percentile(latencyMs,50),\n    P95=percentile(latencyMs,95), Max=max(latencyMs), Count=count()\n```\n\n### Query: GDS Queue Wait Time\n```kql\nEventTelemetry\n| where ApplicationName contains 'oi-tds-prd-eus2p-02'\n| where name == 'GdsMessageTrackingEvent'\n| extend QueueWaitMs = datetime_diff('millisecond',\n    todatetime(QueueDequeueTime), todatetime(QueueEnqueueTime))\n| summarize Avg=avg(QueueWaitMs), P50=percentile(QueueWaitMs,50),\n    P95=percentile(QueueWaitMs,95), Count=count()\n```\n\n### Query: Per-Service Lag Metrics\n```kql\nTraceTelemetry\n| where ApplicationName contains 'oi-tds-prd-eus2p-02'\n| where message has '[LagMetricMessageProcessor]'\n| parse message with * 'LagValue: ' LagValue:string ','\n| extend LagMs = totimespan(LagValue) / 1ms\n| summarize AvgLag=avg(LagMs), P50=percentile(LagMs,50) by ServiceName\n```\n\n## Recommendations\n\n1. **P0 — Reduce GDS Queue Polling Interval** `[code]`: Change from ~2s to 500ms. Expected savings: ~900ms avg per message\n2. **P1 — Reduce Streaming Queue Polling Interval** `[code]`: Change from ~1.5s to 500ms. Expected savings: ~700ms avg per message\n3. **P2 — Reduce Table Aggregation Batching Window** `[code]`: Reduce batching window from 500ms to 200ms. Expected savings: ~200ms avg\n4. **Monitoring**: Add queue wait time alerting when P50 exceeds 1s on either queue hop"
 }

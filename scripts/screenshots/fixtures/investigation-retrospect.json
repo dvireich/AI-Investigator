@@ -1,12 +1,12 @@
 {
   "id": "1749780000000",
   "status": "completed",
-  "title": "Ingestion errors — svc-prd-neu-01",
+  "title": "Message processing errors — oi-tds-prd-neu-01",
   "createdBy": "scheduler",
-  "query": "Investigate ingestion failures on svc-prd-neu-01",
-  "stamp": "svc-prd-neu-01",
+  "query": "Investigate processing failures on oi-tds-prd-neu-01",
+  "stamp": "oi-tds-prd-neu-01",
   "timeRange": "ago(3d)",
-  "issueType": "ingestion-errors",
+  "issueType": "processing-errors",
   "model": "claude-sonnet-4-20250514",
   "productId": "sample-product",
   "productName": "sample-product",
@@ -14,7 +14,7 @@
   "thoughts": [],
   "actions": [],
   "logs": ["Investigation started", "Investigation completed"],
-  "finalReport": "# Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `svc-prd-neu-01` peaked at 2,800 failures/hour due to cluster capacity throttling.\n\n## Root Cause\n\nThe target data cluster `cluster-prd-neu-01` hit its ingestion capacity limit (95% utilization) during a bulk backfill operation from another pipeline.\n\n## Recommendations\n\n1. Coordinate bulk operations with cluster capacity planning\n2. Implement adaptive retry with exponential backoff",
+  "finalReport": "# Message Processing Error Investigation\n\n## Summary\n\nProcessing failures on `oi-tds-prd-neu-01` peaked at 2,800 failures/hour due to queue overflow from upstream burst traffic.\n\n## Root Cause\n\nThe target pipeline queue hit its capacity limit (95% utilization) during a burst event from a TeleductDriver upstream reconnect storm.\n\n## Recommendations\n\n1. Coordinate burst handling with pipeline queue capacity planning\n2. Implement adaptive retry with exponential backoff",
   "pipeline": {
     "stages": [
       { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749779800000, "completedAt": 1749779900000 },
@@ -56,60 +56,60 @@
       },
       {
         "role": "tool-call",
-        "content": "Reading file: docs/investigations/ingestion-error-investigation.md",
+        "content": "Reading file: docs/investigations/pipeline-error-investigation.md",
         "toolName": "read_file"
       },
       {
         "role": "tool-result",
-        "content": "Successfully read ingestion error investigation guide (234 lines)"
+        "content": "Successfully read pipeline error investigation guide (234 lines)"
       },
       {
         "role": "tool-call",
-        "content": "Reading file: docs/investigations/investigation-methodology.md",
+        "content": "Reading file: docs/investigations/pipeline-investigation-methodology.md",
         "toolName": "read_file"
       },
       {
         "role": "tool-result",
-        "content": "Successfully read investigation methodology (186 lines)"
+        "content": "Successfully read pipeline investigation methodology (186 lines)"
       },
       {
         "role": "assistant",
-        "content": "After analyzing the investigation transcript against the existing knowledge base, I've identified **3 areas for improvement**:\n\n### 1. Missing Capacity Throttling Guidance\nThe ingestion error investigation guide (`ingestion-error-investigation.md`) doesn't mention checking cluster utilization as an initial diagnostic step. The agent spent 4 steps discovering this — a hint in the guide would have accelerated the investigation.\n\n### 2. New Error Pattern Not Documented\nThe `IngestionCapacityExceeded` error type isn't listed in the known errors table. This investigation discovered it's the primary error code when the cluster hits capacity limits.\n\n### 3. Missing Cross-Pipeline Coordination Runbook\nThe root cause involved a bulk backfill from *another* pipeline consuming cluster capacity. There's no documentation on how to coordinate bulk operations across pipelines to prevent this.\n\nI'll now generate concrete file change proposals for each improvement."
+        "content": "After analyzing the investigation transcript against the existing knowledge base, I've identified **3 areas for improvement**:\n\n### 1. Missing Queue Capacity Guidance\nThe pipeline error investigation guide (`pipeline-error-investigation.md`) doesn't mention checking queue capacity as an initial diagnostic step. The agent spent 4 steps discovering this — a hint in the guide would have accelerated the investigation.\n\n### 2. New Error Pattern Not Documented\nThe `QueueOverflowException` error type isn't listed in the known errors table. This investigation discovered it's the primary error code when the pipeline queue hits capacity limits.\n\n### 3. Missing Burst Traffic Coordination Runbook\nThe root cause involved an upstream TeleductDriver reconnect storm consuming queue capacity. There's no documentation on how to handle burst traffic from upstream pipeline stages.\n\nI'll now generate concrete file change proposals for each improvement."
       }
     ],
     "proposals": [
       {
         "id": "prop-1",
         "type": "edit",
-        "filePath": "docs/investigations/ingestion-error-investigation.md",
-        "description": "Add cluster capacity check as the first diagnostic step — investigators should verify cluster health before diving into individual error analysis",
-        "content": "## Step 0: Check Cluster Capacity\n\nBefore investigating individual ingestion errors, verify the target cluster isn't experiencing capacity throttling:\n\n```\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining\n```\n\nIf `Remaining` is near zero, the errors may be caused by cluster-level throttling rather than pipeline issues. Check for concurrent bulk operations:\n\n```\n.show operations\n| where StartedOn > ago(6h)\n| where OperationKind == 'DataIngestPull'\n| summarize count() by Database, Table\n| order by count_ desc\n```",
+        "filePath": "docs/investigations/pipeline-error-investigation.md",
+        "description": "Add queue capacity check as the first diagnostic step — investigators should verify pipeline queue health before diving into individual error analysis",
+        "content": "## Step 0: Check Queue Capacity\n\nBefore investigating individual processing errors, verify the pipeline queue isn't experiencing capacity throttling:\n\n```\nEventTelemetry\n| where Stamp == '<stamp>'\n| where TimeGenerated > ago(2h)\n| where Name == 'QueueCapacityMetric'\n| summarize AvgUtil=avg(Value), MaxUtil=max(Value) by bin(TimeGenerated, 5m)\n```\n\nIf `MaxUtil` exceeds 90%, the errors may be caused by queue-level overflow rather than processing issues. Check for upstream burst events:\n\n```\nTraceTelemetry\n| where Stamp == '<stamp>'\n| where TimeGenerated > ago(6h)\n| where Message has 'reconnect' or Message has 'burst'\n| summarize count() by bin(TimeGenerated, 5m), ServiceName\n| order by count_ desc\n```",
         "originalContent": "## Step 1: Identify Error Pattern\n\nStart by checking the error distribution...",
         "status": "pending"
       },
       {
         "id": "prop-2",
         "type": "edit",
-        "filePath": "docs/investigations/ingestion-error-investigation.md",
-        "description": "Add IngestionCapacityExceeded to the known error types table with diagnostic steps",
-        "content": "| Error Type | Description | Diagnostic Steps |\n|---|---|---|\n| IngestionCapacityExceeded | Cluster at ingestion capacity limit | Check `Check cluster capacity`, coordinate with platform team, verify no concurrent bulk operations |",
+        "filePath": "docs/investigations/pipeline-error-investigation.md",
+        "description": "Add QueueOverflowException to the known error types table with diagnostic steps",
+        "content": "| Error Type | Description | Diagnostic Steps |\n|---|---|---|\n| QueueOverflowException | Pipeline queue at capacity | Check queue capacity metrics, coordinate with upstream pipeline, verify no burst reconnect events |",
         "originalContent": "| Error Type | Description | Diagnostic Steps |",
         "status": "approved"
       },
       {
         "id": "prop-3",
         "type": "create",
-        "filePath": "docs/investigations/bulk-operation-coordination.md",
-        "description": "Create new runbook documenting how to coordinate bulk ingestion operations across pipelines to prevent capacity conflicts",
-        "content": "# Bulk Operation Coordination Guide\n\n## Overview\n\nWhen running bulk data operations (backfills, migrations, replays), coordinate with the platform team to prevent capacity throttling on shared database clusters.\n\n## Pre-Operation Checklist\n\n1. Check current cluster utilization via `Check cluster capacity`\n2. Verify no other bulk operations are scheduled\n3. Schedule during off-peak hours (weekends, 02:00-06:00 UTC)\n4. Set ingestion rate limits to avoid exceeding 70% cluster capacity\n\n## Monitoring During Operations\n\n```sql\n.show capacity\n| where Resource == 'Ingestions'\n-- Filter for ingestion resources\n```\n\n## Escalation\n\nIf capacity exceeds 90%, pause the bulk operation and notify the pipeline on-call team.",
+        "filePath": "docs/investigations/pipeline-burst-coordination.md",
+        "description": "Create new runbook documenting how to handle burst traffic from upstream pipeline stages to prevent queue overflow",
+        "content": "# Pipeline Burst Traffic Coordination Guide\n\n## Overview\n\nWhen upstream pipeline stages experience reconnect storms or burst events, downstream queues can overflow. This guide documents preventive measures and response procedures.\n\n## Pre-Burst Checklist\n\n1. Check current queue utilization via capacity metrics\n2. Verify upstream reconnect rate is within normal bounds\n3. Configure rate limiting on TeleductDriver output\n4. Set queue depth alerts at 70% capacity threshold\n\n## Monitoring During Events\n\n```sql\nEventTelemetry\n| where Name == 'QueueCapacityMetric'\n| where TimeGenerated > ago(1h)\n| summarize MaxUtil=max(Value) by bin(TimeGenerated, 1m)\n```\n\n## Escalation\n\nIf queue utilization exceeds 90%, throttle upstream TeleductDriver connections and notify the pipeline on-call team.",
         "status": "pending"
       },
       {
         "id": "prop-4",
         "type": "edit",
-        "filePath": "docs/investigations/investigation-methodology.md",
-        "description": "Add cluster health check to the Phase 1 checklist in the investigation methodology",
-        "content": "### Phase 1: Initial Assessment\n\n- [ ] Check cluster capacity and utilization\n- [ ] Review monitoring dashboard for the affected stamp",
+        "filePath": "docs/investigations/pipeline-investigation-methodology.md",
+        "description": "Add queue health check to the Phase 1 checklist in the pipeline investigation methodology",
+        "content": "### Phase 1: Initial Assessment\n\n- [ ] Check pipeline queue capacity and utilization\n- [ ] Review monitoring dashboard for the affected stamp",
         "originalContent": "### Phase 1: Initial Assessment\n\n- [ ] Review monitoring dashboard for the affected stamp",
         "status": "rejected"
       }

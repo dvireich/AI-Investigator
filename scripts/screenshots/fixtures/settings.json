@@ -1,10 +1,11 @@
 {
   "settings": {
-    "model": "claude-sonnet-4-20250514",
+    "model": "claude-opus-4.6",
     "maxSteps": 50,
     "investigationsPath": "C:\\Tools\\AI-Investigator\\investigations"
   },
   "models": [
+    "claude-opus-4.6",
     "claude-sonnet-4-20250514",
     "gpt-4o",
     "gpt-4o-mini",

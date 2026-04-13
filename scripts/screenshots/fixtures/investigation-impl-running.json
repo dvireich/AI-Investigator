@@ -1,0 +1,55 @@
+{
+  "id": "1749790000000",
+  "status": "completed",
+  "title": "Pipeline latency analysis — oi-tds-prd-eus2p-02",
+  "createdBy": "dvreich",
+  "query": "Investigate pipeline latency on oi-tds-prd-eus2p-02",
+  "stamp": "oi-tds-prd-eus2p-02",
+  "timeRange": "ago(24h)",
+  "issueType": "latency",
+  "model": "claude-sonnet-4-20250514",
+  "productId": "sample-product",
+  "productName": "sample-product",
+  "implementationRunning": true,
+  "thoughtCount": 12,
+  "contestCount": 0,
+  "thoughts": [],
+  "actions": [],
+  "logs": ["Investigation started", "Investigation completed"],
+  "finalReport": "# Pipeline Latency Analysis — oi-tds-prd-eus2p-02\n\n## Summary\n\nEnd-to-end pipeline latency on `oi-tds-prd-eus2p-02` is elevated (P50 = 5,165 ms, P95 = 7,226 ms) due to **queue polling intervals** in GDS and Streaming stages.\n\n## Root Cause\n\nGDS Queue Wait accounts for 1,886 ms (37%) and Streaming Queue Wait adds 1,590 ms (31%) — together 76% of total latency. Both are caused by conservative polling intervals inherited from a config regression.\n\n## Recommendations\n\n1. Reduce GDS queue polling interval (2s → 500ms)\n2. Reduce Streaming queue polling interval (1.5s → 500ms)\n3. Reduce TableAggregation batching window (500ms → 200ms)",
+  "pipeline": {
+    "stages": [
+      { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749789800000, "completedAt": 1749789900000 },
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "completed", "retryCount": 0, "startedAt": 1749790000000, "completedAt": 1749790120000 },
+      { "agentId": "builtin-devils-advocate", "agentName": "Devil's Advocate", "color": "#ef4444", "icon": "😈", "status": "completed", "retryCount": 0, "startedAt": 1749790120000, "completedAt": 1749790180000 },
+      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "completed", "verdict": "Findings validated", "retryCount": 0, "startedAt": 1749790180000, "completedAt": 1749790300000 },
+      { "agentId": "builtin-summarizer", "agentName": "Summarizer", "color": "#14b8a6", "icon": "📊", "status": "completed", "retryCount": 0, "startedAt": 1749790300000, "completedAt": 1749790360000 },
+      { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "completed", "retryCount": 0, "startedAt": 1749790360000, "completedAt": 1749790480000 }
+    ],
+    "currentStageIndex": 5,
+    "definition": {
+      "id": "deep-investigation",
+      "name": "Deep Investigation",
+      "stages": [
+        { "agentId": "builtin-planner", "inputMode": "conversation" },
+        { "agentId": "builtin-investigator", "inputMode": "conversation" },
+        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
+        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+      ]
+    },
+    "conversationLog": []
+  },
+  "retrospect": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "[Implementation] Implementing recommendations: Reduce GDS queue polling interval from 2s to 500ms, Reduce Streaming queue polling interval from 1.5s to 500ms, Reduce TableAggregation batching window from 500ms to 200ms"
+      }
+    ],
+    "proposals": [],
+    "analysisComplete": false,
+    "completed": false
+  }
+}
