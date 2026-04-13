@@ -1,0 +1,88 @@
+{
+  "id": "1749790000000",
+  "status": "completed",
+  "title": "Pipeline latency analysis — oi-tds-prd-eus2p-02",
+  "createdBy": "dvreich",
+  "query": "Investigate pipeline latency on oi-tds-prd-eus2p-02",
+  "stamp": "oi-tds-prd-eus2p-02",
+  "timeRange": "ago(24h)",
+  "issueType": "latency",
+  "model": "claude-sonnet-4-20250514",
+  "productId": "sample-product",
+  "productName": "sample-product",
+  "implementationRunning": false,
+  "thoughtCount": 12,
+  "contestCount": 0,
+  "thoughts": [],
+  "actions": [],
+  "logs": ["Investigation started", "Investigation completed"],
+  "finalReport": "# Pipeline Latency Analysis — oi-tds-prd-eus2p-02\n\n## Summary\n\nEnd-to-end pipeline latency on `oi-tds-prd-eus2p-02` is elevated (P50 = 5,165 ms, P95 = 7,226 ms) due to **queue polling intervals** in GDS and Streaming stages.\n\n## Root Cause\n\nGDS Queue Wait accounts for 1,886 ms (37%) and Streaming Queue Wait adds 1,590 ms (31%) — together 76% of total latency. Both are caused by conservative polling intervals inherited from a config regression.\n\n## Recommendations\n\n1. Reduce GDS queue polling interval (2s → 500ms)\n2. Reduce Streaming queue polling interval (1.5s → 500ms)\n3. Reduce TableAggregation batching window (500ms → 200ms)",
+  "pipeline": {
+    "stages": [
+      { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749789800000, "completedAt": 1749789900000 },
+      { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "completed", "retryCount": 0, "startedAt": 1749790000000, "completedAt": 1749790120000 },
+      { "agentId": "builtin-devils-advocate", "agentName": "Devil's Advocate", "color": "#ef4444", "icon": "😈", "status": "completed", "retryCount": 0, "startedAt": 1749790120000, "completedAt": 1749790180000 },
+      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "completed", "verdict": "Findings validated", "retryCount": 0, "startedAt": 1749790180000, "completedAt": 1749790300000 },
+      { "agentId": "builtin-summarizer", "agentName": "Summarizer", "color": "#14b8a6", "icon": "📊", "status": "completed", "retryCount": 0, "startedAt": 1749790300000, "completedAt": 1749790360000 },
+      { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "completed", "retryCount": 0, "startedAt": 1749790360000, "completedAt": 1749790480000 }
+    ],
+    "currentStageIndex": 5,
+    "definition": {
+      "id": "deep-investigation",
+      "name": "Deep Investigation",
+      "stages": [
+        { "agentId": "builtin-planner", "inputMode": "conversation" },
+        { "agentId": "builtin-investigator", "inputMode": "conversation" },
+        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
+        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
+        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+      ]
+    },
+    "conversationLog": []
+  },
+  "retrospect": {
+    "messages": [
+      {
+        "role": "user",
+        "content": "[Implementation] Implementing recommendations: Reduce GDS queue polling interval from 2s to 500ms, Reduce Streaming queue polling interval from 1.5s to 500ms, Reduce TableAggregation batching window from 500ms to 200ms"
+      },
+      {
+        "role": "assistant",
+        "content": "I'll analyze the codebase and generate implementation proposals for the selected recommendations. Let me examine the relevant source files.\n\n### Analyzing:\n1. **GDS polling config** — locating queue polling interval in pipeline driver\n2. **Streaming polling config** — finding streaming queue configuration\n3. **Adaptive batching** — identifying TableAggregation batch window settings\n\nI've generated 3 code change proposals based on the selected recommendations.\n\nImplementation complete — 3 proposals generated. Review and approve the changes, then click Apply to write them to disk."
+      }
+    ],
+    "proposals": [
+      {
+        "id": "impl-prop-1",
+        "type": "create",
+        "filePath": "src/pipeline/gds-polling-config.ts",
+        "description": "New module: Configure GDS queue polling interval. Reduces from 2s to 500ms to cut GDS queue wait latency from ~1,886ms to ~250ms.",
+        "content": "import { PipelineConfig } from './types';\n\nexport interface GdsPollingOptions {\n  pollingIntervalMs: number;\n  maxBatchSize: number;\n  idleBackoffMs: number;\n}\n\nconst DEFAULT_POLLING_INTERVAL_MS = 2000; // Current: 2s (too slow)\nconst OPTIMIZED_POLLING_INTERVAL_MS = 500; // Target: 500ms\n\nexport function createGdsPollingConfig(\n  config: PipelineConfig\n): GdsPollingOptions {\n  const useOptimized = config.enableOptimizedPolling ?? true;\n\n  return {\n    pollingIntervalMs: useOptimized\n      ? OPTIMIZED_POLLING_INTERVAL_MS\n      : DEFAULT_POLLING_INTERVAL_MS,\n    maxBatchSize: config.gdsBatchSize ?? 100,\n    idleBackoffMs: useOptimized ? 1000 : 4000,\n  };\n}\n\nexport function validatePollingInterval(intervalMs: number): void {\n  if (intervalMs < 100) {\n    throw new Error(\n      `GDS polling interval ${intervalMs}ms is below minimum (100ms). ` +\n      `This may cause excessive CPU usage on the queue processor.`\n    );\n  }\n  if (intervalMs > 5000) {\n    throw new Error(\n      `GDS polling interval ${intervalMs}ms exceeds maximum (5000ms). ` +\n      `This will cause unacceptable queue wait latency.`\n    );\n  }\n}",
+        "status": "pending",
+        "source": "implementation"
+      },
+      {
+        "id": "impl-prop-2",
+        "type": "edit",
+        "filePath": "src/pipeline/streaming-config.ts",
+        "description": "Update StreamingDriver queue polling interval from 1.5s to 500ms to reduce streaming queue wait from ~1,590ms to ~250ms.",
+        "content": "export interface StreamingDriverConfig {\n  pollingIntervalMs: number;\n  maxConcurrentStreams: number;\n  bufferSizeBytes: number;\n  idleTimeoutMs: number;\n}\n\nexport const STREAMING_DEFAULTS: StreamingDriverConfig = {\n  pollingIntervalMs: 500,        // Changed: was 1500ms, now 500ms\n  maxConcurrentStreams: 16,\n  bufferSizeBytes: 4 * 1024 * 1024,\n  idleTimeoutMs: 30_000,\n};\n\nexport function createStreamingConfig(\n  overrides?: Partial<StreamingDriverConfig>\n): StreamingDriverConfig {\n  return { ...STREAMING_DEFAULTS, ...overrides };\n}",
+        "originalContent": "export const STREAMING_DEFAULTS: StreamingDriverConfig = {\n  pollingIntervalMs: 1500,\n  maxConcurrentStreams: 16,\n  bufferSizeBytes: 4 * 1024 * 1024,\n  idleTimeoutMs: 30_000,\n};",
+        "status": "pending",
+        "source": "implementation"
+      },
+      {
+        "id": "impl-prop-3",
+        "type": "create",
+        "filePath": "src/pipeline/adaptive-batching.ts",
+        "description": "Adaptive batching for TableAggregation stage. Reduces default window from 500ms to 200ms with auto-scaling based on throughput.",
+        "content": "export interface BatchingConfig {\n  windowMs: number;\n  maxBatchRows: number;\n  adaptiveScaling: boolean;\n}\n\nconst MIN_WINDOW_MS = 50;\nconst MAX_WINDOW_MS = 2000;\n\nexport class AdaptiveBatcher {\n  private currentWindowMs: number;\n  private readonly maxBatchRows: number;\n  private throughputHistory: number[] = [];\n\n  constructor(config: BatchingConfig) {\n    this.currentWindowMs = config.windowMs;\n    this.maxBatchRows = config.maxBatchRows;\n  }\n\n  get windowMs(): number {\n    return this.currentWindowMs;\n  }\n\n  recordBatch(rowCount: number, durationMs: number): void {\n    const throughput = rowCount / (durationMs / 1000);\n    this.throughputHistory.push(throughput);\n    if (this.throughputHistory.length > 10) {\n      this.throughputHistory.shift();\n    }\n  }\n\n  adjustWindow(): void {\n    if (this.throughputHistory.length < 3) return;\n    const avg = this.throughputHistory.reduce((a, b) => a + b, 0)\n      / this.throughputHistory.length;\n\n    if (avg > this.maxBatchRows * 0.8) {\n      this.currentWindowMs = Math.max(MIN_WINDOW_MS,\n        this.currentWindowMs * 0.8);\n    } else if (avg < this.maxBatchRows * 0.3) {\n      this.currentWindowMs = Math.min(MAX_WINDOW_MS,\n        this.currentWindowMs * 1.2);\n    }\n  }\n}\n\nexport const DEFAULT_BATCHING: BatchingConfig = {\n  windowMs: 200,           // Changed: was 500ms, now 200ms\n  maxBatchRows: 10_000,\n  adaptiveScaling: true,\n};",
+        "status": "pending",
+        "source": "implementation"
+      }
+    ],
+    "analysisComplete": true,
+    "completed": false
+  }
+}

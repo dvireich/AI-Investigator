@@ -1,39 +1,39 @@
 {
   "id": "1749790000000",
   "status": "completed",
-  "title": "Dead letter queue overflow — app-prd-eus-01",
+  "title": "Pipeline latency analysis — oi-tds-prd-eus2p-02",
   "createdBy": "dvreich",
-  "query": "Investigate DLQ overflow on app-prd-eus-01",
-  "stamp": "app-prd-eus-01",
-  "timeRange": "ago(24h)",
-  "issueType": "dlq",
+  "query": "Investigate pipeline latency — P95 at 7.2s, max reaching 10s. Canary performance validation.",
+  "stamp": "oi-tds-prd-eus2p-02",
+  "timeRange": "ago(1h)",
+  "issueType": "latency",
   "model": "claude-sonnet-4-20250514",
   "productId": "sample-product",
   "productName": "sample-product",
   "thoughtCount": 15,
   "contestCount": 1,
   "thoughts": [
-    "Starting investigation into DLQ overflow on `app-prd-eus-01`.",
+    "Starting investigation into pipeline latency on `oi-tds-prd-eus2p-02`.",
     {
-      "content": "The DLQ message rate spiked dramatically at 18:30 UTC yesterday — from the baseline of ~50 messages/hour to **4,200 messages/hour**.",
+      "content": "P50 = 5,165ms, P95 = 7,226ms across 361K messages. Latency is dominated by two queue polling cycles.",
       "type": "thought"
     },
     {
-      "content": "The errors are almost exclusively `InvalidBlobContentException` caused by a `dynamic` column type mismatch.",
+      "content": "GDS queue wait: 1,886ms (37%). Streaming queue wait: 1,590ms (31%). Combined = 76% of total latency.",
       "type": "thought"
     },
     {
-      "content": "Confirmed schema change deployed at 18:15 UTC introduced `ExtendedProperties_v2` column. ~42,000 messages affected.",
+      "content": "Root cause confirmed: structural queue polling intervals, not a degradation. Three recommendations proposed.",
       "type": "thought"
     },
-    "Report Contested: The report mentions 3 affected workspaces but I believe the number is higher — we received escalations from at least 7 workspace owners. Also please check if the CMK-encrypted workspaces were additionally impacted.",
+    "Report Contested: The report attributes 37% to GDS queue wait with ~2s polling, but we reduced the polling interval from 4s to 2s last month. Compare with oi-tds-prd-eus2p-01 to check if there's a further regression.",
     "System: Report contested by user. Resuming investigation with feedback.",
     {
-      "content": "Thank you for the correction. Let me re-examine the workspace impact and specifically check CMK-encrypted workspaces.\n\nI'll query for all distinct workspace IDs that had messages routed to the DLQ during the incident window.",
+      "content": "Let me compare the GDS queue wait on oi-tds-prd-eus2p-02 vs oi-tds-prd-eus2p-01 to validate whether the current ~2s polling is the expected baseline or a regression.",
       "type": "thought"
     },
     {
-      "content": "You're right — the actual impact is larger. I found **9 affected workspaces**, not 3. Of these, 2 are CMK-encrypted workspaces that experienced an additional failure mode: the `InvalidBlobContentException` cascaded into a `CMKDecryptionFailedException` because the error handler tried to re-read the original blob.\n\nUpdating the report with corrected workspace count and CMK-specific findings.",
+      "content": "Cross-stamp comparison confirms the regression. oi-tds-prd-eus2p-01 shows GDS queue wait of **940ms** (P50: 920ms) — half the wait seen on oi-tds-prd-eus2p-02 (1,868ms). The polling config on -02 appears to have reverted to the old 4s interval. Updating recommendations to include a config deployment fix.",
       "type": "thought"
     }
   ],
@@ -70,5 +70,5 @@
     },
     "conversationLog": []
   },
-  "finalReport": "# Dead Letter Queue Overflow Investigation (Updated)\n\n## Summary\n\nThe DLQ on `app-prd-eus-01` experienced a critical overflow at **2025-06-12 18:30 UTC** — **84x** increase from baseline.\n\n## Root Cause\n\nUpstream schema update introduced `ExtendedProperties_v2` (dynamic type) → data writer serialization failure.\n\n## Impact (Revised)\n\n- **Total Affected Messages**: ~42,000\n- **Affected Workspaces**: **9** (revised from initial estimate of 3)\n- **CMK Impact**: 2 CMK-encrypted workspaces experienced cascading `CMKDecryptionFailedException`\n\n## Recommendations\n\n1. Deploy data writer fix with `dynamic` type support\n2. Add CMK-aware error handling to prevent cascade failures\n3. Implement schema evolution detection"
+  "finalReport": "# Pipeline Latency Investigation (Updated)\n\n## Summary\n\nPipeline latency on `oi-tds-prd-eus2p-02` dominated by queue polling delays — P50 = 5,165ms.\n\n## Root Cause (Revised)\n\nThe GDS queue polling interval on -02 has **reverted** to the old ~4s configuration, while -01 is running the updated ~2s interval. This config regression doubled the GDS queue wait.\n\n## Cross-Stamp Comparison\n\n| Stamp | GDS Queue P50 | Pipeline P50 |\n|---|---|---|\n| oi-tds-prd-eus2p-01 | **920ms** | 3,285ms |\n| oi-tds-prd-eus2p-02 | **1,868ms** | 5,165ms |\n\n## Recommendations (Revised)\n\n1. **P0** — Fix config regression: deploy 2s GDS polling to -02 (same as -01)\n2. **P1** — Reduce both polling intervals further (2s → 500ms)\n3. **P2** — Add config drift detection alerting"
 }

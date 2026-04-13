@@ -10,6 +10,8 @@ An agentic system that runs, monitors, and learns from investigations — comple
 [![Backend Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/dvireich/096789943db66abdcf5fad4b2cc40794/raw/backend-coverage.json&style=for-the-badge&logo=vitest&logoColor=white)](https://github.com/dvireich/AI-Investigator/actions/workflows/ci.yml)
 [![Frontend Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/dvireich/096789943db66abdcf5fad4b2cc40794/raw/frontend-coverage.json&style=for-the-badge&logo=vitest&logoColor=white)](https://github.com/dvireich/AI-Investigator/actions/workflows/ci.yml)
 
+https://github.com/user-attachments/assets/ai-investigator-demo.mp4
+
 ![Dashboard Overview](docs/screenshots/dashboard-overview.png)
 
 </div>
@@ -34,6 +36,7 @@ An agentic system that runs, monitors, and learns from investigations — comple
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Taking Screenshots](#taking-screenshots)
+- [Demo Video Recording](#demo-video-recording)
 
 ---
 
@@ -1538,5 +1541,27 @@ scripts/screenshots/
 - **Adding screenshots**: Add a new `capture*` function in `capture.js` and call it from `main()`. Use `setDetailOverride(id, fixture)` to inject state before navigating
 - **Mock server control API**: The `/__control/*` endpoints (`reset`, `set-investigations`, `set-detail-override`, `set-auth`) swap fixture data at runtime between captures
 - **Retaking after UI changes**: Just run `npm run capture` — it's designed to be idempotent and will overwrite existing PNGs
+
+---
+
+## Demo Video Recording
+
+The narrated demo video is recorded automatically using Playwright with the same mock server used for screenshots. Five scenes are recorded independently as `.webm` files, then combined with a TTS voiceover into the final `.mp4`.
+
+```bash
+cd scripts/screenshots
+
+# Record all 5 scenes
+node preview-scene1.js    # Title card + case study (~34s)
+node preview-scene2.js    # Dashboard → create investigation (~98s)
+node preview-scene3.js    # Pipeline walkthrough with live agent simulation (~116s)
+node preview-scene4.js    # Final report, contest, implement, notes (~93s)
+node preview-scene5.js    # Retrospect — knowledge improvement (~98s)
+
+# Add --headed to watch the recording in real-time
+node preview-scene1.js --headed
+```
+
+See [docs/demo/RECORDING.md](docs/demo/RECORDING.md) for the full guide including caption timing, ffmpeg commands for combining scenes with audio, and troubleshooting.
 
 ---

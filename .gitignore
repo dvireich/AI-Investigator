@@ -54,3 +54,7 @@ frontend/test-out*.txt
 frontend/test-output.txt
 frontend/test-results.txt
 ci-run-status.json
+
+# Demo video output (generated, not source)
+docs/demo/*.webm
+docs/demo/*.mp4

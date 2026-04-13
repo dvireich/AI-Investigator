@@ -1,12 +1,12 @@
 {
   "id": "1749780000000",
   "status": "completed",
-  "title": "Ingestion errors — svc-prd-neu-01",
+  "title": "Message processing errors — oi-tds-prd-neu-01",
   "createdBy": "scheduler",
-  "query": "Investigate ingestion failures on svc-prd-neu-01",
-  "stamp": "svc-prd-neu-01",
+  "query": "Investigate processing failures on oi-tds-prd-neu-01",
+  "stamp": "oi-tds-prd-neu-01",
   "timeRange": "ago(3d)",
-  "issueType": "ingestion-errors",
+  "issueType": "processing-errors",
   "model": "claude-sonnet-4-20250514",
   "productId": "sample-product",
   "productName": "sample-product",
@@ -14,7 +14,7 @@
   "thoughts": [],
   "actions": [],
   "logs": ["Investigation started", "Investigation completed"],
-  "finalReport": "# Ingestion Error Investigation\n\n## Summary\n\nIngestion failures on `svc-prd-neu-01` peaked at 2,800 failures/hour.\n\n## Root Cause\n\nCluster capacity throttling during bulk backfill.",
+  "finalReport": "# Message Processing Error Investigation\n\n## Summary\n\nProcessing failures on `oi-tds-prd-neu-01` peaked at 2,800 failures/hour.\n\n## Root Cause\n\nQueue overflow during upstream burst traffic.",
   "pipeline": {
     "stages": [
       { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749779800000, "completedAt": 1749779900000 },
@@ -56,12 +56,12 @@
       },
       {
         "role": "tool-call",
-        "content": "Reading file: docs/investigations/ingestion-error-investigation.md",
+        "content": "Reading file: docs/investigations/pipeline-error-investigation.md",
         "toolName": "read_file"
       },
       {
         "role": "tool-result",
-        "content": "Successfully read ingestion error investigation guide (234 lines)"
+        "content": "Successfully read pipeline error investigation guide (234 lines)"
       },
       {
         "role": "assistant",
@@ -69,37 +69,37 @@
       },
       {
         "role": "user",
-        "content": "Can you also check if there's guidance about monitoring ingestion lag during bulk operations? That was a gap I noticed during the investigation."
+        "content": "Can you also check if there's guidance about monitoring queue lag during burst events? That was a gap I noticed during the investigation."
       },
       {
         "role": "assistant",
-        "content": "Great question! Let me check the existing documentation for ingestion lag monitoring guidance.\n\nAfter reviewing the knowledge base, I can confirm there's **no specific guidance** for monitoring ingestion lag during bulk operations. The closest documentation is the ingestion latency guide, but it focuses on steady-state operations rather than bulk scenarios.\n\nI'll add a new proposal for an ingestion lag monitoring section that covers:\n1. Setting up real-time lag alerts during bulk operations\n2. Queries for comparing ingestion timestamps vs event timestamps\n3. Threshold guidelines for when to pause or throttle bulk operations\n\nThis would complement the bulk operation coordination guide I already proposed."
+        "content": "Great question! Let me check the existing documentation for queue lag monitoring guidance.\n\nAfter reviewing the knowledge base, I can confirm there's **no specific guidance** for monitoring queue lag during burst events. The closest documentation is the pipeline latency guide, but it focuses on steady-state operations rather than burst scenarios.\n\nI'll add a new proposal for a queue lag monitoring section that covers:\n1. Setting up real-time lag alerts during burst events\n2. Queries for comparing queue depth vs drain rate\n3. Threshold guidelines for when to throttle upstream connections\n\nThis would complement the burst traffic coordination guide I already proposed."
       }
     ],
     "proposals": [
       {
         "id": "prop-1",
         "type": "edit",
-        "filePath": "docs/investigations/ingestion-error-investigation.md",
-        "description": "Add cluster capacity check as first diagnostic step",
-        "content": "## Step 0: Check Cluster Capacity\n\n```\n.show capacity\n| where Resource == 'Ingestions'\n| project Resource, Total, Consumed, Remaining\n```",
+        "filePath": "docs/investigations/pipeline-error-investigation.md",
+        "description": "Add queue capacity check as first diagnostic step",
+        "content": "## Step 0: Check Queue Capacity\n\n```\nEventTelemetry\n| where Name == 'QueueCapacityMetric'\n| summarize AvgUtil=avg(Value), MaxUtil=max(Value) by bin(TimeGenerated, 5m)\n```",
         "originalContent": "## Step 1: Identify Error Pattern",
         "status": "approved"
       },
       {
         "id": "prop-2",
         "type": "edit",
-        "filePath": "docs/investigations/ingestion-error-investigation.md",
-        "description": "Add IngestionCapacityExceeded to known error types",
-        "content": "| IngestionCapacityExceeded | Cluster at capacity | Check .show capacity |",
+        "filePath": "docs/investigations/pipeline-error-investigation.md",
+        "description": "Add QueueOverflowException to known error types",
+        "content": "| QueueOverflowException | Pipeline queue at capacity | Check queue capacity metrics |",
         "status": "approved"
       },
       {
         "id": "prop-3",
         "type": "create",
-        "filePath": "docs/investigations/bulk-operation-coordination.md",
-        "description": "Create bulk operation coordination runbook",
-        "content": "# Bulk Operation Coordination Guide\n\n## Pre-Operation Checklist\n1. Check cluster utilization\n2. Schedule off-peak\n3. Set rate limits",
+        "filePath": "docs/investigations/pipeline-burst-coordination.md",
+        "description": "Create burst traffic coordination runbook",
+        "content": "# Pipeline Burst Traffic Coordination Guide\n\n## Pre-Burst Checklist\n1. Check queue utilization\n2. Configure upstream rate limiting\n3. Set queue depth alerts",
         "status": "pending"
       }
     ],

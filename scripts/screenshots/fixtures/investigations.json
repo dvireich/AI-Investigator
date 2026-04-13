@@ -3,10 +3,10 @@
     {
       "id": "1749820000000",
       "status": "running",
-      "title": "High ingestion latency on app-prd-eus2p-01",
+      "title": "High pipeline latency on oi-tds-prd-eus2p-01",
       "createdBy": "dvreich",
-      "query": "Investigate high ingestion latency on app-prd-eus2p-01 for the past 6 hours",
-      "stamp": "app-prd-eus2p-01",
+      "query": "Investigate high pipeline latency on oi-tds-prd-eus2p-01 for the past 6 hours",
+      "stamp": "oi-tds-prd-eus2p-01",
       "timeRange": "ago(6h)",
       "issueType": "Latency / Performance",
       "model": "claude-opus-4.6",
@@ -15,13 +15,13 @@
       "tags": ["p95-spike", "on-call"],
       "thoughtCount": 7,
       "thoughts": [
-        "Analyzing the pipeline latency metrics for stamp app-prd-eus2p-01. The P95 latency spiked to 12.5s at 14:30 UTC — 5x above the normal baseline. Correlating with queue depth and node health."
+        "Analyzing the pipeline latency metrics for stamp oi-tds-prd-eus2p-01. The P95 latency spiked to 12.5s at 14:30 UTC — 5x above the normal baseline. Correlating with queue depth and node health."
       ],
       "actions": [
         {
           "type": "tool_use",
           "name": "run_query",
-          "input": { "query": "ServiceMetrics | where Stamp == 'app-prd-eus2p-01' | where TimeGenerated > ago(6h) | where MetricName == 'E2ELatencyMs' | summarize p50=percentile(Value, 50), p95=percentile(Value, 95), p99=percentile(Value, 99) by bin(TimeGenerated, 5m)" },
+          "input": { "query": "EventTelemetry | where Stamp == 'oi-tds-prd-eus2p-01' | where TimeGenerated > ago(6h) | where Name == 'PipelineLatencyMs' | summarize p50=percentile(Value, 50), p95=percentile(Value, 95), p99=percentile(Value, 99) by bin(TimeGenerated, 5m)" },
           "result": "| TimeGenerated | p50 | p95 | p99 |\n|---|---|---|---|\n| 2025-06-13T14:30:00Z | 1250 | 4800 | 12500 |"
         }
       ],
@@ -30,10 +30,10 @@
     {
       "id": "1749810000000",
       "status": "running",
-      "title": "Queue throttling analysis — svc-prd-wus2-03",
+      "title": "Queue throttling analysis — oi-tds-prd-wus2p-03",
       "createdBy": "jsmith",
-      "query": "Investigate MessagingInfraThrottleException on svc-prd-wus2-03",
-      "stamp": "svc-prd-wus2-03",
+      "query": "Investigate TeleductMessageThrottleException on oi-tds-prd-wus2p-03",
+      "stamp": "oi-tds-prd-wus2p-03",
       "timeRange": "ago(2h)",
       "issueType": "Throttling / Quota",
       "model": "claude-opus-4.6",
@@ -47,7 +47,7 @@
         {
           "type": "tool_use",
           "name": "run_query",
-          "input": { "query": "ServiceTraces | where Stamp == 'svc-prd-wus2-03' | where TimeGenerated > ago(2h) | where Message has 'MessagingInfraThrottleException' | summarize ThrottleCount=count() by bin(TimeGenerated, 5m), NodeName" },
+          "input": { "query": "TraceTelemetry | where Stamp == 'oi-tds-prd-wus2p-03' | where TimeGenerated > ago(2h) | where Message has 'TeleductMessageThrottleException' | summarize ThrottleCount=count() by bin(TimeGenerated, 5m), NodeName" },
           "result": "| TimeGenerated | NodeName | ThrottleCount |\n|---|---|---|\n| 2025-06-13T14:15:00Z | _Node_3 | 47 |\n| 2025-06-13T14:15:00Z | _Node_5 | 31 |"
         }
       ],
@@ -105,31 +105,31 @@
     {
       "id": "1749790000000",
       "status": "completed",
-      "title": "Dead letter queue overflow — app-prd-eus-01",
+      "title": "Pipeline latency analysis — oi-tds-prd-eus2p-02",
       "createdBy": "dvreich",
-      "query": "Investigate DLQ overflow on app-prd-eus-01",
-      "stamp": "app-prd-eus-01",
+      "query": "Investigate pipeline latency on oi-tds-prd-eus2p-02",
+      "stamp": "oi-tds-prd-eus2p-02",
       "timeRange": "ago(24h)",
-      "issueType": "Data Loss / Inconsistency",
+      "issueType": "Latency / Performance",
       "model": "claude-opus-4.6",
       "productId": "sample-product",
       "productName": "Sample Product",
       "contestCount": 1,
       "thoughtCount": 12,
       "thoughts": [
-        "Investigation complete. The DLQ overflow was caused by a schema change in the upstream telemetry that introduced a new column type not supported by the current data writer."
+        "Investigation complete. The elevated pipeline latency was caused by conservative queue polling intervals in the GDS and Streaming stages, accounting for 76% of end-to-end latency."
       ],
       "actions": [],
       "logs": ["Investigation started", "Investigation completed"],
-      "finalReport": "# Dead Letter Queue Overflow Investigation\n\n## Root Cause\nA schema change in the upstream telemetry introduced a new `dynamic` column that the serializer couldn't handle."
+      "finalReport": "# Pipeline Latency Analysis\n\n## Root Cause\nGDS Queue Wait (1,886ms) and Streaming Queue Wait (1,590ms) account for 76% of end-to-end latency due to conservative polling intervals."
     },
     {
       "id": "1749780000000",
       "status": "completed",
-      "title": "Ingestion errors — svc-prd-neu-01",
+      "title": "Message processing errors — oi-tds-prd-neu-01",
       "createdBy": "scheduler",
-      "query": "Investigate ingestion failures on svc-prd-neu-01",
-      "stamp": "svc-prd-neu-01",
+      "query": "Investigate processing failures on oi-tds-prd-neu-01",
+      "stamp": "oi-tds-prd-neu-01",
       "timeRange": "ago(3d)",
       "issueType": "Error / Failure Rate",
       "model": "claude-opus-4.6",
@@ -139,18 +139,18 @@
       "verdict": "warning",
       "thoughtCount": 15,
       "thoughts": [
-        "Analysis complete. The ingestion errors were caused by capacity throttling on the target data cluster."
+        "Analysis complete. The processing errors were caused by queue overflow from upstream burst traffic."
       ],
       "actions": [],
       "logs": ["Investigation started", "Investigation completed"],
-      "finalReport": "# Ingestion Error Investigation",
+      "finalReport": "# Message Processing Error Investigation",
       "retrospect": {
         "messages": [
           { "role": "assistant", "content": "After reviewing the investigation, I've identified 3 areas for improvement in the knowledge base." }
         ],
         "proposals": [
-          { "id": "prop-1", "type": "edit", "filePath": "docs/investigations/ingestion-error-investigation.md", "description": "Add cluster capacity check", "content": "## Step 0: Check Cluster Capacity", "status": "approved" },
-          { "id": "prop-2", "type": "create", "filePath": "docs/investigations/bulk-operation-coordination.md", "description": "New runbook for bulk operations", "content": "# Bulk Operation Coordination Guide", "status": "pending" }
+          { "id": "prop-1", "type": "edit", "filePath": "docs/investigations/pipeline-error-investigation.md", "description": "Add queue capacity check", "content": "## Step 0: Check Queue Capacity", "status": "approved" },
+          { "id": "prop-2", "type": "create", "filePath": "docs/investigations/pipeline-burst-coordination.md", "description": "New runbook for burst traffic", "content": "# Pipeline Burst Traffic Coordination Guide", "status": "pending" }
         ],
         "analysisComplete": true,
         "completed": false

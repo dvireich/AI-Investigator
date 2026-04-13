@@ -95,6 +95,7 @@ app.get('/api/investigations/:id', (req, res) => {
         || detailedInvestigations[id]
         || currentInvestigations.find(i => i.id === id);
     if (!inv) return res.status(404).json({ error: 'Not found' });
+    console.log('[MOCK] GET /api/investigations/' + id, '— has pipeline:', !!inv?.pipeline, 'stages:', inv?.pipeline?.stages?.length, 'currentStageIndex:', inv?.pipeline?.currentStageIndex);
     res.json(inv);
 });
 
@@ -110,7 +111,54 @@ app.get('/api/investigations/:id/step/:index', (req, res) => {
 });
 
 app.post('/api/investigations', (req, res) => {
-    res.json({ id: Date.now().toString(), status: 'running' });
+    const id = Date.now().toString();
+    const body = req.body || {};
+
+    // Build pipeline stages: use what the frontend sent, or fall back to
+    // the Deep Investigation pipeline from the settings fixture.
+    let pipelineSource = body.pipeline;
+    if (!pipelineSource || !pipelineSource.stages || pipelineSource.stages.length === 0) {
+        pipelineSource = settingsData.pipeline || { stages: [] };
+    }
+    const pipelineStages = (pipelineSource.stages || []).map((s, i) => ({
+        agentId: s.agent?.id || s.agentId || `stage-${i}`,
+        agentName: s.agent?.name || s.agentName || `Stage ${i + 1}`,
+        color: s.agent?.color || s.color || '#64748b',
+        icon: s.agent?.icon || s.icon || '🔧',
+        status: i === 0 ? 'running' : 'pending',
+        retryCount: 0,
+        startedAt: i === 0 ? Date.now() : undefined,
+    }));
+
+    // Store in overrideDetail so GET /api/investigations/:id returns it
+    overrideDetail[id] = {
+        id,
+        status: 'running',
+        title: body.query ? body.query.slice(0, 80) : 'New Investigation',
+        query: body.query || '',
+        target: body.target || '',
+        timeRange: body.timeRange || '',
+        category: body.category || '',
+        correlationId: body.correlationId || '',
+        model: body.model || 'claude-opus-4.6',
+        thoughts: ['Investigation started — Planner agent is analyzing the query and building an execution plan...'],
+        thoughtCount: 1,
+        actions: [],
+        logs: ['[Planner] Starting investigation...'],
+        pipeline: {
+            id: pipelineSource.id || 'deep-investigation',
+            name: pipelineSource.name || 'Deep Investigation',
+            currentStageIndex: 0,
+            conversationLog: [],
+            stages: pipelineStages,
+        },
+        createdAt: new Date().toISOString(),
+        lastModified: Date.now(),
+        source: 'manual',
+        verdict: 'unknown',
+    };
+    console.log('[MOCK] POST /api/investigations — pipeline stages:', overrideDetail[id].pipeline.stages.length, 'currentStageIndex:', overrideDetail[id].pipeline.currentStageIndex);
+    res.json({ id, status: 'running' });
 });
 
 app.post('/api/investigations/:id/action', (req, res) => {
@@ -431,6 +479,7 @@ app.get('/api/investigations/:id/pipeline', (req, res) => {
     const inv = overrideDetail[id]
         || detailedInvestigations[id]
         || currentInvestigations.find(i => i.id === id);
+    console.log('[MOCK] GET /api/investigations/' + id + '/pipeline', '— found inv:', !!inv, 'has pipeline:', !!inv?.pipeline, 'stages:', inv?.pipeline?.stages?.length);
     if (inv && inv.pipeline) return res.json(inv.pipeline);
     res.json(null);
 });
@@ -482,8 +531,16 @@ app.post('/api/investigations/:id/retrospect/proposals/:proposalId/status', (req
     res.json({ success: true });
 });
 
+app.patch('/api/investigations/:id/retrospect/proposals/:proposalId', (req, res) => {
+    res.json({ success: true });
+});
+
 app.post('/api/investigations/:id/retrospect/apply', (req, res) => {
     res.json({ success: true, applied: 0, failed: 0 });
+});
+
+app.post('/api/investigations/:id/retrospect/complete', (req, res) => {
+    res.json({ success: true });
 });
 
 // ---- ICM ----
@@ -555,8 +612,8 @@ let mockSchedules = [
         id: 'sched-3',
         name: 'NEU Error Patrol',
         enabled: false,
-        stamp: 'app-prd-neup-01',
-        query: 'Check for error spikes and dead letter queue growth.',
+        stamp: 'oi-tds-prd-neup-01',
+        query: 'Check for error spikes and queue overflow events.',
         intervalMinutes: 240,
         productId: 'sample-product',
         model: 'claude-opus-4.6',
@@ -585,7 +642,7 @@ const mockScheduleHistory = {
         { timestamp: new Date(Date.now() - 3000000).toISOString(), verdict: 'healthy', investigationId: '1710000000020', summary: 'All metrics within SLO.' },
     ],
     'sched-3': [
-        { timestamp: new Date(Date.now() - 86400000).toISOString(), verdict: 'critical', investigationId: '1710000000003', summary: 'DLQ overflow detected — 15K messages.' },
+        { timestamp: new Date(Date.now() - 86400000).toISOString(), verdict: 'critical', investigationId: '1710000000003', summary: 'Queue overflow detected — 15K messages dropped.' },
         { timestamp: new Date(Date.now() - 2 * 86400000).toISOString(), verdict: 'critical', investigationId: '1710000000030', summary: 'Processing failures persisting.' },
     ],
 };
@@ -687,10 +744,10 @@ const mockQueryBank = [
     },
     {
         id: 'qb-3',
-        name: 'NEU DLQ Audit',
-        stamp: 'app-prd-neup-01',
-        query: 'Audit dead letter queue growth and identify permanent failure patterns.',
-        issueType: 'Data Loss / Inconsistency',
+        name: 'NEU Queue Audit',
+        stamp: 'oi-tds-prd-neup-01',
+        query: 'Audit pipeline queue health and identify permanent failure patterns.',
+        issueType: 'Error / Failure Rate',
         timeRange: 'ago(4h)',
         model: 'claude-opus-4.6',
         createdAt: new Date(Date.now() - 10 * 86400000).toISOString(),
@@ -769,6 +826,11 @@ app.post('/__control/set-analyze-hang', (req, res) => {
     res.json({ ok: true });
 });
 
+app.post('/__control/broadcast', (req, res) => {
+    broadcastWs(req.body);
+    res.json({ ok: true });
+});
+
 // ---------------------------------------------------------------------------
 // HTTP + WebSocket server
 // ---------------------------------------------------------------------------
@@ -777,9 +839,16 @@ const server = createServer(app);
 
 const wss = new WebSocketServer({ server, path: '/ws' });
 wss.on('connection', (ws) => {
-    // No-op — the frontend connects but we don't push messages for screenshots
     ws.on('message', () => {});
 });
+
+/** Broadcast a JSON message to all connected WebSocket clients. */
+export function broadcastWs(data) {
+    const msg = JSON.stringify(data);
+    for (const client of wss.clients) {
+        if (client.readyState === 1) client.send(msg);
+    }
+}
 
 export function startServer(port = 3099) {
     return new Promise((resolve) => {
