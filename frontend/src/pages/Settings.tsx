@@ -7,7 +7,7 @@ import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
 import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
-import { PipelineBuilder, BuiltinDetailModal } from '../components/PipelineBuilder';
+import { PipelineBuilder, BuiltinDetailModal, PIPELINE_PRESETS, buildPipelinePreset } from '../components/PipelineBuilder';
 import type { AgentDefinition } from '../types/pipeline';
 import { useNotification, getNotifEnabled, setNotifEnabled, getNotifSound, setNotifSound, getNotifEvents, setNotifEvents, ALL_NOTIF_EVENTS, type NotifEvent } from '../hooks/useNotification';
 
@@ -1335,7 +1335,7 @@ export const Settings = () => {
                                         <GitBranch className="text-cyan-400" /> Multi-Agent Pipeline
                                     </h2>
                                     <p className="text-slate-400">
-                                        The default pipeline used for new investigations. Create and manage your saved workflows below.
+                                        Choose the default pipeline that will be <span className="text-slate-300 font-medium">automatically selected</span> when you create a new investigation.
                                     </p>
                                 </div>
                                 <button
@@ -1355,7 +1355,121 @@ export const Settings = () => {
                                 </button>
                             </div>
 
-                            {/* ── Current Default Pipeline (read-only view) ── */}
+                            {/* ── Quick-select Default Pipeline ── */}
+                            <div className="space-y-3">
+                                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+                                    Select Default Pipeline
+                                </h3>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                    {/* Built-in presets */}
+                                    {PIPELINE_PRESETS.filter(preset => preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))).map(preset => {
+                                        const isSelected = pipelineConfig?.name === preset.name;
+                                        return (
+                                            <button
+                                                key={preset.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    const pipeline = buildPipelinePreset(preset.id, builtinAgents);
+                                                    setPipelineConfig(pipeline);
+                                                    setPipelineJson(JSON.stringify(pipeline, null, 2));
+                                                    setDirty(true);
+                                                }}
+                                                className={`text-left rounded-xl border p-4 transition-all ${
+                                                    isSelected
+                                                        ? 'bg-cyan-600/15 border-cyan-500/50 ring-2 ring-cyan-500/30'
+                                                        : 'bg-slate-800/40 border-slate-700/40 hover:border-slate-600/60 hover:bg-slate-800/60'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2.5 mb-2">
+                                                    <span className="text-lg">{preset.icon}</span>
+                                                    <span className="text-sm font-bold text-white">{preset.name}</span>
+                                                    {isSelected && <CheckCircle2 className="w-4 h-4 text-cyan-400 ml-auto" />}
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 leading-relaxed mb-2">{preset.description}</p>
+                                                <div className="flex flex-wrap gap-0.5">
+                                                    {preset.stages.map((s, i) => {
+                                                        const agent = builtinAgents.find(a => a.builtinType === s.builtinType);
+                                                        return (
+                                                            <span
+                                                                key={i}
+                                                                className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] text-white font-bold"
+                                                                style={{ backgroundColor: agent?.color || '#6b7280' }}
+                                                                title={agent?.name || s.builtinType}
+                                                            >
+                                                                {agent?.icon || agent?.name?.charAt(0) || '?'}
+                                                            </span>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+
+                                    {/* Saved workflows */}
+                                    {savedWorkflows.map(wf => {
+                                        const isSelected = pipelineConfig?.name === wf.pipeline.name;
+                                        return (
+                                            <button
+                                                key={wf.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    setPipelineConfig(wf.pipeline);
+                                                    setPipelineJson(JSON.stringify(wf.pipeline, null, 2));
+                                                    setDirty(true);
+                                                }}
+                                                className={`text-left rounded-xl border p-4 transition-all ${
+                                                    isSelected
+                                                        ? 'bg-cyan-600/15 border-cyan-500/50 ring-2 ring-cyan-500/30'
+                                                        : 'bg-slate-800/40 border-slate-700/40 hover:border-slate-600/60 hover:bg-slate-800/60'
+                                                }`}
+                                            >
+                                                <div className="flex items-center gap-2.5 mb-2">
+                                                    <span className="text-lg">{wf.icon || '🔧'}</span>
+                                                    <span className="text-sm font-bold text-white">{wf.name}</span>
+                                                    {isSelected && <CheckCircle2 className="w-4 h-4 text-cyan-400 ml-auto" />}
+                                                </div>
+                                                <p className="text-[11px] text-slate-500 leading-relaxed mb-2">{wf.description || `${wf.pipeline.stages.length} stages`}</p>
+                                                <div className="flex flex-wrap gap-0.5">
+                                                    {wf.pipeline.stages.map((stage, i) => (
+                                                        <span
+                                                            key={i}
+                                                            className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] text-white font-bold"
+                                                            style={{ backgroundColor: stage.agent?.color || '#6b7280' }}
+                                                            title={stage.agent?.name || `Stage ${i + 1}`}
+                                                        >
+                                                            {stage.agent?.icon || stage.agent?.name?.charAt(0) || (i + 1)}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </button>
+                                        );
+                                    })}
+
+                                    {/* No default option */}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setPipelineConfig(null);
+                                            setPipelineJson('');
+                                            setDirty(true);
+                                        }}
+                                        className={`text-left rounded-xl border-2 border-dashed p-4 transition-all ${
+                                            !pipelineConfig
+                                                ? 'bg-slate-800/60 border-slate-500/40 ring-2 ring-slate-500/20'
+                                                : 'border-slate-700/40 hover:border-slate-600/60'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2.5 mb-2">
+                                            <X className="w-4 h-4 text-slate-500" />
+                                            <span className="text-sm font-bold text-slate-400">None</span>
+                                            {!pipelineConfig && <CheckCircle2 className="w-4 h-4 text-slate-400 ml-auto" />}
+                                        </div>
+                                        <p className="text-[11px] text-slate-500 leading-relaxed">No default pipeline. You'll choose one manually each time.</p>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* ── Selected Pipeline Preview ── */}
                             {pipelineConfig && pipelineConfig.stages.length > 0 && (
                                 <div className="bg-slate-800/40 rounded-2xl border border-slate-700/40 p-5 space-y-4">
                                     <div className="flex items-center justify-between">
@@ -1363,35 +1477,8 @@ export const Settings = () => {
                                             <span className="text-lg">⚙️</span>
                                             <div>
                                                 <h3 className="font-bold text-white text-lg">{pipelineConfig.name || 'Default Pipeline'}</h3>
-                                                <p className="text-xs text-slate-500">{pipelineConfig.stages.length} stages &middot; Active default for new investigations</p>
+                                                <p className="text-xs text-slate-500">{pipelineConfig.stages.length} stages &middot; Will be pre-selected in new investigations</p>
                                             </div>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setEditingWorkflowId(null);
-                                                    setSaveWorkflowName(pipelineConfig.name || 'Default Pipeline');
-                                                    setSaveWorkflowDesc('');
-                                                    setSaveWorkflowIcon('⚙️');
-                                                    setEditingPipeline(pipelineConfig);
-                                                    setShowWorkflowEditor(true);
-                                                }}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-700/40 hover:bg-slate-700 border border-slate-600/40 transition-colors"
-                                            >
-                                                <Pencil className="w-3 h-3" /> Edit
-                                            </button>
-                                            <button
-                                                type="button"
-                                                onClick={() => {
-                                                    setPipelineConfig(null);
-                                                    setPipelineJson('');
-                                                    setDirty(true);
-                                                }}
-                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-400/70 hover:text-red-300 bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 transition-colors"
-                                            >
-                                                <Trash2 className="w-3 h-3" /> Clear
-                                            </button>
                                         </div>
                                     </div>
                                     {/* Read-only stage list */}
@@ -1435,21 +1522,11 @@ export const Settings = () => {
                                 </div>
                             )}
 
-                            {!pipelineConfig && (
-                                <div className="bg-slate-800/40 rounded-2xl border-2 border-dashed border-slate-700/50 p-8 text-center space-y-3">
-                                    <GitBranch className="w-10 h-10 text-slate-600 mx-auto" />
-                                    <h3 className="text-sm font-bold text-slate-400">No default pipeline configured</h3>
-                                    <p className="text-xs text-slate-500 max-w-md mx-auto">
-                                        Create a new workflow or load a saved one. The active pipeline will be used as the default for new investigations.
-                                    </p>
-                                </div>
-                            )}
-
-                            {/* ── Saved Workflows List ── */}
+                            {/* ── Saved Workflows Management ── */}
                             {savedWorkflows.length > 0 && (
                                 <div className="space-y-3">
                                     <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-                                        Saved Workflows ({savedWorkflows.length})
+                                        Manage Saved Workflows ({savedWorkflows.length})
                                     </h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                         {savedWorkflows.map(wf => (
@@ -1463,34 +1540,9 @@ export const Settings = () => {
                                                         <div className="min-w-0">
                                                             <h4 className="font-bold text-white text-sm truncate">{wf.name}</h4>
                                                             <p className="text-[11px] text-slate-500 truncate">{wf.description || `${wf.pipeline.stages.length} stages`}</p>
-                                                            <div className="flex flex-wrap gap-0.5 mt-2">
-                                                                {wf.pipeline.stages.map((stage, i) => (
-                                                                    <span
-                                                                        key={i}
-                                                                        className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] text-white font-bold"
-                                                                        style={{ backgroundColor: stage.agent?.color || '#6b7280' }}
-                                                                        title={stage.agent?.name || `Stage ${i + 1}`}
-                                                                    >
-                                                                        {stage.agent?.icon || stage.agent?.name?.charAt(0) || (i + 1)}
-                                                                    </span>
-                                                                ))}
-                                                            </div>
                                                         </div>
                                                     </div>
                                                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setPipelineConfig(wf.pipeline);
-                                                                setPipelineJson(JSON.stringify(wf.pipeline, null, 2));
-                                                                setDirty(true);
-                                                                toast('success', `"${wf.name}" set as default pipeline`);
-                                                            }}
-                                                            className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-cyan-400 bg-cyan-600/10 hover:bg-cyan-600/20 border border-cyan-500/20 transition-colors"
-                                                            title="Set as default pipeline"
-                                                        >
-                                                            Set Default
-                                                        </button>
                                                         <button
                                                             type="button"
                                                             onClick={() => {
