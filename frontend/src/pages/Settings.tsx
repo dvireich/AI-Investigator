@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2, Calendar } from 'lucide-react';
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
-import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult } from '../api';
+import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult, type SavedWorkflow } from '../api';
 import { useToast } from '../components/Toast';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
 import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
-import { PipelineBuilder } from '../components/PipelineBuilder';
+import { PipelineBuilder, BuiltinDetailModal } from '../components/PipelineBuilder';
+import type { AgentDefinition } from '../types/pipeline';
 import { useNotification, getNotifEnabled, setNotifEnabled, getNotifSound, setNotifSound, getNotifEvents, setNotifEvents, ALL_NOTIF_EVENTS, type NotifEvent } from '../hooks/useNotification';
 
 // Path config item component
@@ -245,6 +246,18 @@ export const Settings = () => {
     const [pipelineConfig, setPipelineConfig] = useState<import('../types/pipeline').PipelineDefinition | null>(null);
     const [pipelineJson, setPipelineJson] = useState('');
 
+    // Saved workflows state (for load/save in pipeline tab)
+    const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>([]);
+    const [showWorkflowEditor, setShowWorkflowEditor] = useState(false);
+    const [editingPipeline, setEditingPipeline] = useState<import('../types/pipeline').PipelineDefinition | null>(null);
+    const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null);
+    const [saveWorkflowName, setSaveWorkflowName] = useState('');
+    const [saveWorkflowDesc, setSaveWorkflowDesc] = useState('');
+    const [saveWorkflowIcon, setSaveWorkflowIcon] = useState('🔧');
+    const [showIconPicker, setShowIconPicker] = useState(false);
+    const [savingWorkflow, setSavingWorkflow] = useState(false);
+    const [viewingAgent, setViewingAgent] = useState<AgentDefinition | null>(null);
+
     const [config, setConfig] = useState({
         maxConcurrentInvestigations: 3,
         maxSteps: 50,
@@ -264,6 +277,8 @@ export const Settings = () => {
         loadProviders();
         // Load pipeline builtins
         api.getPipelineBuiltins().then(setBuiltinAgents).catch(() => {});
+        // Load saved workflows for load/save
+        api.getSavedWorkflows().then(setSavedWorkflows).catch(() => {});
     }, []);
 
     const loadProviders = async () => {
@@ -1314,27 +1329,328 @@ export const Settings = () => {
 
                     {activeTab === 'pipeline' && (
                         <div className="space-y-8 animate-fade-in">
-                            <div>
-                                <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
-                                    <GitBranch className="text-cyan-400" /> Multi-Agent Pipeline
-                                </h2>
-                                <p className="text-slate-400">
-                                    Build a multi-agent pipeline by adding agents and configuring how they interact.
-                                    Drag stages to reorder. Click a stage to configure rejection behavior and input modes.
-                                </p>
+                            <div className="flex items-start justify-between gap-4">
+                                <div>
+                                    <h2 className="text-2xl font-bold text-white mb-2 flex items-center gap-2">
+                                        <GitBranch className="text-cyan-400" /> Multi-Agent Pipeline
+                                    </h2>
+                                    <p className="text-slate-400">
+                                        The default pipeline used for new investigations. Create and manage your saved workflows below.
+                                    </p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setEditingWorkflowId(null);
+                                        setSaveWorkflowName('');
+                                        setSaveWorkflowDesc('');
+                                        setSaveWorkflowIcon('🔧');
+                                        setEditingPipeline(null);
+                                        setShowWorkflowEditor(true);
+                                    }}
+                                    className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-sm font-bold bg-purple-600 hover:bg-purple-500 text-white transition-colors shrink-0"
+                                >
+                                    <Plus className="w-4 h-4" />
+                                    Create New Workflow
+                                </button>
                             </div>
 
-                            <PipelineBuilder
-                                value={pipelineConfig}
-                                onChange={(pipeline) => {
-                                    setPipelineConfig(pipeline);
-                                    setPipelineJson(pipeline ? JSON.stringify(pipeline, null, 2) : '');
-                                    setDirty(true);
-                                }}
-                                builtinAgents={builtinAgents}
-                                availableModels={availableModels}
-                            />
+                            {/* ── Current Default Pipeline (read-only view) ── */}
+                            {pipelineConfig && pipelineConfig.stages.length > 0 && (
+                                <div className="bg-slate-800/40 rounded-2xl border border-slate-700/40 p-5 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-lg">⚙️</span>
+                                            <div>
+                                                <h3 className="font-bold text-white text-lg">{pipelineConfig.name || 'Default Pipeline'}</h3>
+                                                <p className="text-xs text-slate-500">{pipelineConfig.stages.length} stages &middot; Active default for new investigations</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setEditingWorkflowId(null);
+                                                    setSaveWorkflowName(pipelineConfig.name || 'Default Pipeline');
+                                                    setSaveWorkflowDesc('');
+                                                    setSaveWorkflowIcon('⚙️');
+                                                    setEditingPipeline(pipelineConfig);
+                                                    setShowWorkflowEditor(true);
+                                                }}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-700/40 hover:bg-slate-700 border border-slate-600/40 transition-colors"
+                                            >
+                                                <Pencil className="w-3 h-3" /> Edit
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setPipelineConfig(null);
+                                                    setPipelineJson('');
+                                                    setDirty(true);
+                                                }}
+                                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-red-400/70 hover:text-red-300 bg-red-600/10 hover:bg-red-600/20 border border-red-500/20 transition-colors"
+                                            >
+                                                <Trash2 className="w-3 h-3" /> Clear
+                                            </button>
+                                        </div>
+                                    </div>
+                                    {/* Read-only stage list */}
+                                    <div className="space-y-0">
+                                        {pipelineConfig.stages.map((stage, i) => {
+                                            const agent = stage.agent;
+                                            const color = agent?.color || '#6b7280';
+                                            return (
+                                                <div key={i}>
+                                                    <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-slate-700/30 border border-slate-600/20">
+                                                        <span className="text-[11px] text-slate-600 font-mono w-4 text-right shrink-0">{i + 1}</span>
+                                                        <span
+                                                            className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] text-white font-bold shrink-0"
+                                                            style={{ backgroundColor: color }}
+                                                        >
+                                                            {agent?.icon || agent?.name?.charAt(0) || (i + 1)}
+                                                        </span>
+                                                        <span className="text-sm font-semibold text-slate-200">{agent?.name || `Stage ${i + 1}`}</span>
+                                                        <span className="text-[10px] text-slate-600">{agent?.source === 'builtin' ? `builtin · ${agent.builtinType}` : agent?.source || ''}</span>
+                                                        {stage.canReject && (
+                                                            <span className="text-[9px] bg-amber-600/20 text-amber-400 px-1.5 py-0.5 rounded-full font-bold">can reject</span>
+                                                        )}
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => agent && setViewingAgent(agent)}
+                                                            className="ml-auto p-1 rounded hover:bg-slate-600/40 text-slate-500 hover:text-slate-300 transition-colors"
+                                                            title="View agent details"
+                                                        >
+                                                            <Eye className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                    {i < pipelineConfig.stages.length - 1 && (
+                                                        <div className="flex items-center justify-center py-0.5">
+                                                            <div className="w-px h-3 bg-slate-700/60"></div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
+
+                            {!pipelineConfig && (
+                                <div className="bg-slate-800/40 rounded-2xl border-2 border-dashed border-slate-700/50 p-8 text-center space-y-3">
+                                    <GitBranch className="w-10 h-10 text-slate-600 mx-auto" />
+                                    <h3 className="text-sm font-bold text-slate-400">No default pipeline configured</h3>
+                                    <p className="text-xs text-slate-500 max-w-md mx-auto">
+                                        Create a new workflow or load a saved one. The active pipeline will be used as the default for new investigations.
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* ── Saved Workflows List ── */}
+                            {savedWorkflows.length > 0 && (
+                                <div className="space-y-3">
+                                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+                                        Saved Workflows ({savedWorkflows.length})
+                                    </h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        {savedWorkflows.map(wf => (
+                                            <div
+                                                key={wf.id}
+                                                className="bg-slate-800/40 rounded-xl border border-slate-700/40 p-4 hover:border-slate-600/60 transition-colors group"
+                                            >
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <div className="flex items-start gap-3 min-w-0">
+                                                        <span className="text-xl shrink-0 mt-0.5">{wf.icon || '🔧'}</span>
+                                                        <div className="min-w-0">
+                                                            <h4 className="font-bold text-white text-sm truncate">{wf.name}</h4>
+                                                            <p className="text-[11px] text-slate-500 truncate">{wf.description || `${wf.pipeline.stages.length} stages`}</p>
+                                                            <div className="flex flex-wrap gap-0.5 mt-2">
+                                                                {wf.pipeline.stages.map((stage, i) => (
+                                                                    <span
+                                                                        key={i}
+                                                                        className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] text-white font-bold"
+                                                                        style={{ backgroundColor: stage.agent?.color || '#6b7280' }}
+                                                                        title={stage.agent?.name || `Stage ${i + 1}`}
+                                                                    >
+                                                                        {stage.agent?.icon || stage.agent?.name?.charAt(0) || (i + 1)}
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setPipelineConfig(wf.pipeline);
+                                                                setPipelineJson(JSON.stringify(wf.pipeline, null, 2));
+                                                                setDirty(true);
+                                                                toast('success', `"${wf.name}" set as default pipeline`);
+                                                            }}
+                                                            className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-cyan-400 bg-cyan-600/10 hover:bg-cyan-600/20 border border-cyan-500/20 transition-colors"
+                                                            title="Set as default pipeline"
+                                                        >
+                                                            Set Default
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                                setEditingWorkflowId(wf.id);
+                                                                setSaveWorkflowName(wf.name);
+                                                                setSaveWorkflowDesc(wf.description || '');
+                                                                setSaveWorkflowIcon(wf.icon || '🔧');
+                                                                setEditingPipeline(wf.pipeline);
+                                                                setShowWorkflowEditor(true);
+                                                            }}
+                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                                                            title="Edit workflow"
+                                                        >
+                                                            <Pencil className="w-3.5 h-3.5" />
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={async () => {
+                                                                try {
+                                                                    await api.deleteSavedWorkflow(wf.id);
+                                                                    setSavedWorkflows(prev => prev.filter(w => w.id !== wf.id));
+                                                                    toast('success', 'Workflow deleted');
+                                                                } catch {
+                                                                    toast('error', 'Failed to delete workflow');
+                                                                }
+                                                            }}
+                                                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-600/10 transition-colors"
+                                                            title="Delete workflow"
+                                                        >
+                                                            <Trash2 className="w-3.5 h-3.5" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
+                    )}
+
+                    {/* ── Workflow Editor Modal (Settings) ── */}
+                    {showWorkflowEditor && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowWorkflowEditor(false)}>
+                            <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-[90vw] max-w-4xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                                <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
+                                    <h3 className="text-lg font-bold text-white">
+                                        {editingWorkflowId ? 'Edit Workflow' : 'Create New Workflow'}
+                                    </h3>
+                                    <button type="button" onClick={() => setShowWorkflowEditor(false)} className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors">
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
+                                <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                                    <div className="grid grid-cols-[auto_1fr_1fr] gap-3 items-end">
+                                        <div className="space-y-1 relative">
+                                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Icon</label>
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowIconPicker(v => !v)}
+                                                className="w-11 h-10 flex items-center justify-center text-xl rounded-lg border border-slate-700 bg-slate-800/50 hover:border-slate-500 focus:ring-2 focus:ring-purple-500 outline-none transition-colors"
+                                            >
+                                                {saveWorkflowIcon || '🔧'}
+                                            </button>
+                                            {showIconPicker && (
+                                                <div className="absolute top-full left-0 mt-1 z-10 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 grid grid-cols-5 gap-1 w-[180px]">
+                                                    {['🔧','⚡','🔬','🚨','💚','📜','🔍','🛡️','🧠','🎯','📊','🔥','💎','🚀','⚙️','🧪','🔮','📡','🌐','🤖'].map(icon => (
+                                                        <button
+                                                            key={icon}
+                                                            type="button"
+                                                            onClick={() => { setSaveWorkflowIcon(icon); setShowIconPicker(false); }}
+                                                            className={`w-8 h-8 flex items-center justify-center text-lg rounded-lg hover:bg-slate-700 transition-colors ${saveWorkflowIcon === icon ? 'bg-purple-600/30 ring-1 ring-purple-500' : ''}`}
+                                                        >
+                                                            {icon}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Name *</label>
+                                            <input
+                                                type="text"
+                                                value={saveWorkflowName}
+                                                onChange={e => setSaveWorkflowName(e.target.value)}
+                                                placeholder="My Custom Workflow"
+                                                className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                                            />
+                                        </div>
+                                        <div className="space-y-1">
+                                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</label>
+                                            <input
+                                                type="text"
+                                                value={saveWorkflowDesc}
+                                                onChange={e => setSaveWorkflowDesc(e.target.value)}
+                                                placeholder="Optional description..."
+                                                className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                                            />
+                                        </div>
+                                    </div>
+                                    <PipelineBuilder
+                                        value={editingPipeline}
+                                        onChange={setEditingPipeline}
+                                        builtinAgents={builtinAgents}
+                                        availableModels={availableModels}
+                                    />
+                                </div>
+                                <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-700/50">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowWorkflowEditor(false)}
+                                        className="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        type="button"
+                                        disabled={!saveWorkflowName.trim() || !editingPipeline || editingPipeline.stages.length === 0 || savingWorkflow}
+                                        onClick={async () => {
+                                            if (!saveWorkflowName.trim() || !editingPipeline) return;
+                                            setSavingWorkflow(true);
+                                            try {
+                                                if (editingWorkflowId) {
+                                                    const updated = await api.updateSavedWorkflow(editingWorkflowId, {
+                                                        name: saveWorkflowName.trim(),
+                                                        description: saveWorkflowDesc.trim() || undefined,
+                                                        icon: saveWorkflowIcon || '🔧',
+                                                        pipeline: editingPipeline,
+                                                    });
+                                                    setSavedWorkflows(prev => prev.map(w => w.id === editingWorkflowId ? updated : w));
+                                                    toast('success', 'Workflow updated');
+                                                } else {
+                                                    const saved = await api.createSavedWorkflow({
+                                                        name: saveWorkflowName.trim(),
+                                                        description: saveWorkflowDesc.trim() || undefined,
+                                                        icon: saveWorkflowIcon || '🔧',
+                                                        pipeline: editingPipeline,
+                                                    });
+                                                    setSavedWorkflows(prev => [...prev, saved]);
+                                                    toast('success', 'Workflow saved');
+                                                }
+                                                setShowWorkflowEditor(false);
+                                            } catch (err: any) {
+                                                toast('error', err.message || 'Failed to save workflow');
+                                            } finally {
+                                                setSavingWorkflow(false);
+                                            }
+                                        }}
+                                        className="px-5 py-2 rounded-lg text-sm font-bold bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                                    >
+                                        {savingWorkflow ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                        {editingWorkflowId ? 'Update Workflow' : 'Save Workflow'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {viewingAgent && (
+                        <BuiltinDetailModal agent={viewingAgent} onClose={() => setViewingAgent(null)} />
                     )}
 
                     {activeTab === 'appearance' && (

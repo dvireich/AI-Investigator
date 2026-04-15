@@ -848,7 +848,7 @@ StageCard.displayName = 'StageCard';
 
 // ── Builtin Agent Detail Modal (read-only) ──────────────────────────
 
-const BuiltinDetailModal: React.FC<{ agent: AgentDefinition; onClose: () => void }> = ({ agent, onClose }) => {
+export const BuiltinDetailModal: React.FC<{ agent: AgentDefinition; onClose: () => void }> = ({ agent, onClose }) => {
     const backdropRef = useRef<HTMLDivElement>(null);
 
     return (
