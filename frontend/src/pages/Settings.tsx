@@ -257,6 +257,7 @@ export const Settings = () => {
     const [showIconPicker, setShowIconPicker] = useState(false);
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [viewingAgent, setViewingAgent] = useState<AgentDefinition | null>(null);
+    const [selectedPipelineSource, setSelectedPipelineSource] = useState<string | null>(null);
 
     const [config, setConfig] = useState({
         maxConcurrentInvestigations: 3,
@@ -399,6 +400,11 @@ export const Settings = () => {
             if (settings.pipeline) {
                 setPipelineConfig(settings.pipeline);
                 setPipelineJson(JSON.stringify(settings.pipeline, null, 2));
+                // Try to match loaded pipeline to a preset or saved workflow
+                const matchedPreset = PIPELINE_PRESETS.find(p => p.name === settings.pipeline!.name);
+                if (matchedPreset) {
+                    setSelectedPipelineSource(`preset:${matchedPreset.id}`);
+                }
             }
         } catch (err) {
             console.error("Failed to load settings:", err);
@@ -1363,7 +1369,7 @@ export const Settings = () => {
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                                     {/* Built-in presets */}
                                     {PIPELINE_PRESETS.filter(preset => preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))).map(preset => {
-                                        const isSelected = pipelineConfig?.name === preset.name;
+                                        const isSelected = selectedPipelineSource === `preset:${preset.id}`;
                                         return (
                                             <button
                                                 key={preset.id}
@@ -1372,6 +1378,7 @@ export const Settings = () => {
                                                     const pipeline = buildPipelinePreset(preset.id, builtinAgents);
                                                     setPipelineConfig(pipeline);
                                                     setPipelineJson(JSON.stringify(pipeline, null, 2));
+                                                    setSelectedPipelineSource(`preset:${preset.id}`);
                                                     setDirty(true);
                                                 }}
                                                 className={`text-left rounded-xl border p-4 transition-all ${
@@ -1407,7 +1414,7 @@ export const Settings = () => {
 
                                     {/* Saved workflows */}
                                     {savedWorkflows.map(wf => {
-                                        const isSelected = pipelineConfig?.name === wf.pipeline.name;
+                                        const isSelected = selectedPipelineSource === `saved:${wf.id}`;
                                         return (
                                             <button
                                                 key={wf.id}
@@ -1415,6 +1422,7 @@ export const Settings = () => {
                                                 onClick={() => {
                                                     setPipelineConfig(wf.pipeline);
                                                     setPipelineJson(JSON.stringify(wf.pipeline, null, 2));
+                                                    setSelectedPipelineSource(`saved:${wf.id}`);
                                                     setDirty(true);
                                                 }}
                                                 className={`text-left rounded-xl border p-4 transition-all ${
@@ -1451,10 +1459,11 @@ export const Settings = () => {
                                         onClick={() => {
                                             setPipelineConfig(null);
                                             setPipelineJson('');
+                                            setSelectedPipelineSource(null);
                                             setDirty(true);
                                         }}
                                         className={`text-left rounded-xl border-2 border-dashed p-4 transition-all ${
-                                            !pipelineConfig
+                                            selectedPipelineSource === null && !pipelineConfig
                                                 ? 'bg-slate-800/60 border-slate-500/40 ring-2 ring-slate-500/20'
                                                 : 'border-slate-700/40 hover:border-slate-600/60'
                                         }`}
@@ -1462,7 +1471,7 @@ export const Settings = () => {
                                         <div className="flex items-center gap-2.5 mb-2">
                                             <X className="w-4 h-4 text-slate-500" />
                                             <span className="text-sm font-bold text-slate-400">None</span>
-                                            {!pipelineConfig && <CheckCircle2 className="w-4 h-4 text-slate-400 ml-auto" />}
+                                            {selectedPipelineSource === null && !pipelineConfig && <CheckCircle2 className="w-4 h-4 text-slate-400 ml-auto" />}
                                         </div>
                                         <p className="text-[11px] text-slate-500 leading-relaxed">No default pipeline. You'll choose one manually each time.</p>
                                     </button>
