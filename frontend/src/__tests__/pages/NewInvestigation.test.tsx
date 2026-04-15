@@ -30,6 +30,14 @@ vi.mock('../../api', () => ({
         deleteSavedQuery: vi.fn().mockResolvedValue({}),
         fetchIncident: vi.fn(),
         getPipelineBuiltins: vi.fn().mockResolvedValue([]),
+        getSavedWorkflows: vi.fn().mockResolvedValue([]),
+        getSavedAgents: vi.fn().mockResolvedValue([]),
+        createSavedWorkflow: vi.fn().mockResolvedValue({ id: 'w1', name: 'Test Workflow' }),
+        updateSavedWorkflow: vi.fn().mockResolvedValue({ id: 'w1', name: 'Updated Workflow' }),
+        deleteSavedWorkflow: vi.fn().mockResolvedValue({}),
+        createSavedAgent: vi.fn().mockResolvedValue({ id: 'a1', agent: { name: 'Test Agent' } }),
+        updateSavedAgent: vi.fn().mockResolvedValue({ id: 'a1', agent: { name: 'Updated Agent' } }),
+        deleteSavedAgent: vi.fn().mockResolvedValue({}),
     },
 }));
 
@@ -60,6 +68,8 @@ describe('NewInvestigation', () => {
         vi.mocked(api.updateSavedQuery).mockResolvedValue({ id: 'q1', name: 'Updated Query' } as any);
         vi.mocked(api.deleteSavedQuery).mockResolvedValue({} as any);
         vi.mocked(api.getPipelineBuiltins).mockResolvedValue([]);
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([]);
+        vi.mocked(api.getSavedAgents).mockResolvedValue([]);
     });
 
     it('renders form heading', async () => {

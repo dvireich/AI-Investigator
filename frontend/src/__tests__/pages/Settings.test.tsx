@@ -75,6 +75,14 @@ vi.mock('../../api', () => ({
         exportSettings: vi.fn().mockResolvedValue(undefined),
         importSettings: vi.fn().mockResolvedValue({ imported: 3, config: { model: 'gpt-4o', maxSteps: 50 } }),
         getPipelineBuiltins: vi.fn().mockResolvedValue([]),
+        getSavedWorkflows: vi.fn().mockResolvedValue([]),
+        getSavedAgents: vi.fn().mockResolvedValue([]),
+        createSavedWorkflow: vi.fn().mockResolvedValue({ id: 'w1', name: 'Test Workflow' }),
+        updateSavedWorkflow: vi.fn().mockResolvedValue({ id: 'w1', name: 'Updated Workflow' }),
+        deleteSavedWorkflow: vi.fn().mockResolvedValue({}),
+        createSavedAgent: vi.fn().mockResolvedValue({ id: 'a1', agent: { name: 'Test Agent' } }),
+        updateSavedAgent: vi.fn().mockResolvedValue({ id: 'a1', agent: { name: 'Updated Agent' } }),
+        deleteSavedAgent: vi.fn().mockResolvedValue({}),
     },
 }));
 
@@ -107,16 +115,20 @@ vi.mock('../../components/FileBrowserModal', () => ({
 }));
 
 // Mock PipelineBuilder – renders a button that triggers onChange so tests can cover the callback
-vi.mock('../../components/PipelineBuilder', () => ({
-    PipelineBuilder: ({ onChange }: { value: any; onChange: (v: any) => void; builtinAgents: any[]; availableModels: string[] }) => (
-        <div data-testid="pipeline-builder">
-            <button onClick={() => onChange({ id: 'mock-pipe', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] })}>
-                MockPipelineChange
-            </button>
-            <button onClick={() => onChange(null)}>MockPipelineClear</button>
-        </div>
-    ),
-}));
+vi.mock('../../components/PipelineBuilder', async (importOriginal) => {
+    const actual = await importOriginal() as any;
+    return {
+        ...actual,
+        PipelineBuilder: ({ onChange }: { value: any; onChange: (v: any) => void; builtinAgents: any[]; availableModels: string[] }) => (
+            <div data-testid="pipeline-builder">
+                <button onClick={() => onChange({ id: 'mock-pipe', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] })}>
+                    MockPipelineChange
+                </button>
+                <button onClick={() => onChange(null)}>MockPipelineClear</button>
+            </div>
+        ),
+    };
+});
 
 // Test data constants - defined after mocks for use in tests
 const mockProduct1 = {
@@ -220,6 +232,9 @@ async function resetApiMocks() {
     vi.mocked(api.configureLlmProvider).mockResolvedValue({});
     vi.mocked(api.exportSettings).mockResolvedValue(undefined);
     vi.mocked(api.importSettings).mockResolvedValue({ imported: 3, config: { model: 'gpt-4o', maxSteps: 50 } } as any);
+    vi.mocked(api.getPipelineBuiltins).mockResolvedValue([]);
+    vi.mocked(api.getSavedWorkflows).mockResolvedValue([]);
+    vi.mocked(api.getSavedAgents).mockResolvedValue([]);
 }
 
 describe('Settings', () => {
@@ -4114,6 +4129,11 @@ describe('Settings extra coverage', () => {
             await user.click(screen.getByText('Pipeline'));
             await waitFor(() => {
                 expect(screen.getByText('Multi-Agent Pipeline')).toBeInTheDocument();
+            });
+            // Open workflow editor modal to access PipelineBuilder
+            await user.click(screen.getByText('Create New Workflow'));
+            await waitFor(() => {
+                expect(screen.getByText('MockPipelineChange')).toBeInTheDocument();
             });
             // Trigger onChange with a pipeline value (covers setPipelineConfig + setPipelineJson + setDirty)
             await user.click(screen.getByText('MockPipelineChange'));
