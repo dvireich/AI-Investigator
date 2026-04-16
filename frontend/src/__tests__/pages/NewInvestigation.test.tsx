@@ -2440,8 +2440,9 @@ describe('NewInvestigation workflow presets', () => {
         expect(callArgs.pipeline).toBeUndefined();
     });
 
-    it('shows all presets without pagination when configured pipeline is present', async () => {
+    it('paginates workflow cards when there are many presets', async () => {
         const { api } = await import('../../api');
+        // With configured pipeline + 6 presets = 7 items, needs 2 pages
         vi.mocked(api.getSettings).mockResolvedValue({
             model: 'gpt-4o',
             timeRange: 'ago(1h)',
@@ -2455,13 +2456,25 @@ describe('NewInvestigation workflow presets', () => {
             },
         } as any);
 
+        const user = userEvent.setup();
         renderNewInvestigation();
 
-        await waitFor(() => screen.getByText('CONFIGURED'));
-        // All presets + configured card should be visible at once (no pagination)
-        expect(screen.getByText('Standard')).toBeInTheDocument();
-        expect(screen.getByText('Quick Health Check')).toBeInTheDocument();
-        expect(screen.getByText('Root Cause Analysis')).toBeInTheDocument();
+        await waitFor(() => screen.getByText('1/2'));
+
+        // Page 1 should show 6 items, page 2 should show the rest
+        // Click next page
+        const nextButtons = screen.getAllByRole('button').filter(b => b.querySelector('.lucide-chevron-right'));
+        expect(nextButtons.length).toBeGreaterThan(0);
+        await user.click(nextButtons[0]);
+
+        await waitFor(() => screen.getByText('2/2'));
+
+        // Click prev page to go back
+        const prevButtons = screen.getAllByRole('button').filter(b => b.querySelector('.lucide-chevron-left'));
+        expect(prevButtons.length).toBeGreaterThan(0);
+        await user.click(prevButtons[0]);
+
+        await waitFor(() => screen.getByText('1/2'));
     });
 
     it('shows DEFAULT badge on Standard preset when no configured pipeline', async () => {

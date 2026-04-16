@@ -4,7 +4,7 @@ import { api, type IncidentPreview, type IncidentProgressEvent, type Product, ty
 import { useToast } from '../components/Toast';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
-import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, X, Check, Pencil, GitBranch, Plus } from 'lucide-react';
+import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, ChevronLeft, ChevronRight, X, Check, Pencil, GitBranch, Plus } from 'lucide-react';
 import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../constants';
 import { parseFlexibleTimestamp, toDateTimeLocalValue, toDateTimeUTCValue, formatDateDisplayUTC, datetimeLocalToISO } from '../utils/timestamp';
 import { PIPELINE_PRESETS, buildPipelinePreset, PipelineBuilder } from '../components/PipelineBuilder';
@@ -58,6 +58,7 @@ export const NewInvestigation = () => {
     const [builtinAgents, setBuiltinAgents] = useState<AgentDefinition[]>([]);
     const [selectedWorkflow, setSelectedWorkflow] = useState<string>(''); // set dynamically after settings load
     const [configuredPipeline, setConfiguredPipeline] = useState<PipelineDefinition | null>(null);
+    const [workflowPage, setWorkflowPage] = useState(0);
 
 
     // Saved workflows & agents state
@@ -1181,6 +1182,9 @@ export const NewInvestigation = () => {
                                 ...(hasConfiguredPipeline ? [{ type: 'configured' as const }] : []),
                                 ...availablePresets.map(preset => ({ type: 'preset' as const, preset })),
                             ];
+                            const PAGE_SIZE = 6; // 2 rows × 3 columns
+                            const totalPages = Math.ceil(builtinItems.length / PAGE_SIZE);
+                            const pageItems = builtinItems.slice(workflowPage * PAGE_SIZE, (workflowPage + 1) * PAGE_SIZE);
 
 
                             const handleDeleteSavedWorkflow = async (e: React.MouseEvent, wfId: string) => {
@@ -1303,13 +1307,38 @@ export const NewInvestigation = () => {
 
                                     {/* ── Built-in Presets section ── */}
                                     <div className="space-y-1.5">
-                                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
-                                            <span className="flex-1 h-px bg-slate-700/50"></span>
-                                            Built-in Presets
-                                            <span className="flex-1 h-px bg-slate-700/50"></span>
+                                        <div className="flex items-center gap-2">
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2 flex-1">
+                                                <span className="flex-1 h-px bg-slate-700/50"></span>
+                                                Built-in Presets
+                                                <span className="flex-1 h-px bg-slate-700/50"></span>
+                                            </div>
+                                            {totalPages > 1 && (
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setWorkflowPage(p => Math.max(0, p - 1))}
+                                                        disabled={workflowPage === 0}
+                                                        className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
+                                                    </button>
+                                                    <span className="text-[10px] text-slate-500 tabular-nums min-w-[2rem] text-center">
+                                                        {workflowPage + 1}/{totalPages}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setWorkflowPage(p => Math.min(totalPages - 1, p + 1))}
+                                                        disabled={workflowPage >= totalPages - 1}
+                                                        className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                                                    </button>
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                            {builtinItems.map((item) => {
+                                            {pageItems.map((item) => {
                                                 if (item.type === 'configured') {
                                                     const isSelected = selectedWorkflow === 'configured';
                                                     return (
