@@ -4345,7 +4345,7 @@ describe('Settings extra coverage', () => {
             const workflows = [
                 { ...mockSavedWorkflow, id: 'sw1', name: 'Alpha Pipeline', description: 'First workflow' },
                 { ...mockSavedWorkflow, id: 'sw2', name: 'Beta Pipeline', description: 'Second workflow' },
-                { ...mockSavedWorkflow, id: 'sw3', name: 'Gamma Flow', description: 'Third workflow' },
+                { ...mockSavedWorkflow, id: 'sw3', name: 'Gamma Flow', description: undefined },
             ];
             vi.mocked(api.getSavedWorkflows).mockResolvedValue(workflows as any);
             const user = userEvent.setup();
@@ -4356,9 +4356,9 @@ describe('Settings extra coverage', () => {
             // All 3 visible in manage section
             expect(screen.getAllByText('Alpha Pipeline').length).toBeGreaterThanOrEqual(1);
             expect(screen.getAllByText('Beta Pipeline').length).toBeGreaterThanOrEqual(1);
-            // Search matching all — header shows "X of Y" format
+            // Search matching a term in names — covers description-less pathway
             const searchInput = screen.getByPlaceholderText(/search saved workflows/i);
-            await user.type(searchInput, 'workflow');
+            await user.type(searchInput, 'a');
             await waitFor(() => screen.getByText(/Manage Saved Workflows \(3 of 3\)/));
             // Search for "Alpha" — filters to 1 of 3
             await user.clear(searchInput);
