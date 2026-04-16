@@ -4105,6 +4105,27 @@ describe('Settings extra coverage', () => {
     });
 
     describe('Pipeline tab', () => {
+        const mockBuiltinAgents = [
+            { id: 'a1', name: 'Triage', source: 'builtin', builtinType: 'triage', color: '#ef4444', icon: '🚦' },
+            { id: 'a2', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#3b82f6', icon: '🔍' },
+            { id: 'a3', name: 'Validator', source: 'builtin', builtinType: 'validator', color: '#10b981', icon: '✅' },
+        ];
+        const mockSavedWorkflow = {
+            id: 'sw1',
+            name: 'My Test WF',
+            description: 'Custom test',
+            icon: '🚀',
+            pipeline: {
+                id: 'p1',
+                name: 'My Test WF',
+                stages: [
+                    { agent: { id: 'a1', name: 'Investigator', source: 'builtin' as const, builtinType: 'investigator', color: '#3b82f6', icon: '🔍' } },
+                ],
+            },
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+        };
+
         it('renders pipeline tab and shows PipelineBuilder when clicked', async () => {
             const user = userEvent.setup();
             renderSettings();
@@ -4139,6 +4160,407 @@ describe('Settings extra coverage', () => {
             await user.click(screen.getByText('MockPipelineChange'));
             // Trigger onChange with null (covers the null ternary branch)
             await user.click(screen.getByText('MockPipelineClear'));
+        });
+
+        it('shows preset cards when builtin agents are available', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue(mockBuiltinAgents as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            // Quick Health Check only requires triage, investigator, validator — should appear
+            await waitFor(() => {
+                expect(screen.getByText('Quick Health Check')).toBeInTheDocument();
+            });
+        });
+
+        it('selects a preset card and marks dirty', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue(mockBuiltinAgents as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Quick Health Check'));
+            await user.click(screen.getByText('Quick Health Check'));
+            // After selecting a preset, Save Changes should appear (dirty)
+            await waitFor(() => {
+                expect(screen.getByText('Save Changes')).toBeInTheDocument();
+            });
+        });
+
+        it('selects None card to clear pipeline', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue(mockBuiltinAgents as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Quick Health Check'));
+            // Select a preset first, then switch to None
+            await user.click(screen.getByText('Quick Health Check'));
+            await user.click(screen.getByText('None'));
+            // Still dirty
+            await waitFor(() => {
+                expect(screen.getByText('Save Changes')).toBeInTheDocument();
+            });
+        });
+
+        it('shows saved workflow cards and allows selection', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([mockSavedWorkflow] as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => {
+                expect(screen.getByText('Manage Saved Workflows (1)')).toBeInTheDocument();
+            });
+            // The card in the grid uses the workflow name
+            const wfCards = screen.getAllByText('My Test WF');
+            expect(wfCards.length).toBeGreaterThan(0);
+            await user.click(wfCards[0]);
+            await waitFor(() => {
+                expect(screen.getByText('Save Changes')).toBeInTheDocument();
+            });
+        });
+
+        it('shows pipeline stages in read-only view after selecting a preset', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue(mockBuiltinAgents as any);
+            vi.mocked(api.getSettings).mockResolvedValueOnce({
+                model: 'gpt-4o',
+                maxSteps: 50,
+                pipeline: {
+                    id: 'p1',
+                    name: 'Quick Health Check',
+                    stages: [
+                        { agent: { id: 'a1', name: 'Triage', source: 'builtin', builtinType: 'triage', color: '#ef4444', icon: '🚦' } },
+                        { agent: { id: 'a2', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#3b82f6', icon: '🔍' } },
+                        { agent: { id: 'a3', name: 'Validator', source: 'builtin', builtinType: 'validator', color: '#10b981', icon: '✅' }, canReject: true },
+                    ],
+                },
+            } as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => {
+                expect(screen.getByText('Triage')).toBeInTheDocument();
+                expect(screen.getByText('Investigator')).toBeInTheDocument();
+                expect(screen.getByText('Validator')).toBeInTheDocument();
+            });
+            // canReject badge
+            expect(screen.getByText('can reject')).toBeInTheDocument();
+        });
+
+        it('manages saved workflows — edit opens modal', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([mockSavedWorkflow] as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Manage Saved Workflows (1)'));
+            // Click edit button
+            const editBtn = screen.getByTitle('Edit workflow');
+            await user.click(editBtn);
+            await waitFor(() => {
+                expect(screen.getByText('MockPipelineChange')).toBeInTheDocument();
+            });
+        });
+
+        it('manages saved workflows — delete removes workflow', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([mockSavedWorkflow] as any);
+            vi.mocked(api.deleteSavedWorkflow).mockResolvedValue();
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Manage Saved Workflows (1)'));
+            const deleteBtn = screen.getByTitle('Delete workflow');
+            await user.click(deleteBtn);
+            await waitFor(() => {
+                expect(api.deleteSavedWorkflow).toHaveBeenCalledWith('sw1');
+            });
+        });
+
+        it('manages saved workflows — delete error shows toast', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([mockSavedWorkflow] as any);
+            vi.mocked(api.deleteSavedWorkflow).mockRejectedValue(new Error('fail'));
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Manage Saved Workflows (1)'));
+            const deleteBtn = screen.getByTitle('Delete workflow');
+            await user.click(deleteBtn);
+            await waitFor(() => {
+                expect(api.deleteSavedWorkflow).toHaveBeenCalled();
+            });
+        });
+
+        it('creates a new workflow through the editor modal', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.createSavedWorkflow).mockResolvedValue({
+                id: 'new-wf',
+                name: 'Created WF',
+                pipeline: { id: 'p1', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] },
+                createdAt: '',
+                updatedAt: '',
+            } as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Multi-Agent Pipeline'));
+            await user.click(screen.getByText('Create New Workflow'));
+            await waitFor(() => screen.getByPlaceholderText('My Custom Workflow'));
+            // Type name only (no description — covers undefined fallback branch)
+            await user.type(screen.getByPlaceholderText('My Custom Workflow'), 'Created WF');
+            await user.click(screen.getByText('MockPipelineChange'));
+            await user.click(screen.getByText('Save Workflow'));
+            // Wait for modal to close AND new workflow to appear (ensures setSavedWorkflows updater ran)
+            await waitFor(() => {
+                expect(screen.queryByPlaceholderText('My Custom Workflow')).not.toBeInTheDocument();
+                const wfCards = screen.getAllByText('Created WF');
+                expect(wfCards.length).toBeGreaterThan(0);
+            });
+            expect(api.createSavedWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+                name: 'Created WF',
+                description: undefined,
+            }));
+        });
+
+        it('updates an existing workflow through the editor modal', async () => {
+            const { api } = await import('../../api');
+            const otherWorkflow = { ...mockSavedWorkflow, id: 'sw-other', name: 'Other' };
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([mockSavedWorkflow, otherWorkflow] as any);
+            vi.mocked(api.updateSavedWorkflow).mockResolvedValue({
+                ...mockSavedWorkflow,
+                name: 'Updated WF',
+            } as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Manage Saved Workflows (2)'));
+            await user.click(screen.getAllByTitle('Edit workflow')[0]);
+            await waitFor(() => screen.getByText('MockPipelineChange'));
+            await user.click(screen.getByText('Update Workflow'));
+            // Wait for modal to close AND updated workflow name to appear (proves updater function executed)
+            await waitFor(() => {
+                expect(screen.queryByText('MockPipelineChange')).not.toBeInTheDocument();
+                const wfCards = screen.getAllByText('Updated WF');
+                expect(wfCards.length).toBeGreaterThan(0);
+            });
+            expect(api.updateSavedWorkflow).toHaveBeenCalledWith('sw1', expect.any(Object));
+        });
+
+        it('updates a workflow with empty description and no icon (covers fallback branches)', async () => {
+            const { api } = await import('../../api');
+            const noDescWorkflow = {
+                ...mockSavedWorkflow,
+                description: '',
+                icon: '',
+            };
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([noDescWorkflow] as any);
+            vi.mocked(api.updateSavedWorkflow).mockResolvedValue({
+                ...noDescWorkflow,
+                name: 'Updated No Desc',
+            } as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Manage Saved Workflows (1)'));
+            await user.click(screen.getByTitle('Edit workflow'));
+            await waitFor(() => screen.getByText('MockPipelineChange'));
+            await user.click(screen.getByText('Update Workflow'));
+            await waitFor(() => {
+                expect(screen.queryByText('MockPipelineChange')).not.toBeInTheDocument();
+            });
+            expect(api.updateSavedWorkflow).toHaveBeenCalledWith('sw1', expect.objectContaining({
+                description: undefined,
+            }));
+        });
+
+        it('workflow editor handles save error', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.createSavedWorkflow).mockRejectedValue(new Error('Network error'));
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Multi-Agent Pipeline'));
+            await user.click(screen.getByText('Create New Workflow'));
+            await waitFor(() => screen.getByPlaceholderText('My Custom Workflow'));
+            await user.type(screen.getByPlaceholderText('My Custom Workflow'), 'WF');
+            await user.click(screen.getByText('MockPipelineChange'));
+            await user.click(screen.getByText('Save Workflow'));
+            await waitFor(() => {
+                expect(api.createSavedWorkflow).toHaveBeenCalled();
+            });
+        });
+
+        it('workflow editor handles save error without message (fallback)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.createSavedWorkflow).mockRejectedValue({});
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Multi-Agent Pipeline'));
+            await user.click(screen.getByText('Create New Workflow'));
+            await waitFor(() => screen.getByPlaceholderText('My Custom Workflow'));
+            await user.type(screen.getByPlaceholderText('My Custom Workflow'), 'WF2');
+            await user.click(screen.getByText('MockPipelineChange'));
+            await user.click(screen.getByText('Save Workflow'));
+            await waitFor(() => {
+                expect(api.createSavedWorkflow).toHaveBeenCalled();
+            });
+        });
+
+        it('workflow editor cancel closes modal', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Multi-Agent Pipeline'));
+            await user.click(screen.getByText('Create New Workflow'));
+            await waitFor(() => screen.getByText('MockPipelineChange'));
+            await user.click(screen.getByText('Cancel'));
+            await waitFor(() => {
+                expect(screen.queryByText('MockPipelineChange')).not.toBeInTheDocument();
+            });
+        });
+
+        it('closes workflow editor via X button and types description', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Multi-Agent Pipeline'));
+            await user.click(screen.getByText('Create New Workflow'));
+            await waitFor(() => screen.getByPlaceholderText('My Custom Workflow'));
+            // Type in description (covers onChange handler)
+            await user.type(screen.getByPlaceholderText('Optional description...'), 'test desc');
+            // Close via X button — find the modal header row and its last button (the X)
+            const headerRow = screen.getByRole('heading', { level: 3, name: 'Create New Workflow' }).parentElement!;
+            const xButton = headerRow.querySelector('button')!;
+            await user.click(xButton);
+            await waitFor(() => {
+                expect(screen.queryByPlaceholderText('My Custom Workflow')).not.toBeInTheDocument();
+            });
+        });
+
+        it('closes workflow editor via backdrop click', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Multi-Agent Pipeline'));
+            await user.click(screen.getByText('Create New Workflow'));
+            await waitFor(() => screen.getByPlaceholderText('My Custom Workflow'));
+            const modalContent = screen.getByPlaceholderText('My Custom Workflow').closest('.bg-slate-900')!;
+            const backdrop = modalContent.parentElement!;
+            fireEvent.click(backdrop);
+            await waitFor(() => {
+                expect(screen.queryByPlaceholderText('My Custom Workflow')).not.toBeInTheDocument();
+            });
+        });
+
+        it('closes agent detail modal via onClose callback', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([mockSavedWorkflow] as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Manage Saved Workflows (1)'));
+            // Click the saved workflow card in the grid
+            const wfCards = screen.getAllByText('My Test WF');
+            await user.click(wfCards[0].closest('button')!);
+            // Wait for pipeline detail section to render with Eye button
+            await waitFor(() => screen.getByTitle('View agent details'));
+            await user.click(screen.getByTitle('View agent details'));
+            // BuiltinDetailModal should appear
+            await waitFor(() => {
+                const modal = document.querySelector('.fixed.inset-0.z-50');
+                expect(modal).not.toBeNull();
+            });
+            // Close via backdrop click
+            const backdrop = document.querySelector('.fixed.inset-0.z-50')!;
+            fireEvent.click(backdrop);
+            await waitFor(() => {
+                expect(document.querySelector('.fixed.inset-0.z-50')).toBeNull();
+            });
+        });
+
+        it('matches loaded pipeline to a preset and sets source', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue(mockBuiltinAgents as any);
+            vi.mocked(api.getSettings).mockResolvedValueOnce({
+                model: 'gpt-4o',
+                maxSteps: 50,
+                pipeline: { id: 'p1', name: 'Quick Health Check', stages: [] },
+            } as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Quick Health Check'));
+            // The Quick Health Check card should be highlighted (has ring)
+        });
+
+        it('opens icon picker in workflow editor and selects an icon', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Multi-Agent Pipeline'));
+            await user.click(screen.getByText('Create New Workflow'));
+            await waitFor(() => screen.getByPlaceholderText('My Custom Workflow'));
+            // Find the Icon label, then click its sibling button
+            const iconLabel = screen.getByText('Icon');
+            const iconButton = iconLabel.parentElement!.querySelector('button')!;
+            await user.click(iconButton);
+            // Icon picker grid should appear
+            await waitFor(() => {
+                expect(screen.getByText('🚀')).toBeInTheDocument();
+            });
+            await user.click(screen.getByText('🚀'));
+        });
+
+        it('opens agent detail modal via Eye icon in read-only pipeline view', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue(mockBuiltinAgents as any);
+            vi.mocked(api.getSettings).mockResolvedValueOnce({
+                model: 'gpt-4o',
+                maxSteps: 50,
+                pipeline: {
+                    id: 'p1',
+                    name: 'Test',
+                    stages: [
+                        { agent: { id: 'a1', name: 'Triage', source: 'builtin', builtinType: 'triage', color: '#ef4444', icon: '🚦' } },
+                    ],
+                },
+            } as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Triage'));
+            // Click the Eye icon to view agent details
+            const eyeBtn = screen.getByTitle('View agent details');
+            await user.click(eyeBtn);
+            // BuiltinDetailModal should appear with agent name
+            await waitFor(() => {
+                expect(screen.getByText('Built-in Agent')).toBeInTheDocument();
+            });
         });
     });
 });

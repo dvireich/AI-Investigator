@@ -1447,4 +1447,162 @@ describe('api', () => {
             await expect(api.validatePipeline({ id: 'p1', stages: [] } as any)).rejects.toThrow('Failed to validate pipeline');
         });
     });
+
+    // ── Saved Workflows ───────────────────────────────────────────────
+
+    describe('getSavedWorkflows', () => {
+        it('returns saved workflows', async () => {
+            const workflows = [{ id: 'w1', name: 'WF1', pipeline: { id: 'p1', stages: [] } }];
+            mockFetch.mockResolvedValue(mockResponse(workflows));
+            const result = await api.getSavedWorkflows();
+            expect(result).toEqual(workflows);
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue(mockResponse(null, { status: 500 }));
+            await expect(api.getSavedWorkflows()).rejects.toThrow('Failed to fetch saved workflows');
+        });
+    });
+
+    describe('createSavedWorkflow', () => {
+        it('creates a workflow', async () => {
+            const wf = { id: 'w1', name: 'New WF' };
+            mockFetch.mockResolvedValue(mockResponse(wf));
+            const result = await api.createSavedWorkflow({ name: 'New WF', pipeline: { id: 'p1', stages: [] } as any });
+            expect(result).toEqual(wf);
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/workflows'), expect.objectContaining({ method: 'POST' }));
+        });
+
+        it('throws with server error message', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 400, json: vi.fn().mockResolvedValue({ error: 'Name required' }) });
+            await expect(api.createSavedWorkflow({ name: '', pipeline: { id: 'p1', stages: [] } as any })).rejects.toThrow('Name required');
+        });
+
+        it('throws default message when server error has no error field', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 400, json: vi.fn().mockResolvedValue({}) });
+            await expect(api.createSavedWorkflow({ name: '', pipeline: { id: 'p1', stages: [] } as any })).rejects.toThrow('Failed to create workflow');
+        });
+
+        it('throws fallback when json parse fails', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Server Error', json: vi.fn().mockRejectedValue(new Error()) });
+            await expect(api.createSavedWorkflow({ name: 'x', pipeline: { id: 'p1', stages: [] } as any })).rejects.toThrow('Server Error');
+        });
+    });
+
+    describe('updateSavedWorkflow', () => {
+        it('updates a workflow', async () => {
+            const wf = { id: 'w1', name: 'Updated' };
+            mockFetch.mockResolvedValue(mockResponse(wf));
+            const result = await api.updateSavedWorkflow('w1', { name: 'Updated' } as any);
+            expect(result).toEqual(wf);
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/workflows/w1'), expect.objectContaining({ method: 'PUT' }));
+        });
+
+        it('throws with server error message', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 400, json: vi.fn().mockResolvedValue({ error: 'Invalid' }) });
+            await expect(api.updateSavedWorkflow('w1', {} as any)).rejects.toThrow('Invalid');
+        });
+
+        it('throws default message when server error has no error field', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 400, json: vi.fn().mockResolvedValue({}) });
+            await expect(api.updateSavedWorkflow('w1', {} as any)).rejects.toThrow('Failed to update workflow');
+        });
+
+        it('throws fallback when json parse fails', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Err', json: vi.fn().mockRejectedValue(new Error()) });
+            await expect(api.updateSavedWorkflow('w1', {} as any)).rejects.toThrow('Err');
+        });
+    });
+
+    describe('deleteSavedWorkflow', () => {
+        it('deletes a workflow', async () => {
+            mockFetch.mockResolvedValue(mockResponse({}));
+            await api.deleteSavedWorkflow('w1');
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/workflows/w1'), expect.objectContaining({ method: 'DELETE' }));
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue(mockResponse(null, { status: 500 }));
+            await expect(api.deleteSavedWorkflow('w1')).rejects.toThrow('Failed to delete workflow');
+        });
+    });
+
+    // ── Saved Custom Agents ───────────────────────────────────────────
+
+    describe('getSavedAgents', () => {
+        it('returns saved agents', async () => {
+            const agents = [{ id: 'a1', agent: { name: 'Agent1' } }];
+            mockFetch.mockResolvedValue(mockResponse(agents));
+            const result = await api.getSavedAgents();
+            expect(result).toEqual(agents);
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue(mockResponse(null, { status: 500 }));
+            await expect(api.getSavedAgents()).rejects.toThrow('Failed to fetch saved agents');
+        });
+    });
+
+    describe('createSavedAgent', () => {
+        it('creates an agent', async () => {
+            const agent = { id: 'a1', agent: { name: 'New Agent' } };
+            mockFetch.mockResolvedValue(mockResponse(agent));
+            const result = await api.createSavedAgent({ name: 'New Agent', source: 'inline', promptContent: '' } as any);
+            expect(result).toEqual(agent);
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/custom-agents'), expect.objectContaining({ method: 'POST' }));
+        });
+
+        it('throws with server error message', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 400, json: vi.fn().mockResolvedValue({ error: 'Agent name required' }) });
+            await expect(api.createSavedAgent({ name: '', source: 'inline', promptContent: '' } as any)).rejects.toThrow('Agent name required');
+        });
+
+        it('throws default message when server error has no error field', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 400, json: vi.fn().mockResolvedValue({}) });
+            await expect(api.createSavedAgent({ name: '', source: 'inline', promptContent: '' } as any)).rejects.toThrow('Failed to create agent');
+        });
+
+        it('throws fallback when json parse fails', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Fail', json: vi.fn().mockRejectedValue(new Error()) });
+            await expect(api.createSavedAgent({ name: 'x', source: 'inline', promptContent: '' } as any)).rejects.toThrow('Fail');
+        });
+    });
+
+    describe('updateSavedAgent', () => {
+        it('updates an agent', async () => {
+            const agent = { id: 'a1', agent: { name: 'Updated' } };
+            mockFetch.mockResolvedValue(mockResponse(agent));
+            const result = await api.updateSavedAgent('a1', { agent: { name: 'Updated' } } as any);
+            expect(result).toEqual(agent);
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/custom-agents/a1'), expect.objectContaining({ method: 'PUT' }));
+        });
+
+        it('throws with server error message', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 400, json: vi.fn().mockResolvedValue({ error: 'Bad' }) });
+            await expect(api.updateSavedAgent('a1', {} as any)).rejects.toThrow('Bad');
+        });
+
+        it('throws default message when server error has no error field', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 400, json: vi.fn().mockResolvedValue({}) });
+            await expect(api.updateSavedAgent('a1', {} as any)).rejects.toThrow('Failed to update agent');
+        });
+
+        it('throws fallback when json parse fails', async () => {
+            mockFetch.mockResolvedValue({ ok: false, status: 500, statusText: 'Srv', json: vi.fn().mockRejectedValue(new Error()) });
+            await expect(api.updateSavedAgent('a1', {} as any)).rejects.toThrow('Srv');
+        });
+    });
+
+    describe('deleteSavedAgent', () => {
+        it('deletes an agent', async () => {
+            mockFetch.mockResolvedValue(mockResponse({}));
+            await api.deleteSavedAgent('a1');
+            expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining('/custom-agents/a1'), expect.objectContaining({ method: 'DELETE' }));
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue(mockResponse(null, { status: 500 }));
+            await expect(api.deleteSavedAgent('a1')).rejects.toThrow('Failed to delete agent');
+        });
+    });
 });

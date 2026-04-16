@@ -15,6 +15,20 @@ vi.mock('react-router-dom', async () => {
     };
 });
 
+vi.mock('../../components/PipelineBuilder', async (importOriginal) => {
+    const actual = await importOriginal() as any;
+    return {
+        ...actual,
+        PipelineBuilder: ({ onChange }: { value: any; onChange: (v: any) => void }) => (
+            <div data-testid="pipeline-builder">
+                <button onClick={() => onChange({ id: 'mock-pipe', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] })}>
+                    MockPipelineChange
+                </button>
+            </div>
+        ),
+    };
+});
+
 vi.mock('../../api', () => ({
     api: {
         listModels: vi.fn().mockResolvedValue(['gpt-4o', 'claude-3']),
@@ -2347,6 +2361,30 @@ describe('NewInvestigation workflow presets', () => {
         expect(screen.getByText(/Your pipeline from Settings/)).toBeInTheDocument();
     });
 
+    it('hides duplicate preset when configured pipeline matches a built-in preset', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSettings).mockResolvedValue({
+            model: 'gpt-4o',
+            timeRange: 'ago(1h)',
+            pipeline: {
+                id: 'preset-deep-investigation',
+                name: 'Deep Investigation',
+                stages: [
+                    { agent: { id: 'a1', name: 'Planner', source: 'builtin', builtinType: 'planner', color: '#8b5cf6', icon: '📋' }, inputMode: 'conversation' },
+                    { agent: { id: 'a2', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#3b82f6', icon: '🔍' }, inputMode: 'conversation' },
+                ],
+            },
+        } as any);
+
+        renderNewInvestigation();
+        await waitFor(() => {
+            expect(screen.getByText('CONFIGURED')).toBeInTheDocument();
+        });
+        // "Deep Investigation" should appear only once — in the CONFIGURED card, not duplicated as a preset
+        const deepInvestigationElements = screen.getAllByText('Deep Investigation');
+        expect(deepInvestigationElements).toHaveLength(1);
+    });
+
     it('selects a preset and submits with pipeline payload', async () => {
         const { api } = await import('../../api');
         const user = userEvent.setup();
@@ -2553,5 +2591,291 @@ describe('NewInvestigation workflow presets', () => {
         await user.click(screen.getByText('My Pipeline'));
         // Should navigate back to configured selection
         expect(screen.getByText('CONFIGURED')).toBeInTheDocument();
+    });
+
+    // ── Saved Workflows in NewInvestigation ─────────────────────────
+
+    it('renders saved workflows when available and allows selection', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+            {
+                id: 'sw1',
+                name: 'My Custom WF',
+                description: 'Test workflow',
+                icon: '🚀',
+                pipeline: { id: 'p1', name: 'Custom', stages: [{ agent: { id: 'a1', name: 'Agent1', source: 'inline' as const, promptContent: '' } }] },
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            },
+        ] as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => {
+            expect(screen.getByText('My Custom WF')).toBeInTheDocument();
+        });
+        expect(screen.getByText('My Workflows (1)')).toBeInTheDocument();
+        // Click saved workflow card
+        await user.click(screen.getByText('My Custom WF'));
+    });
+
+    it('submits investigation with saved workflow pipeline', async () => {
+        const { api } = await import('../../api');
+        const savedPipeline = { id: 'sp1', name: 'Saved', stages: [{ agent: { id: 'a1', name: 'Ag', source: 'inline' as const, promptContent: '' } }] };
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+            { id: 'sw1', name: 'Saved WF', pipeline: savedPipeline, createdAt: '', updatedAt: '' } as any,
+        ]);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText('Saved WF'));
+        await user.click(screen.getByText('Saved WF'));
+        await user.type(screen.getByPlaceholderText(/my-app-prd/i), 'test-target');
+        await user.click(screen.getByRole('button', { name: /start investigation/i }));
+        await waitFor(() => {
+            expect(api.startInvestigation).toHaveBeenCalled();
+        });
+        const callArgs = vi.mocked(api.startInvestigation).mock.calls[0][0] as any;
+        expect(callArgs.pipeline).toEqual(savedPipeline);
+    });
+
+    it('deletes a saved workflow and resets selection when it was selected', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+            { id: 'sw1', name: 'To Delete', icon: '🔧', pipeline: { id: 'p', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] }, createdAt: '', updatedAt: '' } as any,
+        ]);
+        vi.mocked(api.deleteSavedWorkflow).mockResolvedValue();
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText('To Delete'));
+        // Select the workflow first, then delete it
+        await user.click(screen.getByText('To Delete'));
+        const deleteBtn = screen.getByTitle('Delete workflow');
+        await user.click(deleteBtn);
+        await waitFor(() => {
+            expect(api.deleteSavedWorkflow).toHaveBeenCalledWith('sw1');
+        });
+    });
+
+    it('opens edit workflow modal for saved workflow', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+            { id: 'sw1', name: 'Edit Me', description: 'desc', icon: '⚡', pipeline: { id: 'p', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] }, createdAt: '', updatedAt: '' } as any,
+        ]);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText('Edit Me'));
+        const editBtn = screen.getByTitle('Edit workflow');
+        await user.click(editBtn);
+        await waitFor(() => {
+            expect(screen.getByText('Edit Workflow')).toBeInTheDocument();
+        });
+    });
+
+    it('opens create workflow modal and closes it', async () => {
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Create Custom Workflow/i));
+        await user.click(screen.getByText(/Create Custom Workflow/i));
+        await waitFor(() => {
+            expect(screen.getByText('Create New Workflow')).toBeInTheDocument();
+        });
+        // Close with Cancel
+        await user.click(screen.getByText('Cancel'));
+        await waitFor(() => {
+            expect(screen.queryByText('Create New Workflow')).not.toBeInTheDocument();
+        });
+    });
+
+    it('closes workflow modal via X button and types description', async () => {
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Create Custom Workflow/i));
+        await user.click(screen.getByText(/Create Custom Workflow/i));
+        await waitFor(() => screen.getByPlaceholderText('My Custom Workflow'));
+        // Type in description field (covers onChange handler)
+        await user.type(screen.getByPlaceholderText('Optional description...'), 'test desc');
+        // Close via X button — find the modal header h3 and its sibling button
+        const headerH3 = screen.getByRole('heading', { level: 3, name: 'Create New Workflow' });
+        const xButton = headerH3.parentElement!.querySelector('button')!;
+        await user.click(xButton);
+        await waitFor(() => {
+            expect(screen.queryByPlaceholderText('My Custom Workflow')).not.toBeInTheDocument();
+        });
+    });
+
+    it('closes workflow modal via backdrop click', async () => {
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Create Custom Workflow/i));
+        await user.click(screen.getByText(/Create Custom Workflow/i));
+        await waitFor(() => screen.getByPlaceholderText('My Custom Workflow'));
+        // Click the backdrop overlay (the fixed container behind the modal)
+        const backdrop = screen.getByPlaceholderText('My Custom Workflow').closest('.bg-slate-900')!.parentElement!;
+        fireEvent.click(backdrop);
+        await waitFor(() => {
+            expect(screen.queryByPlaceholderText('My Custom Workflow')).not.toBeInTheDocument();
+        });
+    });
+
+    it('creates a new workflow through the editor modal', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.createSavedWorkflow).mockResolvedValue({
+            id: 'new-wf',
+            name: 'Fresh WF',
+            pipeline: { id: 'p1', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] },
+            createdAt: '',
+            updatedAt: '',
+        } as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Create Custom Workflow/i));
+        await user.click(screen.getByText(/Create Custom Workflow/i));
+        await waitFor(() => screen.getByText('Create New Workflow'));
+        // Type workflow name only (no description — covers `trim() || undefined` → undefined branch)
+        await user.type(screen.getByPlaceholderText('My Custom Workflow'), 'Fresh WF');
+        // Use MockPipelineChange to set a pipeline value
+        await user.click(screen.getByText('MockPipelineChange'));
+        // Save button
+        await user.click(screen.getByText('Save Workflow'));
+        // Wait for modal to close AND the new workflow to appear in the saved list
+        await waitFor(() => {
+            expect(screen.queryByText('Create New Workflow')).not.toBeInTheDocument();
+            expect(screen.getByText('Fresh WF')).toBeInTheDocument();
+        });
+        expect(api.createSavedWorkflow).toHaveBeenCalledWith(expect.objectContaining({
+            name: 'Fresh WF',
+            description: undefined,
+        }));
+    });
+
+    it('updates an existing saved workflow through the editor modal', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+            { id: 'sw1', name: 'Old Name', description: 'existing desc', icon: '🔧', pipeline: { id: 'p', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] }, createdAt: '', updatedAt: '' } as any,
+            { id: 'sw-other', name: 'Other WF', icon: '⚡', pipeline: { id: 'p2', stages: [{ agent: { id: 'b', name: 'B', source: 'inline' as const, promptContent: '' } }] }, createdAt: '', updatedAt: '' } as any,
+        ]);
+        vi.mocked(api.updateSavedWorkflow).mockResolvedValue({
+            id: 'sw1',
+            name: 'New Name',
+            description: 'updated desc',
+            pipeline: { id: 'p', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] },
+            createdAt: '',
+            updatedAt: '',
+        } as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText('Old Name'));
+        // Open edit modal for first workflow
+        await user.click(screen.getAllByTitle('Edit workflow')[0]);
+        await waitFor(() => screen.getByText('Edit Workflow'));
+        // Click Update
+        await user.click(screen.getByText('Update Workflow'));
+        // Wait for the modal to close and updated name to appear (proves setSavedWorkflows updater ran)
+        await waitFor(() => {
+            expect(screen.queryByText('Edit Workflow')).not.toBeInTheDocument();
+            expect(screen.getByText('New Name')).toBeInTheDocument();
+        });
+        expect(api.updateSavedWorkflow).toHaveBeenCalledWith('sw1', expect.objectContaining({
+            description: 'existing desc',
+        }));
+    });
+
+    it('updates a saved workflow with empty description and no icon (covers fallback branches)', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+            { id: 'sw2', name: 'No Desc WF', description: '', icon: '', pipeline: { id: 'p', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] }, createdAt: '', updatedAt: '' } as any,
+        ]);
+        vi.mocked(api.updateSavedWorkflow).mockResolvedValue({
+            id: 'sw2',
+            name: 'No Desc WF',
+            pipeline: { id: 'p', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] },
+            createdAt: '',
+            updatedAt: '',
+        } as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText('No Desc WF'));
+        await user.click(screen.getByTitle('Edit workflow'));
+        await waitFor(() => screen.getByText('Edit Workflow'));
+        await user.click(screen.getByText('Update Workflow'));
+        await waitFor(() => {
+            expect(screen.queryByText('Edit Workflow')).not.toBeInTheDocument();
+        });
+        expect(api.updateSavedWorkflow).toHaveBeenCalledWith('sw2', expect.objectContaining({
+            description: undefined,
+        }));
+    });
+
+    it('handles delete workflow error gracefully', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+            { id: 'sw1', name: 'Fail Delete', icon: '🔧', pipeline: { id: 'p', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] }, createdAt: '', updatedAt: '' } as any,
+        ]);
+        vi.mocked(api.deleteSavedWorkflow).mockRejectedValue(new Error('fail'));
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText('Fail Delete'));
+        await user.click(screen.getByTitle('Delete workflow'));
+        await waitFor(() => {
+            expect(api.deleteSavedWorkflow).toHaveBeenCalled();
+        });
+    });
+
+    it('opens icon picker in workflow editor and selects an icon', async () => {
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Create Custom Workflow/i));
+        await user.click(screen.getByText(/Create Custom Workflow/i));
+        await waitFor(() => screen.getByText('Create New Workflow'));
+        // Find the Icon label, then click its sibling button
+        const iconLabel = screen.getByText('Icon');
+        const iconButton = iconLabel.parentElement!.querySelector('button')!;
+        await user.click(iconButton);
+        // Icon picker grid should appear with different emoji icons
+        await waitFor(() => {
+            expect(screen.getByText('🚀')).toBeInTheDocument();
+        });
+        await user.click(screen.getByText('🚀'));
+    });
+
+    it('handles workflow save error in editor modal', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.createSavedWorkflow).mockRejectedValue(new Error('Network error'));
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Create Custom Workflow/i));
+        await user.click(screen.getByText(/Create Custom Workflow/i));
+        await waitFor(() => screen.getByText('Create New Workflow'));
+        await user.type(screen.getByPlaceholderText('My Custom Workflow'), 'Fail WF');
+        await user.click(screen.getByText('MockPipelineChange'));
+        await user.click(screen.getByText('Save Workflow'));
+        await waitFor(() => {
+            expect(api.createSavedWorkflow).toHaveBeenCalled();
+        });
+    });
+
+    it('handles workflow save error without message (fallback)', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.createSavedWorkflow).mockRejectedValue({});
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+        await waitFor(() => screen.getByText(/Create Custom Workflow/i));
+        await user.click(screen.getByText(/Create Custom Workflow/i));
+        await waitFor(() => screen.getByText('Create New Workflow'));
+        await user.type(screen.getByPlaceholderText('My Custom Workflow'), 'Fail2 WF');
+        await user.click(screen.getByText('MockPipelineChange'));
+        await user.click(screen.getByText('Save Workflow'));
+        await waitFor(() => {
+            expect(api.createSavedWorkflow).toHaveBeenCalled();
+        });
     });
 });

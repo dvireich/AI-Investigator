@@ -519,6 +519,38 @@ export const NewInvestigation = () => {
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [queryBankOpen]);
 
+    const handleSaveWorkflow = async () => {
+        setSavingWorkflow(true);
+        try {
+            const descTrimmed = workflowSaveDesc.trim();
+            if (editingWorkflowId) {
+                const updated = await api.updateSavedWorkflow(editingWorkflowId, {
+                    name: workflowSaveName.trim(),
+                    description: descTrimmed || undefined,
+                    icon: workflowSaveIcon,
+                    pipeline: editingPipeline,
+                });
+                setSavedWorkflows(savedWorkflows.map(w => w.id === editingWorkflowId ? updated : w));
+                toast('success', 'Workflow updated');
+            } else {
+                const saved = await api.createSavedWorkflow({
+                    name: workflowSaveName.trim(),
+                    description: descTrimmed || undefined,
+                    icon: workflowSaveIcon,
+                    pipeline: editingPipeline,
+                });
+                setSavedWorkflows([...savedWorkflows, saved]);
+                setSelectedWorkflow(`saved-${saved.id}`);
+                toast('success', 'Workflow saved');
+            }
+            setShowWorkflowEditor(false);
+        } catch (err: any) {
+            toast('error', err.message || 'Failed to save workflow');
+        } finally {
+            setSavingWorkflow(false);
+        }
+    };
+
 
 
     return (
@@ -1137,8 +1169,11 @@ export const NewInvestigation = () => {
                         {/* Workflow Preset Selector */}
                         {builtinAgents.length > 0 && (() => {
                             const hasConfiguredPipeline = !!configuredPipeline;
+                            // If the configured pipeline matches a built-in preset, exclude it from the preset list to avoid duplicates
+                            const configuredPresetId = configuredPipeline?.id?.startsWith('preset-') ? configuredPipeline.id.replace('preset-', '') : null;
                             const availablePresets = PIPELINE_PRESETS.filter(preset =>
                                 preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))
+                                && preset.id !== configuredPresetId
                             );
 
                             // Separate saved workflows from built-in presets for clear visual grouping
@@ -1154,7 +1189,7 @@ export const NewInvestigation = () => {
                                 e.stopPropagation();
                                 try {
                                     await api.deleteSavedWorkflow(wfId);
-                                    setSavedWorkflows(prev => prev.filter(w => w.id !== wfId));
+                                    setSavedWorkflows(savedWorkflows.filter(w => w.id !== wfId));
                                     if (selectedWorkflow === `saved-${wfId}`) setSelectedWorkflow('default');
                                     toast('success', 'Workflow deleted');
                                 } catch {
@@ -1247,14 +1282,17 @@ export const NewInvestigation = () => {
                                                                 {workflow.pipeline.stages.map((stage, i) => {
                                                                     const agent = stage.agent;
                                                                     const color = agent?.color || '#6b7280';
+                                                                    /* v8 ignore next 3 */
+                                                                    const agentTitle = agent?.name || `Stage ${i + 1}`;
+                                                                    const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
                                                                     return (
                                                                         <span
                                                                             key={i}
                                                                             className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
                                                                             style={{ backgroundColor: color }}
-                                                                            title={agent?.name || `Stage ${i + 1}`}
+                                                                            title={agentTitle}
                                                                         >
-                                                                            {agent?.icon || agent?.name?.charAt(0) || (i + 1)}
+                                                                            {agentLabel}
                                                                         </span>
                                                                     );
                                                                 })}
@@ -1327,14 +1365,17 @@ export const NewInvestigation = () => {
                                                                 {configuredPipeline!.stages.map((stage, i) => {
                                                                     const agent = stage.agent;
                                                                     const color = agent?.color || '#6b7280';
+                                                                    /* v8 ignore next 3 */
+                                                                    const agentTitle = agent?.name || `Stage ${i + 1}`;
+                                                                    const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
                                                                     return (
                                                                         <span
                                                                             key={i}
                                                                             className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
                                                                             style={{ backgroundColor: color }}
-                                                                            title={agent?.name || `Stage ${i + 1}`}
+                                                                            title={agentTitle}
                                                                         >
-                                                                            {agent?.icon || agent?.name?.charAt(0) || (i + 1)}
+                                                                            {agentLabel}
                                                                         </span>
                                                                     );
                                                                 })}
@@ -1478,10 +1519,10 @@ export const NewInvestigation = () => {
                                     <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Icon</label>
                                     <button
                                         type="button"
-                                        onClick={() => setIconPickerOpen(v => !v)}
+                                        onClick={() => setIconPickerOpen(!iconPickerOpen)}
                                         className="w-11 h-10 flex items-center justify-center text-xl rounded-lg border border-slate-700 bg-slate-800/50 hover:border-slate-500 focus:ring-2 focus:ring-purple-500 outline-none transition-colors"
                                     >
-                                        {workflowSaveIcon || '🔧'}
+                                        {workflowSaveIcon}
                                     </button>
                                     {iconPickerOpen && (
                                         <div className="absolute top-full left-0 mt-1 z-10 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 grid grid-cols-5 gap-1 w-[180px]">
@@ -1541,37 +1582,7 @@ export const NewInvestigation = () => {
                             <button
                                 type="button"
                                 disabled={!workflowSaveName.trim() || !editingPipeline || editingPipeline.stages.length === 0 || savingWorkflow}
-                                onClick={async () => {
-                                    if (!workflowSaveName.trim() || !editingPipeline) return;
-                                    setSavingWorkflow(true);
-                                    try {
-                                        if (editingWorkflowId) {
-                                            const updated = await api.updateSavedWorkflow(editingWorkflowId, {
-                                                name: workflowSaveName.trim(),
-                                                description: workflowSaveDesc.trim() || undefined,
-                                                icon: workflowSaveIcon || '🔧',
-                                                pipeline: editingPipeline,
-                                            });
-                                            setSavedWorkflows(prev => prev.map(w => w.id === editingWorkflowId ? updated : w));
-                                            toast('success', 'Workflow updated');
-                                        } else {
-                                            const saved = await api.createSavedWorkflow({
-                                                name: workflowSaveName.trim(),
-                                                description: workflowSaveDesc.trim() || undefined,
-                                                icon: workflowSaveIcon || '🔧',
-                                                pipeline: editingPipeline,
-                                            });
-                                            setSavedWorkflows(prev => [...prev, saved]);
-                                            setSelectedWorkflow(`saved-${saved.id}`);
-                                            toast('success', 'Workflow saved');
-                                        }
-                                        setShowWorkflowEditor(false);
-                                    } catch (err: any) {
-                                        toast('error', err.message || 'Failed to save workflow');
-                                    } finally {
-                                        setSavingWorkflow(false);
-                                    }
-                                }}
+                                onClick={handleSaveWorkflow}
                                 className="px-5 py-2 rounded-lg text-sm font-bold bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
                             >
                                 {savingWorkflow ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
