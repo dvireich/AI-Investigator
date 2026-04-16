@@ -771,6 +771,84 @@ app.delete('/api/query-bank/:id', (req, res) => {
     res.json({ success: true });
 });
 
+// ---- Saved Workflows & Custom Agents ----
+
+let mockSavedWorkflows = [
+    {
+        id: 'sw-1',
+        name: 'Security Deep Dive',
+        description: 'Extended security investigation with compliance checks and remediation steps',
+        icon: '🔒',
+        pipeline: {
+            id: 'sw-pipe-1',
+            name: 'Security Deep Dive',
+            stages: [
+                { agent: { id: 'builtin-triage', name: 'Triage', source: 'builtin', builtinType: 'triage', color: '#f43f5e', icon: '🚦' }, inputMode: 'conversation' },
+                { agent: { id: 'builtin-investigator', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#10b981', icon: '🤖' }, inputMode: 'conversation' },
+                { agent: { id: 'builtin-compliance', name: 'Compliance Auditor', source: 'builtin', builtinType: 'compliance', color: '#84cc16', icon: '📜' }, inputMode: 'report-only' },
+                { agent: { id: 'builtin-remediation', name: 'Remediation Advisor', source: 'builtin', builtinType: 'remediation', color: '#f97316', icon: '🩹' }, inputMode: 'report-only' },
+                { agent: { id: 'builtin-summarizer', name: 'Summarizer', source: 'builtin', builtinType: 'summarizer', color: '#14b8a6', icon: '📊' }, inputMode: 'conversation' },
+            ],
+        },
+        createdAt: new Date(Date.now() - 7 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 2 * 86400000).toISOString(),
+    },
+    {
+        id: 'sw-2',
+        name: 'Quick Triage & Validate',
+        description: 'Fast assessment pipeline for P1 incidents',
+        icon: '⚡',
+        pipeline: {
+            id: 'sw-pipe-2',
+            name: 'Quick Triage & Validate',
+            stages: [
+                { agent: { id: 'builtin-triage', name: 'Triage', source: 'builtin', builtinType: 'triage', color: '#f43f5e', icon: '🚦' }, inputMode: 'conversation' },
+                { agent: { id: 'builtin-investigator', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#10b981', icon: '🤖' }, inputMode: 'conversation' },
+                { agent: { id: 'builtin-validator', name: 'Validator', source: 'builtin', builtinType: 'validator', color: '#f59e0b', icon: '🛡️' }, inputMode: 'conversation' },
+            ],
+        },
+        createdAt: new Date(Date.now() - 3 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+    },
+];
+
+app.get('/api/saved-workflows', (_req, res) => {
+    res.json(mockSavedWorkflows);
+});
+
+app.post('/api/saved-workflows', (req, res) => {
+    const wf = { id: 'sw-new-' + Date.now(), ...req.body, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    mockSavedWorkflows.push(wf);
+    res.json(wf);
+});
+
+app.put('/api/saved-workflows/:id', (req, res) => {
+    const idx = mockSavedWorkflows.findIndex(w => w.id === req.params.id);
+    if (idx >= 0) mockSavedWorkflows[idx] = { ...mockSavedWorkflows[idx], ...req.body, updatedAt: new Date().toISOString() };
+    res.json(mockSavedWorkflows[idx] || { success: true });
+});
+
+app.delete('/api/saved-workflows/:id', (req, res) => {
+    mockSavedWorkflows = mockSavedWorkflows.filter(w => w.id !== req.params.id);
+    res.json({ success: true });
+});
+
+app.get('/api/custom-agents', (_req, res) => {
+    res.json([]);
+});
+
+app.post('/api/custom-agents', (req, res) => {
+    res.json({ id: 'ca-new-' + Date.now(), ...req.body });
+});
+
+app.put('/api/custom-agents/:id', (req, res) => {
+    res.json({ success: true });
+});
+
+app.delete('/api/custom-agents/:id', (req, res) => {
+    res.json({ success: true });
+});
+
 
 // ---------------------------------------------------------------------------
 // Control API — used by capture.js to swap state between screenshots

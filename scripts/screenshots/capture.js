@@ -204,6 +204,15 @@ async function captureNewInvestigation(page) {
 
     await page.waitForTimeout(400);
     await screenshot(page, 'new-investigation');
+
+    // Scroll down to show the Agent Configuration section with saved workflows visible
+    console.log('\n📸 New Investigation — Saved Workflows...');
+    const agentSection = page.locator('text=Agent Configuration').first();
+    if (await agentSection.isVisible()) {
+        await agentSection.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(600);
+    }
+    await screenshot(page, 'new-investigation-workflows');
 }
 
 async function captureInvestigationStart(page) {
@@ -601,6 +610,28 @@ async function captureSettingsPipeline(page) {
     await screenshot(page, 'settings-pipeline', { fullPage: true });
 }
 
+async function captureSettingsPipelineSaved(page) {
+    console.log('\n📸 Settings — Pipeline (saved workflows)...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(1000);
+
+    const pipelineTab = page.locator('button:has-text("Pipeline")').first();
+    if (await pipelineTab.isVisible()) {
+        await pipelineTab.click();
+        await page.waitForTimeout(800);
+    }
+
+    // Scroll down to show the "Manage Saved Workflows" section
+    const manageSaved = page.locator('text=Manage Saved Workflows').first();
+    if (await manageSaved.isVisible()) {
+        await manageSaved.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'settings-pipeline-saved');
+}
+
 async function captureInvestigationNotes(page) {
     console.log('\n📸 Investigation Notes...');
     await resetMock();
@@ -969,6 +1000,7 @@ async function main() {
         await captureSettings(page);
         await captureSettingsPipelineEmpty(page);
         await captureSettingsPipeline(page);
+        await captureSettingsPipelineSaved(page);
         await captureSettingsConnections(page);
         await captureSettingsSchedules(page);
         await captureSettingsAnalytics(page);
@@ -1002,7 +1034,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 40 screenshots captured successfully!');
+        console.log('  ✅ All 42 screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 
