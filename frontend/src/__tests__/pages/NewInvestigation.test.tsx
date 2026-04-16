@@ -2788,7 +2788,7 @@ describe('NewInvestigation workflow presets', () => {
     it('updates a saved workflow with empty description and no icon (covers fallback branches)', async () => {
         const { api } = await import('../../api');
         vi.mocked(api.getSavedWorkflows).mockResolvedValue([
-            { id: 'sw2', name: 'No Desc WF', description: '', icon: '', pipeline: { id: 'p', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }] }, createdAt: '', updatedAt: '' } as any,
+            { id: 'sw2', name: 'No Desc WF', description: '', icon: '', pipeline: { id: 'p', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' as const, promptContent: '' } }, { inputMode: 'conversation' }] }, createdAt: '', updatedAt: '' } as any,
         ]);
         vi.mocked(api.updateSavedWorkflow).mockResolvedValue({
             id: 'sw2',

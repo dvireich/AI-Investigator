@@ -1282,7 +1282,6 @@ export const NewInvestigation = () => {
                                                                 {workflow.pipeline.stages.map((stage, i) => {
                                                                     const agent = stage.agent;
                                                                     const color = agent?.color || '#6b7280';
-                                                                    /* v8 ignore next 3 */
                                                                     const agentTitle = agent?.name || `Stage ${i + 1}`;
                                                                     const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
                                                                     return (
@@ -1365,7 +1364,6 @@ export const NewInvestigation = () => {
                                                                 {configuredPipeline!.stages.map((stage, i) => {
                                                                     const agent = stage.agent;
                                                                     const color = agent?.color || '#6b7280';
-                                                                    /* v8 ignore next 3 */
                                                                     const agentTitle = agent?.name || `Stage ${i + 1}`;
                                                                     const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
                                                                     return (

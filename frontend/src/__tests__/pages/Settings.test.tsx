@@ -4120,6 +4120,8 @@ describe('Settings extra coverage', () => {
                 name: 'My Test WF',
                 stages: [
                     { agent: { id: 'a1', name: 'Investigator', source: 'builtin' as const, builtinType: 'investigator', color: '#3b82f6', icon: '🔍' } },
+                    { inputMode: 'conversation' },
+                    { agent: { id: 'a2', name: 'NoIconAgent', source: 'inline' as const, promptContent: '' } },
                 ],
             },
             createdAt: new Date().toISOString(),
@@ -4239,6 +4241,8 @@ describe('Settings extra coverage', () => {
                         { agent: { id: 'a1', name: 'Triage', source: 'builtin', builtinType: 'triage', color: '#ef4444', icon: '🚦' } },
                         { agent: { id: 'a2', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#3b82f6', icon: '🔍' } },
                         { agent: { id: 'a3', name: 'Validator', source: 'builtin', builtinType: 'validator', color: '#10b981', icon: '✅' }, canReject: true },
+                        { inputMode: 'conversation' },
+                        { agent: { id: 'a4', name: 'NoIconAgent', source: 'custom' as any } },
                     ],
                 },
             } as any);
@@ -4485,8 +4489,8 @@ describe('Settings extra coverage', () => {
             const wfCards = screen.getAllByText('My Test WF');
             await user.click(wfCards[0].closest('button')!);
             // Wait for pipeline detail section to render with Eye button
-            await waitFor(() => screen.getByTitle('View agent details'));
-            await user.click(screen.getByTitle('View agent details'));
+            await waitFor(() => screen.getAllByTitle('View agent details'));
+            await user.click(screen.getAllByTitle('View agent details')[0]);
             // BuiltinDetailModal should appear
             await waitFor(() => {
                 const modal = document.querySelector('.fixed.inset-0.z-50');
@@ -4562,5 +4566,25 @@ describe('Settings extra coverage', () => {
                 expect(screen.getByText('Built-in Agent')).toBeInTheDocument();
             });
         });
+
+        it('renders preset cards with fallback agent display when builtins have sparse data', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue([
+                { id: 'a1', builtinType: 'triage', source: 'builtin' },
+                { id: 'a2', builtinType: 'investigator', source: 'builtin', name: 'Investigator' },
+                { id: 'a3', builtinType: 'validator', source: 'builtin', name: 'Validator', color: '#10b981', icon: '✅' },
+            ] as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => {
+                expect(screen.getByText('Quick Health Check')).toBeInTheDocument();
+            });
+            const card = screen.getByText('Quick Health Check').closest('button')!;
+            const circles = card.querySelectorAll('span.w-5.h-5.rounded-full');
+            expect(circles.length).toBe(3);
+        });
+
     });
 });

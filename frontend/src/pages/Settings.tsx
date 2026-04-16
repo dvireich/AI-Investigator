@@ -1427,7 +1427,6 @@ export const Settings = () => {
                                                 <div className="flex flex-wrap gap-0.5">
                                                     {preset.stages.map((s, i) => {
                                                         const agent = builtinAgents.find(a => a.builtinType === s.builtinType);
-                                                        /* v8 ignore next 5 */
                                                         const agentColor = agent?.color || '#6b7280';
                                                         const agentTitle = agent?.name || s.builtinType;
                                                         const agentLabel = agent?.icon || agent?.name?.charAt(0) || '?';
@@ -1478,9 +1477,8 @@ export const Settings = () => {
                                                             key={i}
                                                             className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] text-white font-bold"
                                                             style={{ backgroundColor: stage.agent?.color || '#6b7280' }}
-                                                            title={/* v8 ignore next */ stage.agent?.name || `Stage ${i + 1}`}
+                                                            title={stage.agent?.name || `Stage ${i + 1}`}
                                                         >
-                                                            {/* v8 ignore next */}
                                                             {stage.agent?.icon || stage.agent?.name?.charAt(0) || (i + 1)}
                                                         </span>
                                                     ))}
@@ -1539,11 +1537,10 @@ export const Settings = () => {
                                                             className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] text-white font-bold shrink-0"
                                                             style={{ backgroundColor: color }}
                                                         >
-                                                            {/* v8 ignore next */}
                                                             {agent?.icon || agent?.name?.charAt(0) || (i + 1)}
                                                         </span>
-                                                        <span className="text-sm font-semibold text-slate-200">{/* v8 ignore next */}{agent?.name || `Stage ${i + 1}`}</span>
-                                                        <span className="text-[10px] text-slate-600">{/* v8 ignore next */}{agent?.source === 'builtin' ? `builtin · ${agent.builtinType}` : agent?.source || ''}</span>
+                                                        <span className="text-sm font-semibold text-slate-200">{agent?.name || `Stage ${i + 1}`}</span>
+                                                        <span className="text-[10px] text-slate-600">{agent?.source === 'builtin' ? `builtin · ${agent.builtinType}` : agent?.source || ''}</span>
                                                         {stage.canReject && (
                                                             <span className="text-[9px] bg-amber-600/20 text-amber-400 px-1.5 py-0.5 rounded-full font-bold">can reject</span>
                                                         )}
