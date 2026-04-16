@@ -17,6 +17,7 @@ import { appRoot, isPackaged, resolveFromRoot } from './utils/appRoot';
 import { ScheduleStore, ScheduleDefinition } from './schedules/ScheduleStore';
 import { Scheduler, SchedulerConfig, generateExecutiveReport, generateAIExecutiveReport } from './schedules/Scheduler';
 import { QueryBankStore, SavedQuery } from './querybank/QueryBankStore';
+import { WorkflowStore, SavedWorkflow, CustomAgentStore, SavedAgent } from './workflows/WorkflowStore';
 
 const app = express();
 const port = 3000;
@@ -3938,6 +3939,8 @@ export function getScheduleInvestigationsPath(): string {
 let scheduleStore: ScheduleStore | null = null;
 let scheduler: Scheduler | null = null;
 let queryBankStore: QueryBankStore | null = null;
+let workflowStore: WorkflowStore | null = null;
+let customAgentStore: CustomAgentStore | null = null;
 
 /** Extracted so v8 coverage tracks branch-level data reliably across worker merges. */
 async function deleteInvestigationFromDisk(investigationId: string): Promise<void> {
@@ -3988,6 +3991,8 @@ export function initScheduler(): void {
 
     scheduleStore = new ScheduleStore(invPath);
     queryBankStore = new QueryBankStore(invPath);
+    workflowStore = new WorkflowStore(invPath);
+    customAgentStore = new CustomAgentStore(invPath);
     scheduler = new Scheduler(
         scheduleStore,
         // createInvestigation adapter for Scheduler
@@ -4472,6 +4477,81 @@ app.delete('/api/query-bank/:id', (req, res) => {
     res.json({ success: true });
 });
 
+// ── Saved Workflows CRUD ──────────────────────────────────────────────────
+
+app.get('/api/workflows', (_req, res) => {
+    if (!workflowStore) return res.json([]);
+    res.json(workflowStore.getAll());
+});
+
+app.get('/api/workflows/:id', (req, res) => {
+    if (!workflowStore) return res.status(500).json({ error: 'Workflow store not initialized' });
+    const workflow = workflowStore.get(req.params.id);
+    if (!workflow) return res.status(404).json({ error: 'Workflow not found' });
+    res.json(workflow);
+});
+
+app.post('/api/workflows', (req, res) => {
+    if (!workflowStore) return res.status(500).json({ error: 'Workflow store not initialized' });
+    const { name, description, icon, pipeline } = req.body;
+    if (!name) return res.status(400).json({ error: 'name is required' });
+    if (!pipeline || !pipeline.stages || !Array.isArray(pipeline.stages)) {
+        return res.status(400).json({ error: 'pipeline with stages array is required' });
+    }
+    const saved = workflowStore.create({ name, description, icon, pipeline });
+    res.json(saved);
+});
+
+app.put('/api/workflows/:id', (req, res) => {
+    if (!workflowStore) return res.status(500).json({ error: 'Workflow store not initialized' });
+    const updated = workflowStore.update(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Workflow not found' });
+    res.json(updated);
+});
+
+app.delete('/api/workflows/:id', (req, res) => {
+    if (!workflowStore) return res.status(500).json({ error: 'Workflow store not initialized' });
+    const deleted = workflowStore.delete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Workflow not found' });
+    res.json({ success: true });
+});
+
+// ── Saved Custom Agents CRUD ──────────────────────────────────────────────
+
+app.get('/api/custom-agents', (_req, res) => {
+    if (!customAgentStore) return res.json([]);
+    res.json(customAgentStore.getAll());
+});
+
+app.get('/api/custom-agents/:id', (req, res) => {
+    if (!customAgentStore) return res.status(500).json({ error: 'Custom agent store not initialized' });
+    const agent = customAgentStore.get(req.params.id);
+    if (!agent) return res.status(404).json({ error: 'Custom agent not found' });
+    res.json(agent);
+});
+
+app.post('/api/custom-agents', (req, res) => {
+    if (!customAgentStore) return res.status(500).json({ error: 'Custom agent store not initialized' });
+    const { agent } = req.body;
+    if (!agent || !agent.name) return res.status(400).json({ error: 'agent with name is required' });
+    const saved = customAgentStore.create({ agent });
+    res.json(saved);
+});
+
+app.put('/api/custom-agents/:id', (req, res) => {
+    if (!customAgentStore) return res.status(500).json({ error: 'Custom agent store not initialized' });
+    const updated = customAgentStore.update(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Custom agent not found' });
+    res.json(updated);
+});
+
+app.delete('/api/custom-agents/:id', (req, res) => {
+    if (!customAgentStore) return res.status(500).json({ error: 'Custom agent store not initialized' });
+    const deleted = customAgentStore.delete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Custom agent not found' });
+    res.json({ success: true });
+});
+
 // Global error handler — catches unhandled errors in route handlers
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error(`Unhandled error on ${req.method} ${req.url}:`, err);
@@ -4688,9 +4768,17 @@ export const __testUtils = {
     setQueryBankStore: (store: QueryBankStore | null) => {
         queryBankStore = store;
     },
+    setWorkflowStore: (store: WorkflowStore | null) => {
+        workflowStore = store;
+    },
+    setCustomAgentStore: (store: CustomAgentStore | null) => {
+        customAgentStore = store;
+    },
     getScheduleStore: () => scheduleStore,
     getScheduler: () => scheduler,
     getQueryBankStore: () => queryBankStore,
+    getWorkflowStore: () => workflowStore,
+    getCustomAgentStore: () => customAgentStore,
     getHistory: () => history,
     getRunners: () => runners,
     getPipelineOrchestrators: () => pipelineOrchestrators,
@@ -4706,6 +4794,8 @@ export const __testUtils = {
         scheduleStore = null;
         scheduler = null;
         queryBankStore = null;
+        workflowStore = null;
+        customAgentStore = null;
         activeLlmProvider = null;
         activeIncidentProvider = null;
         invalidateListCache();

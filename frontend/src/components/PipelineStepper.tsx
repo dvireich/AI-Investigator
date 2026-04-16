@@ -241,7 +241,7 @@ export const PipelineStepper: React.FC<PipelineStepperProps> = React.memo(({ sta
 
                 // Duration string
                 let durationStr = '';
-                if (stage.startedAt && stage.completedAt) {
+                if (stage.startedAt && stage.completedAt && stage.completedAt >= stage.startedAt) {
                     const sec = Math.round((stage.completedAt - stage.startedAt) / 1000);
                     durationStr = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
                 } else if (stage.startedAt && isActive) {
@@ -372,7 +372,7 @@ export const PipelineStepper: React.FC<PipelineStepperProps> = React.memo(({ sta
                 const s = stages[expandedIdx];
                 const c = s.color || '#64748b';
                 let d = '';
-                if (s.startedAt && s.completedAt) {
+                if (s.startedAt && s.completedAt && s.completedAt >= s.startedAt) {
                     const sec = Math.round((s.completedAt - s.startedAt) / 1000);
                     d = sec < 60 ? `${sec}s` : `${Math.floor(sec / 60)}m ${sec % 60}s`;
                 }

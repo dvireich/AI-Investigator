@@ -120,6 +120,7 @@ export class PipelineOrchestrator extends EventEmitter {
             this.pipelineState.currentStageIndex = stageIndex;
             stageState.status = 'running';
             stageState.startedAt = Date.now();
+            stageState.completedAt = undefined; // Clear stale completedAt to prevent negative duration on retry
 
             this.emit('stage-start', {
                 stageIndex,
@@ -357,6 +358,8 @@ export class PipelineOrchestrator extends EventEmitter {
                             for (let i = targetIndex; i <= stageIndex; i++) {
                                 if (i !== stageIndex) {
                                     this.pipelineState.stages[i].status = 'pending';
+                                    this.pipelineState.stages[i].startedAt = undefined; // Clear stale timestamps to prevent negative duration on retry
+                                    this.pipelineState.stages[i].completedAt = undefined;
                                 }
                             }
 

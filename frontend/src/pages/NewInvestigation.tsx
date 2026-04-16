@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type IncidentPreview, type IncidentProgressEvent, type Product, type ProductValidation, type SavedQuery } from '../api';
+import { api, type IncidentPreview, type IncidentProgressEvent, type Product, type ProductValidation, type SavedQuery, type SavedWorkflow, type SavedAgent } from '../api';
 import { useToast } from '../components/Toast';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
-import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, ChevronLeft, ChevronRight, X, Check, Pencil, GitBranch } from 'lucide-react';
+import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, ChevronLeft, ChevronRight, X, Check, Pencil, GitBranch, Plus } from 'lucide-react';
 import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../constants';
 import { parseFlexibleTimestamp, toDateTimeLocalValue, toDateTimeUTCValue, formatDateDisplayUTC, datetimeLocalToISO } from '../utils/timestamp';
-import { PIPELINE_PRESETS, buildPipelinePreset } from '../components/PipelineBuilder';
-import type { AgentDefinition } from '../types/pipeline';
+import { PIPELINE_PRESETS, buildPipelinePreset, PipelineBuilder } from '../components/PipelineBuilder';
+import type { AgentDefinition, PipelineDefinition } from '../types/pipeline';
 
 /** Format Date to display string */
 function formatDateDisplay(date: Date): string {
@@ -57,8 +57,22 @@ export const NewInvestigation = () => {
     // Workflow Preset State
     const [builtinAgents, setBuiltinAgents] = useState<AgentDefinition[]>([]);
     const [selectedWorkflow, setSelectedWorkflow] = useState<string>(''); // set dynamically after settings load
-    const [configuredPipeline, setConfiguredPipeline] = useState<import('../types/pipeline').PipelineDefinition | null>(null);
+    const [configuredPipeline, setConfiguredPipeline] = useState<PipelineDefinition | null>(null);
     const [workflowPage, setWorkflowPage] = useState(0);
+    const [workflowSearch, setWorkflowSearch] = useState('');
+
+
+    // Saved workflows & agents state
+    const [savedWorkflows, setSavedWorkflows] = useState<SavedWorkflow[]>([]);
+    const [savedAgents, setSavedAgents] = useState<SavedAgent[]>([]);
+    const [showWorkflowEditor, setShowWorkflowEditor] = useState(false);
+    const [editingPipeline, setEditingPipeline] = useState<PipelineDefinition | null>(null);
+    const [savingWorkflow, setSavingWorkflow] = useState(false);
+    const [workflowSaveName, setWorkflowSaveName] = useState('');
+    const [workflowSaveDesc, setWorkflowSaveDesc] = useState('');
+    const [workflowSaveIcon, setWorkflowSaveIcon] = useState('🔧');
+    const [iconPickerOpen, setIconPickerOpen] = useState(false);
+    const [editingWorkflowId, setEditingWorkflowId] = useState<string | null>(null);
 
     // Incident State
     const [incidentId, setIncidentId] = useState('');
@@ -203,7 +217,7 @@ export const NewInvestigation = () => {
             }
             // Check for a configured pipeline (global or product-level)
             if (settings.pipeline && settings.pipeline.stages && settings.pipeline.stages.length > 1) {
-                setConfiguredPipeline(settings.pipeline as import('../types/pipeline').PipelineDefinition);
+                setConfiguredPipeline(settings.pipeline as PipelineDefinition);
             }
         }).catch(err => console.error("Failed to load settings:", err));
 
@@ -237,6 +251,16 @@ export const NewInvestigation = () => {
         api.getPipelineBuiltins()
             .then(agents => setBuiltinAgents(agents))
             .catch(err => console.error('Failed to load pipeline builtins:', err));
+
+        // Load saved workflows
+        api.getSavedWorkflows()
+            .then(workflows => setSavedWorkflows(workflows))
+            .catch(err => console.error('Failed to load saved workflows:', err));
+
+        // Load saved custom agents
+        api.getSavedAgents()
+            .then(agents => setSavedAgents(agents))
+            .catch(err => console.error('Failed to load saved agents:', err));
     }, []);
 
     // Validate product paths whenever selection changes
@@ -296,12 +320,22 @@ export const NewInvestigation = () => {
 
         // Build pipeline from selected workflow preset (if agents are available)
         // 'configured' means use the already-configured pipeline from settings — don't override
+        // 'saved-XXX' means use a saved workflow's pipeline directly
         let pipelinePayload: any = undefined;
-        if (selectedWorkflow && selectedWorkflow !== 'configured' && builtinAgents.length > 0) {
-            try {
-                pipelinePayload = buildPipelinePreset(selectedWorkflow, builtinAgents);
-            } catch {
-                // If preset fails (missing agents), proceed without pipeline
+        if (selectedWorkflow && selectedWorkflow !== 'configured') {
+            if (selectedWorkflow.startsWith('saved-')) {
+                // Use saved workflow pipeline
+                const savedId = selectedWorkflow.replace('saved-', '');
+                const saved = savedWorkflows.find(w => w.id === savedId);
+                if (saved) {
+                    pipelinePayload = saved.pipeline;
+                }
+            } else if (builtinAgents.length > 0) {
+                try {
+                    pipelinePayload = buildPipelinePreset(selectedWorkflow, builtinAgents);
+                } catch {
+                    // If preset fails (missing agents), proceed without pipeline
+                }
             }
         }
 
@@ -486,6 +520,38 @@ export const NewInvestigation = () => {
         if (queryBankOpen) document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [queryBankOpen]);
+
+    const handleSaveWorkflow = async () => {
+        setSavingWorkflow(true);
+        try {
+            const descTrimmed = workflowSaveDesc.trim();
+            if (editingWorkflowId) {
+                const updated = await api.updateSavedWorkflow(editingWorkflowId, {
+                    name: workflowSaveName.trim(),
+                    description: descTrimmed || undefined,
+                    icon: workflowSaveIcon,
+                    pipeline: editingPipeline,
+                });
+                setSavedWorkflows(savedWorkflows.map(w => w.id === editingWorkflowId ? updated : w));
+                toast('success', 'Workflow updated');
+            } else {
+                const saved = await api.createSavedWorkflow({
+                    name: workflowSaveName.trim(),
+                    description: descTrimmed || undefined,
+                    icon: workflowSaveIcon,
+                    pipeline: editingPipeline,
+                });
+                setSavedWorkflows([...savedWorkflows, saved]);
+                setSelectedWorkflow(`saved-${saved.id}`);
+                toast('success', 'Workflow saved');
+            }
+            setShowWorkflowEditor(false);
+        } catch (err: any) {
+            toast('error', err.message || 'Failed to save workflow');
+        } finally {
+            setSavingWorkflow(false);
+        }
+    };
 
 
 
@@ -1105,59 +1171,245 @@ export const NewInvestigation = () => {
                         {/* Workflow Preset Selector */}
                         {builtinAgents.length > 0 && (() => {
                             const hasConfiguredPipeline = !!configuredPipeline;
+                            // If the configured pipeline matches a built-in preset, exclude it from the preset list to avoid duplicates
+                            const configuredPresetId = configuredPipeline?.id?.startsWith('preset-') ? configuredPipeline.id.replace('preset-', '') : null;
                             const availablePresets = PIPELINE_PRESETS.filter(preset =>
                                 preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))
+                                && preset.id !== configuredPresetId
                             );
 
-                            // Build unified list: configured pipeline first, then presets
-                            type WorkflowItem = { type: 'configured' } | { type: 'preset'; preset: typeof availablePresets[number] };
-                            const allItems: WorkflowItem[] = [
-                                ...(hasConfiguredPipeline ? [{ type: 'configured' as const }] : []),
-                                ...availablePresets.map(preset => ({ type: 'preset' as const, preset })),
+                            // Separate saved workflows from built-in presets for clear visual grouping
+                            const searchLower = workflowSearch.toLowerCase();
+                            const builtinItems: { type: 'configured' | 'preset'; preset?: typeof availablePresets[number] }[] = [
+                                ...(hasConfiguredPipeline && (configuredPipeline!.name || 'Custom Pipeline').toLowerCase().includes(searchLower) ? [{ type: 'configured' as const }] : []),
+                                ...availablePresets.filter(p => p.name.toLowerCase().includes(searchLower) || p.description.toLowerCase().includes(searchLower)).map(preset => ({ type: 'preset' as const, preset })),
                             ];
                             const PAGE_SIZE = 6; // 2 rows × 3 columns
-                            const totalPages = Math.ceil(allItems.length / PAGE_SIZE);
-                            const pageItems = allItems.slice(workflowPage * PAGE_SIZE, (workflowPage + 1) * PAGE_SIZE);
+                            const totalPages = Math.ceil(builtinItems.length / PAGE_SIZE);
+                            const pageItems = builtinItems.slice(workflowPage * PAGE_SIZE, (workflowPage + 1) * PAGE_SIZE);
+
+
+                            const handleDeleteSavedWorkflow = async (e: React.MouseEvent, wfId: string) => {
+                                e.stopPropagation();
+                                try {
+                                    await api.deleteSavedWorkflow(wfId);
+                                    setSavedWorkflows(savedWorkflows.filter(w => w.id !== wfId));
+                                    if (selectedWorkflow === `saved-${wfId}`) setSelectedWorkflow('default');
+                                    toast('success', 'Workflow deleted');
+                                } catch {
+                                    toast('error', 'Failed to delete workflow');
+                                }
+                            };
+
+                            const handleEditSavedWorkflow = (e: React.MouseEvent, wf: SavedWorkflow) => {
+                                e.stopPropagation();
+                                setEditingWorkflowId(wf.id);
+                                setWorkflowSaveName(wf.name);
+                                setWorkflowSaveDesc(wf.description || '');
+                                setWorkflowSaveIcon(wf.icon || '🔧');
+                                setEditingPipeline(wf.pipeline);
+                                setShowWorkflowEditor(true);
+                            };
+
+                            const openCreateWorkflow = () => {
+                                setEditingWorkflowId(null);
+                                setWorkflowSaveName('');
+                                setWorkflowSaveDesc('');
+                                setWorkflowSaveIcon('🔧');
+                                setEditingPipeline(null);
+                                setShowWorkflowEditor(true);
+                            };
 
                             return (
-                                <div className="space-y-2">
+                                <div className="space-y-3">
+                                    {/* ── Header: label + Create button (always visible) ── */}
                                     <div className="flex items-center justify-between">
                                         <label className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
                                             <GitBranch className="w-3 h-3" /> Agent Workflow
                                         </label>
-                                        {totalPages > 1 && (
-                                            <div className="flex items-center gap-1">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setWorkflowPage(p => Math.max(0, p - 1))}
-                                                    disabled={workflowPage === 0}
-                                                    className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                                >
-                                                    <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
-                                                </button>
-                                                <span className="text-[10px] text-slate-500 tabular-nums min-w-[2rem] text-center">
-                                                    {workflowPage + 1}/{totalPages}
-                                                </span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setWorkflowPage(p => Math.min(totalPages - 1, p + 1))}
-                                                    disabled={workflowPage >= totalPages - 1}
-                                                    className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                                >
-                                                    <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                                                </button>
-                                            </div>
-                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={openCreateWorkflow}
+                                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold bg-purple-600/20 text-purple-300 border border-purple-500/30 hover:bg-purple-600/40 hover:border-purple-500/50 hover:text-purple-200 transition-all"
+                                        >
+                                            <Plus className="w-3.5 h-3.5" />
+                                            Create Custom Workflow
+                                        </button>
                                     </div>
-                                    <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                        {pageItems.map((item, idx) => {
-                                            if (item.type === 'configured') {
-                                                const isSelected = selectedWorkflow === 'configured';
+
+                                    {/* ── Search ── */}
+                                    <div className="relative">
+                                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                                        <input
+                                            type="text"
+                                            value={workflowSearch}
+                                            onChange={e => { setWorkflowSearch(e.target.value); setWorkflowPage(0); }}
+                                            placeholder="Search workflows…"
+                                            className="w-full pl-8 pr-3 py-1.5 bg-slate-900/60 border border-slate-700/40 rounded-lg text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-purple-600/50 transition-colors"
+                                        />
+                                    </div>
+
+                                    {/* ── My Workflows section (only when saved workflows exist) ── */}
+                                    {(() => {
+                                        const filteredSaved = savedWorkflows.filter(w =>
+                                            w.name.toLowerCase().includes(workflowSearch.toLowerCase()) ||
+                                            (w.description || '').toLowerCase().includes(workflowSearch.toLowerCase())
+                                        );
+                                        return filteredSaved.length > 0 && (
+                                        <div className="space-y-1.5">
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-blue-400/70 flex items-center gap-2">
+                                                <span className="flex-1 h-px bg-blue-500/10"></span>
+                                                My Workflows ({filteredSaved.length})
+                                                <span className="flex-1 h-px bg-blue-500/10"></span>
+                                            </div>
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                                {filteredSaved.map(workflow => {
+                                                    const isSelected = selectedWorkflow === `saved-${workflow.id}`;
+                                                    return (
+                                                        <button
+                                                            key={`saved-${workflow.id}`}
+                                                            type="button"
+                                                            onClick={() => setSelectedWorkflow(`saved-${workflow.id}`)}
+                                                            className={`text-left p-2.5 rounded-xl border transition-all relative group/saved ${
+                                                                isSelected
+                                                                    ? 'bg-blue-950/50 border-blue-500/50 ring-1 ring-blue-500/20'
+                                                                    : 'bg-slate-800/40 border-slate-700/40 hover:border-blue-600/40 hover:bg-slate-800/70'
+                                                            }`}
+                                                        >
+                                                            <div className="absolute top-1.5 right-1.5 flex gap-0.5 opacity-0 group-hover/saved:opacity-100 transition-opacity">
+                                                                <span
+                                                                    onClick={(e) => handleEditSavedWorkflow(e, workflow)}
+                                                                    className="p-1 rounded hover:bg-slate-600/50 cursor-pointer"
+                                                                    title="Edit workflow"
+                                                                >
+                                                                    <Pencil className="w-3 h-3 text-slate-400 hover:text-white" />
+                                                                </span>
+                                                                <span
+                                                                    onClick={(e) => handleDeleteSavedWorkflow(e, workflow.id)}
+                                                                    className="p-1 rounded hover:bg-red-600/30 cursor-pointer"
+                                                                    title="Delete workflow"
+                                                                >
+                                                                    <Trash2 className="w-3 h-3 text-slate-400 hover:text-red-400" />
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className="text-sm">{workflow.icon || '🔧'}</span>
+                                                                <span className={`text-xs font-bold truncate ${isSelected ? 'text-blue-200' : 'text-slate-300'}`}>{workflow.name}</span>
+                                                            </div>
+                                                            <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-blue-300/70' : 'text-slate-500'}`}>
+                                                                {workflow.description || `${workflow.pipeline.stages.length} stages`}
+                                                            </p>
+                                                            <div className="flex flex-wrap gap-0.5 mt-1.5">
+                                                                {workflow.pipeline.stages.map((stage, i) => {
+                                                                    const agent = stage.agent;
+                                                                    const color = agent?.color || '#6b7280';
+                                                                    const agentTitle = agent?.name || `Stage ${i + 1}`;
+                                                                    const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
+                                                                    return (
+                                                                        <span
+                                                                            key={i}
+                                                                            className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
+                                                                            style={{ backgroundColor: color }}
+                                                                            title={agentTitle}
+                                                                        >
+                                                                            {agentLabel}
+                                                                        </span>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                    })()}
+
+                                    {/* ── Built-in Presets section ── */}
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2 flex-1">
+                                                <span className="flex-1 h-px bg-slate-700/50"></span>
+                                                Built-in Presets
+                                                <span className="flex-1 h-px bg-slate-700/50"></span>
+                                            </div>
+                                            {totalPages > 1 && (
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setWorkflowPage(p => Math.max(0, p - 1))}
+                                                        disabled={workflowPage === 0}
+                                                        className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
+                                                    </button>
+                                                    <span className="text-[10px] text-slate-500 tabular-nums min-w-[2rem] text-center">
+                                                        {workflowPage + 1}/{totalPages}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setWorkflowPage(p => Math.min(totalPages - 1, p + 1))}
+                                                        disabled={workflowPage >= totalPages - 1}
+                                                        className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                            {pageItems.map((item) => {
+                                                if (item.type === 'configured') {
+                                                    const isSelected = selectedWorkflow === 'configured';
+                                                    return (
+                                                        <button
+                                                            key="configured"
+                                                            type="button"
+                                                            onClick={() => setSelectedWorkflow('configured')}
+                                                            className={`text-left p-2.5 rounded-xl border transition-all ${
+                                                                isSelected
+                                                                    ? 'bg-purple-950/50 border-purple-500/50 ring-1 ring-purple-500/20'
+                                                                    : 'bg-slate-800/40 border-slate-700/40 hover:border-slate-600 hover:bg-slate-800/70'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className="text-sm">⚙️</span>
+                                                                <span className={`text-xs font-bold ${isSelected ? 'text-purple-200' : 'text-slate-300'}`}>
+                                                                    {configuredPipeline!.name || 'Custom Pipeline'}
+                                                                </span>
+                                                                <span className="text-[8px] bg-emerald-600/30 text-emerald-400 px-1 py-0.5 rounded-full font-bold">CONFIGURED</span>
+                                                            </div>
+                                                            <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-purple-300/70' : 'text-slate-500'}`}>
+                                                                Your pipeline from Settings. {configuredPipeline!.stages.length} stages.
+                                                            </p>
+                                                            <div className="flex flex-wrap gap-0.5 mt-1.5">
+                                                                {configuredPipeline!.stages.map((stage, i) => {
+                                                                    const agent = stage.agent;
+                                                                    const color = agent?.color || '#6b7280';
+                                                                    const agentTitle = agent?.name || `Stage ${i + 1}`;
+                                                                    const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
+                                                                    return (
+                                                                        <span
+                                                                            key={i}
+                                                                            className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
+                                                                            style={{ backgroundColor: color }}
+                                                                            title={agentTitle}
+                                                                        >
+                                                                            {agentLabel}
+                                                                        </span>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                }
+                                                const { preset } = item as { type: 'preset'; preset: typeof availablePresets[number] };
+                                                const isSelected = selectedWorkflow === preset.id;
                                                 return (
                                                     <button
-                                                        key="configured"
+                                                        key={preset.id}
                                                         type="button"
-                                                        onClick={() => setSelectedWorkflow('configured')}
+                                                        onClick={() => setSelectedWorkflow(preset.id)}
                                                         className={`text-left p-2.5 rounded-xl border transition-all ${
                                                             isSelected
                                                                 ? 'bg-purple-950/50 border-purple-500/50 ring-1 ring-purple-500/20'
@@ -1165,73 +1417,32 @@ export const NewInvestigation = () => {
                                                         }`}
                                                     >
                                                         <div className="flex items-center gap-2 mb-1">
-                                                            <span className="text-sm">⚙️</span>
-                                                            <span className={`text-xs font-bold ${isSelected ? 'text-purple-200' : 'text-slate-300'}`}>
-                                                                {configuredPipeline!.name || 'Custom Pipeline'}
-                                                            </span>
-                                                            <span className="text-[8px] bg-emerald-600/30 text-emerald-400 px-1 py-0.5 rounded-full font-bold">CONFIGURED</span>
+                                                            <span className="text-sm">{preset.icon}</span>
+                                                            <span className={`text-xs font-bold ${isSelected ? 'text-purple-200' : 'text-slate-300'}`}>{preset.name}</span>
+                                                            {preset.id === 'default' && !hasConfiguredPipeline && (
+                                                                <span className="text-[8px] bg-purple-600/30 text-purple-400 px-1 py-0.5 rounded-full font-bold">DEFAULT</span>
+                                                            )}
                                                         </div>
-                                                        <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-purple-300/70' : 'text-slate-500'}`}>
-                                                            Your pipeline from Settings. {configuredPipeline!.stages.length} stages.
-                                                        </p>
+                                                        <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-purple-300/70' : 'text-slate-500'}`}>{preset.description}</p>
                                                         <div className="flex flex-wrap gap-0.5 mt-1.5">
-                                                            {configuredPipeline!.stages.map((stage, i) => {
-                                                                const agent = stage.agent;
-                                                                const color = agent?.color || '#6b7280';
+                                                            {preset.stages.map((s, i) => {
+                                                                const agent = builtinAgents.find(a => a.builtinType === s.builtinType)!;
                                                                 return (
                                                                     <span
                                                                         key={i}
                                                                         className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
-                                                                        style={{ backgroundColor: color }}
-                                                                        title={agent?.name || `Stage ${i + 1}`}
+                                                                        style={{ backgroundColor: agent.color || '#6b7280' }}
+                                                                        title={agent.name}
                                                                     >
-                                                                        {agent?.icon || agent?.name?.charAt(0) || (i + 1)}
+                                                                        {agent.icon || agent.name.charAt(0)}
                                                                     </span>
                                                                 );
                                                             })}
                                                         </div>
                                                     </button>
                                                 );
-                                            }
-                                            const { preset } = item;
-                                            const isSelected = selectedWorkflow === preset.id;
-                                            return (
-                                                <button
-                                                    key={preset.id}
-                                                    type="button"
-                                                    onClick={() => setSelectedWorkflow(preset.id)}
-                                                    className={`text-left p-2.5 rounded-xl border transition-all ${
-                                                        isSelected
-                                                            ? 'bg-purple-950/50 border-purple-500/50 ring-1 ring-purple-500/20'
-                                                            : 'bg-slate-800/40 border-slate-700/40 hover:border-slate-600 hover:bg-slate-800/70'
-                                                    }`}
-                                                >
-                                                    <div className="flex items-center gap-2 mb-1">
-                                                        <span className="text-sm">{preset.icon}</span>
-                                                        <span className={`text-xs font-bold ${isSelected ? 'text-purple-200' : 'text-slate-300'}`}>{preset.name}</span>
-                                                        {preset.id === 'default' && !hasConfiguredPipeline && (
-                                                            <span className="text-[8px] bg-purple-600/30 text-purple-400 px-1 py-0.5 rounded-full font-bold">DEFAULT</span>
-                                                        )}
-                                                    </div>
-                                                    <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-purple-300/70' : 'text-slate-500'}`}>{preset.description}</p>
-                                                    <div className="flex flex-wrap gap-0.5 mt-1.5">
-                                                        {preset.stages.map((s, i) => {
-                                                            const agent = builtinAgents.find(a => a.builtinType === s.builtinType)!;
-                                                            return (
-                                                                <span
-                                                                    key={i}
-                                                                    className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
-                                                                    style={{ backgroundColor: agent.color || '#6b7280' }}
-                                                                    title={agent.name}
-                                                                >
-                                                                    {agent.icon || agent.name.charAt(0)}
-                                                                </span>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                </button>
-                                            );
-                                        })}
+                                            })}
+                                        </div>
                                     </div>
                                 </div>
                             );
@@ -1305,6 +1516,102 @@ export const NewInvestigation = () => {
                     </p>
                 </div>
             </form>
+
+            {/* ── Workflow Editor Modal ───────────────────────────────────────── */}
+            {showWorkflowEditor && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowWorkflowEditor(false)}>
+                    <div className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-[90vw] max-w-4xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+                        {/* Header */}
+                        <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
+                            <h3 className="text-lg font-bold text-white">
+                                {editingWorkflowId ? 'Edit Workflow' : 'Create New Workflow'}
+                            </h3>
+                            <button type="button" onClick={() => setShowWorkflowEditor(false)} className="p-1 rounded hover:bg-slate-700/50 text-slate-400 hover:text-white transition-colors">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                            {/* Workflow metadata */}
+                            <div className="grid grid-cols-[auto_1fr_1fr] gap-3 items-end">
+                                <div className="space-y-1 relative">
+                                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Icon</label>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIconPickerOpen(!iconPickerOpen)}
+                                        className="w-11 h-10 flex items-center justify-center text-xl rounded-lg border border-slate-700 bg-slate-800/50 hover:border-slate-500 focus:ring-2 focus:ring-purple-500 outline-none transition-colors"
+                                    >
+                                        {workflowSaveIcon}
+                                    </button>
+                                    {iconPickerOpen && (
+                                        <div className="absolute top-full left-0 mt-1 z-10 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl p-2 grid grid-cols-5 gap-1 w-[180px]">
+                                            {['🔧','⚡','🔬','🚨','💚','📜','🔍','🛡️','🧠','🎯','📊','🔥','💎','🚀','⚙️','🧪','🔮','📡','🌐','🤖'].map(icon => (
+                                                <button
+                                                    key={icon}
+                                                    type="button"
+                                                    onClick={() => { setWorkflowSaveIcon(icon); setIconPickerOpen(false); }}
+                                                    className={`w-8 h-8 flex items-center justify-center text-lg rounded-lg hover:bg-slate-700 transition-colors ${workflowSaveIcon === icon ? 'bg-purple-600/30 ring-1 ring-purple-500' : ''}`}
+                                                >
+                                                    {icon}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Name *</label>
+                                    <input
+                                        type="text"
+                                        value={workflowSaveName}
+                                        onChange={e => setWorkflowSaveName(e.target.value)}
+                                        placeholder="My Custom Workflow"
+                                        className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                                    />
+                                </div>
+                                <div className="space-y-1">
+                                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</label>
+                                    <input
+                                        type="text"
+                                        value={workflowSaveDesc}
+                                        onChange={e => setWorkflowSaveDesc(e.target.value)}
+                                        placeholder="Optional description..."
+                                        className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Pipeline builder */}
+                            <PipelineBuilder
+                                value={editingPipeline}
+                                onChange={setEditingPipeline}
+                                builtinAgents={builtinAgents}
+                                availableModels={models}
+                            />
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-700/50">
+                            <button
+                                type="button"
+                                onClick={() => setShowWorkflowEditor(false)}
+                                className="px-4 py-2 rounded-lg text-sm text-slate-400 hover:text-white hover:bg-slate-700/50 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="button"
+                                disabled={!workflowSaveName.trim() || !editingPipeline || editingPipeline.stages.length === 0 || savingWorkflow}
+                                onClick={handleSaveWorkflow}
+                                className="px-5 py-2 rounded-lg text-sm font-bold bg-purple-600 hover:bg-purple-500 text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                            >
+                                {savingWorkflow ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                                {editingWorkflowId ? 'Update Workflow' : 'Save Workflow'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

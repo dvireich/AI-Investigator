@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, Settings, X, RotateCcw, AlertTriangle, FileText, Code, Cpu, Expand, HelpCircle, Eye } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings, X, RotateCcw, AlertTriangle, FileText, Code, Cpu, Expand, HelpCircle, Eye, Search } from 'lucide-react';
 import type { AgentDefinition, PipelineStage, PipelineDefinition } from '../types/pipeline';
 
 // ── Palette colors for new custom agents ─────────────────────────────
@@ -24,11 +24,13 @@ interface PipelineBuilderProps {
     builtinAgents: AgentDefinition[];
     /** Available LLM models for the model override dropdown */
     availableModels?: string[];
+    /** When true, the pipeline is shown read-only — no drag/delete/expand/add controls */
+    readOnly?: boolean;
 }
 
 // ── Component ────────────────────────────────────────────────────────
 
-export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChange, builtinAgents, availableModels = [] }) => {
+export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChange, builtinAgents, availableModels = [], readOnly = false }) => {
     const [dragIndex, setDragIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
     const [editingStageIndex, setEditingStageIndex] = useState<number | null>(null);
@@ -37,6 +39,8 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
     const [showJsonView, setShowJsonView] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
     const [builtinDetailAgent, setBuiltinDetailAgent] = useState<AgentDefinition | null>(null);
+    const [paletteSearch, setPaletteSearch] = useState('');
+    const [palettePage, setPalettePage] = useState(0);
     const helpRef = useRef<HTMLDivElement>(null);
 
     const stages = value?.stages || [];
@@ -217,58 +221,96 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
             )}
 
             {/* ── Agent Palette ─────────────────────────────────────── */}
-            <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/40 shadow-sm space-y-3">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <label className="text-sm font-bold text-slate-300">Agent Palette</label>
-                        <button
-                            onClick={() => setShowHelp(true)}
-                            className="p-1 text-slate-500 hover:text-cyan-400 transition-colors rounded-md hover:bg-slate-700/50"
-                            title="How to use the pipeline builder"
-                        >
-                            <HelpCircle size={15} />
-                        </button>
+            {!readOnly && (() => {
+                const PALETTE_PAGE_SIZE = 8;
+                const filtered = builtinAgents.filter(a => a.name.toLowerCase().includes(paletteSearch.toLowerCase()));
+                const totalPages = Math.ceil((filtered.length + 1) / PALETTE_PAGE_SIZE); // +1 for Custom Agent button
+                const safePage = Math.min(palettePage, Math.max(0, totalPages - 1));
+                const startIdx = safePage * PALETTE_PAGE_SIZE;
+                const pageAgents = filtered.slice(startIdx, Math.min(startIdx + PALETTE_PAGE_SIZE, filtered.length));
+                const showCustomButton = startIdx + PALETTE_PAGE_SIZE > filtered.length; // Custom Agent button on last page
+                return (
+                    <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/40 shadow-sm space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <label className="text-sm font-bold text-slate-300">Agent Palette</label>
+                                <button
+                                    onClick={() => setShowHelp(true)}
+                                    className="p-1 text-slate-500 hover:text-cyan-400 transition-colors rounded-md hover:bg-slate-700/50"
+                                    title="How to use the pipeline builder"
+                                >
+                                    <HelpCircle size={15} />
+                                </button>
+                            </div>
+                            <span className="text-[10px] text-slate-500">Click to add</span>
+                        </div>
+                        <div className="relative">
+                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                            <input
+                                type="text"
+                                value={paletteSearch}
+                                onChange={e => { setPaletteSearch(e.target.value); setPalettePage(0); }}
+                                placeholder="Search agents…"
+                                className="w-full pl-8 pr-3 py-1.5 bg-slate-900/60 border border-slate-700/40 rounded-lg text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-600/50 transition-colors"
+                            />
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {pageAgents.map(agent => (
+                                <AgentChip
+                                    key={agent.id}
+                                    agent={agent}
+                                    onClick={() => addStage(agent)}
+                                />
+                            ))}
+                            {showCustomButton && (
+                                <button
+                                    onClick={() => {
+                                        setEditingAgentForStage(null);
+                                        setShowAgentModal(true);
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg border border-dashed border-slate-600 text-xs font-medium transition-colors"
+                                >
+                                    <Plus size={12} /> Custom Agent
+                                </button>
+                            )}
+                        </div>
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-2 pt-1">
+                                <button
+                                    onClick={() => setPalettePage(p => Math.max(0, p - 1))}
+                                    disabled={safePage === 0}
+                                    className="p-1 text-slate-400 hover:text-white disabled:text-slate-700 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronLeft size={14} />
+                                </button>
+                                <span className="text-[10px] text-slate-500">{safePage + 1} / {totalPages}</span>
+                                <button
+                                    onClick={() => setPalettePage(p => Math.min(totalPages - 1, p + 1))}
+                                    disabled={safePage >= totalPages - 1}
+                                    className="p-1 text-slate-400 hover:text-white disabled:text-slate-700 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronRight size={14} />
+                                </button>
+                            </div>
+                        )}
                     </div>
-                    <span className="text-[10px] text-slate-500">Drag or click to add</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    {builtinAgents.map(agent => (
-                        <AgentChip
-                            key={agent.id}
-                            agent={agent}
-                            onClick={() => addStage(agent)}
-                        />
-                    ))}
-                    <button
-                        onClick={() => {
-                            setEditingAgentForStage(null);
-                            setShowAgentModal(true);
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg border border-dashed border-slate-600 text-xs font-medium transition-colors"
-                    >
-                        <Plus size={12} /> Custom Agent
-                    </button>
-                </div>
-            </div>
+                );
+            })()}
 
             {/* ── Pipeline Name ─────────────────────────────────────── */}
             {stages.length > 0 && (
                 <div className="flex items-center gap-3">
-                    <input
-                        type="text"
-                        value={value?.name || ''}
-                        onChange={e => onChange({ ...value!, name: e.target.value })}
-                        placeholder="Pipeline name..."
-                        className="flex-1 bg-slate-800/60 text-sm text-white border border-slate-700/50 rounded-lg px-3 py-1.5 focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/50 outline-none"
-                    />
-                    <button
+                    <span className="flex-1 text-sm font-semibold text-slate-300">
+                        {value?.name || 'Custom Pipeline'}
+                    </span>
+                    {!readOnly && <button
                         onClick={() => setShowJsonView(!showJsonView)}
                         className="px-2 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800/60 border border-slate-700/50 rounded-lg transition-colors"
                         title="Toggle JSON view"
                     >
                         <Code size={14} />
-                    </button>
-                    <div className="relative group/presets">
+                    </button>}
+                    {!readOnly && <div className="relative group/presets">
                         <button
                             className="px-2.5 py-1.5 text-xs text-emerald-400 hover:text-emerald-300 bg-slate-800/60 border border-slate-700/50 rounded-lg transition-colors flex items-center gap-1"
                             title="Load a workflow template"
@@ -293,7 +335,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                 </button>
                             ))}
                         </div>
-                    </div>
+                    </div>}
                 </div>
             )}
 
@@ -327,6 +369,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                 label={getAgentLabel(stage)}
                                 isDragging={dragIndex === index}
                                 isExpanded={editingStageIndex === index}
+                                readOnly={readOnly}
                                 onToggleExpand={() => setEditingStageIndex(editingStageIndex === index ? null : index)}
                                 onRemove={() => removeStage(index)}
                                 onUpdate={(patch) => updateStage(index, patch)}
@@ -678,6 +721,7 @@ const StageCard: React.FC<{
     label: string;
     isDragging: boolean;
     isExpanded: boolean;
+    readOnly?: boolean;
     onToggleExpand: () => void;
     onRemove: () => void;
     onUpdate: (patch: Partial<PipelineStage>) => void;
@@ -687,27 +731,27 @@ const StageCard: React.FC<{
     onDrop: (e: React.DragEvent) => void;
     onDragEnd: () => void;
 }> = React.memo(({
-    stage, index, total, color, icon, label, isDragging, isExpanded,
+    stage, index, total, color, icon, label, isDragging, isExpanded, readOnly,
     onToggleExpand, onRemove, onUpdate, onEditAgent,
     onDragStart, onDragOver, onDrop, onDragEnd,
 }) => {
     return (
         <div
-            draggable
-            onDragStart={onDragStart}
-            onDragOver={onDragOver}
-            onDrop={onDrop}
-            onDragEnd={onDragEnd}
+            draggable={!readOnly}
+            onDragStart={readOnly ? undefined : onDragStart}
+            onDragOver={readOnly ? undefined : onDragOver}
+            onDrop={readOnly ? undefined : onDrop}
+            onDragEnd={readOnly ? undefined : onDragEnd}
             className={`rounded-xl border transition-all ${
                 isDragging ? 'opacity-40 scale-95' : ''
             } ${isExpanded ? 'bg-slate-800/60 border-slate-600' : 'bg-slate-800/30 border-slate-700/40 hover:border-slate-600/60'}`}
         >
             {/* Header row */}
-            <div className="flex items-center gap-2 px-3 py-2.5 cursor-pointer" onClick={onToggleExpand}>
+            <div className={`flex items-center gap-2 px-3 py-2.5 ${readOnly ? '' : 'cursor-pointer'}`} onClick={readOnly ? undefined : onToggleExpand}>
                 {/* Drag handle */}
-                <div className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 flex-shrink-0" title="Drag to reorder">
+                {!readOnly && <div className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-slate-400 flex-shrink-0" title="Drag to reorder">
                     <GripVertical size={14} />
-                </div>
+                </div>}
 
                 {/* Stage number */}
                 <span className="text-[10px] text-slate-500 font-mono w-4 text-center flex-shrink-0">
@@ -738,12 +782,12 @@ const StageCard: React.FC<{
                 <button onClick={(e) => { e.stopPropagation(); onEditAgent(); }} className="p-1 text-slate-500 hover:text-cyan-400 transition-colors" title={stage.agent?.source === 'builtin' ? 'View agent details' : 'Edit agent'}>
                     {stage.agent?.source === 'builtin' ? <Eye size={13} /> : <Settings size={13} />}
                 </button>
-                <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="p-1 text-slate-500 hover:text-red-400 transition-colors" title="Remove stage">
+                {!readOnly && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="p-1 text-slate-500 hover:text-red-400 transition-colors" title="Remove stage">
                     <Trash2 size={13} />
-                </button>
-                <div className="text-slate-600">
+                </button>}
+                {!readOnly && <div className="text-slate-600">
                     {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                </div>
+                </div>}
             </div>
 
             {/* Expanded: stage configuration */}
@@ -848,7 +892,7 @@ StageCard.displayName = 'StageCard';
 
 // ── Builtin Agent Detail Modal (read-only) ──────────────────────────
 
-const BuiltinDetailModal: React.FC<{ agent: AgentDefinition; onClose: () => void }> = ({ agent, onClose }) => {
+export const BuiltinDetailModal: React.FC<{ agent: AgentDefinition; onClose: () => void }> = ({ agent, onClose }) => {
     const backdropRef = useRef<HTMLDivElement>(null);
 
     return (

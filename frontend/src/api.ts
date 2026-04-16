@@ -1,4 +1,22 @@
 import type { ScheduleDefinition, ScheduleHistoryEntry, ScheduleReport } from './types/schedule';
+import type { PipelineDefinition, AgentDefinition } from './types/pipeline';
+
+export interface SavedWorkflow {
+    id: string;
+    name: string;
+    description?: string;
+    icon?: string;
+    pipeline: PipelineDefinition;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface SavedAgent {
+    id: string;
+    agent: AgentDefinition;
+    createdAt: string;
+    updatedAt: string;
+}
 
 export interface SavedQuery {
     id: string;
@@ -937,5 +955,83 @@ export const api = {
         });
         if (!response.ok) throw new Error('Failed to validate pipeline');
         return response.json();
+    },
+
+    // ── Saved Workflows ─────────────────────────────────────────────────
+
+    getSavedWorkflows: async (): Promise<SavedWorkflow[]> => {
+        const response = await fetch(`${API_URL}/workflows`);
+        if (!response.ok) throw new Error('Failed to fetch saved workflows');
+        return response.json();
+    },
+
+    createSavedWorkflow: async (data: { name: string; description?: string; icon?: string; pipeline: import('./types/pipeline').PipelineDefinition }): Promise<SavedWorkflow> => {
+        const response = await fetch(`${API_URL}/workflows`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to create workflow');
+        }
+        return response.json();
+    },
+
+    updateSavedWorkflow: async (id: string, partial: Partial<SavedWorkflow>): Promise<SavedWorkflow> => {
+        const response = await fetch(`${API_URL}/workflows/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(partial),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to update workflow');
+        }
+        return response.json();
+    },
+
+    deleteSavedWorkflow: async (id: string): Promise<void> => {
+        const response = await fetch(`${API_URL}/workflows/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('Failed to delete workflow');
+    },
+
+    // ── Saved Custom Agents ─────────────────────────────────────────────
+
+    getSavedAgents: async (): Promise<SavedAgent[]> => {
+        const response = await fetch(`${API_URL}/custom-agents`);
+        if (!response.ok) throw new Error('Failed to fetch saved agents');
+        return response.json();
+    },
+
+    createSavedAgent: async (agent: import('./types/pipeline').AgentDefinition): Promise<SavedAgent> => {
+        const response = await fetch(`${API_URL}/custom-agents`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent }),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to create agent');
+        }
+        return response.json();
+    },
+
+    updateSavedAgent: async (id: string, partial: Partial<SavedAgent>): Promise<SavedAgent> => {
+        const response = await fetch(`${API_URL}/custom-agents/${encodeURIComponent(id)}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(partial),
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({ error: response.statusText }));
+            throw new Error(err.error || 'Failed to update agent');
+        }
+        return response.json();
+    },
+
+    deleteSavedAgent: async (id: string): Promise<void> => {
+        const response = await fetch(`${API_URL}/custom-agents/${encodeURIComponent(id)}`, { method: 'DELETE' });
+        if (!response.ok) throw new Error('Failed to delete agent');
     },
 };

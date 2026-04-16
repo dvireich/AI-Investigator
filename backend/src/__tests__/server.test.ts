@@ -5474,6 +5474,132 @@ describe('server utilities and routes', () => {
             expect(queryBankStore.delete).toHaveBeenCalledWith('query-1');
         });
 
+        it('serves full workflow CRUD endpoints', async () => {
+            const workflowStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'wf-1', name: 'Deep Investigation' }]),
+                get: vi.fn().mockImplementation((id: string) => id === 'wf-1' ? { id: 'wf-1', name: 'Deep Investigation' } : undefined),
+                create: vi.fn().mockImplementation((payload: any) => ({ id: 'wf-2', ...payload })),
+                update: vi.fn().mockImplementation((id: string, payload: any) => id === 'wf-1' ? { id, ...payload } : undefined),
+                delete: vi.fn().mockImplementation((id: string) => id === 'wf-1'),
+            };
+            __testUtils.setWorkflowStore(workflowStore as any);
+            expect(__testUtils.getWorkflowStore()).toEqual(workflowStore);
+
+            let response = await api().get('/api/workflows');
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveLength(1);
+
+            response = await api().get('/api/workflows/wf-1');
+            expect(response.status).toBe(200);
+            expect(response.body.name).toBe('Deep Investigation');
+
+            response = await api().get('/api/workflows/nonexistent');
+            expect(response.status).toBe(404);
+
+            response = await api().post('/api/workflows').send({ name: 'New WF', pipeline: { stages: [{ agent: 'x' }] } });
+            expect(response.status).toBe(200);
+            expect(workflowStore.create).toHaveBeenCalled();
+
+            response = await api().post('/api/workflows').send({});
+            expect(response.status).toBe(400);
+
+            response = await api().post('/api/workflows').send({ name: 'Bad' });
+            expect(response.status).toBe(400);
+
+            response = await api().put('/api/workflows/wf-1').send({ name: 'Updated' });
+            expect(response.status).toBe(200);
+
+            response = await api().put('/api/workflows/nonexistent').send({ name: 'X' });
+            expect(response.status).toBe(404);
+
+            response = await api().delete('/api/workflows/wf-1');
+            expect(response.status).toBe(200);
+
+            response = await api().delete('/api/workflows/nonexistent');
+            expect(response.status).toBe(404);
+
+            // Test with null store
+            __testUtils.setWorkflowStore(null);
+            response = await api().get('/api/workflows');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual([]);
+
+            response = await api().get('/api/workflows/wf-1');
+            expect(response.status).toBe(500);
+
+            response = await api().post('/api/workflows').send({ name: 'X', pipeline: { stages: [] } });
+            expect(response.status).toBe(500);
+
+            response = await api().put('/api/workflows/wf-1').send({ name: 'X' });
+            expect(response.status).toBe(500);
+
+            response = await api().delete('/api/workflows/wf-1');
+            expect(response.status).toBe(500);
+        });
+
+        it('serves full custom-agents CRUD endpoints', async () => {
+            const customAgentStore = {
+                getAll: vi.fn().mockReturnValue([{ id: 'ca-1', agent: { name: 'MyAgent' } }]),
+                get: vi.fn().mockImplementation((id: string) => id === 'ca-1' ? { id: 'ca-1', agent: { name: 'MyAgent' } } : undefined),
+                create: vi.fn().mockImplementation((payload: any) => ({ id: 'ca-2', ...payload })),
+                update: vi.fn().mockImplementation((id: string, payload: any) => id === 'ca-1' ? { id, ...payload } : undefined),
+                delete: vi.fn().mockImplementation((id: string) => id === 'ca-1'),
+            };
+            __testUtils.setCustomAgentStore(customAgentStore as any);
+            expect(__testUtils.getCustomAgentStore()).toEqual(customAgentStore);
+
+            let response = await api().get('/api/custom-agents');
+            expect(response.status).toBe(200);
+            expect(response.body).toHaveLength(1);
+
+            response = await api().get('/api/custom-agents/ca-1');
+            expect(response.status).toBe(200);
+            expect(response.body.agent.name).toBe('MyAgent');
+
+            response = await api().get('/api/custom-agents/nonexistent');
+            expect(response.status).toBe(404);
+
+            response = await api().post('/api/custom-agents').send({ agent: { name: 'NewAgent' } });
+            expect(response.status).toBe(200);
+            expect(customAgentStore.create).toHaveBeenCalled();
+
+            response = await api().post('/api/custom-agents').send({});
+            expect(response.status).toBe(400);
+
+            response = await api().post('/api/custom-agents').send({ agent: {} });
+            expect(response.status).toBe(400);
+
+            response = await api().put('/api/custom-agents/ca-1').send({ agent: { name: 'Updated' } });
+            expect(response.status).toBe(200);
+
+            response = await api().put('/api/custom-agents/nonexistent').send({ agent: { name: 'X' } });
+            expect(response.status).toBe(404);
+
+            response = await api().delete('/api/custom-agents/ca-1');
+            expect(response.status).toBe(200);
+
+            response = await api().delete('/api/custom-agents/nonexistent');
+            expect(response.status).toBe(404);
+
+            // Test with null store
+            __testUtils.setCustomAgentStore(null);
+            response = await api().get('/api/custom-agents');
+            expect(response.status).toBe(200);
+            expect(response.body).toEqual([]);
+
+            response = await api().get('/api/custom-agents/ca-1');
+            expect(response.status).toBe(500);
+
+            response = await api().post('/api/custom-agents').send({ agent: { name: 'X' } });
+            expect(response.status).toBe(500);
+
+            response = await api().put('/api/custom-agents/ca-1').send({ agent: { name: 'X' } });
+            expect(response.status).toBe(500);
+
+            response = await api().delete('/api/custom-agents/ca-1');
+            expect(response.status).toBe(500);
+        });
+
         it('paginates schedules with page and pageSize params', async () => {
             const items = Array.from({ length: 5 }, (_, i) => ({ id: `s${i}`, name: `S${i}`, enabled: true }));
             const scheduleStore = {
