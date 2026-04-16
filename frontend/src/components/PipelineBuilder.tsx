@@ -405,13 +405,13 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                 onUpdate={(patch) => updateStage(index, patch)}
                                 onEditAgent={() => {
                                     const agent = stage.agent;
-                                    if (agent?.source === 'builtin') {
-                                        const full = builtinAgents.find(a => a.builtinType === agent.builtinType) || agent;
-                                        setBuiltinDetailAgent(full);
-                                    } else {
-                                        setEditingSavedAgentId(null);
-                                        setEditingAgentForStage(index);
-                                        setShowAgentModal(true);
+                                    if (agent) {
+                                        if (agent.source === 'builtin') {
+                                            const full = builtinAgents.find(a => a.builtinType === agent.builtinType) || agent;
+                                            setBuiltinDetailAgent(full);
+                                        } else {
+                                            setBuiltinDetailAgent(agent);
+                                        }
                                     }
                                 }}
                                 onDragStart={() => handleDragStart(index)}
@@ -854,8 +854,8 @@ const StageCard: React.FC<{
                 </div>
 
                 {/* Actions */}
-                <button onClick={(e) => { e.stopPropagation(); onEditAgent(); }} className="p-1 text-slate-500 hover:text-cyan-400 transition-colors" title={stage.agent?.source === 'builtin' ? 'View agent details' : 'Edit agent'}>
-                    {stage.agent?.source === 'builtin' ? <Eye size={13} /> : <Settings size={13} />}
+                <button onClick={(e) => { e.stopPropagation(); onEditAgent(); }} className="p-1 text-slate-500 hover:text-cyan-400 transition-colors" title="View agent details">
+                    <Eye size={13} />
                 </button>
                 {!readOnly && <button onClick={(e) => { e.stopPropagation(); onRemove(); }} className="p-1 text-slate-500 hover:text-red-400 transition-colors" title="Remove stage">
                     <Trash2 size={13} />
@@ -988,7 +988,9 @@ export const BuiltinDetailModal: React.FC<{ agent: AgentDefinition; onClose: () 
                         </span>
                         <div>
                             <h3 className="text-lg font-bold text-white">{agent.name}</h3>
-                            <span className="text-[10px] text-cyan-400 font-medium uppercase tracking-wider">Built-in Agent</span>
+                            <span className="text-[10px] text-cyan-400 font-medium uppercase tracking-wider">
+                                {agent.source === 'builtin' ? 'Built-in Agent' : agent.source === 'file' ? 'File Agent' : 'Inline Agent'}
+                            </span>
                         </div>
                     </div>
                     <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors">
@@ -1014,7 +1016,9 @@ export const BuiltinDetailModal: React.FC<{ agent: AgentDefinition; onClose: () 
                         </div>
                         <div>
                             <label className="text-xs font-bold text-slate-400 block mb-1">Source</label>
-                            <span className="text-sm text-slate-200 bg-slate-800 px-2.5 py-1 rounded-md inline-block">⚡ Built-in</span>
+                            <span className="text-sm text-slate-200 bg-slate-800 px-2.5 py-1 rounded-md inline-block">
+                                {agent.source === 'builtin' ? '⚡ Built-in' : agent.source === 'file' ? '📄 File' : '✏️ Inline'}
+                            </span>
                         </div>
                     </div>
 
@@ -1023,6 +1027,14 @@ export const BuiltinDetailModal: React.FC<{ agent: AgentDefinition; onClose: () 
                         <div>
                             <label className="text-xs font-bold text-slate-400 block mb-1">Prompt File</label>
                             <code className="text-xs text-cyan-300 bg-slate-800 px-2.5 py-1.5 rounded-md block font-mono">{agent.promptPath}</code>
+                        </div>
+                    )}
+
+                    {/* Inline Prompt */}
+                    {agent.promptContent && (
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 block mb-1">System Prompt</label>
+                            <pre className="text-xs text-slate-300 bg-slate-800 px-2.5 py-1.5 rounded-md font-mono whitespace-pre-wrap max-h-40 overflow-y-auto">{agent.promptContent}</pre>
                         </div>
                     )}
 
@@ -1068,7 +1080,7 @@ export const BuiltinDetailModal: React.FC<{ agent: AgentDefinition; onClose: () 
                 {/* Footer */}
                 <div className="flex items-center justify-between px-6 py-4 border-t border-slate-700/50 bg-slate-900/60">
                     <span className="text-[10px] text-slate-600 flex items-center gap-1">
-                        <Eye size={10} /> Read-only — built-in agents cannot be modified
+                        <Eye size={10} /> Read-only — edit agents from the palette
                     </span>
                     <button
                         onClick={onClose}

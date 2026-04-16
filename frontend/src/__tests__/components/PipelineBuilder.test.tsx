@@ -151,17 +151,18 @@ describe('PipelineBuilder – AgentModal Save to Library', () => {
         });
     });
 
-    it('does not show Save to Library when editing an existing stage agent', async () => {
+    it('does not show Save to Library when viewing a stage agent', async () => {
         const pipeline = {
             id: 'test-pipeline',
             name: 'Test',
             stages: [{ agent: { id: 'a1', name: 'Existing', source: 'file' as const, promptPath: 'x.md', color: '#333' } }],
         };
         renderBuilder({ value: pipeline });
-        // Click the edit-agent button (pen icon) on the stage card
-        const editBtn = screen.getByTitle('Edit agent');
-        fireEvent.click(editBtn);
-        await waitFor(() => expect(screen.getByText('Edit Agent')).toBeInTheDocument());
+        // Click the view-agent button (eye icon) on the stage card
+        const viewBtn = screen.getByTitle('View agent details');
+        fireEvent.click(viewBtn);
+        // The detail modal shows a read-only footer
+        await waitFor(() => expect(screen.getByText(/edit agents from the palette/i)).toBeInTheDocument());
         expect(screen.queryByText('Save to Library')).not.toBeInTheDocument();
     });
 });
