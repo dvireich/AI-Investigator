@@ -4586,5 +4586,40 @@ describe('Settings extra coverage', () => {
             expect(circles.length).toBe(3);
         });
 
+        it('paginates pipeline cards when there are many items', async () => {
+            const { api } = await import('../../api');
+            // Provide all builtin types so all 6 presets are visible
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue([
+                { id: 'a1', builtinType: 'triage', source: 'builtin', name: 'Triage', color: '#ef4444', icon: '🚦' },
+                { id: 'a2', builtinType: 'investigator', source: 'builtin', name: 'Investigator', color: '#3b82f6', icon: '🔍' },
+                { id: 'a3', builtinType: 'validator', source: 'builtin', name: 'Validator', color: '#10b981', icon: '✅' },
+                { id: 'a4', builtinType: 'implementation', source: 'builtin', name: 'Implementation', color: '#f59e0b', icon: '🔨' },
+                { id: 'a5', builtinType: 'retrospect', source: 'builtin', name: 'Retrospect', color: '#8b5cf6', icon: '📝' },
+                { id: 'a6', builtinType: 'planner', source: 'builtin', name: 'Planner', color: '#06b6d4', icon: '📋' },
+                { id: 'a7', builtinType: 'devils-advocate', source: 'builtin', name: 'Devils Advocate', color: '#dc2626', icon: '😈' },
+                { id: 'a8', builtinType: 'summarizer', source: 'builtin', name: 'Summarizer', color: '#059669', icon: '📊' },
+                { id: 'a9', builtinType: 'enrichment', source: 'builtin', name: 'Enrichment', color: '#7c3aed', icon: '🔗' },
+                { id: 'a10', builtinType: 'timeline', source: 'builtin', name: 'Timeline', color: '#0891b2', icon: '⏱️' },
+                { id: 'a11', builtinType: 'remediation', source: 'builtin', name: 'Remediation', color: '#ea580c', icon: '🔧' },
+                { id: 'a12', builtinType: 'compliance', source: 'builtin', name: 'Compliance', color: '#4f46e5', icon: '📜' },
+                { id: 'a13', builtinType: 'correlator', source: 'builtin', name: 'Correlator', color: '#be185d', icon: '🔗' },
+            ] as any);
+            // 6 presets + 1 None = 7 items, PAGE_SIZE=6 => 2 pages
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('1/2'));
+            // Navigate to page 2
+            const nextButtons = screen.getAllByRole('button').filter(b => b.querySelector('.lucide-chevron-right'));
+            expect(nextButtons.length).toBeGreaterThan(0);
+            await user.click(nextButtons[0]);
+            await waitFor(() => screen.getByText('2/2'));
+            // Navigate back
+            const prevButtons = screen.getAllByRole('button').filter(b => b.querySelector('.lucide-chevron-left'));
+            await user.click(prevButtons[0]);
+            await waitFor(() => screen.getByText('1/2'));
+        });
+
     });
 });

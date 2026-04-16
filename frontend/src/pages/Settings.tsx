@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2, Calendar } from 'lucide-react';
+import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2, Calendar } from 'lucide-react';
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult, type SavedWorkflow } from '../api';
 import { useToast } from '../components/Toast';
@@ -258,6 +258,7 @@ export const Settings = () => {
     const [savingWorkflow, setSavingWorkflow] = useState(false);
     const [viewingAgent, setViewingAgent] = useState<AgentDefinition | null>(null);
     const [selectedPipelineSource, setSelectedPipelineSource] = useState<string | null>(null);
+    const [pipelinePage, setPipelinePage] = useState(0);
 
     const [config, setConfig] = useState({
         maxConcurrentInvestigations: 3,
@@ -1394,13 +1395,50 @@ export const Settings = () => {
 
                             {/* ── Quick-select Default Pipeline ── */}
                             <div className="space-y-3">
-                                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-                                    Select Default Pipeline
-                                </h3>
+                                {(() => {
+                                    const allItems: { type: 'preset' | 'saved' | 'none'; preset?: typeof PIPELINE_PRESETS[number]; wf?: SavedWorkflow }[] = [
+                                        ...PIPELINE_PRESETS.filter(preset => preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))).map(preset => ({ type: 'preset' as const, preset })),
+                                        ...savedWorkflows.map(wf => ({ type: 'saved' as const, wf })),
+                                        { type: 'none' as const },
+                                    ];
+                                    const PAGE_SIZE = 6;
+                                    const totalPages = Math.ceil(allItems.length / PAGE_SIZE);
+                                    const pageItems = allItems.slice(pipelinePage * PAGE_SIZE, (pipelinePage + 1) * PAGE_SIZE);
+                                    return (
+                                        <>
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+                                        Select Default Pipeline
+                                    </h3>
+                                    {totalPages > 1 && (
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => setPipelinePage(p => Math.max(0, p - 1))}
+                                                disabled={pipelinePage === 0}
+                                                className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                <ChevronLeft className="w-4 h-4 text-slate-400" />
+                                            </button>
+                                            <span className="text-xs text-slate-500 tabular-nums min-w-[2.5rem] text-center">
+                                                {pipelinePage + 1}/{totalPages}
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => setPipelinePage(p => Math.min(totalPages - 1, p + 1))}
+                                                disabled={pipelinePage >= totalPages - 1}
+                                                className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                            >
+                                                <ChevronRight className="w-4 h-4 text-slate-400" />
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                    {/* Built-in presets */}
-                                    {PIPELINE_PRESETS.filter(preset => preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))).map(preset => {
-                                        const isSelected = selectedPipelineSource === `preset:${preset.id}`;
+                                    {pageItems.map((item) => {
+                                        if (item.type === 'preset') {
+                                            const preset = item.preset!;
+                                            const isSelected = selectedPipelineSource === `preset:${preset.id}`;
                                         return (
                                             <button
                                                 key={preset.id}
@@ -1444,11 +1482,10 @@ export const Settings = () => {
                                                 </div>
                                             </button>
                                         );
-                                    })}
-
-                                    {/* Saved workflows */}
-                                    {savedWorkflows.map(wf => {
-                                        const isSelected = selectedPipelineSource === `saved:${wf.id}`;
+                                        }
+                                        if (item.type === 'saved') {
+                                            const wf = item.wf!;
+                                            const isSelected = selectedPipelineSource === `saved:${wf.id}`;
                                         return (
                                             <button
                                                 key={wf.id}
@@ -1485,10 +1522,11 @@ export const Settings = () => {
                                                 </div>
                                             </button>
                                         );
-                                    })}
-
-                                    {/* No default option */}
+                                        }
+                                        // type === 'none'
+                                        return (
                                     <button
+                                        key="none"
                                         type="button"
                                         onClick={() => {
                                             setPipelineConfig(null);
@@ -1509,7 +1547,12 @@ export const Settings = () => {
                                         </div>
                                         <p className="text-[11px] text-slate-500 leading-relaxed">No default pipeline. You'll choose one manually each time.</p>
                                     </button>
+                                        );
+                                    })}
                                 </div>
+                                        </>
+                                    );
+                                })()}
                             </div>
 
                             {/* ── Selected Pipeline Preview ── */}
