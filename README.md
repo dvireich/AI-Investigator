@@ -10,12 +10,7 @@ An agentic system that runs, monitors, and learns from investigations — comple
 [![Backend Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/dvireich/096789943db66abdcf5fad4b2cc40794/raw/backend-coverage.json&style=for-the-badge&logo=vitest&logoColor=white)](https://github.com/dvireich/AI-Investigator/actions/workflows/ci.yml)
 [![Frontend Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/dvireich/096789943db66abdcf5fad4b2cc40794/raw/frontend-coverage.json&style=for-the-badge&logo=vitest&logoColor=white)](https://github.com/dvireich/AI-Investigator/actions/workflows/ci.yml)
 
-<details>
-<summary><strong>▶ Animated Preview (GIF)</strong></summary>
-
 ![App Tour](docs/demo/app-tour.gif)
-
-</details>
 
 ![Dashboard Overview](docs/screenshots/dashboard-overview.png)
 
