@@ -10,6 +10,12 @@ $nodeExe = (Get-Command "node" -ErrorAction SilentlyContinue).Source
 if ($nodeExe) {
     $nodeVersion = & node --version 2>$null
     Write-Host "Node.js found: $nodeExe ($nodeVersion)" -ForegroundColor Green
+    # Validate minimum version (>=18)
+    $versionNumber = [int]($nodeVersion -replace '^v(\d+).*', '$1')
+    if ($versionNumber -lt 18) {
+        Write-Error "Node.js 18 or higher is required (found $nodeVersion). Please upgrade Node.js and re-run this script."
+        exit 1
+    }
 } else {
     Write-Host "Node.js not found. Installing via winget..." -ForegroundColor Yellow
     winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
@@ -21,6 +27,23 @@ if ($nodeExe) {
         Write-Error "Node.js installation failed. Please install Node.js manually from https://nodejs.org and re-run this script."
         exit 1
     }
+}
+
+# --- Config file ---
+Write-Host ""
+Write-Host "Checking for backend config..." -ForegroundColor Yellow
+$configPath = Join-Path $PSScriptRoot "backend" "config.json"
+$samplePath = Join-Path $PSScriptRoot "backend" "config.sample.json"
+if (-not (Test-Path $configPath)) {
+    if (Test-Path $samplePath) {
+        Copy-Item $samplePath $configPath
+        Write-Host "Created config.json from config.sample.json" -ForegroundColor Green
+        Write-Host "  -> Edit backend\config.json to set your LLM provider API key before running." -ForegroundColor Yellow
+    } else {
+        Write-Warning "No config.sample.json found. You will need to create backend\config.json manually or configure via the Settings page."
+    }
+} else {
+    Write-Host "config.json already exists." -ForegroundColor Green
 }
 
 # --- Backend ---
