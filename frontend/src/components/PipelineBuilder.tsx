@@ -1008,12 +1008,14 @@ export const BuiltinDetailModal: React.FC<{ agent: AgentDefinition; onClose: () 
                         </div>
                     )}
 
-                    {/* Type */}
+                    {/* Type & Source */}
                     <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="text-xs font-bold text-slate-400 block mb-1">Type</label>
-                            <span className="text-sm text-slate-200 bg-slate-800 px-2.5 py-1 rounded-md inline-block">{agent.builtinType || 'builtin'}</span>
-                        </div>
+                        {agent.builtinType && (
+                            <div>
+                                <label className="text-xs font-bold text-slate-400 block mb-1">Type</label>
+                                <span className="text-sm text-slate-200 bg-slate-800 px-2.5 py-1 rounded-md inline-block">{agent.builtinType}</span>
+                            </div>
+                        )}
                         <div>
                             <label className="text-xs font-bold text-slate-400 block mb-1">Source</label>
                             <span className="text-sm text-slate-200 bg-slate-800 px-2.5 py-1 rounded-md inline-block">
