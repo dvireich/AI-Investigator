@@ -410,7 +410,9 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                             const full = builtinAgents.find(a => a.builtinType === agent.builtinType) || agent;
                                             setBuiltinDetailAgent(full);
                                         } else {
-                                            setBuiltinDetailAgent(agent);
+                                            // Use latest saved version if available (stage copy may be stale)
+                                            const latest = savedAgents.find(sa => sa.agent.id === agent.id)?.agent;
+                                            setBuiltinDetailAgent(latest ? { ...agent, ...latest } : agent);
                                         }
                                     }
                                 }}
