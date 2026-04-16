@@ -94,7 +94,7 @@ function convertToGif(webmPath, gifPath) {
         // Pass 2: Use palette to produce high-quality GIF
         console.log('  Pass 2/2: Encoding GIF...');
         execSync(
-            `ffmpeg -y -i "${webmPath}" -i "${palettePath}" -lavfi "fps=${GIF_FPS},scale=${GIF_WIDTH}:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" "${gifPath}"`,
+            `ffmpeg -y -i "${webmPath}" -i "${palettePath}" -lavfi "fps=${GIF_FPS},scale=${GIF_WIDTH}:-1:flags=lanczos [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle" -loop 0 "${gifPath}"`,
             { stdio: 'pipe' },
         );
 
