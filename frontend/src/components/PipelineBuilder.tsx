@@ -295,6 +295,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                             })}
                             <button
                                 onClick={() => {
+                                    setEditingSavedAgentId(null);
                                     setEditingAgentForStage(null);
                                     setShowAgentModal(true);
                                 }}
@@ -373,7 +374,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                 <EmptyState
                     onAddFirst={() => {
                         if (builtinAgents.length > 0) addStage(builtinAgents[0]);
-                        else { setEditingAgentForStage(null); setShowAgentModal(true); }
+                        else { setEditingSavedAgentId(null); setEditingAgentForStage(null); setShowAgentModal(true); }
                     }}
                     onLoadPreset={(presetId) => {
                         try { onChange(buildPipelinePreset(presetId, builtinAgents)); } catch { /* ignore */ }
@@ -408,7 +409,9 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                         const full = builtinAgents.find(a => a.builtinType === agent.builtinType) || agent;
                                         setBuiltinDetailAgent(full);
                                     } else {
-                                        setEditingAgentForStage(index); setShowAgentModal(true);
+                                        setEditingSavedAgentId(null);
+                                        setEditingAgentForStage(index);
+                                        setShowAgentModal(true);
                                     }
                                 }}
                                 onDragStart={() => handleDragStart(index)}
@@ -442,6 +445,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                             <div className="w-px h-3 bg-slate-700" />
                             <button
                                 onClick={() => {
+                                    setEditingSavedAgentId(null);
                                     setEditingAgentForStage(null);
                                     setShowAgentModal(true);
                                 }}
