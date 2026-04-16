@@ -8,12 +8,14 @@ import type { AgentDefinition } from '../../types/pipeline';
 const mockGetSavedAgents = vi.fn().mockResolvedValue([]);
 const mockCreateSavedAgent = vi.fn().mockResolvedValue({ id: 'sa-1', agent: {}, createdAt: '', updatedAt: '' });
 const mockDeleteSavedAgent = vi.fn().mockResolvedValue(undefined);
+const mockUpdateSavedAgent = vi.fn().mockResolvedValue({ id: 'sa-1', agent: {}, createdAt: '', updatedAt: '' });
 
 vi.mock('../../api', () => ({
     api: {
         getSavedAgents: (...args: unknown[]) => mockGetSavedAgents(...args),
         createSavedAgent: (...args: unknown[]) => mockCreateSavedAgent(...args),
         deleteSavedAgent: (...args: unknown[]) => mockDeleteSavedAgent(...args),
+        updateSavedAgent: (...args: unknown[]) => mockUpdateSavedAgent(...args),
     },
 }));
 
@@ -161,5 +163,57 @@ describe('PipelineBuilder – AgentModal Save to Library', () => {
         fireEvent.click(editBtn);
         await waitFor(() => expect(screen.getByText('Edit Agent')).toBeInTheDocument());
         expect(screen.queryByText('Save to Library')).not.toBeInTheDocument();
+    });
+});
+
+describe('PipelineBuilder – Edit Saved Agent from palette', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockGetSavedAgents.mockResolvedValue([]);
+    });
+
+    it('shows edit button on saved agent chips on hover', async () => {
+        mockGetSavedAgents.mockResolvedValue([
+            { id: 'sa-1', agent: { id: 'custom-1', name: 'My Agent', source: 'file', promptPath: 'x.md', color: '#ec4899' }, createdAt: '', updatedAt: '' },
+        ]);
+        renderBuilder();
+        await waitFor(() => expect(screen.getByText('My Agent')).toBeInTheDocument());
+        expect(screen.getByTitle('Edit saved agent')).toBeInTheDocument();
+    });
+
+    it('opens the edit modal pre-filled when edit button is clicked', async () => {
+        mockGetSavedAgents.mockResolvedValue([
+            { id: 'sa-1', agent: { id: 'custom-1', name: 'My Agent', source: 'file', promptPath: 'prompts/my.md', color: '#ec4899' }, createdAt: '', updatedAt: '' },
+        ]);
+        renderBuilder();
+        await waitFor(() => expect(screen.getByText('My Agent')).toBeInTheDocument());
+        fireEvent.click(screen.getByTitle('Edit saved agent'));
+        await waitFor(() => expect(screen.getByText('Edit Agent')).toBeInTheDocument());
+        // The name field should be pre-filled
+        const nameInput = screen.getByDisplayValue('My Agent');
+        expect(nameInput).toBeInTheDocument();
+    });
+
+    it('calls updateSavedAgent when saving an edited saved agent', async () => {
+        mockGetSavedAgents.mockResolvedValue([
+            { id: 'sa-1', agent: { id: 'custom-1', name: 'My Agent', source: 'file', promptPath: 'prompts/my.md', color: '#ec4899' }, createdAt: '', updatedAt: '' },
+        ]);
+        mockUpdateSavedAgent.mockResolvedValue({ id: 'sa-1', agent: {}, createdAt: '', updatedAt: '' });
+        renderBuilder();
+        await waitFor(() => expect(screen.getByText('My Agent')).toBeInTheDocument());
+        fireEvent.click(screen.getByTitle('Edit saved agent'));
+        await waitFor(() => expect(screen.getByText('Edit Agent')).toBeInTheDocument());
+
+        // Change the name
+        const nameInput = screen.getByDisplayValue('My Agent');
+        fireEvent.change(nameInput, { target: { value: 'Renamed Agent' } });
+
+        fireEvent.click(screen.getByText('Update'));
+        await waitFor(() => {
+            expect(mockUpdateSavedAgent).toHaveBeenCalledWith(
+                'sa-1',
+                expect.objectContaining({ agent: expect.objectContaining({ name: 'Renamed Agent' }) }),
+            );
+        });
     });
 });

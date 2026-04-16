@@ -45,6 +45,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
     const [palettePage, setPalettePage] = useState(0);
     const helpRef = useRef<HTMLDivElement>(null);
     const [savedAgents, setSavedAgents] = useState<SavedAgent[]>([]);
+    const [editingSavedAgentId, setEditingSavedAgentId] = useState<string | null>(null);
 
     const stages = value?.stages || [];
 
@@ -288,6 +289,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                         onClick={() => addStage(agent)}
                                         savedId={savedId}
                                         onDelete={savedId ? () => handleDeleteSavedAgent(savedId) : undefined}
+                                        onEdit={savedId ? () => { setEditingSavedAgentId(savedId); setEditingAgentForStage(null); setShowAgentModal(true); } : undefined}
                                     />
                                 );
                             })}
@@ -464,32 +466,41 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
             )}
 
             {/* ── Agent Creation/Edit Modal ─────────────────────────── */}
-            {showAgentModal && (
-                <AgentModal
-                    builtinAgents={builtinAgents}
-                    availableModels={availableModels}
-                    existingAgent={editingAgentForStage !== null ? stages[editingAgentForStage]?.agent : undefined}
-                    defaultColor={pickColor(editingAgentForStage ?? stages.length)}
-                    onSave={(agent) => {
-                        if (editingAgentForStage !== null) {
-                            updateStageAgent(editingAgentForStage, agent);
-                        } else {
-                            addStage(agent);
-                        }
-                        setShowAgentModal(false);
-                        setEditingAgentForStage(null);
-                    }}
-                    onSaveToLibrary={editingAgentForStage === null ? async (agent) => {
-                        try {
-                            await api.createSavedAgent(agent);
-                            await refreshSavedAgents();
+            {showAgentModal && (() => {
+                const editingSaved = editingSavedAgentId ? savedAgents.find(sa => sa.id === editingSavedAgentId) : undefined;
+                const existingAgent = editingSaved ? editingSaved.agent
+                    : editingAgentForStage !== null ? stages[editingAgentForStage]?.agent
+                    : undefined;
+                return (
+                    <AgentModal
+                        builtinAgents={builtinAgents}
+                        availableModels={availableModels}
+                        existingAgent={existingAgent}
+                        defaultColor={pickColor(editingAgentForStage ?? stages.length)}
+                        onSave={(agent) => {
+                            if (editingSavedAgentId) {
+                                api.updateSavedAgent(editingSavedAgentId, { agent }).then(() => refreshSavedAgents()).catch(() => {});
+                            } else if (editingAgentForStage !== null) {
+                                updateStageAgent(editingAgentForStage, agent);
+                            } else {
+                                addStage(agent);
+                            }
                             setShowAgentModal(false);
                             setEditingAgentForStage(null);
-                        } catch { /* ignore – will be visible in palette when refreshed */ }
-                    } : undefined}
-                    onClose={() => { setShowAgentModal(false); setEditingAgentForStage(null); }}
-                />
-            )}
+                            setEditingSavedAgentId(null);
+                        }}
+                        onSaveToLibrary={!editingSavedAgentId && editingAgentForStage === null ? async (agent) => {
+                            try {
+                                await api.createSavedAgent(agent);
+                                await refreshSavedAgents();
+                                setShowAgentModal(false);
+                                setEditingAgentForStage(null);
+                            } catch { /* ignore */ }
+                        } : undefined}
+                        onClose={() => { setShowAgentModal(false); setEditingAgentForStage(null); setEditingSavedAgentId(null); }}
+                    />
+                );
+            })()}
 
             {/* ── Builtin Agent Detail (read-only) ───────────── */}
             {builtinDetailAgent && (
@@ -507,7 +518,8 @@ const AgentChip: React.FC<{
     onClick: () => void;
     savedId?: string;
     onDelete?: () => void;
-}> = React.memo(({ agent, onClick, savedId, onDelete }) => (
+    onEdit?: () => void;
+}> = React.memo(({ agent, onClick, savedId, onDelete, onEdit }) => (
     <div className="relative group/chip">
         <button
             onClick={onClick}
@@ -525,6 +537,15 @@ const AgentChip: React.FC<{
             )}
             <Plus size={10} className="text-slate-600 group-hover:text-cyan-400" />
         </button>
+        {savedId && onEdit && (
+            <button
+                onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                className="absolute -top-1.5 -left-1.5 w-4 h-4 rounded-full bg-slate-600 text-white flex items-center justify-center opacity-0 group-hover/chip:opacity-100 transition-opacity hover:bg-cyan-500"
+                title="Edit saved agent"
+            >
+                <Settings size={8} />
+            </button>
+        )}
         {savedId && onDelete && (
             <button
                 onClick={(e) => { e.stopPropagation(); onDelete(); }}
