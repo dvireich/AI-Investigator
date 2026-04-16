@@ -42,12 +42,37 @@ export class McpToolBridge {
             return arg;
         });
 
+        // Inherit ALL parent env vars merged with config overrides.
+        // The MCP SDK's default env only passes a limited whitelist (PATH, APPDATA, etc.)
+        // which can break MCP servers that need additional vars (COMSPEC, azure credentials, etc.)
+        const mergedEnv: Record<string, string> = {};
+        for (const [key, value] of Object.entries(process.env)) {
+            if (value !== undefined) mergedEnv[key] = value;
+        }
+        if (config.env) {
+            Object.assign(mergedEnv, config.env);
+        }
+
         const transport = new StdioClientTransport({
             command: config.command,
             args: resolvedArgs,
-            env: config.env,
-            cwd: config.cwd
+            env: mergedEnv,
+            cwd: config.cwd,
+            stderr: 'pipe'
         } as any);
+
+        // Capture stderr from the MCP server process for diagnostics
+        const stderrStream = transport.stderr;
+        if (stderrStream) {
+            let stderrBuf = '';
+            stderrStream.on('data', (chunk: Buffer) => {
+                const text = chunk.toString().trim();
+                if (text) {
+                    stderrBuf += text + '\n';
+                    log(`[MCP/${config.name}] ${text}`);
+                }
+            });
+        }
 
         const client = new Client(
             { name: 'AI-Investigator', version: '1.0.0' },

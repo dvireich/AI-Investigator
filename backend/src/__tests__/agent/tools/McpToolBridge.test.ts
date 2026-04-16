@@ -8,6 +8,7 @@ const mockClient = {
 
 const mockTransport = {
     close: vi.fn(),
+    stderr: null,
 };
 
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
