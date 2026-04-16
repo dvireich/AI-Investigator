@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2, RefreshCw, Download, Package, Rocket, Bell, Cpu, StickyNote, BellRing, ArrowDownUp, ClipboardList, History, PencilLine, CircleDot, ListOrdered, ShieldCheck, Gauge } from 'lucide-react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2, RefreshCw, Download, Package, Rocket, Bell, Cpu, StickyNote, BellRing, ArrowDownUp, ClipboardList, History, PencilLine, CircleDot, ListOrdered, ShieldCheck, Gauge, Save } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -266,7 +266,12 @@ export const About = () => {
                         color="bg-violet-500/10 border border-violet-500/20 text-violet-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-violet-500/20"
                         title="Agent workflow presets"
-                        desc="Choose from 7 pre-built workflow templates when starting an investigation — Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis — or use your own configured pipeline. Paginated selector with agent stage previews." />
+                        desc="Choose from 6 pre-built workflow templates when starting an investigation — Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis — or select one of your saved custom workflows. Searchable, paginated selector with agent stage previews." />
+                    <FeatureCard icon={<Save className="w-4 h-4" />}
+                        color="bg-orange-500/10 border border-orange-500/20 text-orange-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-orange-500/20"
+                        title="Saved custom workflows"
+                        desc="Design your own multi-agent pipelines and save them for reuse. Create, edit, and delete custom workflows from the Settings Pipeline tab, then select them alongside built-in presets when launching investigations." />
                 </div>
             </section>
 
@@ -279,7 +284,7 @@ export const About = () => {
                         desc="Choose your LLM provider — OpenAI, Anthropic, Azure OpenAI, GitHub Copilot, or local Ollama. Configure via the Settings page or config file." />
                     <PipelineStep n={2} icon={<GitBranch className="w-4 h-4 text-cyan-400" />}
                         title="Multi-agent pipeline orchestration"
-                        desc="Choose a workflow preset or your configured pipeline, then the system routes the investigation through sequential specialized agents — from 13 built-in options including Investigator, Validator, Planner, Triage, Correlator, and more. Each stage can reject and loop back, with shared conversation context flowing between agents." />
+                        desc="Choose a workflow preset, a saved custom workflow, or your configured pipeline, then the system routes the investigation through sequential specialized agents — from 13 built-in options including Investigator, Validator, Planner, Triage, Correlator, and more. Each stage can reject and loop back, with shared conversation context flowing between agents." />
                     <PipelineStep n={3} icon={<Brain className="w-4 h-4 text-purple-400" />}
                         title="Agentic investigation loop"
                         desc="The Investigator agent reads your knowledge base guides, runs queries via MCP tool servers, reads logs, and reasons iteratively until it reaches a conclusion." />

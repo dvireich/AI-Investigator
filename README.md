@@ -71,7 +71,7 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Auto-Update Checking** | Checks for new releases on startup, shows a floating notification card with download and release notes links. Session-only dismiss |
 | **Implementation Agent** | Select recommendations from the final report and let an AI coding agent propose exact code changes |
 | **Multi-Agent Pipelines** | Orchestrate sequential agent workflows with 13 built-in agents, 7 workflow presets, rejection loops, and shared context |
-| **Agent Workflow Presets** | Choose from pre-built workflow templates (Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis) or use your own configured pipeline when starting an investigation |
+| **Agent Workflow Presets** | Choose from pre-built workflow templates (Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis) or create and save your own custom workflows with the visual pipeline editor. Searchable, paginated selector with agent stage previews |
 
 ---
 
@@ -97,11 +97,17 @@ The main dashboard shows all investigations as color-coded cards with live statu
 
 ### 3. New Investigation
 
-Launch investigations with structured context: target name, category, time window (8 quick presets or custom range), model selection, and agent workflow. Toggle between **Standard** and **Incident** modes to start from an incident ID with auto-extracted context. The **Agent Workflow** selector lets you pick from pre-built pipeline templates or your own configured pipeline — with paginated cards showing agent stage previews.
+Launch investigations with structured context: target name, category, time window (8 quick presets or custom range), model selection, and agent workflow. Toggle between **Standard** and **Incident** modes to start from an incident ID with auto-extracted context. The **Agent Workflow** selector lets you pick from pre-built pipeline templates, your saved custom workflows, or your configured pipeline — with searchable, paginated cards showing agent stage previews.
 
 ![New Investigation Form](docs/screenshots/new-investigation.png)
 
 <!-- Screenshot: The full form with Target Scope (target, category dropdown, correlation ID), Time Window section with preset buttons, and Agent Configuration with workflow selector and model dropdown. -->
+
+### 3b. Agent Workflow Selector
+
+The Agent Configuration section shows two groups: **My Workflows** (your saved custom workflows with edit/delete controls) and **Built-in Presets** (the 6 pre-built templates). A search bar filters both sections by name and description. Pagination keeps the grid compact when you have many workflows.
+
+![New Investigation — Workflow Selector](docs/screenshots/new-investigation-workflows.png)
 
 ---
 
@@ -357,9 +363,9 @@ Attach freeform markdown notes to any investigation. The rich-text editor suppor
 
 ### 32. Settings — Multi-Agent Pipeline
 
-Build multi-agent investigation workflows with a drag-and-drop pipeline editor. Add stages from 13 built-in agents across three tiers (Core: Investigator, Validator, Proposer, Retrospect; Analysis: Planner, Triage, Correlator, Devil's Advocate, Summarizer; Specialist: Remediation, Timeline, Enrichment, Compliance). Configure rejection loops, per-stage model overrides, and timeout limits. Each agent has descriptive hover tooltips showing its role. Choose from 7 pre-built workflow presets when starting an investigation, or use your own configured pipeline.
+Build multi-agent investigation workflows with a drag-and-drop pipeline editor. Add stages from 13 built-in agents across three tiers (Core: Investigator, Validator, Proposer, Retrospect; Analysis: Planner, Triage, Correlator, Devil's Advocate, Summarizer; Specialist: Remediation, Timeline, Enrichment, Compliance). Configure rejection loops, per-stage model overrides, and timeout limits. Each agent has descriptive hover tooltips showing its role. Choose from 6 pre-built workflow presets, create and save your own custom workflows, or use your configured pipeline. The agent palette features search and pagination for quick access.
 
-**Empty state** — the pipeline builder before any stages are added, showing the agent palette and help guide:
+**Empty state** — the pipeline builder before any stages are added, showing the agent palette with search and help guide:
 
 ![Settings — Pipeline (empty)](docs/screenshots/settings-pipeline-empty.png)
 
@@ -367,7 +373,11 @@ Build multi-agent investigation workflows with a drag-and-drop pipeline editor. 
 
 ![Settings — Pipeline (default)](docs/screenshots/settings-pipeline.png)
 
-<!-- Screenshot: Two pipeline screenshots — empty builder with agent palette, and the recommended 4-stage pipeline with rejection loop arrows. -->
+**Saved workflows** — create, edit, and manage your custom workflow templates with the visual editor:
+
+![Settings — Pipeline (saved)](docs/screenshots/settings-pipeline-saved.png)
+
+<!-- Screenshot: Three pipeline screenshots — empty builder with agent palette, recommended pipeline, and saved workflows management. -->
 
 ### 33. Investigation — Pipeline Timeline
 
@@ -470,7 +480,7 @@ Orchestrate sequential agent workflows where multiple specialized agents collabo
   | ⏱️ **Timeline** | Reconstructs chronological event sequences from investigation data |
   | 🔎 **Enrichment** | Gathers additional context from external sources and documentation |
   | 📜 **Compliance** | Audits findings against security policies and regulatory requirements |
-- **Workflow Presets** — Seven pre-built pipeline templates selectable per investigation:
+- **Workflow Presets** — Six pre-built pipeline templates selectable per investigation:
   | Preset | Stages |
   |--------|--------|
   | ⚡ **Standard** | Investigator → Validator → Proposer → Retrospect |
@@ -479,8 +489,9 @@ Orchestrate sequential agent workflows where multiple specialized agents collabo
   | 💚 **Quick Health Check** | Investigator → Validator → Retrospect |
   | 📋 **Compliance Review** | Investigator → Validator → Compliance → Summarizer → Retrospect |
   | 🔍 **Root Cause Analysis** | Correlator → Timeline → Investigator → Devil's Advocate → Remediation → Summarizer |
-  | ⚙️ **Configured** | Your custom pipeline from Settings (auto-selected when configured) |
-- **Per-Investigation Workflow** — Choose a workflow preset when starting each investigation. The Agent Workflow selector shows paginated cards with agent stage previews. Your configured pipeline from Settings is auto-selected when present
+- **Saved Custom Workflows** — Create, save, edit, and delete your own workflow templates. The visual pipeline editor lets you build custom agent sequences with the full palette of 13 agents. Saved workflows appear in the "My Workflows" section on both the New Investigation and Settings pages
+- **Per-Investigation Workflow** — Choose a workflow preset or saved custom workflow when starting each investigation. The Agent Workflow selector shows searchable, paginated cards with agent stage previews. Your configured pipeline from Settings is auto-selected when present
+- **Workflow Search** — Search bar filters both saved workflows and built-in presets by name and description across the New Investigation and Settings pages
 - **Rejection Loops** — Validator (or any agent with `canReject`) can send work back to the previous stage with feedback. Three rejection modes: **loop** (re-run), **flag** (mark and continue), **abort** (stop pipeline)
 - **Retry Limits** — Configurable `maxRetries` per stage (hard cap: 5) prevents infinite loops
 - **Per-Stage Overrides** — Each stage can override the model, timeout (minutes), and tool access (whitelist/blacklist)
@@ -758,10 +769,11 @@ The Add Product modal starts with a **Discover** step: point to a repo root, cli
 
 ### ⚙️ Settings
 
-Seven-tab Settings page:
+Eight-tab Settings page:
 - **Products** — Configure investigation targets with discover-first onboarding (`.investigator.json` manifest or auto-scan), expand/collapse product cards, path validation, and clone
 - **Connections** — LLM provider selection (OpenAI, Anthropic, Azure OpenAI, GitHub Copilot, Ollama), MCP server management (add/edit/delete servers with environment variable injection), and incident provider configuration (IcM, PagerDuty, manual) — all external integrations in one place
 - **Agent Behavior** — Max steps, default model, retrospective timeout, recommendation extraction model, system prompt path, working directory, investigation storage path
+- **Pipeline** — Select default pipeline from searchable, paginated preset cards. Create, edit, and manage saved custom workflows with the visual pipeline builder. Drag-and-drop agent palette with search and pagination
 - **Schedules** — Max concurrent scheduled investigations (0–10), scheduled investigation retention count (auto-delete oldest), and scheduled report model (LLM for AI-generated executive summaries, default: gpt-4o-mini)
 - **Analytics** — Choose which 3 analytics widgets appear on the dashboard from a registry of 8 chart types (14-Day Trend, Categories, Duration Distribution, Success Rate, Target Activity, Verdict Breakdown, Model Usage, Contest Rate). Reset to defaults with one click
 - **Appearance** — Default dashboard view mode (grid/list), default sort order (newest/last modified/oldest/most steps), default page size (6/12/24/48), auto-refresh interval, and browser notifications (enable/disable toggle, sound chime via Web Audio API, selective event types: completed, failed, paused, requires intervention)
@@ -1265,6 +1277,24 @@ Each product in the `products` array has:
 | `PUT` | `/api/query-bank/:id` | Update a saved query |
 | `DELETE` | `/api/query-bank/:id` | Delete a saved query |
 
+### Saved Workflows
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/saved-workflows` | List all saved custom workflows |
+| `POST` | `/api/saved-workflows` | Create a new saved workflow |
+| `PUT` | `/api/saved-workflows/:id` | Update a saved workflow |
+| `DELETE` | `/api/saved-workflows/:id` | Delete a saved workflow |
+
+### Custom Agents
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/custom-agents` | List all custom agent definitions |
+| `POST` | `/api/custom-agents` | Create a custom agent |
+| `PUT` | `/api/custom-agents/:id` | Update a custom agent |
+| `DELETE` | `/api/custom-agents/:id` | Delete a custom agent |
+
 ### Auth & System
 
 | Method | Endpoint | Description |
@@ -1468,7 +1498,7 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 39 files in `docs/screenshots/`:
+The capture script produces these 42 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
@@ -1477,41 +1507,43 @@ The capture script produces these 39 files in `docs/screenshots/`:
 | 3 | `dashboard.png` | Dashboard — mixed investigation statuses |
 | 4 | `dashboard-resume-all.png` | Dashboard — post-restart with Resume All button |
 | 5 | `new-investigation.png` | New Investigation form (filled) |
-| 6 | `investigation-start.png` | Investigation detail — early running state |
-| 7 | `live-session.png` | Investigation detail — multi-step with tool calls |
-| 8 | `paused-by-user.png` | Investigation detail — paused state |
-| 9 | `user-intervention.png` | Investigation detail — intervention input filled |
-| 10 | `token-alert.png` | Investigation detail — token limit warning banner |
-| 11 | `final-report.png` | Investigation detail — Report tab with Markdown report |
-| 12 | `implement-recommendations.png` | Investigation detail — Implement Recommendations modal |
-| 13 | `Consent-report.png` | Investigation detail — Contest form with feedback |
-| 14 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
-| 15 | `failed-investigation.png` | Investigation detail — failed state |
-| 16 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
-| 17 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
-| 18 | `proposals-panel.png` | Retrospective tab — expanded proposals |
-| 19 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
-| 20 | `settings.png` | Settings — Products tab expanded |
-| 21 | `settings-pipeline-empty.png` | Settings — Pipeline tab (empty builder with agent palette) |
-| 22 | `settings-pipeline.png` | Settings — Pipeline tab (recommended 4-stage pipeline) |
-| 23 | `settings-connections.png` | Settings — Connections tab (LLM provider + MCP servers + incident provider) |
-| 24 | `settings-schedules.png` | Settings — Schedules tab (concurrency, retention, report model) |
-| 25 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
-| 26 | `settings-appearance.png` | Settings — Appearance tab (view, sort, page size, browser notifications) |
-| 27 | `auth-flow.png` | Unauthenticated state |
-| 28 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
-| 29 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
-| 30 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
-| 31 | `schedule-form.png` | Schedule creation wizard with query bank |
-| 32 | `query-bank.png` | New Investigation — query bank dropdown |
-| 33 | `investigation-notes.png` | Investigation detail — Notes tab with markdown editor |
-| 34 | `about-page.png` | About — feature showcase, pipeline, version info |
-| 35 | `investigation-pipeline-timeline.png` | Investigation detail — Pipeline tab with stepper + conversation timeline |
-| 36 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
-| 37 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
-| 38 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
-| 39 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
-| 40 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
+| 6 | `new-investigation-workflows.png` | New Investigation — Agent Workflow selector with saved workflows and presets |
+| 7 | `investigation-start.png` | Investigation detail — early running state |
+| 8 | `live-session.png` | Investigation detail — multi-step with tool calls |
+| 9 | `paused-by-user.png` | Investigation detail — paused state |
+| 10 | `user-intervention.png` | Investigation detail — intervention input filled |
+| 11 | `token-alert.png` | Investigation detail — token limit warning banner |
+| 12 | `final-report.png` | Investigation detail — Report tab with Markdown report |
+| 13 | `implement-recommendations.png` | Investigation detail — Implement Recommendations modal |
+| 14 | `Consent-report.png` | Investigation detail — Contest form with feedback |
+| 15 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
+| 16 | `failed-investigation.png` | Investigation detail — failed state |
+| 17 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
+| 18 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
+| 19 | `proposals-panel.png` | Retrospective tab — expanded proposals |
+| 20 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
+| 21 | `settings.png` | Settings — Products tab expanded |
+| 22 | `settings-pipeline-empty.png` | Settings — Pipeline tab (empty builder with agent palette and search) |
+| 23 | `settings-pipeline.png` | Settings — Pipeline tab (recommended 4-stage pipeline) |
+| 24 | `settings-pipeline-saved.png` | Settings — Pipeline tab (saved custom workflows management) |
+| 25 | `settings-connections.png` | Settings — Connections tab (LLM provider + MCP servers + incident provider) |
+| 26 | `settings-schedules.png` | Settings — Schedules tab (concurrency, retention, report model) |
+| 27 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
+| 28 | `settings-appearance.png` | Settings — Appearance tab (view, sort, page size, browser notifications) |
+| 29 | `auth-flow.png` | Unauthenticated state |
+| 30 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
+| 31 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
+| 32 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
+| 33 | `schedule-form.png` | Schedule creation wizard with query bank |
+| 34 | `query-bank.png` | New Investigation — query bank dropdown |
+| 35 | `investigation-notes.png` | Investigation detail — Notes tab with markdown editor |
+| 36 | `about-page.png` | About — feature showcase, pipeline, version info |
+| 37 | `investigation-pipeline-timeline.png` | Investigation detail — Pipeline tab with stepper + conversation timeline |
+| 38 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 39 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 40 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 41 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 42 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
 
 ### Architecture
 
