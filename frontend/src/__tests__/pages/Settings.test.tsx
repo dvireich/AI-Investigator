@@ -4356,11 +4356,11 @@ describe('Settings extra coverage', () => {
             // All 3 visible in manage section
             expect(screen.getAllByText('Alpha Pipeline').length).toBeGreaterThanOrEqual(1);
             expect(screen.getAllByText('Beta Pipeline').length).toBeGreaterThanOrEqual(1);
-            // Search matching all — header shows count without "of X"
+            // Search matching all — header shows "X of Y" format
             const searchInput = screen.getByPlaceholderText(/search saved workflows/i);
             await user.type(searchInput, 'workflow');
-            await waitFor(() => screen.getByText(/Manage Saved Workflows \(3\)/));
-            // Search for "Alpha" — filters to 1(of 3)
+            await waitFor(() => screen.getByText(/Manage Saved Workflows \(3 of 3\)/));
+            // Search for "Alpha" — filters to 1 of 3
             await user.clear(searchInput);
             await user.type(searchInput, 'Alpha');
             // Header updates to show filtered count

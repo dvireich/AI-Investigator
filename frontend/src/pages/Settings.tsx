@@ -1636,7 +1636,7 @@ export const Settings = () => {
                                 <div className="space-y-3">
                                     <div className="flex items-center justify-between">
                                         <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-                                            Manage Saved Workflows ({filteredWfs.length}{savedWfSearch && filteredWfs.length !== savedWorkflows.length ? ` of ${savedWorkflows.length}` : ''})
+                                            Manage Saved Workflows ({savedWfSearch ? `${filteredWfs.length} of ${savedWorkflows.length}` : savedWorkflows.length})
                                         </h3>
                                         {wfTotalPages > 1 && (
                                             <div className="flex items-center gap-1">
