@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, Settings, X, RotateCcw, AlertTriangle, FileText, Code, Cpu, Expand, HelpCircle, Eye } from 'lucide-react';
+import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings, X, RotateCcw, AlertTriangle, FileText, Code, Cpu, Expand, HelpCircle, Eye, Search } from 'lucide-react';
 import type { AgentDefinition, PipelineStage, PipelineDefinition } from '../types/pipeline';
 
 // ── Palette colors for new custom agents ─────────────────────────────
@@ -39,6 +39,8 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
     const [showJsonView, setShowJsonView] = useState(false);
     const [showHelp, setShowHelp] = useState(false);
     const [builtinDetailAgent, setBuiltinDetailAgent] = useState<AgentDefinition | null>(null);
+    const [paletteSearch, setPaletteSearch] = useState('');
+    const [palettePage, setPalettePage] = useState(0);
     const helpRef = useRef<HTMLDivElement>(null);
 
     const stages = value?.stages || [];
@@ -219,39 +221,81 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
             )}
 
             {/* ── Agent Palette ─────────────────────────────────────── */}
-            {!readOnly && <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/40 shadow-sm space-y-3">
-                <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                        <label className="text-sm font-bold text-slate-300">Agent Palette</label>
-                        <button
-                            onClick={() => setShowHelp(true)}
-                            className="p-1 text-slate-500 hover:text-cyan-400 transition-colors rounded-md hover:bg-slate-700/50"
-                            title="How to use the pipeline builder"
-                        >
-                            <HelpCircle size={15} />
-                        </button>
+            {!readOnly && (() => {
+                const PALETTE_PAGE_SIZE = 8;
+                const filtered = builtinAgents.filter(a => a.name.toLowerCase().includes(paletteSearch.toLowerCase()));
+                const totalPages = Math.ceil((filtered.length + 1) / PALETTE_PAGE_SIZE); // +1 for Custom Agent button
+                const safePage = Math.min(palettePage, Math.max(0, totalPages - 1));
+                const startIdx = safePage * PALETTE_PAGE_SIZE;
+                const pageAgents = filtered.slice(startIdx, Math.min(startIdx + PALETTE_PAGE_SIZE, filtered.length));
+                const showCustomButton = startIdx + PALETTE_PAGE_SIZE > filtered.length; // Custom Agent button on last page
+                return (
+                    <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/40 shadow-sm space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <label className="text-sm font-bold text-slate-300">Agent Palette</label>
+                                <button
+                                    onClick={() => setShowHelp(true)}
+                                    className="p-1 text-slate-500 hover:text-cyan-400 transition-colors rounded-md hover:bg-slate-700/50"
+                                    title="How to use the pipeline builder"
+                                >
+                                    <HelpCircle size={15} />
+                                </button>
+                            </div>
+                            <span className="text-[10px] text-slate-500">Click to add</span>
+                        </div>
+                        <div className="relative">
+                            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500" />
+                            <input
+                                type="text"
+                                value={paletteSearch}
+                                onChange={e => { setPaletteSearch(e.target.value); setPalettePage(0); }}
+                                placeholder="Search agents…"
+                                className="w-full pl-8 pr-3 py-1.5 bg-slate-900/60 border border-slate-700/40 rounded-lg text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-600/50 transition-colors"
+                            />
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                            {pageAgents.map(agent => (
+                                <AgentChip
+                                    key={agent.id}
+                                    agent={agent}
+                                    onClick={() => addStage(agent)}
+                                />
+                            ))}
+                            {showCustomButton && (
+                                <button
+                                    onClick={() => {
+                                        setEditingAgentForStage(null);
+                                        setShowAgentModal(true);
+                                    }}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg border border-dashed border-slate-600 text-xs font-medium transition-colors"
+                                >
+                                    <Plus size={12} /> Custom Agent
+                                </button>
+                            )}
+                        </div>
+                        {totalPages > 1 && (
+                            <div className="flex items-center justify-center gap-2 pt-1">
+                                <button
+                                    onClick={() => setPalettePage(p => Math.max(0, p - 1))}
+                                    disabled={safePage === 0}
+                                    className="p-1 text-slate-400 hover:text-white disabled:text-slate-700 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronLeft size={14} />
+                                </button>
+                                <span className="text-[10px] text-slate-500">{safePage + 1} / {totalPages}</span>
+                                <button
+                                    onClick={() => setPalettePage(p => Math.min(totalPages - 1, p + 1))}
+                                    disabled={safePage >= totalPages - 1}
+                                    className="p-1 text-slate-400 hover:text-white disabled:text-slate-700 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    <ChevronRight size={14} />
+                                </button>
+                            </div>
+                        )}
                     </div>
-                    <span className="text-[10px] text-slate-500">Drag or click to add</span>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                    {builtinAgents.map(agent => (
-                        <AgentChip
-                            key={agent.id}
-                            agent={agent}
-                            onClick={() => addStage(agent)}
-                        />
-                    ))}
-                    <button
-                        onClick={() => {
-                            setEditingAgentForStage(null);
-                            setShowAgentModal(true);
-                        }}
-                        className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg border border-dashed border-slate-600 text-xs font-medium transition-colors"
-                    >
-                        <Plus size={12} /> Custom Agent
-                    </button>
-                </div>
-            </div>}
+                );
+            })()}
 
             {/* ── Pipeline Name ─────────────────────────────────────── */}
             {stages.length > 0 && (

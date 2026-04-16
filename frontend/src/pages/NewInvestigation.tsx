@@ -59,6 +59,7 @@ export const NewInvestigation = () => {
     const [selectedWorkflow, setSelectedWorkflow] = useState<string>(''); // set dynamically after settings load
     const [configuredPipeline, setConfiguredPipeline] = useState<PipelineDefinition | null>(null);
     const [workflowPage, setWorkflowPage] = useState(0);
+    const [workflowSearch, setWorkflowSearch] = useState('');
 
 
     // Saved workflows & agents state
@@ -1178,9 +1179,10 @@ export const NewInvestigation = () => {
                             );
 
                             // Separate saved workflows from built-in presets for clear visual grouping
+                            const searchLower = workflowSearch.toLowerCase();
                             const builtinItems: { type: 'configured' | 'preset'; preset?: typeof availablePresets[number] }[] = [
-                                ...(hasConfiguredPipeline ? [{ type: 'configured' as const }] : []),
-                                ...availablePresets.map(preset => ({ type: 'preset' as const, preset })),
+                                ...(hasConfiguredPipeline && (configuredPipeline!.name || 'Custom Pipeline').toLowerCase().includes(searchLower) ? [{ type: 'configured' as const }] : []),
+                                ...availablePresets.filter(p => p.name.toLowerCase().includes(searchLower) || p.description.toLowerCase().includes(searchLower)).map(preset => ({ type: 'preset' as const, preset })),
                             ];
                             const PAGE_SIZE = 6; // 2 rows × 3 columns
                             const totalPages = Math.ceil(builtinItems.length / PAGE_SIZE);
@@ -1235,16 +1237,33 @@ export const NewInvestigation = () => {
                                         </button>
                                     </div>
 
+                                    {/* ── Search ── */}
+                                    <div className="relative">
+                                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                                        <input
+                                            type="text"
+                                            value={workflowSearch}
+                                            onChange={e => { setWorkflowSearch(e.target.value); setWorkflowPage(0); }}
+                                            placeholder="Search workflows…"
+                                            className="w-full pl-8 pr-3 py-1.5 bg-slate-900/60 border border-slate-700/40 rounded-lg text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-purple-600/50 transition-colors"
+                                        />
+                                    </div>
+
                                     {/* ── My Workflows section (only when saved workflows exist) ── */}
-                                    {savedWorkflows.length > 0 && (
+                                    {(() => {
+                                        const filteredSaved = savedWorkflows.filter(w =>
+                                            w.name.toLowerCase().includes(workflowSearch.toLowerCase()) ||
+                                            (w.description || '').toLowerCase().includes(workflowSearch.toLowerCase())
+                                        );
+                                        return filteredSaved.length > 0 && (
                                         <div className="space-y-1.5">
                                             <div className="text-[10px] font-bold uppercase tracking-wider text-blue-400/70 flex items-center gap-2">
                                                 <span className="flex-1 h-px bg-blue-500/10"></span>
-                                                My Workflows ({savedWorkflows.length})
+                                                My Workflows ({filteredSaved.length})
                                                 <span className="flex-1 h-px bg-blue-500/10"></span>
                                             </div>
                                             <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                                {savedWorkflows.map(workflow => {
+                                                {filteredSaved.map(workflow => {
                                                     const isSelected = selectedWorkflow === `saved-${workflow.id}`;
                                                     return (
                                                         <button
@@ -1303,7 +1322,8 @@ export const NewInvestigation = () => {
                                                 })}
                                             </div>
                                         </div>
-                                    )}
+                                    );
+                                    })()}
 
                                     {/* ── Built-in Presets section ── */}
                                     <div className="space-y-1.5">

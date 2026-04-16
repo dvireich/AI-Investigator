@@ -2477,6 +2477,31 @@ describe('NewInvestigation workflow presets', () => {
         await waitFor(() => screen.getByText('1/2'));
     });
 
+    it('filters workflows and presets by search', async () => {
+        const { api } = await import('../../api');
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+            { id: 'sw1', name: 'My Custom Flow', description: 'a custom workflow', icon: '🔧', pipeline: { id: 'p1', name: 'Custom', stages: [{ agent: { id: 'a1', name: 'Investigator', source: 'builtin', color: '#3b82f6' }, inputMode: 'conversation' }] } },
+            { id: 'sw2', name: 'No Desc WF', icon: '🔧', pipeline: { id: 'p2', name: 'NoDWF', stages: [{ agent: { id: 'a1', name: 'Investigator', source: 'builtin', color: '#3b82f6' }, inputMode: 'conversation' }] } },
+        ] as any);
+
+        const user = userEvent.setup();
+        renderNewInvestigation();
+
+        // Wait for saved workflows to render
+        await waitFor(() => screen.getByText('My Custom Flow'));
+        expect(screen.getByText('No Desc WF')).toBeInTheDocument();
+
+        // Search for "custom" — matches saved workflow name and description
+        const searchInput = screen.getByPlaceholderText('Search workflows…');
+        await user.type(searchInput, 'custom');
+
+        await waitFor(() => {
+            expect(screen.getByText('My Custom Flow')).toBeInTheDocument();
+            expect(screen.queryByText('No Desc WF')).not.toBeInTheDocument();
+            expect(screen.queryByText('Standard')).not.toBeInTheDocument();
+        });
+    });
+
     it('shows DEFAULT badge on Standard preset when no configured pipeline', async () => {
         renderNewInvestigation();
         await waitFor(() => {

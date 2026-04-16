@@ -4621,5 +4621,34 @@ describe('Settings extra coverage', () => {
             await waitFor(() => screen.getByText('1/2'));
         });
 
+        it('filters pipeline cards by search', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue([
+                { id: 'a1', builtinType: 'triage', source: 'builtin', name: 'Triage', color: '#ef4444', icon: '🚦' },
+                { id: 'a2', builtinType: 'investigator', source: 'builtin', name: 'Investigator', color: '#3b82f6', icon: '🔍' },
+                { id: 'a3', builtinType: 'validator', source: 'builtin', name: 'Validator', color: '#10b981', icon: '✅' },
+                { id: 'a4', builtinType: 'implementation', source: 'builtin', name: 'Implementation', color: '#f59e0b', icon: '🔨' },
+                { id: 'a5', builtinType: 'retrospect', source: 'builtin', name: 'Retrospect', color: '#8b5cf6', icon: '📝' },
+                { id: 'a6', builtinType: 'compliance', source: 'builtin', name: 'Compliance', color: '#4f46e5', icon: '📜' },
+            ] as any);
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+                { id: 'sw-nd', name: 'No Desc Saved', pipeline: { id: 'p-nd', name: 'NoDWF', stages: [] }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+            ] as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Standard'));
+
+            // Search for "compliance"
+            const searchInput = screen.getByPlaceholderText('Search pipelines…');
+            await user.type(searchInput, 'compliance');
+
+            await waitFor(() => {
+                expect(screen.getByText('Compliance Review')).toBeInTheDocument();
+                expect(screen.queryByText('Standard')).not.toBeInTheDocument();
+            });
+        });
+
     });
 });

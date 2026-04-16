@@ -259,6 +259,7 @@ export const Settings = () => {
     const [viewingAgent, setViewingAgent] = useState<AgentDefinition | null>(null);
     const [selectedPipelineSource, setSelectedPipelineSource] = useState<string | null>(null);
     const [pipelinePage, setPipelinePage] = useState(0);
+    const [pipelineSearch, setPipelineSearch] = useState('');
 
     const [config, setConfig] = useState({
         maxConcurrentInvestigations: 3,
@@ -1396,10 +1397,11 @@ export const Settings = () => {
                             {/* ── Quick-select Default Pipeline ── */}
                             <div className="space-y-3">
                                 {(() => {
+                                    const searchLower = pipelineSearch.toLowerCase();
                                     const allItems: { type: 'preset' | 'saved' | 'none'; preset?: typeof PIPELINE_PRESETS[number]; wf?: SavedWorkflow }[] = [
-                                        ...PIPELINE_PRESETS.filter(preset => preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType))).map(preset => ({ type: 'preset' as const, preset })),
-                                        ...savedWorkflows.map(wf => ({ type: 'saved' as const, wf })),
-                                        { type: 'none' as const },
+                                        ...PIPELINE_PRESETS.filter(preset => preset.stages.every(s => builtinAgents.some(a => a.builtinType === s.builtinType)) && (preset.name.toLowerCase().includes(searchLower) || preset.description.toLowerCase().includes(searchLower))).map(preset => ({ type: 'preset' as const, preset })),
+                                        ...savedWorkflows.filter(wf => wf.name.toLowerCase().includes(searchLower) || (wf.description || '').toLowerCase().includes(searchLower)).map(wf => ({ type: 'saved' as const, wf })),
+                                        ...('none'.includes(searchLower) || !pipelineSearch ? [{ type: 'none' as const }] : []),
                                     ];
                                     const PAGE_SIZE = 6;
                                     const totalPages = Math.ceil(allItems.length / PAGE_SIZE);
@@ -1433,6 +1435,16 @@ export const Settings = () => {
                                             </button>
                                         </div>
                                     )}
+                                </div>
+                                <div className="relative">
+                                    <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                                    <input
+                                        type="text"
+                                        value={pipelineSearch}
+                                        onChange={e => { setPipelineSearch(e.target.value); setPipelinePage(0); }}
+                                        placeholder="Search pipelines…"
+                                        className="w-full pl-8 pr-3 py-1.5 bg-slate-900/60 border border-slate-700/40 rounded-lg text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-600/50 transition-colors"
+                                    />
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                                     {pageItems.map((item) => {
