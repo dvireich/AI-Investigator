@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { PassThrough } from 'node:stream';
 import { McpToolBridge, McpServerConfig } from '../../../agent/tools/McpToolBridge';
 
 const mockClient = {
@@ -8,6 +9,7 @@ const mockClient = {
 
 const mockTransport = {
     close: vi.fn(),
+    stderr: null,
 };
 
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
@@ -117,6 +119,32 @@ describe('McpToolBridge', () => {
             mockClient.connect.mockRejectedValueOnce(new Error('conn failed'));
             mockTransport.close.mockImplementationOnce(() => { throw new Error('close failed'); });
             await expect(bridge.connect(config, vi.fn())).rejects.toThrow('conn failed');
+        });
+
+        it('merges config.env overrides into parent process env', async () => {
+            const config: McpServerConfig = { name: 's', command: 'node', env: { CUSTOM_VAR: 'custom_value' } };
+            await bridge.connect(config);
+            const { StdioClientTransport } = await import('@modelcontextprotocol/sdk/client/stdio.js');
+            const ctorCall = (StdioClientTransport as any).mock.calls;
+            const passedEnv = ctorCall[ctorCall.length - 1][0].env;
+            expect(passedEnv.CUSTOM_VAR).toBe('custom_value');
+            expect(passedEnv.PATH).toBeDefined();
+        });
+
+        it('captures stderr output from MCP server process', async () => {
+            const stderrStream = new PassThrough();
+            mockTransport.stderr = stderrStream as any;
+
+            const logger = vi.fn();
+            const config: McpServerConfig = { name: 'test-srv', command: 'node' };
+            await bridge.connect(config, logger);
+
+            stderrStream.emit('data', Buffer.from('[test-srv] Server running on stdio'));
+            expect(logger).toHaveBeenCalledWith(
+                expect.stringContaining('[MCP/test-srv] [test-srv] Server running on stdio')
+            );
+
+            mockTransport.stderr = null;
         });
     });
 
