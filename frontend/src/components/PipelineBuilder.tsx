@@ -1,6 +1,8 @@
-import React, { useState, useRef, useCallback } from 'react';
-import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings, X, RotateCcw, AlertTriangle, FileText, Code, Cpu, Expand, HelpCircle, Eye, Search } from 'lucide-react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings, X, RotateCcw, AlertTriangle, FileText, Code, Cpu, Expand, HelpCircle, Eye, Search, Save, Library } from 'lucide-react';
 import type { AgentDefinition, PipelineStage, PipelineDefinition } from '../types/pipeline';
+import type { SavedAgent } from '../api';
+import { api } from '../api';
 
 // ── Palette colors for new custom agents ─────────────────────────────
 
@@ -42,8 +44,27 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
     const [paletteSearch, setPaletteSearch] = useState('');
     const [palettePage, setPalettePage] = useState(0);
     const helpRef = useRef<HTMLDivElement>(null);
+    const [savedAgents, setSavedAgents] = useState<SavedAgent[]>([]);
 
     const stages = value?.stages || [];
+
+    // ── Load saved agents from API ──────────────────────────────────
+
+    const refreshSavedAgents = useCallback(async () => {
+        try {
+            const agents = await api.getSavedAgents();
+            setSavedAgents(agents);
+        } catch { /* ignore – palette will just show built-ins */ }
+    }, []);
+
+    useEffect(() => { refreshSavedAgents(); }, [refreshSavedAgents]);
+
+    const handleDeleteSavedAgent = useCallback(async (id: string) => {
+        try {
+            await api.deleteSavedAgent(id);
+            setSavedAgents(prev => prev.filter(sa => sa.id !== id));
+        } catch { /* ignore */ }
+    }, []);
 
     // ── Helpers ──────────────────────────────────────────────────────
 
@@ -223,12 +244,15 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
             {/* ── Agent Palette ─────────────────────────────────────── */}
             {!readOnly && (() => {
                 const PALETTE_PAGE_SIZE = 8;
-                const filtered = builtinAgents.filter(a => a.name.toLowerCase().includes(paletteSearch.toLowerCase()));
+                const allAgents: (AgentDefinition & { _savedId?: string })[] = [
+                    ...builtinAgents,
+                    ...savedAgents.map(sa => ({ ...sa.agent, _savedId: sa.id })),
+                ];
+                const filtered = allAgents.filter(a => a.name.toLowerCase().includes(paletteSearch.toLowerCase()));
                 const totalPages = Math.ceil((filtered.length + 1) / PALETTE_PAGE_SIZE); // +1 for Custom Agent button
                 const safePage = Math.min(palettePage, Math.max(0, totalPages - 1));
                 const startIdx = safePage * PALETTE_PAGE_SIZE;
                 const pageAgents = filtered.slice(startIdx, Math.min(startIdx + PALETTE_PAGE_SIZE, filtered.length));
-                const showCustomButton = startIdx + PALETTE_PAGE_SIZE > filtered.length; // Custom Agent button on last page
                 return (
                     <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/40 shadow-sm space-y-3">
                         <div className="flex items-center justify-between">
@@ -255,24 +279,27 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                             />
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            {pageAgents.map(agent => (
-                                <AgentChip
-                                    key={agent.id}
-                                    agent={agent}
-                                    onClick={() => addStage(agent)}
-                                />
-                            ))}
-                            {showCustomButton && (
-                                <button
-                                    onClick={() => {
-                                        setEditingAgentForStage(null);
-                                        setShowAgentModal(true);
-                                    }}
+                            {pageAgents.map(agent => {
+                                const savedId = (agent as any)._savedId as string | undefined;
+                                return (
+                                    <AgentChip
+                                        key={agent.id}
+                                        agent={agent}
+                                        onClick={() => addStage(agent)}
+                                        savedId={savedId}
+                                        onDelete={savedId ? () => handleDeleteSavedAgent(savedId) : undefined}
+                                    />
+                                );
+                            })}
+                            <button
+                                onClick={() => {
+                                    setEditingAgentForStage(null);
+                                    setShowAgentModal(true);
+                                }}
                                     className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700/50 hover:bg-slate-700 text-slate-400 hover:text-white rounded-lg border border-dashed border-slate-600 text-xs font-medium transition-colors"
                                 >
                                     <Plus size={12} /> Custom Agent
                                 </button>
-                            )}
                         </div>
                         {totalPages > 1 && (
                             <div className="flex items-center justify-center gap-2 pt-1">
@@ -452,6 +479,14 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                         setShowAgentModal(false);
                         setEditingAgentForStage(null);
                     }}
+                    onSaveToLibrary={editingAgentForStage === null ? async (agent) => {
+                        try {
+                            await api.createSavedAgent(agent);
+                            await refreshSavedAgents();
+                            setShowAgentModal(false);
+                            setEditingAgentForStage(null);
+                        } catch { /* ignore – will be visible in palette when refreshed */ }
+                    } : undefined}
                     onClose={() => { setShowAgentModal(false); setEditingAgentForStage(null); }}
                 />
             )}
@@ -470,7 +505,9 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
 const AgentChip: React.FC<{
     agent: AgentDefinition;
     onClick: () => void;
-}> = React.memo(({ agent, onClick }) => (
+    savedId?: string;
+    onDelete?: () => void;
+}> = React.memo(({ agent, onClick, savedId, onDelete }) => (
     <div className="relative group/chip">
         <button
             onClick={onClick}
@@ -483,11 +520,24 @@ const AgentChip: React.FC<{
                 {agent.icon || agent.name.charAt(0).toUpperCase()}
             </span>
             <span className="text-slate-300 group-hover:text-white font-medium">{agent.name}</span>
+            {savedId && (
+                <Library size={9} className="text-slate-600" />
+            )}
             <Plus size={10} className="text-slate-600 group-hover:text-cyan-400" />
         </button>
+        {savedId && onDelete && (
+            <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/chip:opacity-100 transition-opacity hover:bg-red-500"
+                title="Remove from library"
+            >
+                <X size={8} />
+            </button>
+        )}
         {agent.description && (
             <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg shadow-xl text-[11px] text-slate-300 leading-relaxed w-64 opacity-0 invisible group-hover/chip:opacity-100 group-hover/chip:visible transition-all duration-150 pointer-events-none z-50">
                 <div className="font-semibold text-white mb-0.5">{agent.name}</div>
+                {savedId && <div className="text-[9px] text-cyan-400/60 mb-1">📚 Saved to library</div>}
                 {agent.description}
                 <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-2 h-2 bg-slate-900 border-b border-r border-slate-600 rotate-45" />
             </div>
@@ -1015,10 +1065,11 @@ interface AgentModalProps {
     existingAgent?: AgentDefinition;
     defaultColor: string;
     onSave: (agent: AgentDefinition) => void;
+    onSaveToLibrary?: (agent: AgentDefinition) => void;
     onClose: () => void;
 }
 
-const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels, existingAgent, defaultColor, onSave, onClose }) => {
+const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels, existingAgent, defaultColor, onSave, onSaveToLibrary, onClose }) => {
     const isEditing = !!existingAgent;
     const [source, setSource] = useState<AgentDefinition['source']>(existingAgent?.source || 'file');
     const [name, setName] = useState(existingAgent?.name || '');
@@ -1037,7 +1088,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels,
         if (e.target === backdropRef.current) onClose();
     };
 
-    const handleSave = () => {
+    const buildAgent = (): AgentDefinition => {
         const agentName = source === 'builtin'
             ? builtinAgents.find(a => (a.builtinType || a.id) === builtinType)?.name || builtinType
             : name || 'Unnamed Agent';
@@ -1066,7 +1117,15 @@ const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels,
         if (model) agent.model = model;
         if (maxSteps > 0) agent.maxSteps = maxSteps;
 
-        onSave(agent);
+        return agent;
+    };
+
+    const handleSave = () => {
+        onSave(buildAgent());
+    };
+
+    const handleSaveToLibrary = () => {
+        if (onSaveToLibrary) onSaveToLibrary(buildAgent());
     };
 
     return (
@@ -1296,6 +1355,17 @@ const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels,
                     >
                         Cancel
                     </button>
+                    {!isEditing && onSaveToLibrary && source !== 'builtin' && (
+                        <button
+                            onClick={handleSaveToLibrary}
+                            disabled={source === 'file' && !promptPath}
+                            className="flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-emerald-400 hover:text-emerald-300 text-sm font-bold rounded-lg border border-slate-600 transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                            title="Save this agent to your library so you can reuse it across any workflow"
+                        >
+                            <Save size={14} />
+                            Save to Library
+                        </button>
+                    )}
                     <button
                         onClick={handleSave}
                         disabled={source === 'file' && !promptPath && !isEditing}
