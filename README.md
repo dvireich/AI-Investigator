@@ -12,6 +12,13 @@ An agentic system that runs, monitors, and learns from investigations — comple
 
 <video src="docs/demo/AI%20Investigator.mp4" controls width="100%"></video>
 
+<details>
+<summary><strong>▶ Animated Preview (GIF)</strong></summary>
+
+![App Tour](docs/demo/app-tour.gif)
+
+</details>
+
 ![Dashboard Overview](docs/screenshots/dashboard-overview.png)
 
 </div>
