@@ -260,6 +260,8 @@ export const Settings = () => {
     const [selectedPipelineSource, setSelectedPipelineSource] = useState<string | null>(null);
     const [pipelinePage, setPipelinePage] = useState(0);
     const [pipelineSearch, setPipelineSearch] = useState('');
+    const [savedWfPage, setSavedWfPage] = useState(0);
+    const [savedWfSearch, setSavedWfSearch] = useState('');
 
     const [config, setConfig] = useState({
         maxConcurrentInvestigations: 3,
@@ -1503,7 +1505,7 @@ export const Settings = () => {
                                                 key={wf.id}
                                                 type="button"
                                                 onClick={() => {
-                                                    setPipelineConfig(wf.pipeline);
+                                                    setPipelineConfig({ ...wf.pipeline, name: wf.name });
                                                     setPipelineJson(JSON.stringify(wf.pipeline, null, 2));
                                                     setSelectedPipelineSource(`saved:${wf.id}`);
                                                     setDirty(true);
@@ -1621,13 +1623,60 @@ export const Settings = () => {
                             )}
 
                             {/* ── Saved Workflows Management ── */}
-                            {savedWorkflows.length > 0 && (
+                            {savedWorkflows.length > 0 && (() => {
+                                const WF_PAGE_SIZE = 6;
+                                const wfSearchLower = savedWfSearch.toLowerCase();
+                                const filteredWfs = savedWfSearch
+                                    ? savedWorkflows.filter(wf => wf.name.toLowerCase().includes(wfSearchLower) || (wf.description || '').toLowerCase().includes(wfSearchLower))
+                                    : savedWorkflows;
+                                const wfTotalPages = Math.ceil(filteredWfs.length / WF_PAGE_SIZE);
+                                const safeWfPage = Math.min(savedWfPage, Math.max(0, wfTotalPages - 1));
+                                const pageWfs = filteredWfs.slice(safeWfPage * WF_PAGE_SIZE, (safeWfPage + 1) * WF_PAGE_SIZE);
+                                return (
                                 <div className="space-y-3">
-                                    <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-                                        Manage Saved Workflows ({savedWorkflows.length})
-                                    </h3>
+                                    <div className="flex items-center justify-between">
+                                        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+                                            Manage Saved Workflows ({savedWfSearch ? `${filteredWfs.length} of ${savedWorkflows.length}` : savedWorkflows.length})
+                                        </h3>
+                                        {wfTotalPages > 1 && (
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSavedWfPage(p => Math.max(0, p - 1))}
+                                                    disabled={safeWfPage === 0}
+                                                    className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    <ChevronLeft className="w-4 h-4 text-slate-400" />
+                                                </button>
+                                                <span className="text-xs text-slate-500 tabular-nums min-w-[2.5rem] text-center">
+                                                    {safeWfPage + 1}/{wfTotalPages}
+                                                </span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setSavedWfPage(p => Math.min(wfTotalPages - 1, p + 1))}
+                                                    disabled={safeWfPage >= wfTotalPages - 1}
+                                                    className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                >
+                                                    <ChevronRight className="w-4 h-4 text-slate-400" />
+                                                </button>
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="relative">
+                                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                                        <input
+                                            type="text"
+                                            value={savedWfSearch}
+                                            onChange={e => { setSavedWfSearch(e.target.value); setSavedWfPage(0); }}
+                                            placeholder="Search saved workflows…"
+                                            className="w-full pl-8 pr-3 py-1.5 bg-slate-900/60 border border-slate-700/40 rounded-lg text-xs text-slate-300 placeholder-slate-600 focus:outline-none focus:border-cyan-600/50 transition-colors"
+                                        />
+                                    </div>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                        {savedWorkflows.map(wf => (
+                                        {pageWfs.length === 0 && (
+                                            <p className="text-xs text-slate-600 italic col-span-2 py-2">No workflows match &ldquo;{savedWfSearch}&rdquo;</p>
+                                        )}
+                                        {pageWfs.map(wf => (
                                             <div
                                                 key={wf.id}
                                                 className="bg-slate-800/40 rounded-xl border border-slate-700/40 p-4 hover:border-slate-600/60 transition-colors group"
@@ -1678,7 +1727,8 @@ export const Settings = () => {
                                         ))}
                                     </div>
                                 </div>
-                            )}
+                                );
+                            })()}
                         </div>
                     )}
 

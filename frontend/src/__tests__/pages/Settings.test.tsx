@@ -4307,6 +4307,71 @@ describe('Settings extra coverage', () => {
             });
         });
 
+        it('paginates managed saved workflows when more than 6 exist', async () => {
+            const { api } = await import('../../api');
+            const manyWorkflows = Array.from({ length: 8 }, (_, i) => ({
+                ...mockSavedWorkflow,
+                id: `sw${i}`,
+                name: `Workflow ${i + 1}`,
+                description: `Desc ${i + 1}`,
+            }));
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue(manyWorkflows as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText(/Manage Saved Workflows \(8\)/));
+            // Manage section has its own search input — find the pagination near it
+            const manageSearch = screen.getByPlaceholderText(/search saved workflows/i);
+            const manageSection = manageSearch.closest('.space-y-3') as HTMLElement;
+            // Page indicator visible within manage section
+            const pageIndicators = screen.getAllByText('1/2');
+            expect(pageIndicators.length).toBeGreaterThanOrEqual(1);
+            // Find the manage section's pagination next button (sibling of page indicator within manage section)
+            const managePageIndicator = pageIndicators.find(el => manageSection?.contains(el))!;
+            const paginationNext = managePageIndicator.nextElementSibling as HTMLElement;
+            await user.click(paginationNext);
+            await waitFor(() => expect(screen.getAllByText('Workflow 7').length).toBeGreaterThanOrEqual(1));
+            expect(screen.getAllByText('Workflow 8').length).toBeGreaterThanOrEqual(1);
+            // Navigate back
+            const backIndicator = screen.getAllByText('2/2').find(el => manageSection?.contains(el))!;
+            const paginationPrev = backIndicator.previousElementSibling as HTMLElement;
+            await user.click(paginationPrev);
+            await waitFor(() => expect(screen.getAllByText('Workflow 1').length).toBeGreaterThanOrEqual(1));
+        });
+
+        it('filters managed saved workflows by search and shows empty state', async () => {
+            const { api } = await import('../../api');
+            const workflows = [
+                { ...mockSavedWorkflow, id: 'sw1', name: 'Alpha Pipeline', description: 'First workflow' },
+                { ...mockSavedWorkflow, id: 'sw2', name: 'Beta Pipeline', description: 'Second workflow' },
+                { ...mockSavedWorkflow, id: 'sw3', name: 'Gamma Flow', description: undefined },
+            ];
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue(workflows as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText(/Manage Saved Workflows \(3\)/));
+            // All 3 visible in manage section
+            expect(screen.getAllByText('Alpha Pipeline').length).toBeGreaterThanOrEqual(1);
+            expect(screen.getAllByText('Beta Pipeline').length).toBeGreaterThanOrEqual(1);
+            // Search matching a term in names — covers description-less pathway
+            const searchInput = screen.getByPlaceholderText(/search saved workflows/i);
+            await user.type(searchInput, 'a');
+            await waitFor(() => screen.getByText(/Manage Saved Workflows \(3 of 3\)/));
+            // Search for "Alpha" — filters to 1 of 3
+            await user.clear(searchInput);
+            await user.type(searchInput, 'Alpha');
+            // Header updates to show filtered count
+            await waitFor(() => screen.getByText(/Manage Saved Workflows \(1 of 3\)/));
+            // Search with no matches
+            await user.clear(searchInput);
+            await user.type(searchInput, 'zzzznotfound');
+            await waitFor(() => screen.getByText(/Manage Saved Workflows \(0 of 3\)/));
+            expect(screen.getByText(/no workflows match/i)).toBeInTheDocument();
+        });
+
         it('creates a new workflow through the editor modal', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.createSavedWorkflow).mockResolvedValue({
