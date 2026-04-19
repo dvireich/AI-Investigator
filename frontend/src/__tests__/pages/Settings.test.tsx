@@ -4429,6 +4429,31 @@ describe('Settings extra coverage', () => {
             expect(api.updateSavedWorkflow).toHaveBeenCalledWith('sw1', expect.any(Object));
         });
 
+        it('updates a workflow that is currently selected and refreshes the preview', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([mockSavedWorkflow] as any);
+            vi.mocked(api.updateSavedWorkflow).mockResolvedValue({
+                ...mockSavedWorkflow,
+                name: 'Refreshed WF',
+            } as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            await waitFor(() => screen.getByText('Manage Saved Workflows (1)'));
+            // First select the saved workflow by clicking it
+            const wfCards = screen.getAllByText('My Test WF');
+            await user.click(wfCards[0].closest('button')!);
+            // Now edit it
+            await user.click(screen.getByTitle('Edit workflow'));
+            await waitFor(() => screen.getByText('MockPipelineChange'));
+            await user.click(screen.getByText('Update Workflow'));
+            await waitFor(() => {
+                expect(screen.queryByText('MockPipelineChange')).not.toBeInTheDocument();
+            });
+            expect(api.updateSavedWorkflow).toHaveBeenCalledWith('sw1', expect.any(Object));
+        });
+
         it('updates a workflow with empty description and no icon (covers fallback branches)', async () => {
             const { api } = await import('../../api');
             const noDescWorkflow = {

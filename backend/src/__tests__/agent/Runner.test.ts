@@ -283,6 +283,40 @@ describe('AgentRunner', () => {
             expect(systemMsg.content).not.toContain('Queried logs');
         });
 
+        it('truncates long conversationLog entries in system prompt', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: { name: 'finish', arguments: JSON.stringify({ report: 'ok' }) },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // Build a conversationLog that exceeds MAX_CONVERSATION_CHARS (30,000)
+            const hugeReport = 'X'.repeat(35_000);
+            (runner as any).stageContext = {
+                stageIndex: 1,
+                agentName: 'Reviewer',
+                conversationLog: [
+                    { agentName: 'Investigator', role: 'report', content: hugeReport },
+                ],
+            };
+
+            await runner.start('Review');
+
+            const messages = mockOpenAI.chat.completions.create.mock.calls[0][0].messages;
+            const systemMsg = messages.find((m: any) => m.role === 'system');
+            expect(systemMsg.content).toContain('Prior Agent Context');
+            expect(systemMsg.content).toContain('... [Prior agent context truncated for token management]');
+            // Should be truncated — not the full 35K
+            expect(systemMsg.content.length).toBeLessThan(35_000);
+        });
+
         it('extracts verdict from finish tool args', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValue({
                 choices: [{
@@ -5131,6 +5165,24 @@ describe('AgentRunner', () => {
             expect(secondCall.messages[0].content).not.toContain('Prior Agent Context');
         });
 
+        it('downgrades tool_choice from required to auto on 400 retry when forceTool is true', async () => {
+            // First call: 400 error with forceTool=true, second call: succeeds
+            mockOpenAI.chat.completions.create
+                .mockRejectedValueOnce({ status: 400, message: 'tool_choice required not supported' })
+                .mockResolvedValueOnce({
+                    choices: [{ message: { content: 'Recovered after downgrade.' } }],
+                });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(runner as any, 'compactHistory').mockResolvedValue(false);
+            const logSpy = vi.spyOn(runner as any, 'log');
+
+            const step = await (runner as any).callLLM('system', 'query', ['thought1'], true);
+
+            expect(step.thought).toBe('Recovered after downgrade.');
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Downgrading tool_choice'));
+        });
+
         it('applies level 2 aggressive trim on second 400 retry', async () => {
             // All 3 calls fail with 400 — verify level 2 trimmed history
             mockOpenAI.chat.completions.create.mockRejectedValue({ status: 400 });
@@ -5145,6 +5197,23 @@ describe('AgentRunner', () => {
             // After level 2 trim, state.thoughts should be trimmed to 4
             const state = (runner as any).state;
             expect(state.thoughts.length).toBeLessThanOrEqual(4);
+        });
+
+        it('truncates oversized system prompt during level 2 recovery', async () => {
+            // All 3 calls fail with 400, but system prompt is >30K chars
+            mockOpenAI.chat.completions.create.mockRejectedValue({ status: 400 });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(runner as any, 'compactHistory').mockResolvedValue(false);
+            const logSpy = vi.spyOn(runner as any, 'log');
+
+            const history = Array.from({ length: 20 }, (_, i) => `thought ${i}`);
+            // Huge system prompt that exceeds 30K char limit
+            const hugeSystem = 'X'.repeat(40_000);
+            const step = await (runner as any).callLLM(hugeSystem, 'query', history, false);
+
+            expect(step.thought).toContain('Recovery failed after 3 attempts');
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Truncated system prompt'));
         });
     });
 
@@ -5424,6 +5493,202 @@ describe('AgentRunner', () => {
             expect(Array.isArray(retro.proposals)).toBe(true);
             expect(retro.analysisComplete).toBe(false);
             expect(retro.completed).toBe(false);
+        });
+    });
+
+    describe('callLLM - extractLlmErrorDetail branches', () => {
+        it('extracts error detail from error.error object (Path 1: OpenAI SDK style)', async () => {
+            const apiError = {
+                status: 500,
+                error: {
+                    message: 'Internal server error occurred',
+                    type: 'server_error',
+                    code: 'internal_error',
+                    param: 'model',
+                },
+            };
+            mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            expect(step.thought).toContain('Internal server error occurred');
+        });
+
+        it('extracts error detail from error.body (Path 2: alternate SDK versions)', async () => {
+            const apiError = {
+                status: 500,
+                body: { message: 'Service temporarily unavailable' },
+            };
+            mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            expect(step.thought).toContain('Service temporarily unavailable');
+        });
+
+        it('extracts error detail from top-level type+code (Path 3)', async () => {
+            const apiError = {
+                status: 502,
+                type: 'gateway_error',
+                code: 'bad_gateway',
+            };
+            mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            expect(step.thought).toContain('type:gateway_error');
+            expect(step.thought).toContain('code:bad_gateway');
+        });
+
+        it('parses embedded JSON in error.message (Path 4: SDK dump format)', async () => {
+            const apiError = {
+                status: 400,
+                message: '400 {"error":{"message":"Maximum context length exceeded","type":"invalid_request_error","code":"context_length_exceeded"}}',
+            };
+            mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(runner as any, 'compactHistory').mockResolvedValue(false);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            expect(step.thought).toContain('Maximum context length exceeded');
+        });
+
+        it('falls back to HTTP unknown when error has no useful fields', async () => {
+            mockOpenAI.chat.completions.create.mockRejectedValue({});
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            expect(step.thought).toContain('HTTP unknown');
+        });
+
+        it('truncates long error.message to 300 chars', async () => {
+            const longMsg = 'X'.repeat(500);
+            mockOpenAI.chat.completions.create.mockRejectedValue({ message: longMsg });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            expect(step.thought).toContain('...');
+            expect(step.thought.length).toBeLessThan(longMsg.length + 200);
+        });
+
+        it('recurses into error.error.error for deeply nested OpenAI errors', async () => {
+            const apiError = {
+                status: 500,
+                error: {
+                    error: {
+                        message: 'Deeply nested provider message',
+                    },
+                },
+            };
+            mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            expect(step.thought).toContain('Deeply nested provider message');
+        });
+
+        it('stops recursing at depth > 3 and handles object without message but with error', async () => {
+            // 5 levels of nesting — extractFrom will stop at depth 3
+            const apiError = {
+                status: 500,
+                error: {
+                    error: {
+                        error: {
+                            error: {
+                                error: {
+                                    message: 'Should never reach this',
+                                },
+                            },
+                        },
+                    },
+                },
+            };
+            mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            // Should NOT contain the deeply nested message (depth > 3 returns false)
+            expect(step.thought).not.toContain('Should never reach this');
+            // Falls through to HTTP status fallback
+            expect(step.thought).toContain('500');
+        });
+
+        it('handles error dump with object properties and throwing getters', async () => {
+            const apiError: any = new Error('Service unavailable test');
+            apiError.status = 503;
+            apiError.nestedObj = { key: 'value' };
+            // Add a getter that throws
+            Object.defineProperty(apiError, 'throwingProp', {
+                get() { throw new Error('getter exploded'); },
+                enumerable: true,
+            });
+            mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            expect(step.thought).toContain('Service unavailable test');
+        });
+
+        it('handles error dump failure when error object throws during property enumeration', async () => {
+            // Create an error where the dump code itself throws
+            const badError: any = {};
+            Object.defineProperty(badError, 'message', {
+                get() { return 'readable message text here'; },
+                enumerable: true,
+            });
+            // Make 'for...in' throw by using a Proxy
+            const proxyError = new Proxy(badError, {
+                ownKeys() { throw new Error('ownKeys trap exploded'); },
+            });
+            mockOpenAI.chat.completions.create.mockRejectedValue(proxyError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            // Should still return an error result despite dump failure
+            expect(typeof step.thought).toBe('string');
+        });
+
+        it('handles embedded JSON in message where parsed JSON has no useful message', async () => {
+            // Error.message contains JSON but the JSON doesn't have message/type/code
+            const apiError = {
+                message: 'Some prefix {"randomKey": "randomValue"}',
+            };
+            mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const step = await (runner as any).callLLM('system', 'query', [], false);
+            // extractFrom(parsed) returns false, so falls through to plain message return
+            expect(step.thought).toContain('Some prefix');
+        });
+    });
+
+    describe('callLLM - history message filtering', () => {
+        it('filters out log-type entries and handles long history with debug logging', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Done.' } }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // Create history with >4 entries (system + user + these = >6 messages total)
+            // Include a log-type entry that should be filtered out
+            const history: any[] = [
+                { role: 'user', content: 'first query' },
+                { role: 'assistant', content: 'first response' },
+                { type: 'log', content: 'should be filtered out' },
+                { role: 'user', content: 'second query' },
+                { role: 'assistant', content: 'second response' },
+                'plain string thought',
+                { weirdObject: true },
+                { role: 'assistant' }, // no content — covers '(empty)' branch in debug logging
+            ];
+
+            const step = await (runner as any).callLLM('system', 'query', history, false);
+            expect(step.thought).toBe('Done.');
+
+            // Verify the log-type entry was filtered out
+            const call = mockOpenAI.chat.completions.create.mock.calls[0][0];
+            const contents = call.messages.map((m: any) => m.content);
+            expect(contents).not.toContain('should be filtered out');
         });
     });
 
@@ -6813,6 +7078,293 @@ describe('AgentRunner', () => {
             expect((runner as any).toolManager).toBe(parentToolManager);
             // cleanup should NOT have been called on the shared ToolManager
             expect(mockToolManager.cleanup).not.toHaveBeenCalled();
+        });
+
+        it('includes errors from child thoughts in the report', async () => {
+            const agentContent = '---\ndescription: Err\n---\n\n# Error Agent\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/ErrAgent.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // Mock start to simulate a completed child with errors and mixed actions
+            vi.spyOn(AgentRunner.prototype, 'start').mockImplementation(async function (this: any) {
+                this.state.status = 'completed';
+                this.state.finalReport = 'partial report';
+                this.state.thoughts.push('System Error: Something crashed');
+                this.state.thoughts.push({ role: 'system', content: 'Critical LLM Error: token limit' });
+                // Object thought with no content (covers t?.content || '' branch)
+                this.state.thoughts.push({ role: 'system' });
+                // Add an action with result, one without, one with no tool name, and a null
+                this.state.actions.push({ tool: 'query_data', result: 'rows returned' });
+                this.state.actions.push({ tool: 'read_file', result: '' });
+                this.state.actions.push({ result: 'orphaned result' }); // no .tool (covers || 'unknown')
+                this.state.actions.push(null);
+            });
+
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/ErrAgent.agent.md',
+                task: 'Do work',
+            });
+
+            vi.mocked(AgentRunner.prototype.start).mockRestore();
+
+            // Errors section
+            expect(result).toContain('### Subagent Errors');
+            expect(result).toContain('System Error: Something crashed');
+            expect(result).toContain('Critical LLM Error: token limit');
+
+            // Activity log with both result and no-result actions
+            expect(result).toContain('### Subagent Activity Log');
+            expect(result).toContain('query_data: rows returned');
+            expect(result).toContain('- read_file');
+        });
+
+        it('returns error message when child start() throws', async () => {
+            const agentContent = '---\ndescription: Throw\n---\n\n# Throwing Agent\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/Throwing.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // Mock start to throw (e.g., ToolManager init crash)
+            vi.spyOn(AgentRunner.prototype, 'start').mockRejectedValue(new Error('ToolManager exploded'));
+
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/Throwing.agent.md',
+                task: 'Will crash',
+            });
+
+            vi.mocked(AgentRunner.prototype.start).mockRestore();
+
+            expect(result).toContain('Subagent "Throwing Agent" failed');
+            expect(result).toContain('ToolManager exploded');
+        });
+
+        it('propagates parent abort to the child runner', async () => {
+            const agentContent = '---\ndescription: Abort\n---\n\n# Abort Agent\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/AbortAgent.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            let childAbortCalled = false;
+            // Mock start: the child "runs" long enough for the abort interval to fire
+            vi.spyOn(AgentRunner.prototype, 'start').mockImplementation(async function (this: any) {
+                // Capture abort call
+                const origAbort = this.abort.bind(this);
+                this.abort = () => { childAbortCalled = true; origAbort(); };
+                // Simulate the parent aborting while child is "running"
+                runner.abort();
+                // Wait enough for the 1s interval to fire
+                await new Promise(resolve => setTimeout(resolve, 1200));
+                this.state.status = 'completed';
+                this.state.finalReport = 'aborted mid-run';
+            });
+
+            await (runner as any).executeSubagent({
+                agentPath: '.github/agents/AbortAgent.agent.md',
+                task: 'Long task',
+            });
+
+            vi.mocked(AgentRunner.prototype.start).mockRestore();
+            expect(childAbortCalled).toBe(true);
+        }, 10000);
+
+        it('uses fallback text when child has no report and no thoughts', async () => {
+            const agentContent = '---\ndescription: Empty\n---\n\n# Empty Agent\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/EmptyOut.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(AgentRunner.prototype, 'start').mockImplementation(async function (this: any) {
+                this.state.status = 'completed';
+                // No finalReport, no assistant thoughts — only system messages
+                this.state.thoughts.push({ role: 'system', content: 'internal message' });
+            });
+
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/EmptyOut.agent.md',
+                task: 'Produce nothing',
+            });
+
+            vi.mocked(AgentRunner.prototype.start).mockRestore();
+            expect(result).toContain('Subagent completed but produced no output.');
+        });
+
+        it('resolves absolute agentPath directly', async () => {
+            // Use an absolute path instead of a relative one
+            const absPath = n(require('path').join('/repo', '.github/agents/AbsAgent.agent.md'));
+            const agentContent = '---\ndescription: Abs\n---\n\n# Absolute Agent\n\nPrompt.';
+            mockFsState.set(absPath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(AgentRunner.prototype, 'start').mockImplementation(async function (this: any) {
+                this.state.status = 'completed';
+                this.state.finalReport = 'abs report';
+            });
+
+            const result = await (runner as any).executeSubagent({
+                agentPath: absPath,  // Pass absolute path
+                task: 'Task',
+            });
+
+            vi.mocked(AgentRunner.prototype.start).mockRestore();
+            expect(result).toContain('Absolute Agent');
+            expect(result).toContain('abs report');
+        });
+
+        it('caps activity log at 30 entries', async () => {
+            const agentContent = '---\ndescription: Big\n---\n\n# Big Agent\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/BigAgent.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(AgentRunner.prototype, 'start').mockImplementation(async function (this: any) {
+                this.state.status = 'completed';
+                this.state.finalReport = 'done';
+                // Create 40 actions
+                for (let i = 0; i < 40; i++) {
+                    this.state.actions.push({ tool: `tool_${i}`, result: `result_${i}` });
+                }
+            });
+
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/BigAgent.agent.md',
+                task: 'Big task',
+            });
+
+            vi.mocked(AgentRunner.prototype.start).mockRestore();
+
+            expect(result).toContain('### Subagent Activity Log (40 tool calls)');
+            // Should have capping indicator
+            expect(result).toContain('... (10 more tool calls) ...');
+            // First and last entries should be present
+            expect(result).toContain('tool_0');
+            expect(result).toContain('tool_39');
+        });
+
+        it('truncates long task in start message and handles missing repoRoot', async () => {
+            const agentContent = '---\ndescription: Long\n---\n\n# Long Task Agent\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/LongTask.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(AgentRunner.prototype, 'start').mockImplementation(async function (this: any) {
+                this.state.status = 'completed';
+                this.state.finalReport = 'done';
+            });
+
+            const longTask = 'A'.repeat(300);
+            const emitted: string[] = [];
+            runner.on('thought', (data: any) => {
+                const content = typeof data === 'string' ? data : data?.content || '';
+                emitted.push(content);
+            });
+
+            await (runner as any).executeSubagent({
+                agentPath: '.github/agents/LongTask.agent.md',
+                task: longTask,
+            });
+
+            vi.mocked(AgentRunner.prototype.start).mockRestore();
+
+            // The start message should truncate the task and show '...'
+            expect(emitted.some(e => e.includes('...'))).toBe(true);
+        });
+
+        it('forwards child thoughts with different data types and skips system/bracket messages', async () => {
+            const agentContent = '---\ndescription: Fwd\n---\n\n# Forward Agent\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/FwdAgent.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const emitted: string[] = [];
+            runner.on('thought', (data: any) => {
+                const content = typeof data === 'string' ? data : data?.content || '';
+                emitted.push(content);
+            });
+
+            vi.spyOn(AgentRunner.prototype, 'start').mockImplementation(async function (this: any) {
+                // Emit different types of thoughts from the child
+                this.emit('thought', 'plain string thought');                     // typeof data === 'string'
+                this.emit('thought', { content: 'object thought' });              // data?.content
+                this.emit('thought', 42);                                         // String(data) fallback
+                this.emit('thought', 'System: initializing...');                  // should be skipped
+                this.emit('thought', '[Subagent] nested message');                // should be skipped (starts with [)
+                this.state.status = 'completed';
+                this.state.finalReport = 'done';
+            });
+
+            await (runner as any).executeSubagent({
+                agentPath: '.github/agents/FwdAgent.agent.md',
+                task: 'Forwarding test',
+            });
+
+            vi.mocked(AgentRunner.prototype.start).mockRestore();
+
+            // plain string and object thought should be forwarded (tagged with agent name)
+            expect(emitted.some(e => e.includes('plain string thought'))).toBe(true);
+            expect(emitted.some(e => e.includes('object thought'))).toBe(true);
+            expect(emitted.some(e => e.includes('42'))).toBe(true);
+            // System and bracket messages should NOT be forwarded
+            expect(emitted.some(e => e.includes('initializing'))).toBe(false);
+            expect(emitted.some(e => e.includes('nested message'))).toBe(false);
+        });
+
+        it('extracts report from mixed thoughts when finalReport is empty', async () => {
+            const agentContent = '---\ndescription: Mix\n---\n\n# Mixed Agent\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/MixedAgent.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(AgentRunner.prototype, 'start').mockImplementation(async function (this: any) {
+                this.state.status = 'completed';
+                this.state.finalReport = '';
+                // Mix of string and object thoughts
+                this.state.thoughts.push('string thought');
+                this.state.thoughts.push({ role: 'assistant', content: 'assistant thought' });
+                this.state.thoughts.push({ role: 'user', content: 'user thought' }); // should be filtered out
+            });
+
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/MixedAgent.agent.md',
+                task: 'Mix test',
+            });
+
+            vi.mocked(AgentRunner.prototype.start).mockRestore();
+
+            expect(result).toContain('string thought');
+            expect(result).toContain('assistant thought');
+            // user-role thoughts should be filtered out
+            expect(result).not.toContain('user thought');
+        });
+
+        it('uses empty string for repoRoot when config.repoRoot is undefined', async () => {
+            const runner = new AgentRunner(makeConfig({ repoRoot: undefined as any }), provider);
+
+            const result = await (runner as any).executeSubagent({
+                agentPath: 'nonexistent.agent.md',
+                task: 'Test',
+            });
+
+            // Should return file not found error (repoRoot falls back to '')
+            expect(result).toContain('Error: Agent file not found');
         });
     });
 

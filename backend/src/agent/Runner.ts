@@ -211,10 +211,12 @@ function extractLlmErrorDetail(error: any): string {
         if (jsonStart >= 0) {
             try {
                 const parsed = JSON.parse(msg.substring(jsonStart));
-                if (extractFrom(parsed)) return parts.join(', ');
+                const extracted = extractFrom(parsed);
+                if (extracted) return parts.join(', ');
             } catch (_e) { /* not JSON, fall through */ }
         }
-        return msg.length > 300 ? msg.substring(0, 300) + '...' : msg;
+        if (msg.length > 300) return msg.substring(0, 300) + '...';
+        return msg;
     }
 
     return `HTTP ${error.status || 'unknown'}`;
@@ -2714,10 +2716,14 @@ ${recsText}
                 console.log(`[Agent] LLM Request: Model=${model}, Tools=${openAiTools?.length || 0}, ToolChoice=${toolChoice}, PayloadSize=${payloadStr.length} chars (~${estimatedTokens} tokens), Roles=${JSON.stringify(roleCounts)}, MsgCount=${messages.length}`);
                 // Dump first 3 and last 3 messages for structure debugging
                 const debugMsgs = messages.length <= 6 ? messages : [...messages.slice(0, 3), '...', ...messages.slice(-3)];
-                for (const dm of debugMsgs) {
-                    if (typeof dm === 'string') { console.log(`[Agent]   ${dm}`); continue; }
-                    const contentSnippet = dm.content?.substring(0, 100) || '(empty)';
-                    console.log(`[Agent]   role=${dm.role}, len=${dm.content?.length || 0}, content=${contentSnippet}`);
+                for (let di = 0; di < debugMsgs.length; di++) {
+                    const dm = debugMsgs[di];
+                    if (typeof dm === 'string') {
+                        console.log(`[Agent]   ${dm}`);
+                    } else {
+                        const contentSnippet = dm.content ? dm.content.substring(0, 100) : '(empty)';
+                        console.log(`[Agent]   role=${dm.role}, len=${dm.content?.length || 0}, content=${contentSnippet}`);
+                    }
                 }
 
                 const completion = await openai.chat.completions.create({
@@ -2762,11 +2768,10 @@ ${recsText}
                             const val = error[key];
                             if (typeof val === 'function') continue;
                             if (val === undefined) continue;
-                            if (typeof val === 'object' && val !== null) {
-                                dump[key] = JSON.stringify(val).substring(0, 2000);
-                            } else {
-                                dump[key] = String(val).substring(0, 2000);
-                            }
+                            const isObj = typeof val === 'object' && val !== null;
+                            dump[key] = isObj
+                                ? JSON.stringify(val).substring(0, 2000)
+                                : String(val).substring(0, 2000);
                         } catch (_e) { dump[key] = `<error reading: ${_e}>`; }
                     }
                     console.log(`[Agent] FULL error dump (${allKeys.size} keys):`, JSON.stringify(dump, null, 2));

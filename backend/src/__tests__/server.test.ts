@@ -7415,6 +7415,21 @@ describe('pipeline endpoints and integration', () => {
         // syncRunnerState should have set pipeline state
         expect(runner.state.pipeline).toBeDefined();
 
+        // Emit status events to cover status sync handler (lines 745-758)
+        orchestrator!.emit('status', { status: 'paused' });
+        await new Promise(r => setTimeout(r, 50));
+        expect(runner.state.status).toBe('paused');
+        expect(runner.state.pausedAt).toBeDefined();
+
+        orchestrator!.emit('status', { status: 'running' });
+        await new Promise(r => setTimeout(r, 50));
+        expect(runner.state.status).toBe('running');
+        expect(runner.state.pausedAt).toBeUndefined();
+        expect(runner.state.totalPausedTime).toBeGreaterThanOrEqual(0);
+
+        // Emit status with empty data (no status field) — covers the falsy branch
+        orchestrator!.emit('status', {});
+
         // Make saveArtifacts throw to cover the catch branch in saveToDisk (line 707)
         runner.saveArtifacts = vi.fn().mockRejectedValue(new Error('disk full'));
         orchestrator!.emit('stage-start', { stage: 1 });
