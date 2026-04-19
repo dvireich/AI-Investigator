@@ -243,7 +243,7 @@ describe('AgentRunner', () => {
             expect(state.finalReport).toBe('All done!');
         });
 
-        it('injects stageContext conversationLog into system prompt', async () => {
+        it('injects stageContext conversationLog into system prompt (reports/verdicts only)', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValue({
                 choices: [{
                     message: {
@@ -263,17 +263,24 @@ describe('AgentRunner', () => {
                 conversationLog: [
                     { agentName: 'Investigator', role: 'thought', content: 'Analyzed the issue' },
                     { agentName: 'Investigator', role: 'action', content: 'Queried logs' },
+                    { agentName: 'Investigator', role: 'report', content: 'Found a latency spike in region A' },
+                    { agentName: 'Investigator', role: 'verdict', content: 'Verdict: flagged' },
+                    { agentName: 'Pipeline', role: 'handoff', content: 'Passing to Reviewer...' },
                 ],
             };
 
             await runner.start('Review the investigation');
 
-            // The system prompt should contain the conversation log text
+            // The system prompt should contain only reports, verdicts, and handoffs — not thoughts/actions
             const messages = mockOpenAI.chat.completions.create.mock.calls[0][0].messages;
             const systemMsg = messages.find((m: any) => m.role === 'system');
-            expect(systemMsg.content).toContain('Prior Agent Conversation');
-            expect(systemMsg.content).toContain('[Investigator] (thought): Analyzed the issue');
-            expect(systemMsg.content).toContain('[Investigator] (action): Queried logs');
+            expect(systemMsg.content).toContain('Prior Agent Context');
+            expect(systemMsg.content).toContain('[Investigator] (report): Found a latency spike in region A');
+            expect(systemMsg.content).toContain('[Investigator] (verdict): Verdict: flagged');
+            expect(systemMsg.content).toContain('[Pipeline] (handoff): Passing to Reviewer...');
+            // Operational thoughts/actions should NOT be included
+            expect(systemMsg.content).not.toContain('Analyzed the issue');
+            expect(systemMsg.content).not.toContain('Queried logs');
         });
 
         it('extracts verdict from finish tool args', async () => {
@@ -5068,7 +5075,7 @@ describe('AgentRunner', () => {
             expect(step).toBeDefined();
         });
 
-        it('falls back to Bad Request when a 400 error has no message', async () => {
+        it('reports payload size on 400 error after all recovery attempts', async () => {
             mockOpenAI.chat.completions.create.mockRejectedValue({ status: 400 });
 
             const runner = new AgentRunner(makeConfig(), provider);
@@ -5076,7 +5083,68 @@ describe('AgentRunner', () => {
 
             const step = await (runner as any).callLLM('system', 'query', ['thought1'], false);
 
-            expect(step.thought).toContain('Bad Request');
+            expect(step.thought).toContain('Payload:');
+            expect(step.thought).toContain('tokens');
+            expect(step.thought).toContain('Recovery failed after 3 attempts');
+        });
+
+        it('extracts detailed error from OpenAI error body', async () => {
+            const apiError = {
+                status: 400,
+                error: {
+                    error: {
+                        message: 'max context length is 200000 tokens, your request had 250000',
+                        type: 'invalid_request_error',
+                        code: 'context_length_exceeded',
+                    }
+                }
+            };
+            mockOpenAI.chat.completions.create.mockRejectedValue(apiError);
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(runner as any, 'compactHistory').mockResolvedValue(false);
+
+            const step = await (runner as any).callLLM('system', 'query', ['thought1'], false);
+
+            expect(step.thought).toContain('max context length is 200000 tokens');
+            expect(step.thought).toContain('context_length_exceeded');
+        });
+
+        it('strips prior agent context from system prompt on 400 retry', async () => {
+            // First call: 400 error, second call: succeeds after stripping context
+            mockOpenAI.chat.completions.create
+                .mockRejectedValueOnce({ status: 400, message: 'too large' })
+                .mockResolvedValueOnce({
+                    choices: [{ message: { content: 'Recovered successfully.' } }],
+                });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(runner as any, 'compactHistory').mockResolvedValue(false);
+
+            const systemWithContext = 'Base prompt.\n\n## Prior Agent Context\nThe following are reports:\n\n[Planner] (report): Big report here.';
+            const step = await (runner as any).callLLM(systemWithContext, 'query', ['thought1'], false);
+
+            expect(step.thought).toBe('Recovered successfully.');
+            // Verify second call used stripped system prompt
+            const secondCall = mockOpenAI.chat.completions.create.mock.calls[1][0];
+            expect(secondCall.messages[0].content).toBe('Base prompt.');
+            expect(secondCall.messages[0].content).not.toContain('Prior Agent Context');
+        });
+
+        it('applies level 2 aggressive trim on second 400 retry', async () => {
+            // All 3 calls fail with 400 — verify level 2 trimmed history
+            mockOpenAI.chat.completions.create.mockRejectedValue({ status: 400 });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            vi.spyOn(runner as any, 'compactHistory').mockResolvedValue(false);
+
+            const history = Array.from({ length: 20 }, (_, i) => `thought ${i}`);
+            const step = await (runner as any).callLLM('system', 'query', history, false);
+
+            expect(step.thought).toContain('Recovery failed after 3 attempts');
+            // After level 2 trim, state.thoughts should be trimmed to 4
+            const state = (runner as any).state;
+            expect(state.thoughts.length).toBeLessThanOrEqual(4);
         });
     });
 

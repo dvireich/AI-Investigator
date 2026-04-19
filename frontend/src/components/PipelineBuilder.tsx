@@ -15,6 +15,12 @@ function pickColor(index: number): string {
     return CUSTOM_COLORS[index % CUSTOM_COLORS.length];
 }
 
+const AGENT_ICONS = [
+    '🤖', '🛡️', '🔍', '📊', '🔬', '🧠', '📡', '🩹',
+    '⏱️', '📋', '😈', '🔎', '📜', '✅', '🔗', '🚨',
+    '💡', '⚡', '🎯', '🧪', '🔥', '✨', '🏗️', '🕵️',
+];
+
 // ── Props ────────────────────────────────────────────────────────────
 
 interface PipelineBuilderProps {
@@ -28,11 +34,13 @@ interface PipelineBuilderProps {
     availableModels?: string[];
     /** When true, the pipeline is shown read-only — no drag/delete/expand/add controls */
     readOnly?: boolean;
+    /** Display label for the pipeline section (e.g. workflow name). Falls back to pipeline.name */
+    label?: string;
 }
 
 // ── Component ────────────────────────────────────────────────────────
 
-export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChange, builtinAgents, availableModels = [], readOnly = false }) => {
+export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChange, builtinAgents, availableModels = [], readOnly = false, label }) => {
     const [dragIndex, setDragIndex] = useState<number | null>(null);
     const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
     const [editingStageIndex, setEditingStageIndex] = useState<number | null>(null);
@@ -255,7 +263,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                 const startIdx = safePage * PALETTE_PAGE_SIZE;
                 const pageAgents = filtered.slice(startIdx, Math.min(startIdx + PALETTE_PAGE_SIZE, filtered.length));
                 return (
-                    <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/40 shadow-sm space-y-3">
+                    <div className="bg-slate-800/40 p-5 rounded-2xl border border-slate-700/40 shadow-sm space-y-3 overflow-visible">
                         <div className="flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <label className="text-sm font-bold text-slate-300">Agent Palette</label>
@@ -331,7 +339,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
             {stages.length > 0 && (
                 <div className="flex items-center gap-3">
                     <span className="flex-1 text-sm font-semibold text-slate-300">
-                        {value?.name || 'Custom Pipeline'}
+                        {label || value?.name || 'Custom Pipeline'}
                     </span>
                     {!readOnly && <button
                         onClick={() => setShowJsonView(!showJsonView)}
@@ -562,11 +570,11 @@ const AgentChip: React.FC<{
             </button>
         )}
         {agent.description && (
-            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg shadow-xl text-[11px] text-slate-300 leading-relaxed w-64 opacity-0 invisible group-hover/chip:opacity-100 group-hover/chip:visible transition-all duration-150 pointer-events-none z-50">
+            <div className="absolute top-full left-0 mt-2 px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg shadow-xl text-[11px] text-slate-300 leading-relaxed w-64 opacity-0 invisible group-hover/chip:opacity-100 group-hover/chip:visible transition-all duration-150 pointer-events-none z-[100]">
+                <div className="absolute bottom-full left-4 -mb-px w-2 h-2 bg-slate-900 border-t border-l border-slate-600 rotate-45" />
                 <div className="font-semibold text-white mb-0.5">{agent.name}</div>
                 {savedId && <div className="text-[9px] text-cyan-400/60 mb-1">📚 Saved to library</div>}
                 {agent.description}
-                <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-2 h-2 bg-slate-900 border-b border-r border-slate-600 rotate-45" />
             </div>
         )}
     </div>
@@ -603,6 +611,7 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
         icon: '⚡',
         stages: [
             { builtinType: 'investigator' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 1 },
             { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 2 },
             { builtinType: 'implementation' },
             { builtinType: 'retrospect' },
@@ -611,12 +620,13 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'deep-investigation',
         name: 'Deep Investigation',
-        description: 'Thorough pipeline with planning, adversarial review, and executive summary for complex issues.',
+        description: 'Thorough pipeline with planning, adversarial review, grounding audit, and executive summary for complex issues.',
         icon: '🔬',
         stages: [
             { builtinType: 'planner' },
             { builtinType: 'investigator' },
-            { builtinType: 'devils-advocate', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
             { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
             { builtinType: 'summarizer' },
             { builtinType: 'retrospect' },
@@ -632,6 +642,7 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
             { builtinType: 'enrichment' },
             { builtinType: 'investigator' },
             { builtinType: 'timeline' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'remediation' },
             { builtinType: 'summarizer' },
@@ -651,10 +662,11 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'compliance-review',
         name: 'Compliance Review',
-        description: 'Investigation followed by security and compliance auditing with rejection authority.',
+        description: 'Investigation followed by grounding audit, compliance auditing, and change proposals.',
         icon: '📜',
         stages: [
             { builtinType: 'investigator' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 1 },
             { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 2 },
             { builtinType: 'compliance', canReject: true, onReject: 'flag' },
             { builtinType: 'implementation' },
@@ -664,15 +676,31 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'root-cause-analysis',
         name: 'Root Cause Analysis',
-        description: 'Correlate with past incidents, reconstruct timeline, and generate remediation plan.',
+        description: 'Correlate with past incidents, reconstruct timeline, verify grounding, and generate remediation plan.',
         icon: '🔍',
         stages: [
             { builtinType: 'planner' },
             { builtinType: 'investigator' },
             { builtinType: 'correlator' },
             { builtinType: 'timeline' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
             { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
             { builtinType: 'remediation' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+    {
+        id: 'grounded-investigation',
+        name: 'Grounded Investigation',
+        description: 'Rigorous pipeline that ensures all conclusions are grounded in observed telemetry — rejects absence-based reasoning where missing data is treated as evidence.',
+        icon: '📡',
+        stages: [
+            { builtinType: 'planner' },
+            { builtinType: 'investigator' },
+            { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'summarizer' },
             { builtinType: 'retrospect' },
         ],
     },
@@ -1121,6 +1149,7 @@ const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels,
     const [model, setModel] = useState(existingAgent?.model || '');
     const [maxSteps, setMaxSteps] = useState(existingAgent?.maxSteps ?? 0);
     const [color, setColor] = useState(existingAgent?.color || defaultColor);
+    const [icon, setIcon] = useState(existingAgent?.icon || '');
     const [showDescPopup, setShowDescPopup] = useState(false);
     const backdropRef = useRef<HTMLDivElement>(null);
     const descPopupRef = useRef<HTMLDivElement>(null);
@@ -1141,12 +1170,14 @@ const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels,
             color,
         };
 
+        if (icon) agent.icon = icon;
+
         if (source === 'builtin') {
             agent.builtinType = builtinType;
             const builtin = builtinAgents.find(a => (a.builtinType || a.id) === builtinType);
             if (builtin) {
                 agent.color = builtin.color || color;
-                agent.icon = builtin.icon;
+                if (!icon) agent.icon = builtin.icon;
             }
         } else if (source === 'file') {
             agent.promptPath = promptPath;
@@ -1383,6 +1414,35 @@ const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels,
                                     className="w-7 h-7 rounded-full border border-slate-600 cursor-pointer"
                                     title="Custom color"
                                 />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Icon picker */}
+                    {source !== 'builtin' && (
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 block mb-1.5">Icon <span className="text-slate-600">(optional)</span></label>
+                            <div className="flex flex-wrap gap-1.5">
+                                <button
+                                    onClick={() => setIcon('')}
+                                    className={`w-8 h-8 rounded-lg border text-xs transition-all flex items-center justify-center ${
+                                        !icon ? 'border-white bg-slate-700 text-slate-300 scale-105' : 'border-slate-700 bg-slate-800 text-slate-500 hover:border-slate-500'
+                                    }`}
+                                    title="No icon (auto-assign)"
+                                >
+                                    —
+                                </button>
+                                {AGENT_ICONS.map(i => (
+                                    <button
+                                        key={i}
+                                        onClick={() => setIcon(i)}
+                                        className={`w-8 h-8 rounded-lg border text-base transition-all flex items-center justify-center ${
+                                            icon === i ? 'border-white bg-slate-700 scale-105' : 'border-slate-700 bg-slate-800 hover:border-slate-500'
+                                        }`}
+                                    >
+                                        {i}
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     )}

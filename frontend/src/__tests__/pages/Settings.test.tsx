@@ -4668,8 +4668,9 @@ describe('Settings extra coverage', () => {
                 { id: 'a11', builtinType: 'remediation', source: 'builtin', name: 'Remediation', color: '#ea580c', icon: '🔧' },
                 { id: 'a12', builtinType: 'compliance', source: 'builtin', name: 'Compliance', color: '#4f46e5', icon: '📜' },
                 { id: 'a13', builtinType: 'correlator', source: 'builtin', name: 'Correlator', color: '#be185d', icon: '🔗' },
+                { id: 'a14', builtinType: 'signal-grounding', source: 'builtin', name: 'Signal Grounding Auditor', color: '#d946ef', icon: '📡' },
             ] as any);
-            // 6 presets + 1 None = 7 items, PAGE_SIZE=6 => 2 pages
+            // 7 presets + 1 None = 8 items, PAGE_SIZE=6 => 2 pages
             const user = userEvent.setup();
             renderSettings();
             await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
@@ -4695,6 +4696,7 @@ describe('Settings extra coverage', () => {
                 { id: 'a4', builtinType: 'implementation', source: 'builtin', name: 'Implementation', color: '#f59e0b', icon: '🔨' },
                 { id: 'a5', builtinType: 'retrospect', source: 'builtin', name: 'Retrospect', color: '#8b5cf6', icon: '📝' },
                 { id: 'a6', builtinType: 'compliance', source: 'builtin', name: 'Compliance', color: '#4f46e5', icon: '📜' },
+                { id: 'a7', builtinType: 'signal-grounding', source: 'builtin', name: 'Signal Grounding Auditor', color: '#d946ef', icon: '📡' },
             ] as any);
             vi.mocked(api.getSavedWorkflows).mockResolvedValue([
                 { id: 'sw-nd', name: 'No Desc Saved', pipeline: { id: 'p-nd', name: 'NoDWF', stages: [] }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },

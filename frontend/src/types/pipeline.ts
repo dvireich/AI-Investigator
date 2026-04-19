@@ -70,6 +70,10 @@ export interface PipelineStageState {
     feedback?: string;
     report?: string;
     retryCount: number;
+    canReject?: boolean;
+    onReject?: 'loop' | 'flag' | 'abort';
+    rejectTarget?: number | 'previous';
+    maxRetries?: number;
     startedAt?: number;
     completedAt?: number;
 }

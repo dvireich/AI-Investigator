@@ -561,6 +561,11 @@ export const Settings = () => {
                     pipeline: editingPipeline,
                 });
                 setSavedWorkflows(savedWorkflows.map(w => w.id === editingWorkflowId ? updated : w));
+                // Refresh the preview if this workflow is currently selected
+                if (selectedPipelineSource === `saved:${editingWorkflowId}`) {
+                    setPipelineConfig({ ...updated.pipeline, name: updated.name });
+                    setPipelineJson(JSON.stringify(updated.pipeline, null, 2));
+                }
                 toast('success', 'Workflow updated');
             } else {
                 const saved = await api.createSavedWorkflow({
@@ -1796,6 +1801,7 @@ export const Settings = () => {
                                         onChange={setEditingPipeline}
                                         builtinAgents={builtinAgents}
                                         availableModels={availableModels}
+                                        label={saveWorkflowName.trim() || undefined}
                                     />
                                 </div>
                                 <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-700/50">

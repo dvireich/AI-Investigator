@@ -301,6 +301,27 @@ export function createComplianceAgent(overrides?: Partial<AgentDefinition>): Age
 }
 
 /**
+ * Built-in: Signal Grounding Auditor agent.
+ * Audits investigation conclusions to ensure they are grounded in actually observed
+ * telemetry — not inferred from missing, absent, or expected-but-not-found data.
+ * Rejects conclusions that rely on absence-based reasoning since missing telemetry
+ * says nothing in an imperfect world where traces get dropped.
+ */
+export function createSignalGroundingAgent(overrides?: Partial<AgentDefinition>): AgentDefinition {
+    return {
+        id: 'builtin-signal-grounding',
+        name: 'Signal Grounding Auditor',
+        description: 'Audits conclusions to ensure they are grounded in observed telemetry, not inferred from missing data. Rejects absence-based reasoning — missing telemetry says nothing.',
+        source: 'builtin',
+        builtinType: 'signal-grounding',
+        promptPath: 'prompts/examples/SignalGroundingPrompt.md',
+        color: '#d946ef',
+        icon: '📡',
+        ...overrides,
+    };
+}
+
+/**
  * Registry of all built-in agent types.
  * Maps builtinType string → factory function.
  */
@@ -318,6 +339,7 @@ export const BUILTIN_AGENTS: Record<string, (overrides?: Partial<AgentDefinition
     timeline: createTimelineAgent,
     enrichment: createEnrichmentAgent,
     compliance: createComplianceAgent,
+    'signal-grounding': createSignalGroundingAgent,
 };
 
 /**

@@ -739,7 +739,24 @@ const attachPipelineListeners = (orchestrator: PipelineOrchestrator, id: string)
         }
         broadcast(id, 'log', data);
     });
-    orchestrator.on('status', (data) => broadcast(id, 'status', data));
+    orchestrator.on('status', (data) => {
+        // Sync status to the anchor runner so GET /api/investigations/:id returns the correct status
+        // (stage runners auto-pause on LLM errors, but the anchor runner wasn't being updated)
+        const runner = runners.get(id);
+        if (runner && data?.status) {
+            const st = (runner as any).state;
+            st.status = data.status;
+            if (data.status === 'paused' && !st.pausedAt) {
+                st.pausedAt = Date.now();
+            } else if (data.status === 'running' && st.pausedAt) {
+                const pausedDuration = Date.now() - st.pausedAt;
+                st.totalPausedTime = (st.totalPausedTime || 0) + pausedDuration;
+                st.pausedAt = undefined;
+            }
+        }
+        saveToDisk();
+        broadcast(id, 'status', data);
+    });
     orchestrator.on('retrospect', (data) => broadcast(id, 'retrospect', data));
     orchestrator.on('retrospect-proposal', (data) => broadcast(id, 'retrospect-proposal', data));
     orchestrator.on('retrospect-tool-activity', (data) => broadcast(id, 'retrospect-tool-activity', data));
