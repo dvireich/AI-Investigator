@@ -3075,10 +3075,146 @@ ${recsText}
     private async executeAction(action: any): Promise<any> {
         this.log(`Executing tool: ${action.tool}`);
         try {
+            // Subagent invocation is handled directly by the runner (needs LLM provider + ToolManager access)
+            if (action.tool === 'invoke_subagent') {
+                return await this.executeSubagent(action.args);
+            }
             return await this.toolManager.callTool(action.tool, action.args);
         } catch (e: any) {
             return `Error: ${e.message}${this.getErrorRemediation(e.message)}`;
         }
+    }
+
+    /**
+     * Execute a subagent as a focused sub-task within the current investigation.
+     *
+     * Loads the agent prompt from a `.agent.md` file (stripping YAML frontmatter),
+     * creates a child AgentRunner that shares the parent's ToolManager (MCP connections),
+     * runs it with a step limit, and returns the subagent's final report.
+     *
+     * Child agent thoughts are forwarded through the parent for timeline visibility.
+     */
+    private async executeSubagent(args: { agentPath: string; task: string; maxSteps?: number }): Promise<string> {
+        const { agentPath, task, maxSteps: subMaxSteps } = args;
+        const effectiveMaxSteps: number = subMaxSteps || 30;
+
+        // Resolve the agent file path
+        const repoRoot: string = this.config.repoRoot || '';
+        const resolvedPath: string = path.isAbsolute(agentPath)
+            ? agentPath
+            : path.join(repoRoot, agentPath);
+
+        if (!fs.existsSync(resolvedPath)) {
+            return `Error: Agent file not found: ${agentPath} (resolved to ${resolvedPath})`;
+        }
+
+        // Load and parse the agent file — strip YAML frontmatter, use markdown body as prompt
+        const fileContent: string = fs.readFileSync(resolvedPath, 'utf8');
+        const systemPrompt: string = this.stripFrontmatter(fileContent);
+
+        if (!systemPrompt.trim()) {
+            return `Error: Agent file ${agentPath} has no prompt content after frontmatter.`;
+        }
+
+        // Extract agent name from the first markdown heading or filename
+        const headingMatch: RegExpMatchArray | null = systemPrompt.match(/^#\s+(.+)/m);
+        const agentName: string = headingMatch
+            ? headingMatch[1].trim()
+            : path.basename(agentPath, path.extname(agentPath)).replace(/_/g, ' ');
+
+        this.log(`[Subagent] Invoking "${agentName}" from ${agentPath} (maxSteps: ${effectiveMaxSteps})`);
+
+        // Emit a thought so the parent timeline shows the subagent invocation
+        const startMsg: string = `🔀 Invoking subagent "${agentName}" for task: ${task.substring(0, 200)}${task.length > 200 ? '...' : ''}`;
+        this.state.thoughts.push(startMsg);
+        this.state.actions.push(null as any);
+        this.emit('thought', this.tagEvent(startMsg));
+
+        // Create a child runner that shares the parent's ToolManager (MCP connections)
+        const childConfig: AgentConfig = {
+            ...this.config,
+            maxSteps: effectiveMaxSteps,
+            systemPromptPath: resolvedPath, // Fallback — overridden by stageContext
+        };
+
+        const childRunner: AgentRunner = new AgentRunner(childConfig, this.llmProvider, {
+            status: 'running',
+            query: task,
+            target: this.state.target,
+            timeRange: this.state.timeRange,
+            category: this.state.category,
+            model: this.state.model,
+        });
+
+        // Share the parent's initialized ToolManager so MCP connections are reused
+        (childRunner as any).toolManager = this.toolManager;
+
+        // Set a stage context with the subagent's system prompt override
+        childRunner.setStageContext({
+            conversationLog: [],
+            stageIndex: 0,
+            agentId: `subagent-${path.basename(agentPath, path.extname(agentPath))}`,
+            agentName: agentName,
+            agentColor: '#6366f1',
+            agentIcon: '🔀',
+            systemPromptOverride: systemPrompt,
+        });
+
+        // Forward child thoughts to the parent timeline (tagged as subagent)
+        childRunner.on('thought', (data: any) => {
+            const content: string = typeof data === 'string' ? data : data?.content || String(data);
+            // Skip system/operational messages to reduce noise
+            if (content.startsWith('System:') || content.startsWith('[')) return;
+            const taggedMsg: string = `[${agentName}] ${content.substring(0, 500)}`;
+            this.emit('thought', this.tagEvent(taggedMsg));
+        });
+
+        // Run the child agent
+        try {
+            await childRunner.start(task);
+        } catch (err: any) {
+            this.log(`[Subagent] "${agentName}" failed: ${err.message}`);
+            return `Subagent "${agentName}" failed: ${err.message}`;
+        }
+
+        const childState: InvestigationState = (childRunner as any).state;
+
+        // Extract the subagent's output
+        const report: string = childState.finalReport
+            || childState.thoughts
+                .filter((t: any) => typeof t === 'string' || (t && t.role === 'assistant'))
+                .map((t: any) => typeof t === 'string' ? t : t.content)
+                .slice(-5)
+                .join('\n')
+            || 'Subagent completed but produced no output.';
+
+        const stepsTaken: number = childState.thoughts.length;
+        const finalStatus: string = childState.status;
+
+        this.log(`[Subagent] "${agentName}" finished: status=${finalStatus}, steps=${stepsTaken}, report=${report.length} chars`);
+
+        // Emit completion thought
+        const endMsg: string = `✅ Subagent "${agentName}" completed (${stepsTaken} steps, status: ${finalStatus})`;
+        this.state.thoughts.push(endMsg);
+        this.state.actions.push(null as any);
+        this.emit('thought', this.tagEvent(endMsg));
+
+        // Clean up child runner (but don't dispose ToolManager — it's shared)
+        childRunner.removeAllListeners();
+
+        return `## Subagent Report: ${agentName}\n\n**Status**: ${finalStatus}\n**Steps**: ${stepsTaken}\n\n${report}`;
+    }
+
+    /**
+     * Strip YAML frontmatter (--- delimited) from a markdown file.
+     * Returns the markdown body after the closing ---.
+     */
+    private stripFrontmatter(content: string): string {
+        const trimmed: string = content.trimStart();
+        if (!trimmed.startsWith('---')) return content;
+        const endIndex: number = trimmed.indexOf('---', 3);
+        if (endIndex === -1) return content;
+        return trimmed.substring(endIndex + 3).trim();
     }
 
     /**

@@ -6560,4 +6560,262 @@ describe('AgentRunner', () => {
         });
     });
 
+    describe('stripFrontmatter', () => {
+        it('strips YAML frontmatter from markdown', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const content = '---\ndescription: test\ntools: [read]\n---\n\n# My Agent\n\nYou are an agent.';
+            const result = (runner as any).stripFrontmatter(content);
+            expect(result).toBe('# My Agent\n\nYou are an agent.');
+        });
+
+        it('returns content unchanged when no frontmatter', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const content = '# My Agent\n\nNo frontmatter here.';
+            const result = (runner as any).stripFrontmatter(content);
+            expect(result).toBe(content);
+        });
+
+        it('returns content unchanged when only opening --- without closing', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const content = '---\ndescription: test\nNo closing delimiter.';
+            const result = (runner as any).stripFrontmatter(content);
+            expect(result).toBe(content);
+        });
+
+        it('handles leading whitespace before frontmatter', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const content = '  \n---\nkey: val\n---\n\nBody text.';
+            const result = (runner as any).stripFrontmatter(content);
+            expect(result).toBe('Body text.');
+        });
+    });
+
+    describe('invoke_subagent', () => {
+        it('returns error when agent file does not exist', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/NonExistent.agent.md',
+                task: 'Do something',
+            });
+            expect(result).toContain('Agent file not found');
+        });
+
+        it('returns error when agent file has no content after frontmatter', async () => {
+            const filePath = n(require('path').join('/repo', '.github/agents/Empty.agent.md'));
+            mockFsState.set(filePath, '---\ndescription: empty\n---\n\n   ');
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/Empty.agent.md',
+                task: 'Do something',
+            });
+            expect(result).toContain('no prompt content');
+        });
+
+        it('successfully invokes subagent and returns report', async () => {
+            // Set up agent file
+            const agentContent = '---\ndescription: Test agent\ntools: [read]\n---\n\n# Test Agent\n\nYou are a test specialist.';
+            const filePath = n(require('path').join('/repo', '.github/agents/Test.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            // The subagent LLM call returns finish immediately
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: { name: 'finish', arguments: JSON.stringify({ report: 'Subagent findings: all clear.' }) },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                target: 'stamp-01',
+                timeRange: 'ago(1h)',
+                model: 'test-model',
+            });
+            const thoughts: any[] = [];
+            runner.on('thought', (d) => thoughts.push(d));
+
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/Test.agent.md',
+                task: 'Trace workspace X',
+                maxSteps: 5,
+            });
+
+            // Verify the subagent report is returned
+            expect(result).toContain('Subagent Report: Test Agent');
+            expect(result).toContain('Subagent findings: all clear.');
+            expect(result).toContain('completed');
+
+            // Verify invocation and completion thoughts were emitted
+            expect(thoughts.some((t: any) => (typeof t === 'string' ? t : t?.content || '').includes('Invoking subagent'))).toBe(true);
+            expect(thoughts.some((t: any) => (typeof t === 'string' ? t : t?.content || '').includes('completed'))).toBe(true);
+        });
+
+        it('extracts agent name from first markdown heading', async () => {
+            const agentContent = '---\ndescription: Custom\n---\n\n# My Custom Agent Name\n\nPrompt body.';
+            const filePath = n(require('path').join('/repo', '.github/agents/Custom.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: { name: 'finish', arguments: '{"report":"ok"}' },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/Custom.agent.md',
+                task: 'Do work',
+            });
+
+            expect(result).toContain('My Custom Agent Name');
+        });
+
+        it('falls back to filename when no heading in prompt', async () => {
+            const agentContent = '---\ndescription: No heading\n---\n\nPrompt without a heading.';
+            const filePath = n(require('path').join('/repo', '.github/agents/Fallback_Name.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: { name: 'finish', arguments: '{"report":"ok"}' },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/Fallback_Name.agent.md',
+                task: 'Do work',
+            });
+
+            expect(result).toContain('Fallback Name');
+        });
+
+        it('handles subagent failure gracefully', async () => {
+            const agentContent = '---\ndescription: Failing\n---\n\n# Failing Agent\n\nFails.';
+            const filePath = n(require('path').join('/repo', '.github/agents/Failing.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            // Simulate LLM failure
+            mockOpenAI.chat.completions.create.mockRejectedValue(new Error('LLM crashed'));
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // The child runner catches errors internally within start(), setting status to 'failed'.
+            // The parent's executeSubagent catches any unhandled throw from start().
+            const result = await (runner as any).executeSubagent({
+                agentPath: '.github/agents/Failing.agent.md',
+                task: 'Will fail',
+                maxSteps: 2,
+            });
+
+            // Should return some result (either error or a report with failed status)
+            expect(typeof result).toBe('string');
+            expect(result).toContain('Failing Agent');
+        });
+
+        it('defaults maxSteps to 30 when not provided', async () => {
+            const agentContent = '---\ndescription: Test\n---\n\n# Step Counter\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/Steps.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: { name: 'finish', arguments: '{"report":"ok"}' },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const logSpy = vi.spyOn(runner as any, 'log');
+
+            await (runner as any).executeSubagent({
+                agentPath: '.github/agents/Steps.agent.md',
+                task: 'Task',
+            });
+
+            // Verify the log message shows maxSteps: 30 (default)
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('maxSteps: 30'));
+        });
+
+        it('routes invoke_subagent through executeAction', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            // Spy on executeSubagent to verify it gets called
+            const spy = vi.spyOn(runner as any, 'executeSubagent').mockResolvedValue('mocked result');
+
+            const result = await (runner as any).executeAction({
+                tool: 'invoke_subagent',
+                args: { agentPath: 'test.agent.md', task: 'test' },
+            });
+
+            expect(spy).toHaveBeenCalledWith({ agentPath: 'test.agent.md', task: 'test' });
+            expect(result).toBe('mocked result');
+        });
+
+        it('shares ToolManager with child and does not dispose it', async () => {
+            const agentContent = '---\ndescription: Shared\n---\n\n# Shared Agent\n\nPrompt.';
+            const filePath = n(require('path').join('/repo', '.github/agents/Shared.agent.md'));
+            mockFsState.set(filePath, agentContent);
+            mockDirs.add(n(require('path').join('/repo', '.github')));
+            mockDirs.add(n(require('path').join('/repo', '.github/agents')));
+
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: { name: 'finish', arguments: '{"report":"ok"}' },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            const parentToolManager = (runner as any).toolManager;
+
+            await (runner as any).executeSubagent({
+                agentPath: '.github/agents/Shared.agent.md',
+                task: 'Task',
+            });
+
+            // Parent's ToolManager should still be the same instance (not disposed)
+            expect((runner as any).toolManager).toBe(parentToolManager);
+            // cleanup should NOT have been called on the shared ToolManager
+            expect(mockToolManager.cleanup).not.toHaveBeenCalled();
+        });
+    });
+
 });
