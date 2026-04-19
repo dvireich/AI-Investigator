@@ -6646,7 +6646,6 @@ describe('AgentRunner', () => {
             const result = await (runner as any).executeSubagent({
                 agentPath: '.github/agents/Test.agent.md',
                 task: 'Trace workspace X',
-                maxSteps: 5,
             });
 
             // Verify the subagent report is returned
@@ -6731,7 +6730,6 @@ describe('AgentRunner', () => {
             const result = await (runner as any).executeSubagent({
                 agentPath: '.github/agents/Failing.agent.md',
                 task: 'Will fail',
-                maxSteps: 2,
             });
 
             // Should return some result (either error or a report with failed status)
@@ -6739,7 +6737,7 @@ describe('AgentRunner', () => {
             expect(result).toContain('Failing Agent');
         });
 
-        it('defaults maxSteps to 30 when not provided', async () => {
+        it('inherits maxSteps from parent config (settings)', async () => {
             const agentContent = '---\ndescription: Test\n---\n\n# Step Counter\n\nPrompt.';
             const filePath = n(require('path').join('/repo', '.github/agents/Steps.agent.md'));
             mockFsState.set(filePath, agentContent);
@@ -6766,8 +6764,8 @@ describe('AgentRunner', () => {
                 task: 'Task',
             });
 
-            // Verify the log message shows maxSteps: 30 (default)
-            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('maxSteps: 30'));
+            // Verify the log message does NOT mention maxSteps (no limit enforced)
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Invoking "Step Counter"'));
         });
 
         it('routes invoke_subagent through executeAction', async () => {

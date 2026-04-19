@@ -3094,9 +3094,8 @@ ${recsText}
      *
      * Child agent thoughts are forwarded through the parent for timeline visibility.
      */
-    private async executeSubagent(args: { agentPath: string; task: string; maxSteps?: number }): Promise<string> {
-        const { agentPath, task, maxSteps: subMaxSteps } = args;
-        const effectiveMaxSteps: number = subMaxSteps || 30;
+    private async executeSubagent(args: { agentPath: string; task: string }): Promise<string> {
+        const { agentPath, task } = args;
 
         // Resolve the agent file path
         const repoRoot: string = this.config.repoRoot || '';
@@ -3122,18 +3121,16 @@ ${recsText}
             ? headingMatch[1].trim()
             : path.basename(agentPath, path.extname(agentPath)).replace(/_/g, ' ');
 
-        this.log(`[Subagent] Invoking "${agentName}" from ${agentPath} (maxSteps: ${effectiveMaxSteps})`);
+        this.log(`[Subagent] Invoking "${agentName}" from ${agentPath}`);
 
         // Emit a thought so the parent timeline shows the subagent invocation
         const startMsg: string = `🔀 Invoking subagent "${agentName}" for task: ${task.substring(0, 200)}${task.length > 200 ? '...' : ''}`;
-        this.state.thoughts.push(startMsg);
-        this.state.actions.push(null as any);
         this.emit('thought', this.tagEvent(startMsg));
 
         // Create a child runner that shares the parent's ToolManager (MCP connections)
+        // Inherit maxSteps from settings (this.config.maxSteps) — same limit as the parent
         const childConfig: AgentConfig = {
             ...this.config,
-            maxSteps: effectiveMaxSteps,
             systemPromptPath: resolvedPath, // Fallback — overridden by stageContext
         };
 
@@ -3160,6 +3157,14 @@ ${recsText}
             systemPromptOverride: systemPrompt,
         });
 
+        // Propagate parent abort to the child so user can stop the subagent
+        const abortCheck = setInterval(() => {
+            if (this.aborted) {
+                childRunner.abort();
+                clearInterval(abortCheck);
+            }
+        }, 1000);
+
         // Forward child thoughts to the parent timeline (tagged as subagent)
         childRunner.on('thought', (data: any) => {
             const content: string = typeof data === 'string' ? data : data?.content || String(data);
@@ -3175,6 +3180,8 @@ ${recsText}
         } catch (err: any) {
             this.log(`[Subagent] "${agentName}" failed: ${err.message}`);
             return `Subagent "${agentName}" failed: ${err.message}`;
+        } finally {
+            clearInterval(abortCheck);
         }
 
         const childState: InvestigationState = (childRunner as any).state;
@@ -3195,14 +3202,47 @@ ${recsText}
 
         // Emit completion thought
         const endMsg: string = `✅ Subagent "${agentName}" completed (${stepsTaken} steps, status: ${finalStatus})`;
-        this.state.thoughts.push(endMsg);
-        this.state.actions.push(null as any);
         this.emit('thought', this.tagEvent(endMsg));
+
+        // Build condensed activity log for post-mortem debugging.
+        // Extract tool calls and errors so the parent agent (and persisted state) can see
+        // what the subagent did, even if it failed mid-run.
+        const activityLog: string[] = [];
+        for (const action of childState.actions) {
+            if (!action) continue;
+            const toolName: string = action.tool || 'unknown';
+            const resultPreview: string = action.result
+                ? String(action.result).substring(0, 100).replace(/\n/g, ' ')
+                : '';
+            activityLog.push(`- ${toolName}${resultPreview ? `: ${resultPreview}` : ''}`);
+        }
+        // Extract errors from child thoughts
+        const errors: string[] = childState.thoughts
+            .filter((t: any) => {
+                const text: string = typeof t === 'string' ? t : t?.content || '';
+                return text.startsWith('System Error:') || text.startsWith('Critical LLM Error:');
+            })
+            .map((t: any) => typeof t === 'string' ? t : t.content)
+            .map((s: string) => s.substring(0, 200));
 
         // Clean up child runner (but don't dispose ToolManager — it's shared)
         childRunner.removeAllListeners();
 
-        return `## Subagent Report: ${agentName}\n\n**Status**: ${finalStatus}\n**Steps**: ${stepsTaken}\n\n${report}`;
+        let result: string = `## Subagent Report: ${agentName}\n\n**Status**: ${finalStatus}\n**Steps**: ${stepsTaken}\n\n${report}`;
+
+        if (errors.length > 0) {
+            result += `\n\n### Subagent Errors\n${errors.map(e => `- ${e}`).join('\n')}`;
+        }
+
+        if (activityLog.length > 0) {
+            // Cap at 30 entries to avoid bloating the observation
+            const capped: string[] = activityLog.length > 30
+                ? [...activityLog.slice(0, 15), `... (${activityLog.length - 30} more tool calls) ...`, ...activityLog.slice(-15)]
+                : activityLog;
+            result += `\n\n### Subagent Activity Log (${activityLog.length} tool calls)\n${capped.join('\n')}`;
+        }
+
+        return result;
     }
 
     /**

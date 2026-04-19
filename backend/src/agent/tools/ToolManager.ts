@@ -115,8 +115,7 @@ export class ToolManager {
                     type: 'object',
                     properties: {
                         agentPath: { type: 'string', description: 'Path to the agent definition file (.agent.md), relative to the repo root. Example: ".github/agents/Teleduct_Investigation.agent.md"' },
-                        task: { type: 'string', description: 'Detailed task description for the subagent. Include all context it needs: specific workspaces, time ranges, parameters, and what output you expect.' },
-                        maxSteps: { type: 'number', description: 'Maximum number of steps the subagent can take (default: 30). Use fewer for simple tasks, more for complex investigations.' }
+                        task: { type: 'string', description: 'Detailed task description for the subagent. Include all context it needs: specific workspaces, time ranges, parameters, and what output you expect.' }
                     },
                     required: ['agentPath', 'task']
                 }
