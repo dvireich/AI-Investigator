@@ -4743,4 +4743,35 @@ describe('Settings extra coverage', () => {
         });
 
     });
+
+    describe('Agents tab', () => {
+        it('renders Agent Library when Agents tab is clicked', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue([
+                { id: 'a1', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#10b981', icon: '🤖', description: 'Main investigator' },
+                { id: 'a2', name: 'Validator', source: 'builtin', builtinType: 'validator', color: '#f59e0b', icon: '🛡️', description: 'Reviews findings' },
+            ] as any);
+            vi.mocked(api.getSavedAgents).mockResolvedValue([]);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Agents'));
+            await waitFor(() => {
+                expect(screen.getByText('Agent Library')).toBeInTheDocument();
+            });
+            expect(screen.getByText('Investigator')).toBeInTheDocument();
+            expect(screen.getByText('Validator')).toBeInTheDocument();
+        });
+
+        it('does not show Save Changes footer on Agents tab', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Agents'));
+            await waitFor(() => {
+                expect(screen.getByText('Agent Library')).toBeInTheDocument();
+            });
+            expect(screen.queryByText('Save Changes')).not.toBeInTheDocument();
+        });
+    });
 });
