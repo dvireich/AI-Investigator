@@ -280,6 +280,15 @@ export class PipelineOrchestrator extends EventEmitter {
                 stageState.completedAt = Date.now();
 
                 // Merge runner state back into current state
+                //
+                // finalReport policy:
+                //  - Retrospect stages always preserve (they analyse, not report).
+                //  - canReject stages (validators, DA, SGA) are review/gate stages
+                //    whose output is feedback, not the investigation report — their
+                //    reports are stored in stageState.report for the conversation log
+                //    but must NOT overwrite the investigator-produced finalReport.
+                //  - All other stages (planner, investigator, summarizer) update it.
+                const isReviewStage = !!stage.canReject;
                 currentState = {
                     ...currentState,
                     thoughts: runnerState.thoughts,
@@ -287,9 +296,7 @@ export class PipelineOrchestrator extends EventEmitter {
                     fullHistory: runnerState.fullHistory,
                     fullActions: runnerState.fullActions,
                     logs: [...currentState.logs, ...runnerState.logs],
-                    // Retrospect stages report on doc/playbook changes — keep the
-                    // investigation summary produced by an earlier stage (e.g. Summarizer).
-                    finalReport: isRetrospectStage ? currentState.finalReport : (result.report || currentState.finalReport),
+                    finalReport: (isRetrospectStage || isReviewStage) ? currentState.finalReport : (result.report || currentState.finalReport),
                     recommendations: runnerState.recommendations || currentState.recommendations,
                     verdict: (result.verdict as any) || currentState.verdict,
                     pipeline: this.pipelineState,

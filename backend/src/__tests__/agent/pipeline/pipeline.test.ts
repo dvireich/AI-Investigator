@@ -1199,6 +1199,45 @@ describe('PipelineOrchestrator', () => {
             expect(result.retrospect!.proposals).toHaveLength(1);
         });
 
+        it('canReject stages do not overwrite finalReport from investigator', async () => {
+            // Reproduces bug where validator/DA/SGA reports hijacked the
+            // investigation finalReport when no Summarizer stage was present.
+            const pipeline = makePipeline([
+                { agent: { id: 'inv', name: 'Investigator', source: 'inline', promptContent: 'investigate' } },
+                { agent: { id: 'val', name: 'Validator', source: 'inline', promptContent: 'validate' }, canReject: true, onReject: 'flag' },
+                { agent: { id: 'da', name: 'Devils Advocate', source: 'inline', promptContent: 'challenge' }, canReject: true, onReject: 'flag' },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+
+            let stageIdx = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                if (stageIdx === 0) {
+                    // Investigator produces the real report
+                    runner.state.finalReport = 'The actual investigation findings with data and analysis.';
+                    runner.state.actions = [{ tool: 'finish', args: { summary: 'The actual investigation findings with data and analysis.' } }];
+                } else if (stageIdx === 1) {
+                    // Validator flags with its own report
+                    runner.state.finalReport = 'Validation Report: FLAGGED — issues found.';
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'flagged', feedback: 'Missing scope', summary: 'Validation Report: FLAGGED — issues found.' } }];
+                    runner.state.verdict = 'flagged';
+                } else {
+                    // DA also flags with its own report
+                    runner.state.finalReport = 'DA Challenge Report: critical blind spots.';
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'flagged', feedback: 'Blind spots', summary: 'DA Challenge Report: critical blind spots.' } }];
+                    runner.state.verdict = 'flagged';
+                }
+                runner.state.status = 'completed';
+                stageIdx++;
+            };
+
+            const result = await orch.run('query');
+            // finalReport must be the Investigator's report, NOT the Validator's or DA's
+            expect(result.finalReport).toBe('The actual investigation findings with data and analysis.');
+            // Validator and DA reports should still be in stage states
+            expect(result.pipeline!.stages[1].report).toBe('Validation Report: FLAGGED — issues found.');
+            expect(result.pipeline!.stages[2].report).toBe('DA Challenge Report: critical blind spots.');
+        });
+
         it('handles rejection with loop strategy', async () => {
             const pipeline = makePipeline([
                 { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'x' } },
