@@ -2187,6 +2187,19 @@ describe('server utilities and routes', () => {
             }
         });
 
+        it('POST /api/settings/import with unknown pipelinePreset does not crash', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const response = await api().post('/api/settings/import').send({ pipelinePreset: 'nonexistent-preset' });
+                expect(response.status).toBe(200);
+                // Should not have resolved a pipeline from the unknown preset
+                expect(response.body.config.pipelinePreset).toBe('nonexistent-preset');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+            }
+        });
+
         it('supports auth login, polling, and configure success paths', async () => {
             const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
 

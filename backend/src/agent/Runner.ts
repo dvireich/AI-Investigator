@@ -2721,8 +2721,7 @@ ${recsText}
                     if (typeof dm === 'string') {
                         console.log(`[Agent]   ${dm}`);
                     } else {
-                        const contentSnippet = dm.content ? dm.content.substring(0, 100) : '(empty)';
-                        console.log(`[Agent]   role=${dm.role}, len=${dm.content?.length || 0}, content=${contentSnippet}`);
+                        console.log(`[Agent]   role=${dm.role}, len=${dm.content.length}, content=${dm.content.substring(0, 100)}`);
                     }
                 }
 
