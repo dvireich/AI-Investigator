@@ -61,6 +61,10 @@ export class PipelineOrchestrator extends EventEmitter {
                     icon: agent.icon!,
                     status: 'pending' as const,
                     retryCount: 0,
+                    canReject: stage.canReject,
+                    onReject: stage.onReject,
+                    rejectTarget: stage.rejectTarget,
+                    maxRetries: stage.maxRetries,
                 };
             }),
             currentStageIndex: 0,
@@ -276,6 +280,15 @@ export class PipelineOrchestrator extends EventEmitter {
                 stageState.completedAt = Date.now();
 
                 // Merge runner state back into current state
+                //
+                // finalReport policy:
+                //  - Retrospect stages always preserve (they analyse, not report).
+                //  - canReject stages (validators, DA, SGA) are review/gate stages
+                //    whose output is feedback, not the investigation report — their
+                //    reports are stored in stageState.report for the conversation log
+                //    but must NOT overwrite the investigator-produced finalReport.
+                //  - All other stages (planner, investigator, summarizer) update it.
+                const isReviewStage = !!stage.canReject;
                 currentState = {
                     ...currentState,
                     thoughts: runnerState.thoughts,
@@ -283,9 +296,7 @@ export class PipelineOrchestrator extends EventEmitter {
                     fullHistory: runnerState.fullHistory,
                     fullActions: runnerState.fullActions,
                     logs: [...currentState.logs, ...runnerState.logs],
-                    // Retrospect stages report on doc/playbook changes — keep the
-                    // investigation summary produced by an earlier stage (e.g. Summarizer).
-                    finalReport: isRetrospectStage ? currentState.finalReport : (result.report || currentState.finalReport),
+                    finalReport: (isRetrospectStage || isReviewStage) ? currentState.finalReport : (result.report || currentState.finalReport),
                     recommendations: runnerState.recommendations || currentState.recommendations,
                     verdict: (result.verdict as any) || currentState.verdict,
                     pipeline: this.pipelineState,
@@ -354,12 +365,16 @@ export class PipelineOrchestrator extends EventEmitter {
                                 this.pipeline.stages.length
                             );
 
-                            // Reset stages from target to current for re-execution
+                            // Reset stages from target to current for re-execution.
+                            // Also reset retryCount for intermediate stages so they
+                            // get a fresh chance to reject on the new pass (their
+                            // maxRetries is "per pass", not "total across all passes").
                             for (let i = targetIndex; i <= stageIndex; i++) {
                                 if (i !== stageIndex) {
                                     this.pipelineState.stages[i].status = 'pending';
                                     this.pipelineState.stages[i].startedAt = undefined; // Clear stale timestamps to prevent negative duration on retry
                                     this.pipelineState.stages[i].completedAt = undefined;
+                                    this.pipelineState.stages[i].retryCount = 0;
                                 }
                             }
 

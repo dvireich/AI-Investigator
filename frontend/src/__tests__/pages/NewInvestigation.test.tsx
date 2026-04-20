@@ -2313,6 +2313,7 @@ describe('NewInvestigation workflow presets', () => {
         { id: 'a11', name: 'Remediation', source: 'builtin' as const, builtinType: 'remediation', color: '#22c55e', icon: '🩹' },
         { id: 'a12', name: 'Correlator', source: 'builtin' as const, builtinType: 'correlator', color: '#f97316', icon: '🔀' },
         { id: 'a13', name: 'Compliance', source: 'builtin' as const, builtinType: 'compliance', color: '#6366f1', icon: '📜' },
+        { id: 'a14', name: 'Signal Grounding Auditor', source: 'builtin' as const, builtinType: 'signal-grounding', color: '#d946ef', icon: '📡' },
     ];
 
     beforeEach(async () => {
@@ -2442,7 +2443,7 @@ describe('NewInvestigation workflow presets', () => {
 
     it('paginates workflow cards when there are many presets', async () => {
         const { api } = await import('../../api');
-        // With configured pipeline + 6 presets = 7 items, needs 2 pages
+        // With configured pipeline + 7 presets = 8 items, needs 2 pages
         vi.mocked(api.getSettings).mockResolvedValue({
             model: 'gpt-4o',
             timeRange: 'ago(1h)',
@@ -2517,7 +2518,7 @@ describe('NewInvestigation workflow presets', () => {
         const standardCard = screen.getByText('Standard').closest('button');
         expect(standardCard).toBeTruthy();
         const circles = standardCard!.querySelectorAll('span.w-4.h-4.rounded-full');
-        expect(circles.length).toBe(4); // investigator, validator, implementation, retrospect
+        expect(circles.length).toBe(5); // investigator, signal-grounding, validator, implementation, retrospect
     });
 
     it('submits without pipeline when buildPipelinePreset throws (covers catch block)', async () => {
@@ -2554,6 +2555,7 @@ describe('NewInvestigation workflow presets', () => {
             { id: 'a2', name: 'Validator', source: 'builtin' as const, builtinType: 'validator', color: '#10b981' },
             { id: 'a3', name: 'Implementation', source: 'builtin' as const, builtinType: 'implementation', color: '#f59e0b' },
             { id: 'a4', name: 'Retrospect', source: 'builtin' as const, builtinType: 'retrospect' },
+            { id: 'a5', name: 'Signal Grounding Auditor', source: 'builtin' as const, builtinType: 'signal-grounding' },
         ] as any);
 
         renderNewInvestigation();
@@ -2562,7 +2564,7 @@ describe('NewInvestigation workflow presets', () => {
         expect(standardCard).toBeTruthy();
         // Verify circles render with name initial (no icon) and default color
         const circles = standardCard!.querySelectorAll('span.w-4.h-4.rounded-full');
-        expect(circles.length).toBe(4);
+        expect(circles.length).toBe(5);
     });
 
     it('covers configured pipeline card with empty name and sparse stages', async () => {

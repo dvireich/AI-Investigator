@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2, Calendar } from 'lucide-react';
+import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2, Calendar, Library } from 'lucide-react';
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
 import { api, type Product, type ProductValidation, type PathValidationResult, type DiscoverResult, type SavedWorkflow } from '../api';
 import { useToast } from '../components/Toast';
@@ -8,6 +8,7 @@ import { Tooltip } from '../components/Tooltip';
 import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
 import { PipelineBuilder, BuiltinDetailModal, PIPELINE_PRESETS, buildPipelinePreset } from '../components/PipelineBuilder';
+import { AgentLibrary } from '../components/AgentLibrary';
 import type { AgentDefinition } from '../types/pipeline';
 import { useNotification, getNotifEnabled, setNotifEnabled, getNotifSound, setNotifSound, getNotifEvents, setNotifEvents, ALL_NOTIF_EVENTS, type NotifEvent } from '../hooks/useNotification';
 
@@ -543,6 +544,7 @@ export const Settings = () => {
         { id: 'connections', label: 'Connections', icon: <Plug size={18} /> },
         { id: 'agent', label: 'Agent Behavior', icon: <Cpu size={18} /> },
         { id: 'pipeline', label: 'Pipeline', icon: <GitBranch size={18} /> },
+        { id: 'agents', label: 'Agents', icon: <Library size={18} /> },
         { id: 'schedules', label: 'Schedules', icon: <Calendar size={18} /> },
         { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
         { id: 'appearance', label: 'Appearance', icon: <Layout size={18} /> },
@@ -561,6 +563,11 @@ export const Settings = () => {
                     pipeline: editingPipeline,
                 });
                 setSavedWorkflows(savedWorkflows.map(w => w.id === editingWorkflowId ? updated : w));
+                // Refresh the preview if this workflow is currently selected
+                if (selectedPipelineSource === `saved:${editingWorkflowId}`) {
+                    setPipelineConfig({ ...updated.pipeline, name: updated.name });
+                    setPipelineJson(JSON.stringify(updated.pipeline, null, 2));
+                }
                 toast('success', 'Workflow updated');
             } else {
                 const saved = await api.createSavedWorkflow({
@@ -1796,6 +1803,7 @@ export const Settings = () => {
                                         onChange={setEditingPipeline}
                                         builtinAgents={builtinAgents}
                                         availableModels={availableModels}
+                                        label={saveWorkflowName.trim() || undefined}
                                     />
                                 </div>
                                 <div className="flex items-center justify-end gap-3 p-4 border-t border-slate-700/50">
@@ -1822,6 +1830,10 @@ export const Settings = () => {
 
                     {viewingAgent && (
                         <BuiltinDetailModal agent={viewingAgent} onClose={() => setViewingAgent(null)} />
+                    )}
+
+                    {activeTab === 'agents' && (
+                        <AgentLibrary builtinAgents={builtinAgents} />
                     )}
 
                     {activeTab === 'appearance' && (
@@ -2219,7 +2231,7 @@ export const Settings = () => {
                 </div>
 
                 {/* Footer Actions — hidden on tabs that have their own save UI */}
-                {activeTab !== 'products' && activeTab !== 'analytics' && activeTab !== 'connections' && (
+                {activeTab !== 'products' && activeTab !== 'analytics' && activeTab !== 'connections' && activeTab !== 'agents' && (
                 <div className="p-6 border-t border-white/[0.06] bg-slate-900/40 backdrop-blur-sm flex justify-between items-center gap-4">
                     <div className="flex items-center gap-2">
                         {saveSuccess && (

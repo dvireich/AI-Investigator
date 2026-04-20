@@ -162,6 +162,7 @@ describe('ToolManager', () => {
             expect(names).toContain('read_file');
             expect(names).toContain('list_dir');
             expect(names).toContain('finish');
+            expect(names).toContain('invoke_subagent');
             expect(names).toContain('mcp_tool');
         });
     });

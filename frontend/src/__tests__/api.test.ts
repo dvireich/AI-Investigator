@@ -1410,6 +1410,20 @@ describe('api', () => {
         });
     });
 
+    describe('getPipelinePresets', () => {
+        it('returns pipeline presets', async () => {
+            const presets = [{ id: 'default', name: 'Default', description: 'Default pipeline', stages: [] }];
+            mockFetch.mockResolvedValue(mockResponse(presets));
+            const result = await api.getPipelinePresets();
+            expect(result).toEqual(presets);
+        });
+
+        it('throws on error', async () => {
+            mockFetch.mockResolvedValue(mockResponse(null, { status: 500 }));
+            await expect(api.getPipelinePresets()).rejects.toThrow('Failed to fetch pipeline presets');
+        });
+    });
+
     describe('getInvestigationPipeline', () => {
         it('returns pipeline state', async () => {
             const pipelineState = { stages: [], conversationLog: [] };

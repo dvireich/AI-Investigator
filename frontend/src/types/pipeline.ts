@@ -59,6 +59,24 @@ export interface PipelineDefinition {
     agents?: AgentDefinition[];
 }
 
+/** A compact stage definition inside a preset — references agents by builtinType. */
+export interface PresetStageDefinition {
+    builtinType: string;
+    canReject?: boolean;
+    onReject?: 'loop' | 'flag' | 'abort';
+    rejectTarget?: number | 'previous';
+    maxRetries?: number;
+}
+
+/** A named pipeline preset that can be referenced by ID. */
+export interface PipelinePreset {
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    stages: PresetStageDefinition[];
+}
+
 export interface PipelineStageState {
     agentId: string;
     agentName: string;
@@ -70,6 +88,10 @@ export interface PipelineStageState {
     feedback?: string;
     report?: string;
     retryCount: number;
+    canReject?: boolean;
+    onReject?: 'loop' | 'flag' | 'abort';
+    rejectTarget?: number | 'previous';
+    maxRetries?: number;
     startedAt?: number;
     completedAt?: number;
 }

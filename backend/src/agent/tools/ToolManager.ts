@@ -107,6 +107,18 @@ export class ToolManager {
                     },
                     required: ['summary']
                 }
+            },
+            {
+                name: 'invoke_subagent',
+                description: 'Invoke another agent as a subagent to perform a focused sub-task. The subagent runs with the same tools and returns its final report. Use this when you need to hand off a specific aspect of the investigation (e.g., root-cause tracing for specific workspaces) to a specialized agent.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        agentPath: { type: 'string', description: 'Path to the agent definition file (.agent.md), relative to the repo root. Example: ".github/agents/Teleduct_Investigation.agent.md"' },
+                        task: { type: 'string', description: 'Detailed task description for the subagent. Include all context it needs: specific workspaces, time ranges, parameters, and what output you expect.' }
+                    },
+                    required: ['agentPath', 'task']
+                }
             }
         ];
 

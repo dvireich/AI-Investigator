@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2, RefreshCw, Download, Package, Rocket, Bell, Cpu, StickyNote, BellRing, ArrowDownUp, ClipboardList, History, PencilLine, CircleDot, ListOrdered, ShieldCheck, Gauge, Save } from 'lucide-react';
+import { Brain, GitBranch, Search, Wrench, Sparkles, CheckCircle2, MessageSquare, RotateCcw, Shield, Zap, Database, FileText, ChevronRight, Code2, Globe, Lock, Radio, AlertCircle, Compass, PenLine, Layers, LayoutGrid, ShieldAlert, Share2, FileDown, FileUp, GripHorizontal, CalendarClock, BookOpen, BarChart3, Users, SlidersHorizontal, TrendingUp, Smartphone, Pin, Settings2, RefreshCw, Download, Package, Rocket, Bell, Cpu, StickyNote, BellRing, ArrowDownUp, ClipboardList, History, PencilLine, CircleDot, ListOrdered, ShieldCheck, Gauge, Save, Workflow } from 'lucide-react';
 
 const FeatureCard = ({ icon, color, bg, title, desc }: { icon: React.ReactNode; color: string; bg: string; title: string; desc: string }) => (
     <div className={`rounded-2xl p-5 border flex flex-col gap-3 transition-all hover:-translate-y-0.5 hover:shadow-lg ${bg}`}>
@@ -272,6 +272,11 @@ export const About = () => {
                         bg="bg-slate-900/60 border-slate-800 hover:border-orange-500/20"
                         title="Saved custom workflows"
                         desc="Design your own multi-agent pipelines and save them for reuse. Create, edit, and delete custom workflows from the Settings Pipeline tab, then select them alongside built-in presets when launching investigations." />
+                    <FeatureCard icon={<Workflow className="w-4 h-4" />}
+                        color="bg-rose-500/10 border border-rose-500/20 text-rose-400"
+                        bg="bg-slate-900/60 border-slate-800 hover:border-rose-500/20"
+                        title="Subagent invocation"
+                        desc="Any agent can invoke another agent mid-run using the built-in invoke_subagent tool. The subagent loads a .agent.md file, shares MCP connections, and returns a structured report — enabling complex multi-agent handoffs within a single pipeline stage." />
                 </div>
             </section>
 
@@ -352,6 +357,7 @@ export const About = () => {
                         [Gauge,             'text-fuchsia-400', 'Concurrent schedule limit — cap simultaneous scheduled investigation runs'],
                         [GitBranch,         'text-cyan-400',    'Multi-agent pipelines — 13 built-in agents, drag-and-drop stage builder with rejection loops and per-stage overrides'],
                         [Layers,            'text-violet-400',  'Workflow presets — 7 pre-built pipeline templates selectable per investigation, plus your own configured pipeline'],
+                        [Workflow,           'text-rose-400',    'Subagent invocation — agents can invoke other agents mid-run via .agent.md files with shared MCP connections'],
                     ] as const).map(([Icon, color, text], i) => (
                         <div key={i} className="flex items-center gap-3 bg-slate-900/40 border border-slate-800/60 rounded-xl px-4 py-3">
                             <Icon className={`w-4 h-4 ${color} shrink-0`} />

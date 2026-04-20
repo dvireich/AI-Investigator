@@ -16,5 +16,11 @@ export {
     createInvestigatorAgent,
     createRetrospectAgent,
     createImplementationAgent,
+    PipelinePreset,
+    PresetStageDefinition,
+    PIPELINE_PRESETS,
+    buildPipelinePreset,
+    listPipelinePresets,
+    matchPipelinePreset,
 } from './builtinAgents';
 export { PipelineOrchestrator } from './PipelineOrchestrator';

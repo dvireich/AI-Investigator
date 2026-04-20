@@ -8,7 +8,7 @@ import * as pdfRenderer from '../pdfRenderer';
 import * as SchedulerModule from '../schedules/Scheduler';
 import { EventEmitter } from 'events';
 import { AgentRunner, type InvestigationState } from '../agent/Runner';
-import { PipelineOrchestrator } from '../agent/pipeline';
+import { PipelineOrchestrator, buildPipelinePreset } from '../agent/pipeline';
 import {
     __testUtils,
     applyStaticServing,
@@ -1292,6 +1292,32 @@ describe('server utilities and routes', () => {
             fs.writeFileSync(malformedPath, '{bad json');
             expect(() => __testUtils.loadConfigFromDisk(malformedPath, JSON.parse(JSON.stringify(defaultConfig)), malformedDir)).toThrow();
 
+            // Test pipelinePreset resolution
+            const presetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-preset-'));
+            const presetPath = path.join(presetDir, 'config.json');
+            fs.writeFileSync(presetPath, JSON.stringify({ pipelinePreset: 'deep-investigation' }));
+            const presetLoad = __testUtils.loadConfigFromDisk(presetPath, JSON.parse(JSON.stringify(defaultConfig)), presetDir);
+            expect(presetLoad.loaded).toBe(true);
+            expect(presetLoad.config.pipeline).toBeDefined();
+            expect(presetLoad.config.pipeline!.name).toBe('Deep Investigation');
+            expect(presetLoad.config.pipeline!.stages.length).toBeGreaterThan(0);
+
+            // Explicit pipeline takes priority over pipelinePreset
+            const bothDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-both-'));
+            const bothPath = path.join(bothDir, 'config.json');
+            const explicitPipeline = { id: 'custom', name: 'My Custom', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' } }] };
+            fs.writeFileSync(bothPath, JSON.stringify({ pipeline: explicitPipeline, pipelinePreset: 'deep-investigation' }));
+            const bothLoad = __testUtils.loadConfigFromDisk(bothPath, JSON.parse(JSON.stringify(defaultConfig)), bothDir);
+            expect(bothLoad.config.pipeline!.name).toBe('My Custom');
+
+            // Unknown pipelinePreset logs error but doesn't crash
+            const badPresetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-badpreset-'));
+            const badPresetPath = path.join(badPresetDir, 'config.json');
+            fs.writeFileSync(badPresetPath, JSON.stringify({ pipelinePreset: 'nonexistent-preset' }));
+            const badPresetLoad = __testUtils.loadConfigFromDisk(badPresetPath, JSON.parse(JSON.stringify(defaultConfig)), badPresetDir);
+            expect(badPresetLoad.loaded).toBe(true);
+            expect(badPresetLoad.config.pipeline).toBeUndefined();
+
             const persistedState = { id: 'persisted-product', target: 'stamp-persisted', productId: 'fallback-product' } as any;
             const storagePath = getInvestigationStoragePath(persistedState);
             fs.mkdirSync(storagePath, { recursive: true });
@@ -2082,6 +2108,96 @@ describe('server utilities and routes', () => {
             expect(response.status).toBe(500);
             expect(response.body.error).toContain('circular structure');
             consoleSpy.mockRestore();
+        });
+
+        it('POST /api/settings persists pipelinePreset instead of full pipeline when it matches a preset', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const pipeline = buildPipelinePreset('deep-investigation');
+                const response = await api().post('/api/settings').send({ pipeline });
+                expect(response.status).toBe(200);
+                // Runtime config should have both pipeline and pipelinePreset
+                expect(response.body.pipelinePreset).toBe('deep-investigation');
+                // Disk should have pipelinePreset, not pipeline
+                const onDisk = JSON.parse(fs.readFileSync(backendConfigFile, 'utf-8'));
+                expect(onDisk.pipelinePreset).toBe('deep-investigation');
+                expect(onDisk.pipeline).toBeUndefined();
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+            }
+        });
+
+        it('POST /api/settings persists custom pipeline inline and clears stale pipelinePreset', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const customPipeline = { id: 'my-custom', name: 'Custom', stages: [{ agent: { name: 'a', builtinType: 'investigator', role: 'test', systemPrompt: '' }, inputMode: 'conversation' as const }] };
+                const response = await api().post('/api/settings').send({ pipeline: customPipeline });
+                expect(response.status).toBe(200);
+                expect(response.body.pipelinePreset).toBeUndefined();
+                // Disk should NOT have pipelinePreset
+                const onDisk = JSON.parse(fs.readFileSync(backendConfigFile, 'utf-8'));
+                expect(onDisk.pipelinePreset).toBeUndefined();
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+            }
+        });
+
+        it('POST /api/settings/import with pipeline matching preset persists compact form', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const pipeline = buildPipelinePreset('default');
+                const response = await api().post('/api/settings/import').send({ pipeline });
+                expect(response.status).toBe(200);
+                const onDisk = JSON.parse(fs.readFileSync(backendConfigFile, 'utf-8'));
+                expect(onDisk.pipelinePreset).toBe('default');
+                expect(onDisk.pipeline).toBeUndefined();
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+            }
+        });
+
+        it('POST /api/settings/import with custom pipeline persists inline and clears preset', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const customPipeline = { id: 'imported-custom', name: 'Imported Custom', stages: [{ agent: { name: 'a', builtinType: 'investigator', role: 'r', systemPrompt: '' }, inputMode: 'conversation' as const }] };
+                const response = await api().post('/api/settings/import').send({ pipeline: customPipeline });
+                expect(response.status).toBe(200);
+                const onDisk = JSON.parse(fs.readFileSync(backendConfigFile, 'utf-8'));
+                expect(onDisk.pipelinePreset).toBeUndefined();
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+            }
+        });
+
+        it('POST /api/settings/import with pipelinePreset resolves to full pipeline at runtime', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const response = await api().post('/api/settings/import').send({ pipelinePreset: 'deep-investigation' });
+                expect(response.status).toBe(200);
+                // Runtime config should have the resolved pipeline
+                expect(response.body.config.pipeline).toBeDefined();
+                expect(response.body.config.pipeline.name).toBe('Deep Investigation');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+            }
+        });
+
+        it('POST /api/settings/import with unknown pipelinePreset does not crash', async () => {
+            const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
+            try {
+                const response = await api().post('/api/settings/import').send({ pipelinePreset: 'nonexistent-preset' });
+                expect(response.status).toBe(200);
+                // Should not have resolved a pipeline from the unknown preset
+                expect(response.body.config.pipelinePreset).toBe('nonexistent-preset');
+            } finally {
+                fs.writeFileSync(backendConfigFile, originalConfig);
+                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+            }
         });
 
         it('supports auth login, polling, and configure success paths', async () => {
@@ -7135,6 +7251,22 @@ describe('pipeline endpoints and integration', () => {
         expect(types).toContain('retrospect');
     });
 
+    it('GET /api/pipeline/presets returns pipeline presets', async () => {
+        const response = await api().get('/api/pipeline/presets');
+        expect(response.status).toBe(200);
+        expect(Array.isArray(response.body)).toBe(true);
+        expect(response.body.length).toBeGreaterThanOrEqual(5);
+        const ids = response.body.map((p: any) => p.id);
+        expect(ids).toContain('default');
+        expect(ids).toContain('deep-investigation');
+        // Each preset has required fields
+        for (const preset of response.body) {
+            expect(preset.name).toBeTruthy();
+            expect(preset.description).toBeTruthy();
+            expect(preset.stages.length).toBeGreaterThan(0);
+        }
+    });
+
     it('POST /api/pipeline/validate accepts valid pipeline', async () => {
         const response = await api().post('/api/pipeline/validate').send({
             id: 'test',
@@ -7414,6 +7546,21 @@ describe('pipeline endpoints and integration', () => {
         expect(runner.state.logs).toContain('test log entry');
         // syncRunnerState should have set pipeline state
         expect(runner.state.pipeline).toBeDefined();
+
+        // Emit status events to cover status sync handler (lines 745-758)
+        orchestrator!.emit('status', { status: 'paused' });
+        await new Promise(r => setTimeout(r, 50));
+        expect(runner.state.status).toBe('paused');
+        expect(runner.state.pausedAt).toBeDefined();
+
+        orchestrator!.emit('status', { status: 'running' });
+        await new Promise(r => setTimeout(r, 50));
+        expect(runner.state.status).toBe('running');
+        expect(runner.state.pausedAt).toBeUndefined();
+        expect(runner.state.totalPausedTime).toBeGreaterThanOrEqual(0);
+
+        // Emit status with empty data (no status field) — covers the falsy branch
+        orchestrator!.emit('status', {});
 
         // Make saveArtifacts throw to cover the catch branch in saveToDisk (line 707)
         runner.saveArtifacts = vi.fn().mockRejectedValue(new Error('disk full'));

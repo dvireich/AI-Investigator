@@ -70,7 +70,7 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **First-Launch Onboarding** | Multi-step setup wizard guides new users through LLM provider selection and product discovery |
 | **Auto-Update Checking** | Checks for new releases on startup, shows a floating notification card with download and release notes links. Session-only dismiss |
 | **Implementation Agent** | Select recommendations from the final report and let an AI coding agent propose exact code changes |
-| **Multi-Agent Pipelines** | Orchestrate sequential agent workflows with 13 built-in agents, 7 workflow presets, rejection loops, and shared context |
+| **Multi-Agent Pipelines** | Orchestrate sequential agent workflows with 13 built-in agents, 7 workflow presets, rejection loops, subagent invocation, and shared context |
 | **Agent Workflow Presets** | Choose from pre-built workflow templates (Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis) or create and save your own custom workflows with the visual pipeline editor. Searchable, paginated selector with agent stage previews |
 
 ---
@@ -498,6 +498,7 @@ Orchestrate sequential agent workflows where multiple specialized agents collabo
 - **Shared Conversation Context** — All agents share a `ConversationEntry[]` log with thoughts, actions, observations, reports, verdicts, and handoffs. Input mode per stage: `conversation` (full history) or `report-only` (last report)
 - **Real-Time Progress** — WebSocket events (`stage-start`, `stage-complete`, `stage-reject`) drive a live pipeline stepper and conversation timeline on the investigation detail page
 - **Custom Agents** — Define your own agents with inline prompts or file-based prompt paths, custom tool access, and MCP server configurations
+- **Subagent Invocation** — Any agent can invoke another agent mid-run using the built-in `invoke_subagent` tool. The subagent loads a `.agent.md` file, shares the parent's MCP connections, and returns a structured report — enabling complex multi-agent handoffs within a single pipeline stage
 
 ### 📊 Real-Time Streaming
 

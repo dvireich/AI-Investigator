@@ -127,6 +127,14 @@ export interface PipelineStageState {
     report?: string;
     /** How many times this stage has been re-run due to rejection loops. */
     retryCount: number;
+    /** Whether this stage can reject (copied from pipeline definition for UI). */
+    canReject?: boolean;
+    /** What to do on rejection: loop, flag, or abort (copied from pipeline definition for UI). */
+    onReject?: 'loop' | 'flag' | 'abort';
+    /** Target stage index (or 'previous') to loop back to on rejection (copied from pipeline definition for UI). */
+    rejectTarget?: number | 'previous';
+    /** Maximum rejection retries allowed (copied from pipeline definition for UI). */
+    maxRetries?: number;
     startedAt?: number;
     completedAt?: number;
 }
@@ -154,6 +162,64 @@ export interface StageContext {
     modelOverride?: string;
     /** Override maxSteps for this stage. */
     maxStepsOverride?: number;
+}
+
+/**
+ * Extract the most useful error message from an OpenAI SDK error.
+ * The SDK's APIError.message often contains the raw HTTP status + JSON body dump
+ * (e.g. "400 {...}") which is unreadable. This helper digs into every possible
+ * path to find the provider's actual error message.
+ */
+function extractLlmErrorDetail(error: any): string {
+    const parts: string[] = [];
+
+    // Helper: try to extract message/type/code from an object at any nesting level
+    const extractFrom = (obj: any, depth: number = 0): boolean => {
+        if (!obj || typeof obj !== 'object' || depth > 3) return false;
+        if (obj.message && typeof obj.message === 'string' && obj.message.length > 5) {
+            parts.push(obj.message);
+            if (obj.type) parts.push(`type:${obj.type}`);
+            if (obj.code) parts.push(`code:${obj.code}`);
+            if (obj.param) parts.push(`param:${obj.param}`);
+            return true;
+        }
+        // Recurse into .error (OpenAI style: body.error.message)
+        if (obj.error) return extractFrom(obj.error, depth + 1);
+        return false;
+    };
+
+    // Path 1: error.error (parsed response body from OpenAI SDK)
+    if (error.error) extractFrom(error.error);
+
+    // Path 2: error.body (some SDK versions)
+    if (parts.length === 0 && error.body) extractFrom(error.body);
+
+    // Path 3: error itself (might have .type/.code at top level from SDK)
+    if (parts.length === 0) {
+        if (error.type && error.code) {
+            parts.push(`type:${error.type}`, `code:${error.code}`);
+        }
+    }
+
+    if (parts.length > 0) return parts.join(', ');
+
+    // Path 4: error.message — but parse it if it contains embedded JSON
+    // (OpenAI SDK sets .message to "400 {\"error\": ...}" in some cases)
+    if (error.message && typeof error.message === 'string') {
+        const msg = error.message;
+        const jsonStart = msg.indexOf('{');
+        if (jsonStart >= 0) {
+            try {
+                const parsed = JSON.parse(msg.substring(jsonStart));
+                const extracted = extractFrom(parsed);
+                if (extracted) return parts.join(', ');
+            } catch (_e) { /* not JSON, fall through */ }
+        }
+        if (msg.length > 300) return msg.substring(0, 300) + '...';
+        return msg;
+    }
+
+    return `HTTP ${error.status || 'unknown'}`;
 }
 
 export class AgentRunner extends EventEmitter {
@@ -295,12 +361,28 @@ export class AgentRunner extends EventEmitter {
         // Load System Prompt & Inject Metadata
         let systemPrompt = this.loadSystemPrompt();
 
-        // Pipeline stage: inject prior agents' conversation into the prompt
+        // Pipeline stage: inject prior agents' context into the prompt.
+        // Only inject meaningful entries (reports, verdicts, handoffs) — not every
+        // operational thought/action ("Calling LLM...", "Deciding to use tool...")
+        // which are noise that inflates the system prompt and causes 400 errors.
         if (this.stageContext && this.stageContext.conversationLog.length > 0) {
-            const conversationText = this.stageContext.conversationLog
-                .map(e => `[${e.agentName}] (${e.role}): ${e.content}`)
-                .join('\n\n');
-            systemPrompt += `\n\n## Prior Agent Conversation\nThe following is the conversation from previous agents in this pipeline:\n\n${conversationText}`;
+            const meaningfulRoles = new Set(['report', 'verdict', 'handoff']);
+            const meaningfulEntries = this.stageContext.conversationLog
+                .filter(e => meaningfulRoles.has(e.role));
+
+            if (meaningfulEntries.length > 0) {
+                const MAX_CONVERSATION_CHARS = 30_000;
+                let conversationText = meaningfulEntries
+                    .map(e => `[${e.agentName}] (${e.role}): ${e.content}`)
+                    .join('\n\n');
+
+                if (conversationText.length > MAX_CONVERSATION_CHARS) {
+                    conversationText = conversationText.substring(0, MAX_CONVERSATION_CHARS) +
+                        '\n\n... [Prior agent context truncated for token management]';
+                }
+
+                systemPrompt += `\n\n## Prior Agent Context\nThe following are reports and decisions from previous agents in this pipeline:\n\n${conversationText}`;
+            }
         }
 
         // Context Injection
@@ -397,6 +479,7 @@ export class AgentRunner extends EventEmitter {
                     
                     if (isActualError) {
                         consecutiveLLMErrors++;
+                        consecutiveThoughts = 0; // Reset so retry doesn't force tool_choice:'required'
                         this.log(`LLM error detected (${consecutiveLLMErrors}/${maxConsecutiveErrors}): ${thoughtStr.substring(0, 100)}`);
 
                         // On timeout errors, attempt auto-compaction before retrying
@@ -427,12 +510,14 @@ export class AgentRunner extends EventEmitter {
                         }
                         
                         if (consecutiveLLMErrors >= maxConsecutiveErrors) {
-                            // Auto-pause instead of failing — give the user a chance to
-                            // manually summarize or adjust before losing the investigation
-                            this.log(`Max consecutive LLM errors reached. Auto-pausing investigation.`);
+                            // Proactively compact before pausing so resume starts with
+                            // a smaller payload instead of hitting the same error again
+                            this.log(`Max consecutive LLM errors reached. Compacting before auto-pause...`);
+                            await this.compactHistory(systemPrompt, userQuery, this.state.thoughts);
+
                             const pauseMsg = `System: Investigation auto-paused after ${maxConsecutiveErrors} consecutive LLM errors. ` +
                                 `Last error: ${thoughtStr.substring(0, 150)}. ` +
-                                `You can try: (1) Click "Summarize" to compact history, then Resume, or ` +
+                                `History was auto-compacted. You can try: (1) Resume (payload is now smaller), or ` +
                                 `(2) Switch to a different model, then Resume.`;
                             this.state.thoughts.push(pauseMsg);
                             this.state.actions.push(null as any);
@@ -2473,7 +2558,11 @@ ${recsText}
 
     private async callLLM(system: string, userQuery: string, history: any[], forceTool: boolean = false): Promise<any> {
         let currentHistory = history;
-        const maxAttempts = 2;
+        let currentSystem = system;
+        const maxAttempts = 3;
+        let lastPayloadChars = 0;
+        let lastEstimatedTokens = 0;
+        let forceToolDowngraded = false;
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
             try {
@@ -2514,18 +2603,27 @@ ${recsText}
                         content.substring(content.length - tailSize);
                 };
 
-                const messages = [
-                    { role: 'system', content: system },
-                    { role: 'user', content: userQuery },
-                    ...currentHistory.map(h => {
-                        // Support explicit role in history items
-                        if (h && typeof h === 'object' && h.role && h.content) {
-                            return { role: h.role, content: capContent(h.content) };
-                        }
-                        // Default to assistant for strings or other objects
-                        if (typeof h === 'string') return { role: 'assistant', content: capContent(h) };
-                        return { role: 'assistant', content: capContent(JSON.stringify(h)) };
+                // Filter out log-type entries that shouldn't be in the conversation,
+                // and sanitize roles: only 'user' and 'assistant' are valid mid-conversation.
+                // Entries with role:'system' or type:'log' from pipeline forwarding are skipped.
+                const historyMessages = currentHistory
+                    .filter(h => {
+                        if (h && typeof h === 'object' && h.type === 'log') return false;
+                        return true;
                     })
+                    .map(h => {
+                        if (h && typeof h === 'object' && h.role && h.content) {
+                            const role = (h.role === 'user') ? 'user' : 'assistant';
+                            return { role, content: capContent(h.content) };
+                        }
+                        if (typeof h === 'string') return { role: 'assistant' as const, content: capContent(h) };
+                        return { role: 'assistant' as const, content: capContent(JSON.stringify(h)) };
+                    });
+
+                const messages: any[] = [
+                    { role: 'system', content: currentSystem },
+                    { role: 'user', content: userQuery },
+                    ...historyMessages
                 ];
 
                 // FIX: If the last message is from the assistant, append a user message to satisfy API requirements
@@ -2585,7 +2683,7 @@ ${recsText}
                 // Force tool usage if looping AND we have tools
                 let toolChoice: any = openAiTools ? 'auto' : undefined;
 
-                if (forceTool) {
+                if (forceTool && !forceToolDowngraded) {
                     if (openAiTools) {
                         this.log("Forcing tool_choice: 'required' due to consecutive thoughts.");
                         toolChoice = 'required';
@@ -2597,6 +2695,8 @@ ${recsText}
                 // Estimate payload size and proactively compact if too large
                 const payloadStr = JSON.stringify({ model, messages, tools: openAiTools, tool_choice: toolChoice });
                 const estimatedTokens = Math.ceil(payloadStr.length / 4); // Rough estimate: ~4 chars per token
+                lastPayloadChars = payloadStr.length;
+                lastEstimatedTokens = estimatedTokens;
                 const maxPayloadChars = 600000; // ~150K tokens safety threshold (raised from 400K to reduce premature compaction)
                 
                 if (payloadStr.length > maxPayloadChars) {
@@ -2610,8 +2710,20 @@ ${recsText}
                     }
                 }
 
-                // DEBUG: Log payload size/stats instead of full dump
-                console.log(`[Agent] LLM Request: Model=${model}, Tools=${openAiTools?.length || 0}, ToolChoice=${toolChoice}, PayloadSize=${payloadStr.length} chars (~${estimatedTokens} tokens)`);
+                // DEBUG: Log payload size/stats and message structure
+                const roleCounts: Record<string, number> = {};
+                for (const m of messages) { roleCounts[m.role] = (roleCounts[m.role] || 0) + 1; }
+                console.log(`[Agent] LLM Request: Model=${model}, Tools=${openAiTools?.length || 0}, ToolChoice=${toolChoice}, PayloadSize=${payloadStr.length} chars (~${estimatedTokens} tokens), Roles=${JSON.stringify(roleCounts)}, MsgCount=${messages.length}`);
+                // Dump first 3 and last 3 messages for structure debugging
+                const debugMsgs = messages.length <= 6 ? messages : [...messages.slice(0, 3), '...', ...messages.slice(-3)];
+                for (let di = 0; di < debugMsgs.length; di++) {
+                    const dm = debugMsgs[di];
+                    if (typeof dm === 'string') {
+                        console.log(`[Agent]   ${dm}`);
+                    } else {
+                        console.log(`[Agent]   role=${dm.role}, len=${dm.content.length}, content=${dm.content.substring(0, 100)}`);
+                    }
+                }
 
                 const completion = await openai.chat.completions.create({
                     model: model,
@@ -2639,24 +2751,100 @@ ${recsText}
                 };
 
             } catch (error: any) {
+                // Dump EVERY property on the error object — stop guessing
+                try {
+                    const allKeys = new Set<string>();
+                    // Own + inherited enumerable
+                    for (const k in error) allKeys.add(k);
+                    // Own non-enumerable (like 'message', 'stack')
+                    if (error && typeof error === 'object') {
+                        Object.getOwnPropertyNames(error).forEach(k => allKeys.add(k));
+                    }
+                    const dump: Record<string, any> = { _constructor: error?.constructor?.name };
+                    for (const key of allKeys) {
+                        if (key === 'stack') continue; // skip stack trace noise
+                        try {
+                            const val = error[key];
+                            if (typeof val === 'function') continue;
+                            if (val === undefined) continue;
+                            const isObj = typeof val === 'object' && val !== null;
+                            dump[key] = isObj
+                                ? JSON.stringify(val).substring(0, 2000)
+                                : String(val).substring(0, 2000);
+                        } catch (_e) { dump[key] = `<error reading: ${_e}>`; }
+                    }
+                    console.log(`[Agent] FULL error dump (${allKeys.size} keys):`, JSON.stringify(dump, null, 2));
+                } catch (_e) { console.log(`[Agent] Error dump failed:`, _e, String(error)); }
+
+                // Also log a condensed version to the investigation log (visible in UI)
+                const rawMsg = error.message ? String(error.message).substring(0, 500) : '(no message)';
+                const rawBody = error.error ? JSON.stringify(error.error).substring(0, 500) : error.body ? JSON.stringify(error.body).substring(0, 500) : '(no body)';
+                this.log(`RAW ERROR: status=${error.status}, message=${rawMsg}, body=${rawBody}, constructor=${error?.constructor?.name}`);
+
+                // Extract the most useful error detail from the OpenAI SDK error object.
+                // The SDK wraps API errors as APIError with: .status, .message (raw HTTP dump),
+                // .error (parsed body with .message/.type/.code), .code, .type, .param.
+                const errorDetail = extractLlmErrorDetail(error);
+
                 // Check if this is a 400 error (token limit, malformed request, or oversized payload)
                 if (error.status === 400) {
-                    const errorMsg = error.message || 'Bad Request';
-                    this.log(`400 Error (Attempt ${attempt + 1}): ${errorMsg}`);
+                    const payloadInfo = `${lastPayloadChars.toLocaleString()} chars (~${lastEstimatedTokens.toLocaleString()} tokens)`;
+                    this.log(`400 Error (Attempt ${attempt + 1}/${maxAttempts}): ${errorDetail}. Payload: ${payloadInfo}`);
 
-                    // Try compaction for any 400 error (not just token-specific)
+                    // Progressive recovery — each retry applies more aggressive reduction:
+                    //   Level 0: downgrade tool_choice from 'required' to 'auto'
+                    //   Level 1: compact history + strip prior agent context
+                    //   Level 2: aggressive trim (keep only 4 recent thoughts, cap system prompt)
                     if (attempt < maxAttempts - 1) {
-                        this.log("Attempting auto-compaction to recover from 400 error...");
-                        const success = await this.compactHistory(system, userQuery, this.state.thoughts);
-                        if (success) {
-                            currentHistory = this.state.thoughts;
-                            continue; // Retry loop
+                        this.log(`Applying 400 recovery level ${attempt + 1}...`);
+
+                        // Always try downgrading tool_choice first — some APIs
+                        // (e.g. Copilot proxy) reject 'required' with a bare 400
+                        if (forceTool && !forceToolDowngraded) {
+                            this.log(`Downgrading tool_choice from 'required' to 'auto' for retry.`);
+                            forceToolDowngraded = true;
                         }
+
+                        // Always attempt compaction first
+                        const compacted = await this.compactHistory(system, userQuery, this.state.thoughts);
+                        if (compacted) {
+                            currentHistory = this.state.thoughts;
+                        }
+
+                        // Strip prior agent context from system prompt
+                        const priorContextMarker = '\n\n## Prior Agent Context\n';
+                        if (currentSystem.includes(priorContextMarker)) {
+                            const idx = currentSystem.indexOf(priorContextMarker);
+                            const stripped = currentSystem.length - idx;
+                            currentSystem = currentSystem.substring(0, idx);
+                            this.log(`Stripped prior agent context (${stripped} chars) from system prompt.`);
+                        }
+
+                        // Level 2+: aggressive reduction — fewer recent thoughts, cap system prompt
+                        if (attempt >= 1) {
+                            const aggressiveKeep = 4;
+                            if (currentHistory.length > aggressiveKeep + 2) {
+                                this.log(`Level 2: trimming history from ${currentHistory.length} to ${aggressiveKeep} recent entries.`);
+                                currentHistory = currentHistory.slice(-aggressiveKeep);
+                                this.state.thoughts = currentHistory;
+                                this.state.actions = this.state.actions.slice(-aggressiveKeep);
+                            }
+                            const MAX_SYSTEM_CHARS = 30_000;
+                            if (currentSystem.length > MAX_SYSTEM_CHARS) {
+                                const headSize = Math.floor(MAX_SYSTEM_CHARS * 0.8);
+                                const tailSize = Math.floor(MAX_SYSTEM_CHARS * 0.15);
+                                currentSystem = currentSystem.substring(0, headSize) +
+                                    '\n\n... [SYSTEM PROMPT TRUNCATED for context limits] ...\n\n' +
+                                    currentSystem.substring(currentSystem.length - tailSize);
+                                this.log(`Truncated system prompt to ~${MAX_SYSTEM_CHARS} chars.`);
+                            }
+                        }
+
+                        continue;
                     }
 
-                    this.log(`Recovery from 400 error failed. Investigation cannot continue.`);
                     return {
-                        thought: `System Alert: LLM returned 400 error (${errorMsg}). Auto-recovery failed. Investigation stopped to prevent infinite loop.`,
+                        thought: `System Alert: LLM returned 400 error — ${errorDetail}. Payload: ${payloadInfo}. Recovery failed after ${maxAttempts} attempts (compaction + context stripping + aggressive trim).`,
                         isFinal: true
                     };
                 }
@@ -2664,9 +2852,9 @@ ${recsText}
                 // For timeout errors, include hint about context size
                 const isTimeout = error.message?.includes('timed out') || error.message?.includes('timeout') || error.code === 'ETIMEDOUT';
                 const hint = isTimeout ? ' The context may be too large — auto-compaction will be attempted on retry.' : '';
-                this.log(`LLM Error: ${error.message}${hint}`);
+                this.log(`LLM Error: ${errorDetail}${hint}`);
                 return {
-                    thought: `Critical LLM Error: ${error.message}`,
+                    thought: `Critical LLM Error: ${errorDetail}`,
                     isFinal: true
                 };
             }
@@ -2891,10 +3079,186 @@ ${recsText}
     private async executeAction(action: any): Promise<any> {
         this.log(`Executing tool: ${action.tool}`);
         try {
+            // Subagent invocation is handled directly by the runner (needs LLM provider + ToolManager access)
+            if (action.tool === 'invoke_subagent') {
+                return await this.executeSubagent(action.args);
+            }
             return await this.toolManager.callTool(action.tool, action.args);
         } catch (e: any) {
             return `Error: ${e.message}${this.getErrorRemediation(e.message)}`;
         }
+    }
+
+    /**
+     * Execute a subagent as a focused sub-task within the current investigation.
+     *
+     * Loads the agent prompt from a `.agent.md` file (stripping YAML frontmatter),
+     * creates a child AgentRunner that shares the parent's ToolManager (MCP connections),
+     * runs it with a step limit, and returns the subagent's final report.
+     *
+     * Child agent thoughts are forwarded through the parent for timeline visibility.
+     */
+    private async executeSubagent(args: { agentPath: string; task: string }): Promise<string> {
+        const { agentPath, task } = args;
+
+        // Resolve the agent file path
+        const repoRoot: string = this.config.repoRoot || '';
+        const resolvedPath: string = path.isAbsolute(agentPath)
+            ? agentPath
+            : path.join(repoRoot, agentPath);
+
+        if (!fs.existsSync(resolvedPath)) {
+            return `Error: Agent file not found: ${agentPath} (resolved to ${resolvedPath})`;
+        }
+
+        // Load and parse the agent file — strip YAML frontmatter, use markdown body as prompt
+        const fileContent: string = fs.readFileSync(resolvedPath, 'utf8');
+        const systemPrompt: string = this.stripFrontmatter(fileContent);
+
+        if (!systemPrompt.trim()) {
+            return `Error: Agent file ${agentPath} has no prompt content after frontmatter.`;
+        }
+
+        // Extract agent name from the first markdown heading or filename
+        const headingMatch: RegExpMatchArray | null = systemPrompt.match(/^#\s+(.+)/m);
+        const agentName: string = headingMatch
+            ? headingMatch[1].trim()
+            : path.basename(agentPath, path.extname(agentPath)).replace(/_/g, ' ');
+
+        this.log(`[Subagent] Invoking "${agentName}" from ${agentPath}`);
+
+        // Emit a thought so the parent timeline shows the subagent invocation
+        const startMsg: string = `🔀 Invoking subagent "${agentName}" for task: ${task.substring(0, 200)}${task.length > 200 ? '...' : ''}`;
+        this.emit('thought', this.tagEvent(startMsg));
+
+        // Create a child runner that shares the parent's ToolManager (MCP connections)
+        // Inherit maxSteps from settings (this.config.maxSteps) — same limit as the parent
+        const childConfig: AgentConfig = {
+            ...this.config,
+            systemPromptPath: resolvedPath, // Fallback — overridden by stageContext
+        };
+
+        const childRunner: AgentRunner = new AgentRunner(childConfig, this.llmProvider, {
+            status: 'running',
+            query: task,
+            target: this.state.target,
+            timeRange: this.state.timeRange,
+            category: this.state.category,
+            model: this.state.model,
+        });
+
+        // Share the parent's initialized ToolManager so MCP connections are reused
+        (childRunner as any).toolManager = this.toolManager;
+
+        // Set a stage context with the subagent's system prompt override
+        childRunner.setStageContext({
+            conversationLog: [],
+            stageIndex: 0,
+            agentId: `subagent-${path.basename(agentPath, path.extname(agentPath))}`,
+            agentName: agentName,
+            agentColor: '#6366f1',
+            agentIcon: '🔀',
+            systemPromptOverride: systemPrompt,
+        });
+
+        // Propagate parent abort to the child so user can stop the subagent
+        const abortCheck = setInterval(() => {
+            if (this.aborted) {
+                childRunner.abort();
+                clearInterval(abortCheck);
+            }
+        }, 1000);
+
+        // Forward child thoughts to the parent timeline (tagged as subagent)
+        childRunner.on('thought', (data: any) => {
+            const content: string = typeof data === 'string' ? data : data?.content || String(data);
+            // Skip system/operational messages to reduce noise
+            if (content.startsWith('System:') || content.startsWith('[')) return;
+            const taggedMsg: string = `[${agentName}] ${content.substring(0, 500)}`;
+            this.emit('thought', this.tagEvent(taggedMsg));
+        });
+
+        // Run the child agent
+        try {
+            await childRunner.start(task);
+        } catch (err: any) {
+            this.log(`[Subagent] "${agentName}" failed: ${err.message}`);
+            return `Subagent "${agentName}" failed: ${err.message}`;
+        } finally {
+            clearInterval(abortCheck);
+        }
+
+        const childState: InvestigationState = (childRunner as any).state;
+
+        // Extract the subagent's output
+        const report: string = childState.finalReport
+            || childState.thoughts
+                .filter((t: any) => typeof t === 'string' || (t && t.role === 'assistant'))
+                .map((t: any) => typeof t === 'string' ? t : t.content)
+                .slice(-5)
+                .join('\n')
+            || 'Subagent completed but produced no output.';
+
+        const stepsTaken: number = childState.thoughts.length;
+        const finalStatus: string = childState.status;
+
+        this.log(`[Subagent] "${agentName}" finished: status=${finalStatus}, steps=${stepsTaken}, report=${report.length} chars`);
+
+        // Emit completion thought
+        const endMsg: string = `✅ Subagent "${agentName}" completed (${stepsTaken} steps, status: ${finalStatus})`;
+        this.emit('thought', this.tagEvent(endMsg));
+
+        // Build condensed activity log for post-mortem debugging.
+        // Extract tool calls and errors so the parent agent (and persisted state) can see
+        // what the subagent did, even if it failed mid-run.
+        const activityLog: string[] = [];
+        for (const action of childState.actions) {
+            if (!action) continue;
+            const toolName: string = action.tool || 'unknown';
+            const resultPreview: string = action.result
+                ? String(action.result).substring(0, 100).replace(/\n/g, ' ')
+                : '';
+            activityLog.push(`- ${toolName}${resultPreview ? `: ${resultPreview}` : ''}`);
+        }
+        // Extract errors from child thoughts
+        const errors: string[] = childState.thoughts
+            .filter((t: any) => {
+                const text: string = typeof t === 'string' ? t : t?.content || '';
+                return text.startsWith('System Error:') || text.startsWith('Critical LLM Error:');
+            })
+            .map((t: any) => typeof t === 'string' ? t : t.content)
+            .map((s: string) => s.substring(0, 200));
+
+        // Clean up child runner (but don't dispose ToolManager — it's shared)
+        childRunner.removeAllListeners();
+
+        let result: string = `## Subagent Report: ${agentName}\n\n**Status**: ${finalStatus}\n**Steps**: ${stepsTaken}\n\n${report}`;
+
+        if (errors.length > 0) {
+            result += `\n\n### Subagent Errors\n${errors.map(e => `- ${e}`).join('\n')}`;
+        }
+
+        if (activityLog.length > 0) {
+            // Cap at 30 entries to avoid bloating the observation
+            const capped: string[] = activityLog.length > 30
+                ? [...activityLog.slice(0, 15), `... (${activityLog.length - 30} more tool calls) ...`, ...activityLog.slice(-15)]
+                : activityLog;
+            result += `\n\n### Subagent Activity Log (${activityLog.length} tool calls)\n${capped.join('\n')}`;
+        }
+
+        return result;
+    }
+
+    /**
+     * Strip YAML frontmatter (--- delimited) from a markdown file.
+     * Returns the markdown body after the closing ---.
+     */
+    private stripFrontmatter(content: string): string {
+        const trimmed: string = content.trimStart();
+        if (!trimmed.startsWith('---')) return content;
+        const endIndex: number = trimmed.indexOf('---', 3);
+        if (endIndex === -1) return content;
+        return trimmed.substring(endIndex + 3).trim();
     }
 
     /**
