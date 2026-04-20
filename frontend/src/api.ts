@@ -940,6 +940,12 @@ export const api = {
         return response.json();
     },
 
+    getPipelinePresets: async (): Promise<import('./types/pipeline').PipelinePreset[]> => {
+        const response = await fetch(`${API_URL}/pipeline/presets`);
+        if (!response.ok) throw new Error('Failed to fetch pipeline presets');
+        return response.json();
+    },
+
     getInvestigationPipeline: async (id: string): Promise<import('./types/pipeline').PipelineState | null> => {
         const response = await fetch(`${API_URL}/investigations/${encodeURIComponent(id)}/pipeline`);
         if (response.status === 404) return null;

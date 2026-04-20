@@ -29,6 +29,10 @@ import {
     createEnrichmentAgent,
     createComplianceAgent,
     BUILTIN_AGENTS,
+    buildPipelinePreset,
+    listPipelinePresets,
+    PIPELINE_PRESETS,
+    matchPipelinePreset,
 } from '../../../agent/pipeline/builtinAgents';
 import { createValidatorAgent } from '../../../agent/pipeline/builtinAgents';
 
@@ -1934,6 +1938,150 @@ describe('PipelineOrchestrator', () => {
             const stage = orch.getPipelineState().stages[0];
             expect(stage.startedAt).toBeDefined();
             expect(stage.completedAt).toBeDefined();
+        });
+    });
+});
+
+// ──────────────────────────────────────────────
+// Pipeline Presets
+// ──────────────────────────────────────────────
+describe('Pipeline Presets', () => {
+    describe('PIPELINE_PRESETS', () => {
+        it('contains at least 5 presets', () => {
+            expect(PIPELINE_PRESETS.length).toBeGreaterThanOrEqual(5);
+        });
+
+        it('each preset has id, name, description, icon, and at least one stage', () => {
+            for (const preset of PIPELINE_PRESETS) {
+                expect(preset.id).toBeTruthy();
+                expect(preset.name).toBeTruthy();
+                expect(preset.description).toBeTruthy();
+                expect(preset.icon).toBeTruthy();
+                expect(preset.stages.length).toBeGreaterThan(0);
+            }
+        });
+
+        it('all stage builtinTypes reference valid builtin agents', () => {
+            for (const preset of PIPELINE_PRESETS) {
+                for (const stage of preset.stages) {
+                    expect(getBuiltinAgent(stage.builtinType)).toBeDefined();
+                }
+            }
+        });
+
+        it('all preset IDs are unique', () => {
+            const ids = PIPELINE_PRESETS.map(p => p.id);
+            expect(new Set(ids).size).toBe(ids.length);
+        });
+
+        it('includes the deep-investigation preset', () => {
+            const deep = PIPELINE_PRESETS.find(p => p.id === 'deep-investigation');
+            expect(deep).toBeDefined();
+            expect(deep!.name).toBe('Deep Investigation');
+            expect(deep!.stages.some(s => s.builtinType === 'planner')).toBe(true);
+            expect(deep!.stages.some(s => s.builtinType === 'investigator')).toBe(true);
+            expect(deep!.stages.some(s => s.builtinType === 'summarizer')).toBe(true);
+        });
+
+        it('includes the default preset', () => {
+            const def = PIPELINE_PRESETS.find(p => p.id === 'default');
+            expect(def).toBeDefined();
+            expect(def!.stages.some(s => s.builtinType === 'investigator')).toBe(true);
+        });
+    });
+
+    describe('buildPipelinePreset', () => {
+        it('builds a valid PipelineDefinition from a known preset', () => {
+            const pipeline = buildPipelinePreset('deep-investigation');
+            expect(pipeline.id).toBe('preset-deep-investigation');
+            expect(pipeline.name).toBe('Deep Investigation');
+            expect(pipeline.stages.length).toBeGreaterThan(0);
+            // Each stage should have a resolved agent
+            for (const stage of pipeline.stages) {
+                expect(stage.agent).toBeDefined();
+                expect(stage.agent!.name).toBeTruthy();
+            }
+        });
+
+        it('preserves canReject, onReject, rejectTarget, and maxRetries', () => {
+            const pipeline = buildPipelinePreset('deep-investigation');
+            const validatorStage = pipeline.stages.find(s => s.agent?.builtinType === 'validator');
+            expect(validatorStage).toBeDefined();
+            expect(validatorStage!.canReject).toBe(true);
+            expect(validatorStage!.onReject).toBe('loop');
+            expect(validatorStage!.rejectTarget).toBe(1);
+            expect(validatorStage!.maxRetries).toBe(1);
+        });
+
+        it('sets inputMode to conversation on all stages', () => {
+            const pipeline = buildPipelinePreset('default');
+            for (const stage of pipeline.stages) {
+                expect(stage.inputMode).toBe('conversation');
+            }
+        });
+
+        it('throws for unknown preset ID', () => {
+            expect(() => buildPipelinePreset('nonexistent')).toThrow(/Unknown pipeline preset/);
+        });
+
+        it('throws when all stages resolve to unknown agents', () => {
+            // Temporarily inject a preset with invalid builtinTypes
+            const fakePreset = {
+                id: 'test-empty-stages',
+                name: 'Test Empty Stages',
+                description: 'Test preset',
+                stages: [
+                    { builtinType: 'nonexistent-agent-type-1' },
+                    { builtinType: 'nonexistent-agent-type-2' },
+                ],
+            };
+            PIPELINE_PRESETS.push(fakePreset as any);
+            try {
+                expect(() => buildPipelinePreset('test-empty-stages')).toThrow(/No agents available for preset/);
+            } finally {
+                PIPELINE_PRESETS.pop();
+            }
+        });
+
+        it('builds all presets without error', () => {
+            for (const preset of PIPELINE_PRESETS) {
+                const pipeline = buildPipelinePreset(preset.id);
+                expect(pipeline.stages.length).toBeGreaterThan(0);
+            }
+        });
+    });
+
+    describe('listPipelinePresets', () => {
+        it('returns all presets', () => {
+            const presets = listPipelinePresets();
+            expect(presets).toBe(PIPELINE_PRESETS);
+            expect(presets.length).toBeGreaterThanOrEqual(5);
+        });
+    });
+
+    describe('matchPipelinePreset', () => {
+        it('matches by pipeline id convention (preset-<id>)', () => {
+            const pipeline = buildPipelinePreset('deep-investigation');
+            expect(matchPipelinePreset(pipeline)).toBe('deep-investigation');
+        });
+
+        it('matches by pipeline name', () => {
+            expect(matchPipelinePreset({ id: 'custom-id', name: 'Deep Investigation', stages: [] })).toBe('deep-investigation');
+        });
+
+        it('returns undefined for non-matching pipeline', () => {
+            expect(matchPipelinePreset({ id: 'custom', name: 'My Custom Pipeline', stages: [] })).toBeUndefined();
+        });
+
+        it('returns undefined for pipeline with preset-like id but unknown suffix', () => {
+            expect(matchPipelinePreset({ id: 'preset-nonexistent', name: 'Unknown', stages: [] })).toBeUndefined();
+        });
+
+        it('matches all built presets', () => {
+            for (const preset of PIPELINE_PRESETS) {
+                const pipeline = buildPipelinePreset(preset.id);
+                expect(matchPipelinePreset(pipeline)).toBe(preset.id);
+            }
         });
     });
 });

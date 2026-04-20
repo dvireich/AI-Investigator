@@ -3,7 +3,7 @@ import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import { AgentRunner, InvestigationState } from './agent/Runner';
-import { PipelineDefinition, PipelineOrchestrator, listBuiltinAgents, validatePipeline } from './agent/pipeline';
+import { PipelineDefinition, PipelineOrchestrator, listBuiltinAgents, validatePipeline, buildPipelinePreset, listPipelinePresets, matchPipelinePreset } from './agent/pipeline';
 import { LlmProviderRegistry } from './agent/llm/LlmProviderRegistry';
 import { LlmProvider } from './agent/llm/LlmProvider';
 import { IncidentProviderRegistry } from './agent/incidents/IncidentProviderRegistry';
@@ -929,6 +929,8 @@ let config: {
     analyticsVisible: boolean;
     // Multi-agent pipeline configuration
     pipeline?: PipelineDefinition;
+    /** Shorthand: reference a built-in pipeline preset by ID instead of defining pipeline inline. */
+    pipelinePreset?: string;
     // Time zone preference for custom time ranges
     defaultTimeZoneMode: 'utc' | 'local';
 } = {
@@ -964,6 +966,7 @@ let config: {
     analyticsWidgets: ['trend', 'targetActivity', 'successRate'],
     analyticsVisible: true,
     pipeline: undefined,
+    pipelinePreset: undefined,
     defaultTimeZoneMode: 'utc',
 };
 
@@ -991,7 +994,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'llmProvider', 'incidentProvider',
     'defaultView', 'defaultSortOrder', 'defaultPageSize',
     'analyticsWidgets', 'analyticsVisible',
-    'pipeline',
+    'pipeline', 'pipelinePreset',
     'defaultTimeZoneMode',
 ]);
 
@@ -1086,6 +1089,16 @@ export function loadConfigFromDisk(targetConfigFile: string, baseConfig: typeof 
     const mergedConfig = { ...nextConfig, ...savedConfig };
     mergedConfig.retrospectPromptPath = resolvedRetrospectPromptPath;
     resolveConfigPaths(mergedConfig, baseDir);
+
+    // Resolve pipelinePreset shorthand to a full pipeline definition.
+    // An explicit pipeline object always takes priority over pipelinePreset.
+    if (!mergedConfig.pipeline && mergedConfig.pipelinePreset) {
+        try {
+            mergedConfig.pipeline = buildPipelinePreset(mergedConfig.pipelinePreset);
+        } catch (err: any) {
+            console.error(`[Config] Failed to resolve pipelinePreset "${mergedConfig.pipelinePreset}": ${err.message}`);
+        }
+    }
 
     if (mergedConfig.investigationsPath) {
         ensureDirectoryExists(mergedConfig.investigationsPath);
@@ -1189,8 +1202,27 @@ app.post('/api/settings', (req, res) => {
 
         config = { ...config, ...sanitized };
 
+        // Smart pipeline persistence: if the saved pipeline matches a built-in
+        // preset, persist the compact pipelinePreset ID instead of the full
+        // expanded pipeline definition. This keeps config.json clean.
+        if ('pipeline' in sanitized && sanitized.pipeline) {
+            const presetId = matchPipelinePreset(sanitized.pipeline);
+            if (presetId) {
+                // Store the compact form
+                persistedConfig.pipelinePreset = presetId;
+                delete persistedConfig.pipeline;
+                config.pipelinePreset = presetId;
+            } else {
+                // Custom pipeline — store inline, clear any stale preset ref
+                delete persistedConfig.pipelinePreset;
+                config.pipelinePreset = undefined;
+            }
+        }
+
         // Only persist keys that were already in the file or are user-facing settings
         for (const [key, value] of Object.entries(sanitized)) {
+            // Skip pipeline — handled above with preset detection
+            if (key === 'pipeline') continue;
             if (key in persistedConfig || !INTERNAL_DEFAULT_KEYS.has(key)) {
                 persistedConfig[key] = value;
             }
@@ -1246,7 +1278,29 @@ app.post('/api/settings/import', (req, res) => {
         // Deep-sanitize to prevent prototype pollution
         const sanitized = JSON.parse(JSON.stringify(filtered));
         config = { ...config, ...sanitized };
+
+        // Resolve pipelinePreset if imported without an explicit pipeline
+        if (!sanitized.pipeline && sanitized.pipelinePreset) {
+            try {
+                config.pipeline = buildPipelinePreset(sanitized.pipelinePreset);
+            } catch { /* ignore — unknown preset */ }
+        }
+
+        // Smart pipeline persistence (same logic as POST /api/settings)
+        if ('pipeline' in sanitized && sanitized.pipeline) {
+            const presetId = matchPipelinePreset(sanitized.pipeline);
+            if (presetId) {
+                persistedConfig.pipelinePreset = presetId;
+                delete persistedConfig.pipeline;
+                config.pipelinePreset = presetId;
+            } else {
+                delete persistedConfig.pipelinePreset;
+                config.pipelinePreset = undefined;
+            }
+        }
+
         for (const [key, value] of Object.entries(sanitized)) {
+            if (key === 'pipeline') continue;
             if (key in persistedConfig || !INTERNAL_DEFAULT_KEYS.has(key)) {
                 persistedConfig[key] = value;
             }
@@ -1649,6 +1703,10 @@ app.post('/api/products/:id/clone', (req, res) => {
 
 app.get('/api/pipeline/builtins', (_req, res) => {
     res.json(listBuiltinAgents());
+});
+
+app.get('/api/pipeline/presets', (_req, res) => {
+    res.json(listPipelinePresets());
 });
 
 app.get('/api/investigations/:id/pipeline', (req, res) => {

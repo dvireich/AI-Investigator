@@ -1,4 +1,5 @@
 import { AgentDefinition } from './AgentDefinition';
+import { PipelineDefinition, PipelineStage } from './PipelineDefinition';
 
 /**
  * Auto-assigned colors and icons for pipeline agents.
@@ -356,4 +357,192 @@ export function getBuiltinAgent(builtinType: string, overrides?: Partial<AgentDe
  */
 export function listBuiltinAgents(): AgentDefinition[] {
     return Object.entries(BUILTIN_AGENTS).map(([_type, factory]) => factory());
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Pipeline Presets
+// ────────────────────────────────────────────────────────────────────────────
+
+/** A compact stage definition inside a preset — references agents by builtinType. */
+export interface PresetStageDefinition {
+    builtinType: string;
+    canReject?: boolean;
+    onReject?: 'loop' | 'flag' | 'abort';
+    rejectTarget?: number | 'previous';
+    maxRetries?: number;
+}
+
+/** A named pipeline preset that can be referenced by ID. */
+export interface PipelinePreset {
+    id: string;
+    name: string;
+    description: string;
+    icon: string;
+    stages: PresetStageDefinition[];
+}
+
+/** All built-in pipeline presets. */
+export const PIPELINE_PRESETS: PipelinePreset[] = [
+    {
+        id: 'default',
+        name: 'Standard',
+        description: 'Balanced pipeline: investigate, validate, propose changes, and improve knowledge base.',
+        icon: '⚡',
+        stages: [
+            { builtinType: 'investigator' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 2 },
+            { builtinType: 'implementation' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+    {
+        id: 'deep-investigation',
+        name: 'Deep Investigation',
+        description: 'Thorough pipeline with planning, adversarial review, grounding audit, and executive summary for complex issues.',
+        icon: '🔬',
+        stages: [
+            { builtinType: 'planner' },
+            { builtinType: 'investigator' },
+            { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'summarizer' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+    {
+        id: 'incident-response',
+        name: 'Incident Response',
+        description: 'Fast triage, enrichment, timeline reconstruction, and remediation for active incidents.',
+        icon: '🚨',
+        stages: [
+            { builtinType: 'triage' },
+            { builtinType: 'enrichment' },
+            { builtinType: 'investigator' },
+            { builtinType: 'timeline' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'remediation' },
+            { builtinType: 'summarizer' },
+        ],
+    },
+    {
+        id: 'quick-health-check',
+        name: 'Quick Health Check',
+        description: 'Lightweight pipeline for scheduled health checks and routine monitoring.',
+        icon: '💚',
+        stages: [
+            { builtinType: 'triage' },
+            { builtinType: 'investigator' },
+            { builtinType: 'validator' },
+        ],
+    },
+    {
+        id: 'compliance-review',
+        name: 'Compliance Review',
+        description: 'Investigation followed by grounding audit, compliance auditing, and change proposals.',
+        icon: '📜',
+        stages: [
+            { builtinType: 'investigator' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 2 },
+            { builtinType: 'compliance', canReject: true, onReject: 'flag' },
+            { builtinType: 'implementation' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+    {
+        id: 'root-cause-analysis',
+        name: 'Root Cause Analysis',
+        description: 'Correlate with past incidents, reconstruct timeline, verify grounding, and generate remediation plan.',
+        icon: '🔍',
+        stages: [
+            { builtinType: 'planner' },
+            { builtinType: 'investigator' },
+            { builtinType: 'correlator' },
+            { builtinType: 'timeline' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'remediation' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+    {
+        id: 'grounded-investigation',
+        name: 'Grounded Investigation',
+        description: 'Rigorous pipeline that ensures all conclusions are grounded in observed telemetry — rejects absence-based reasoning where missing data is treated as evidence.',
+        icon: '📡',
+        stages: [
+            { builtinType: 'planner' },
+            { builtinType: 'investigator' },
+            { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'summarizer' },
+            { builtinType: 'retrospect' },
+        ],
+    },
+];
+
+/**
+ * Build a full PipelineDefinition from a preset ID.
+ * Resolves each stage's builtinType to a full AgentDefinition.
+ * Throws if the preset ID is unknown or no agents can be resolved.
+ */
+export function buildPipelinePreset(presetId: string): PipelineDefinition {
+    const preset = PIPELINE_PRESETS.find(p => p.id === presetId);
+    if (!preset) {
+        throw new Error(`Unknown pipeline preset: "${presetId}". Available: ${PIPELINE_PRESETS.map(p => p.id).join(', ')}`);
+    }
+
+    const pipelineStages: PipelineStage[] = [];
+    for (const stageDef of preset.stages) {
+        const agent = getBuiltinAgent(stageDef.builtinType);
+        if (!agent) continue; // skip stages for agents not available
+        const stage: PipelineStage = {
+            agent: { ...agent },
+            inputMode: 'conversation',
+        };
+        if (stageDef.canReject) stage.canReject = true;
+        if (stageDef.onReject) stage.onReject = stageDef.onReject;
+        if (stageDef.rejectTarget !== undefined) stage.rejectTarget = stageDef.rejectTarget;
+        if (stageDef.maxRetries !== undefined) stage.maxRetries = stageDef.maxRetries;
+        pipelineStages.push(stage);
+    }
+
+    if (pipelineStages.length === 0) {
+        throw new Error(`No agents available for preset "${preset.name}"`);
+    }
+
+    return {
+        id: `preset-${preset.id}`,
+        name: preset.name,
+        stages: pipelineStages,
+    };
+}
+
+/**
+ * List all available pipeline presets (metadata only, no resolved agents).
+ */
+export function listPipelinePresets(): PipelinePreset[] {
+    return PIPELINE_PRESETS;
+}
+
+/**
+ * If the given pipeline matches a built-in preset, return the preset ID.
+ * Matches by pipeline.id (format "preset-<id>") or by pipeline.name.
+ * Returns undefined if no preset matches.
+ */
+export function matchPipelinePreset(pipeline: PipelineDefinition): string | undefined {
+    // Match by id convention (preset-<id>)
+    if (pipeline.id?.startsWith('preset-')) {
+        const candidateId = pipeline.id.substring('preset-'.length);
+        if (PIPELINE_PRESETS.some(p => p.id === candidateId)) {
+            return candidateId;
+        }
+    }
+    // Fallback: match by name
+    const byName = PIPELINE_PRESETS.find(p => p.name === pipeline.name);
+    return byName?.id;
 }

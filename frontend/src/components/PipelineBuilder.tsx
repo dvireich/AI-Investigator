@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings, X, RotateCcw, AlertTriangle, FileText, Code, Cpu, Expand, HelpCircle, Eye, Search, Save, Library } from 'lucide-react';
-import type { AgentDefinition, PipelineStage, PipelineDefinition } from '../types/pipeline';
+import type { AgentDefinition, PipelineStage, PipelineDefinition, PipelinePreset } from '../types/pipeline';
 import type { SavedAgent } from '../api';
 import { api } from '../api';
 
@@ -587,21 +587,9 @@ function buildDefaultPipeline(builtinAgents: AgentDefinition[]): PipelineDefinit
 }
 
 // ── Pipeline Presets ────────────────────────────────────────────────
-
-export interface PipelinePreset {
-    id: string;
-    name: string;
-    description: string;
-    icon: string;
-    /** Ordered list of builtinType strings for stages */
-    stages: {
-        builtinType: string;
-        canReject?: boolean;
-        onReject?: 'loop' | 'flag' | 'abort';
-        rejectTarget?: number | 'previous';
-        maxRetries?: number;
-    }[];
-}
+// PipelinePreset type is imported from ../types/pipeline
+// Re-export for backward compatibility
+export type { PipelinePreset } from '../types/pipeline';
 
 export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
