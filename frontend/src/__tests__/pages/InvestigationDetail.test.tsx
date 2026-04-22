@@ -1580,6 +1580,31 @@ describe('InvestigationDetail', () => {
             });
         });
 
+        it('renders retrospect agent badge when pipeline contains a retrospect-kind agent', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                retrospect: { messages: [], proposals: [], analysisComplete: false, completed: false },
+                pipeline: {
+                    id: 'pipe-retro',
+                    name: 'With Retro',
+                    stages: [
+                        { agent: { id: 'r1', name: 'My Retro Agent', source: 'inline', kind: 'retrospect', promptContent: '' } },
+                    ],
+                },
+            }));
+
+            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(100); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+
+            await user.click(screen.getByRole('button', { name: /Retrospect|Retro/i }));
+
+            await waitFor(() => {
+                expect(screen.getByText('My Retro Agent')).toBeInTheDocument();
+            });
+        });
+
         it('shows analyzing state with Cancel button', async () => {
             const { api } = await import('../../api');
             let resolveAnalyze: (value: any) => void;

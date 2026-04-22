@@ -2118,7 +2118,7 @@ export const InvestigationDetail = () => {
                                             return (
                                                 <div className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-400 bg-slate-800/40 border border-slate-700/50 px-2.5 py-1 rounded-full">
                                                     <span className="text-slate-500">Agent:</span>
-                                                    <span className="text-slate-300">{retroAgents.map(a => a.name).join(', ')}</span>
+                                                    <span className="text-slate-300">{retroAgents.map(a => a.agent.name).join(', ')}</span>
                                                 </div>
                                             );
                                         })()}

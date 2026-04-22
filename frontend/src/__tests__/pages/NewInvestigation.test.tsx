@@ -33,11 +33,8 @@ vi.mock('../../api', () => ({
     api: {
         listModels: vi.fn().mockResolvedValue(['gpt-4o', 'claude-3']),
         getSettings: vi.fn().mockResolvedValue({ model: 'gpt-4o', timeRange: 'ago(1h)' }),
-        listProducts: vi.fn().mockResolvedValue([{ id: 'p1', name: 'Product 1' }]),
-        getActiveProduct: vi.fn().mockResolvedValue({ id: 'p1' }),
         checkIncidentStatus: vi.fn().mockResolvedValue({ available: false }),
         getSavedQueries: vi.fn().mockResolvedValue([]),
-        validateProduct: vi.fn().mockResolvedValue({ valid: true, paths: [] }),
         startInvestigation: vi.fn().mockResolvedValue({ id: 'new-123' }),
         createSavedQuery: vi.fn().mockResolvedValue({ id: 'q1', name: 'My Query' }),
         updateSavedQuery: vi.fn().mockResolvedValue({ id: 'q1', name: 'Updated Query' }),
@@ -72,11 +69,8 @@ describe('NewInvestigation', () => {
         const { api } = await import('../../api');
         vi.mocked(api.listModels).mockResolvedValue(['gpt-4o', 'claude-3']);
         vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', timeRange: 'ago(1h)' } as any);
-        vi.mocked(api.listProducts).mockResolvedValue([{ id: 'p1', name: 'Product 1' }] as any);
-        vi.mocked(api.getActiveProduct).mockResolvedValue({ id: 'p1' } as any);
         vi.mocked(api.checkIncidentStatus).mockResolvedValue({ available: false });
         vi.mocked(api.getSavedQueries).mockResolvedValue([]);
-        vi.mocked(api.validateProduct).mockResolvedValue({ valid: true, paths: [] } as any);
         vi.mocked(api.startInvestigation).mockResolvedValue({ id: 'new-123' });
         vi.mocked(api.createSavedQuery).mockResolvedValue({ id: 'q1', name: 'My Query' } as any);
         vi.mocked(api.updateSavedQuery).mockResolvedValue({ id: 'q1', name: 'Updated Query' } as any);
@@ -971,36 +965,6 @@ describe('NewInvestigation', () => {
 
     // ── Product / Settings Edge Cases ─────────────────────────────
 
-    it('handles getActiveProduct returning null', async () => {
-        const { api } = await import('../../api');
-        vi.mocked(api.getActiveProduct).mockResolvedValue(null as any);
-
-        renderNewInvestigation();
-        await waitFor(() => {
-            expect(screen.getByText(/Initiate Investigation/i)).toBeInTheDocument();
-        });
-    });
-
-    it('handles getActiveProduct error with products available', async () => {
-        const { api } = await import('../../api');
-        vi.mocked(api.getActiveProduct).mockRejectedValue(new Error('no active'));
-
-        renderNewInvestigation();
-        await waitFor(() => {
-            expect(screen.getByText(/Initiate Investigation/i)).toBeInTheDocument();
-        });
-    });
-
-    it('handles no products available', async () => {
-        const { api } = await import('../../api');
-        vi.mocked(api.listProducts).mockResolvedValue([]);
-
-        renderNewInvestigation();
-        await waitFor(() => {
-            expect(screen.getByText(/Initiate Investigation/i)).toBeInTheDocument();
-        });
-    });
-
     it('handles settings with defaultTimeRange', async () => {
         const { api } = await import('../../api');
         vi.mocked(api.getSettings).mockResolvedValue({ model: 'claude-3', defaultTimeRange: 'ago(6h)' } as any);
@@ -1256,28 +1220,6 @@ describe('NewInvestigation', () => {
         });
     });
 
-    it('handles validateProduct error', async () => {
-        const { api } = await import('../../api');
-        vi.mocked(api.validateProduct).mockRejectedValue(new Error('validate failed'));
-
-        renderNewInvestigation();
-        await waitFor(() => {
-            expect(screen.getByText(/Initiate Investigation/i)).toBeInTheDocument();
-        });
-    });
-
-    it('does not validate product when no product selected', async () => {
-        const { api } = await import('../../api');
-        vi.mocked(api.listProducts).mockResolvedValue([]);
-        vi.mocked(api.getActiveProduct).mockResolvedValue(null as any);
-
-        renderNewInvestigation();
-        await waitFor(() => {
-            expect(screen.getByText(/Initiate Investigation/i)).toBeInTheDocument();
-        });
-        // validateProduct should not be called when no product is selected
-    });
-
     it('handles fetchIncident with empty incidentId trim', async () => {
         const { api } = await import('../../api');
         vi.mocked(api.checkIncidentStatus).mockResolvedValue({ available: true });
@@ -1469,7 +1411,6 @@ describe('NewInvestigation', () => {
 
     it('handles products load error', async () => {
         const { api } = await import('../../api');
-        vi.mocked(api.listProducts).mockRejectedValue(new Error('fail'));
 
         renderNewInvestigation();
         await waitFor(() => {
@@ -1833,11 +1774,8 @@ describe('NewInvestigation additional coverage', () => {
         const { api } = await import('../../api');
         vi.mocked(api.listModels).mockResolvedValue(['gpt-4o', 'claude-3']);
         vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', timeRange: 'ago(1h)' } as any);
-        vi.mocked(api.listProducts).mockResolvedValue([{ id: 'p1', name: 'Product 1' }] as any);
-        vi.mocked(api.getActiveProduct).mockResolvedValue({ id: 'p1' } as any);
         vi.mocked(api.checkIncidentStatus).mockResolvedValue({ available: false });
         vi.mocked(api.getSavedQueries).mockResolvedValue([]);
-        vi.mocked(api.validateProduct).mockResolvedValue({ valid: true, paths: [] } as any);
         vi.mocked(api.startInvestigation).mockResolvedValue({ id: 'new-123' });
     });
 
@@ -2159,11 +2097,8 @@ describe('NewInvestigation workflow presets', () => {
         const { api } = await import('../../api');
         vi.mocked(api.listModels).mockResolvedValue(['gpt-4o']);
         vi.mocked(api.getSettings).mockResolvedValue({ model: 'gpt-4o', timeRange: 'ago(1h)' } as any);
-        vi.mocked(api.listProducts).mockResolvedValue([{ id: 'p1', name: 'Product 1' }] as any);
-        vi.mocked(api.getActiveProduct).mockResolvedValue({ id: 'p1' } as any);
         vi.mocked(api.checkIncidentStatus).mockResolvedValue({ available: false });
         vi.mocked(api.getSavedQueries).mockResolvedValue([]);
-        vi.mocked(api.validateProduct).mockResolvedValue({ valid: true, paths: [] } as any);
         vi.mocked(api.startInvestigation).mockResolvedValue({ id: 'inv-1' });
         vi.mocked(api.getPipelineBuiltins).mockResolvedValue(mockBuiltinAgents as any);
     });

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Save, Cpu, Monitor, Layout, Activity, CheckCircle2, AlertCircle, FolderOpen, LayoutGrid, List, Package, Plus, Pencil, Trash2, X, GitBranch, FileText, Database, Terminal, Archive, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Copy, Check, Search, Loader2, Sparkles, BookOpen, ClipboardCopy, BarChart3, Plug, Eye, EyeOff, Wrench, Download, Upload, Bell, Volume2, Calendar, Library } from 'lucide-react';
 import { WIDGET_REGISTRY, getSelectedWidgetIds, setSelectedWidgetIds, DEFAULT_WIDGET_IDS } from '../components/charts/widgetRegistry';
-import { api, type PathValidationResult, type SavedWorkflow } from '../api';
+import { api, type SavedWorkflow } from '../api';
 import { useToast } from '../components/Toast';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
@@ -11,62 +11,6 @@ import { PipelineBuilder, BuiltinDetailModal, PIPELINE_PRESETS, buildPipelinePre
 import { AgentLibrary } from '../components/AgentLibrary';
 import type { AgentDefinition } from '../types/pipeline';
 import { useNotification, getNotifEnabled, setNotifEnabled, getNotifSound, setNotifSound, getNotifEvents, setNotifEvents, ALL_NOTIF_EVENTS, type NotifEvent } from '../hooks/useNotification';
-
-// Path config item component
-const PathItem = ({ icon: Icon, label, value, color, validation }: { icon: any; label: string; value: string; color: string; validation?: PathValidationResult | null }) => {
-    const [copied, setCopied] = useState(false);
-    const copiedTimerRef = useRef<ReturnType<typeof setTimeout>>();
-    useEffect(() => () => { clearTimeout(copiedTimerRef.current); }, []);
-    const copyToClipboard = () => {
-        if (value) {
-            navigator.clipboard.writeText(value);
-            setCopied(true);
-            clearTimeout(copiedTimerRef.current);
-            copiedTimerRef.current = setTimeout(() => setCopied(false), 2000);
-        }
-    };
-
-    // Determine status: null = not configured (skip), validation error = red, ok = green
-    const hasError = validation?.error;
-
-    return (
-        <div className={`group flex items-start gap-3 p-3 rounded-xl transition-all ${hasError ? 'bg-red-500/10 hover:bg-red-500/15' : 'hover:bg-slate-800/40'}`}>
-            <div className={`p-2 rounded-lg ${color} shrink-0`}>
-                <Icon size={14} className="text-white" />
-            </div>
-            <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1">
-                    <div className="text-xs font-semibold text-slate-400 uppercase tracking-wide">{label}</div>
-                    {validation && !validation.error && (
-                        <CheckCircle2 size={12} className="text-green-400 shrink-0" />
-                    )}
-                    {validation?.error && (
-                        <AlertCircle size={12} className="text-red-400 shrink-0" />
-                    )}
-                </div>
-                <div 
-                    className={`text-sm font-mono truncate cursor-pointer transition-colors ${hasError ? 'text-red-400' : 'text-slate-300 group-hover:text-brand-400'}`}
-                    title={value || 'Not configured'}
-                    onClick={copyToClipboard}
-                >
-                    {value || <span className="text-slate-600 italic font-sans">Not configured</span>}
-                </div>
-                {validation?.error && (
-                    <div className="text-xs text-red-400 mt-1 font-medium">{validation.error}</div>
-                )}
-            </div>
-            {value && (
-                <button
-                    onClick={copyToClipboard}
-                    className="opacity-0 group-hover:opacity-100 p-1.5 text-slate-500 hover:text-brand-400 hover:bg-brand-500/10 rounded-lg transition-all"
-                    title="Copy path"
-                >
-                    {copied ? <Check size={14} className="text-green-400" /> : <Copy size={14} />}
-                </button>
-            )}
-        </div>
-    );
-};
 
 export const Settings = () => {
     const { toast, confirm } = useToast();

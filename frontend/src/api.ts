@@ -1,23 +1,6 @@
 import type { ScheduleDefinition, ScheduleHistoryEntry, ScheduleReport } from './types/schedule';
 import type { PipelineDefinition, AgentDefinition } from './types/pipeline';
 
-// Deprecated: products were removed in the agent-oriented refactor. These
-// aliases exist only so legacy tests that still mock product helpers keep
-// type-checking. New code must not use these.
-export type Product = {
-    id: string;
-    name: string;
-    [key: string]: unknown;
-};
-export type ProductValidation = {
-    valid: boolean;
-    paths: PathValidationResult[];
-};
-export type DiscoverResult = {
-    source: 'manifest' | 'auto-discovered' | 'none';
-    product?: Partial<Product> & { repoRoot?: string; name?: string };
-};
-
 export interface SavedWorkflow {
     id: string;
     name: string;
@@ -49,15 +32,6 @@ export interface SavedQuery {
     intervalMinutes?: number;
     createdAt: string;
     updatedAt: string;
-}
-
-export interface PathValidationResult {
-    field: string;
-    label: string;
-    value: string;
-    isAbsolute: boolean;
-    exists: boolean;
-    error: string | null;
 }
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -452,17 +426,6 @@ export const api = {
         }
         return response.json();
     },
-
-    // Deprecated product helpers — kept as no-ops so legacy tests still mock them.
-    listProducts: async (): Promise<Product[]> => [],
-    getActiveProduct: async (): Promise<Product | null> => null,
-    setActiveProduct: async (_id: string): Promise<void> => {},
-    addProduct: async (_p: Partial<Product>): Promise<Product> => { throw new Error('Products are deprecated.'); },
-    updateProduct: async (_id: string, _p: Partial<Product>): Promise<Product> => { throw new Error('Products are deprecated.'); },
-    deleteProduct: async (_id: string): Promise<void> => {},
-    validateProduct: async (_id: string): Promise<ProductValidation> => ({ valid: true, paths: [] } as ProductValidation),
-    discoverProduct: async (_repoRoot: string): Promise<DiscoverResult> => ({ source: 'none' } as DiscoverResult),
-    cloneProduct: async (_id: string): Promise<Product> => { throw new Error('Products are deprecated.'); },
 
     sendRetrospectMessage: async (id: string, message: string) => {
         const res = await fetch(`${API_URL}/investigations/${id}/retrospect`, {

@@ -2454,14 +2454,14 @@ describe('Settings', () => {
 // ══════════════════════════════════════════════════════════════════════════
 // SETTINGS EXTRA COVERAGE — additional branches and error paths
 // ══════════════════════════════════════════════════════════════════════════
-describe.skip('Settings extra coverage', () => {
+describe('Settings extra coverage', () => {
     beforeEach(async () => {
         vi.clearAllMocks();
         localStorage.clear();
         await resetApiMocks();
     });
 
-    describe('PathItem with empty value (L40, L43 — Not configured)', () => {
+    describe.skip('PathItem with empty value (L40, L43 — Not configured)', () => {
         it('shows Not configured when product has empty repoRoot and is expanded', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.listProducts).mockResolvedValue([{
@@ -2496,7 +2496,7 @@ describe.skip('Settings extra coverage', () => {
         });
     });
 
-    describe('handleDiscover — empty input early return (L137)', () => {
+    describe.skip('handleDiscover — empty input early return (L137)', () => {
         it('does nothing when Discover is clicked with empty repo root input', async () => {
             const { api } = await import('../../api');
             const user = userEvent.setup();
@@ -2516,7 +2516,7 @@ describe.skip('Settings extra coverage', () => {
         });
     });
 
-    describe('handleDiscover — success path (L147-154)', () => {
+    describe.skip('handleDiscover — success path (L147-154)', () => {
         it('fills product form when discover succeeds', async () => {
             const { api } = await import('../../api');
             const user = userEvent.setup();
@@ -2538,7 +2538,7 @@ describe.skip('Settings extra coverage', () => {
         });
     });
 
-    describe('handleDiscover — error path (L156)', () => {
+    describe.skip('handleDiscover — error path (L156)', () => {
         it('shows discover error when discoverProduct throws', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.discoverProduct).mockRejectedValue(new Error('Repo not found'));
@@ -2561,7 +2561,7 @@ describe.skip('Settings extra coverage', () => {
         });
     });
 
-    describe('validateProduct throws in loadProducts (L249)', () => {
+    describe.skip('validateProduct throws in loadProducts (L249)', () => {
         it('silently ignores when validateProduct throws', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.validateProduct).mockRejectedValue(new Error('Validation service unavailable'));
@@ -2589,15 +2589,16 @@ describe.skip('Settings extra coverage', () => {
             } as any);
 
             renderSettings();
-            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
-            // incidentProvider.type should be synced (covers L286-287)
-            // Switch to Connections tab and verify IcM is selected
-            const connectionsTab = screen.getAllByText('Connections').find(el => el.tagName === 'BUTTON' || el.closest('button'));
-            if (connectionsTab) await userEvent.click(connectionsTab);
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            // incidentProvider.type 'icm' should be synced from settings; the IcM
+            // warning text appears once the Connections tab is loaded (default tab)
+            await waitFor(() => {
+                expect(screen.getByText(/Requires IcM scripts and credentials/i)).toBeInTheDocument();
+            });
         });
     });
 
-    describe('Widget toggle — replace widget when >= 3 (L394-396)', () => {
+    describe.skip('Widget toggle — replace widget when >= 3 (L394-396)', () => {
         it('replaces the last widget when 3 are already selected (L394-396)', async () => {
             const user = userEvent.setup();
             renderSettings();
@@ -2621,7 +2622,7 @@ describe.skip('Settings extra coverage', () => {
         });
     });
 
-    describe('setActiveProduct error from dropdown (L495-496)', () => {
+    describe.skip('setActiveProduct error from dropdown (L495-496)', () => {
         it('logs error when setActiveProduct throws from dropdown change', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.setActiveProduct).mockRejectedValue(new Error('Permission denied'));
@@ -2642,7 +2643,7 @@ describe.skip('Settings extra coverage', () => {
         });
     });
 
-    describe('deleteProduct error handler (L624-626)', () => {
+    describe.skip('deleteProduct error handler (L624-626)', () => {
         it('sets error when deleteProduct fails', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.deleteProduct).mockRejectedValue(new Error('Permission denied'));
@@ -2668,7 +2669,7 @@ describe.skip('Settings extra coverage', () => {
         });
     });
 
-    describe('Set as Active Product from expanded section (L670-679)', () => {
+    describe.skip('Set as Active Product from expanded section (L670-679)', () => {
         it('shows Set as Active Product button for non-active product', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.listProducts).mockResolvedValue([mockProduct1, {
@@ -2724,25 +2725,17 @@ describe.skip('Settings extra coverage', () => {
         it('shows PagerDuty API key warning when pagerduty incident provider is selected', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
-
-            // Switch to Connections tab
-            await user.click(screen.getAllByText('Connections')[0]);
-
-            // Wait for incident provider options to appear
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            // Connections tab is the default; wait for the providers to load
             await waitFor(() => screen.getByText('PagerDuty'));
-
-            // Click PagerDuty button (incident providers are rendered as clickable buttons, L871)
             await user.click(screen.getByText('PagerDuty'));
-
-            // Should show PagerDuty API key warning
             await waitFor(() => {
                 expect(screen.getByText(/Requires a PagerDuty API key/i)).toBeInTheDocument();
             });
         });
     });
 
-    describe('Config with null values — ?? fallbacks (L1095, L1108-1109, L1119, L1133, L1142)', () => {
+    describe.skip('Config with null values — ?? fallbacks (L1095, L1108-1109, L1119, L1133, L1142)', () => {
         it('shows unlimited label when maxConcurrentInvestigations is 0', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSettings).mockResolvedValue({
@@ -2771,7 +2764,7 @@ describe.skip('Settings extra coverage', () => {
         });
     });
 
-    describe('FileBrowserModal — productBrowserTarget (L1635-1636)', () => {
+    describe.skip('FileBrowserModal — productBrowserTarget (L1635-1636)', () => {
         it('opens file browser for repoRoot path in edit modal (covers L1635 title)', async () => {
             const user = userEvent.setup();
             renderSettings();
@@ -2803,7 +2796,7 @@ describe.skip('Settings extra coverage', () => {
             vi.mocked(mockGSWI).mockReturnValueOnce(['trend', 'targetActivity', 'successRate', 'categories']);
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             const analyticsBtn = screen.getByRole('button', { name: 'Analytics' });
             await user.click(analyticsBtn);
@@ -2827,7 +2820,7 @@ describe.skip('Settings extra coverage', () => {
             vi.mocked(mockGSWI).mockReturnValueOnce(['trend', 'targetActivity']);
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             const analyticsBtn = screen.getByRole('button', { name: 'Analytics' });
             await user.click(analyticsBtn);
@@ -2844,7 +2837,7 @@ describe.skip('Settings extra coverage', () => {
         });
     });
 
-    describe('Settings branch coverage — all remaining branches', () => {
+    describe.skip('Settings branch coverage — all remaining branches', () => {
         describe('handleDiscover empty guard (L137) + Enter key (L1429)', () => {
             it('returns early when discoverRepoRoot is empty (press Enter with empty input)', async () => {
                 const { api } = await import('../../api');
@@ -3304,7 +3297,7 @@ describe.skip('Settings extra coverage', () => {
         it('calls preventDefault on beforeunload when form is dirty', async () => {
             const user = userEvent.setup();
             renderSettings();
-            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             // Switch to Agent Behavior tab and change a value to set dirty=true
             await user.click(screen.getByRole('button', { name: 'Agent Behavior' }));
@@ -3321,7 +3314,7 @@ describe.skip('Settings extra coverage', () => {
 
         it('does NOT call preventDefault on beforeunload when form is clean', async () => {
             renderSettings();
-            await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
             const event = new Event('beforeunload', { cancelable: true });
             const spy = vi.spyOn(event, 'preventDefault');
@@ -3334,7 +3327,7 @@ describe.skip('Settings extra coverage', () => {
     //  IMPORT / EXPORT
     // ══════════════════════════════════════════════════════════════════════
 
-    describe('Import / Export', () => {
+    describe.skip('Import / Export', () => {
         it('renders Export button on System tab', async () => {
             const user = userEvent.setup();
             renderSettings();
@@ -4259,6 +4252,105 @@ describe.skip('Settings extra coverage', () => {
                 expect(screen.getByText('Agent Library')).toBeInTheDocument();
             });
             expect(screen.queryByText('Save Changes')).not.toBeInTheDocument();
+        });
+    });
+
+    describe('Paths tab', () => {
+        it('renders Paths tab content with investigations storage input and Browse button', async () => {
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByRole('button', { name: 'Paths' }));
+            await waitFor(() => {
+                expect(screen.getByLabelText('Investigations Storage')).toBeInTheDocument();
+            });
+            // Type a new path - covers handleChange via input onChange
+            const input = screen.getByLabelText('Investigations Storage') as HTMLInputElement;
+            await user.clear(input);
+            await user.type(input, '/new/path');
+            expect(input.value).toBe('/new/path');
+            // Open browser - covers Browse onClick
+            await user.click(screen.getByRole('button', { name: /Browse/i }));
+            await waitFor(() => expect(screen.getByTestId('file-browser-modal')).toBeInTheDocument());
+            // Select a path from browser - covers FileBrowserModal onSelect
+            await user.click(screen.getByText('Select Path'));
+            await waitFor(() => expect(screen.queryByTestId('file-browser-modal')).not.toBeInTheDocument());
+            // Re-open and close via Close - covers onClose
+            await user.click(screen.getByRole('button', { name: /Browse/i }));
+            await user.click(screen.getByText('Close Browser'));
+            await waitFor(() => expect(screen.queryByTestId('file-browser-modal')).not.toBeInTheDocument());
+        });
+    });
+
+    describe('System tab — Import / Export', () => {
+        it('clicks Export button (success path)', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import / Export Settings'));
+            await user.click(screen.getByRole('button', { name: /^Export$/ }));
+            expect(api.exportSettings).toHaveBeenCalled();
+        });
+
+        it('clicks Export button and surfaces error', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.exportSettings).mockRejectedValueOnce(new Error('export failed'));
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import / Export Settings'));
+            await user.click(screen.getByRole('button', { name: /^Export$/ }));
+            await waitFor(() => expect(screen.getByText(/export failed/)).toBeInTheDocument());
+        });
+
+        it('imports a JSON file via the Import file input', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import / Export Settings'));
+            const file = new File([JSON.stringify({ model: 'gpt-4o' })], 'settings.json', { type: 'application/json' });
+            (file as any).text = async () => JSON.stringify({ model: 'gpt-4o' });
+            const input = document.querySelector('input[type="file"][accept=".json"]') as HTMLInputElement;
+            Object.defineProperty(input, 'files', { value: [file], writable: true });
+            fireEvent.change(input);
+            await waitFor(() => expect(api.importSettings).toHaveBeenCalled());
+        });
+
+        it('shows error when importSettings rejects', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.importSettings).mockRejectedValueOnce(new Error('import bad'));
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import / Export Settings'));
+            const file = new File([JSON.stringify({ model: 'gpt-4o' })], 'settings.json', { type: 'application/json' });
+            (file as any).text = async () => JSON.stringify({ model: 'gpt-4o' });
+            const input = document.querySelector('input[type="file"][accept=".json"]') as HTMLInputElement;
+            Object.defineProperty(input, 'files', { value: [file], writable: true });
+            fireEvent.change(input);
+            await waitFor(() => expect(screen.getByText(/import bad/)).toBeInTheDocument());
+        });
+
+        it('shows fallback error when importSettings rejects with no message', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.importSettings).mockRejectedValueOnce(Object.assign(new Error(), { message: '' }));
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import / Export Settings'));
+            const file = new File([JSON.stringify({ model: 'gpt-4o' })], 'settings.json', { type: 'application/json' });
+            (file as any).text = async () => JSON.stringify({ model: 'gpt-4o' });
+            const input = document.querySelector('input[type="file"][accept=".json"]') as HTMLInputElement;
+            Object.defineProperty(input, 'files', { value: [file], writable: true });
+            fireEvent.change(input);
+            await waitFor(() => expect(screen.getByText(/Failed to import settings/)).toBeInTheDocument());
         });
     });
 });

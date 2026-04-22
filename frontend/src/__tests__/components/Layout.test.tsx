@@ -433,7 +433,7 @@ describe('Layout', () => {
             user: null,
         } as any);
         vi.mocked(api.pollLogin)
-            .mockResolvedValue({ pending: true })
+            .mockResolvedValueOnce({ pending: true })
             .mockResolvedValue({ success: true });
 
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
