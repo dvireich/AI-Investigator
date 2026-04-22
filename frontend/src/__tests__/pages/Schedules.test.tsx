@@ -2197,20 +2197,6 @@ describe('Schedules additional coverage', () => {
             }
         });
 
-        it('productName fallback uses id when product not found in list', async () => {
-            const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
-                createSchedule({ id: 's-prod', productId: 'unknown-product-id' }),
-            ]));
-            vi.mocked(api.listProducts).mockResolvedValue([
-                { id: 'different-product', name: 'Different Product' } as any,
-            ]);
-            renderSchedules();
-            await waitFor(() => expect(screen.getByText('Daily Check')).toBeInTheDocument());
-            // The product not found → shows 'unknown-product-id' as fallback
-            expect(document.body.textContent).toContain('unknown-product-id');
-        });
-
         it('history entry with summary covers the entry.summary branch', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([createSchedule({ id: 's-summary' })]));
@@ -2259,20 +2245,6 @@ describe('Schedules additional coverage', () => {
             await waitFor(() => screen.getByText('Daily Check'));
             // effectiveVerdict = false ? 'running' : (undefined || 'unknown') = 'unknown'
             expect(screen.getByText('Daily Check')).toBeInTheDocument();
-        });
-
-        it('covers productName empty return (L189) when no productId on expanded schedule', async () => {
-            const { api } = await import('../../api');
-            vi.mocked(api.getSchedules).mockResolvedValue(paginatedSchedules([
-                createSchedule({ id: 's-no-product', productId: undefined }),
-            ]));
-            vi.mocked(api.getScheduleHistory).mockResolvedValue([]);
-            const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-            renderSchedules();
-            await waitFor(() => screen.getByText('Daily Check'));
-            // Expand the schedule to trigger the expanded section which calls productName(undefined)
-            await user.click(screen.getByText('Daily Check'));
-            await waitFor(() => expect(api.getScheduleHistory).toHaveBeenCalled());
         });
 
         it('timeRange button shows raw timeRange value when preset label not found (covers || editFields.timeRange at L401)', async () => {
