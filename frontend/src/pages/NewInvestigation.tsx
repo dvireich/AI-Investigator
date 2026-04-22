@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, type IncidentPreview, type IncidentProgressEvent, type Product, type ProductValidation, type SavedQuery, type SavedWorkflow, type SavedAgent } from '../api';
+import { api, type IncidentPreview, type IncidentProgressEvent, type SavedQuery, type SavedWorkflow, type SavedAgent } from '../api';
 import { useToast } from '../components/Toast';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
-import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Package, Calendar, BookOpen, Save, Trash2, ChevronDown, ChevronLeft, ChevronRight, X, Check, Pencil, GitBranch, Plus } from 'lucide-react';
+import { Search, Command, Clock, AlertTriangle, ArrowRight, Sparkles, Zap, Target, ShieldAlert, Loader2, CheckCircle2, Circle, AlertCircle, Calendar, BookOpen, Save, Trash2, ChevronDown, ChevronLeft, ChevronRight, X, Check, Pencil, GitBranch, Plus } from 'lucide-react';
 import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../constants';
 import { parseFlexibleTimestamp, toDateTimeLocalValue, toDateTimeUTCValue, formatDateDisplayUTC, datetimeLocalToISO } from '../utils/timestamp';
 import { PIPELINE_PRESETS, buildPipelinePreset, PipelineBuilder } from '../components/PipelineBuilder';
@@ -82,12 +82,6 @@ export const NewInvestigation = () => {
     const [incidentAvailable, setincidentAvailable] = useState<boolean | null>(null);
     const [incidentSteps, setincidentSteps] = useState<IncidentProgressEvent[]>([]);
 
-    // Product State
-    const [products, setProducts] = useState<Product[]>([]);
-    const [selectedProductId, setSelectedProductId] = useState<string>('');
-
-    // Product validation state
-    const [productValidation, setProductValidation] = useState<ProductValidation | null>(null);
     // Time Range State
     const [timeMode, setTimeMode] = useState<'preset' | 'custom'>('preset');
     const [timePreset, setTimePreset] = useState('ago(1h)');
@@ -221,22 +215,6 @@ export const NewInvestigation = () => {
             }
         }).catch(err => console.error("Failed to load settings:", err));
 
-        // Load products and active product
-        api.listProducts().then(productList => {
-            setProducts(productList);
-            api.getActiveProduct().then(active => {
-                if (active) {
-                    setSelectedProductId(active.id);
-                } else if (productList.length > 0) {
-                    setSelectedProductId(productList[0].id);
-                }
-            }).catch(() => {
-                if (productList.length > 0) {
-                    setSelectedProductId(productList[0].id);
-                }
-            });
-        }).catch(err => console.error("Failed to load products:", err));
-
         // Check Incident availability
         api.checkIncidentStatus()
             .then(status => setincidentAvailable(status.available))
@@ -262,17 +240,6 @@ export const NewInvestigation = () => {
             .then(agents => setSavedAgents(agents))
             .catch(err => console.error('Failed to load saved agents:', err));
     }, []);
-
-    // Validate product paths whenever selection changes
-    useEffect(() => {
-        if (!selectedProductId) {
-            setProductValidation(null);
-            return;
-        }
-        api.validateProduct(selectedProductId)
-            .then(v => setProductValidation(v))
-            .catch(() => setProductValidation(null));
-    }, [selectedProductId]);
 
     // Auto-select workflow: use configured pipeline if it exists, else 'default' preset
     useEffect(() => {
@@ -352,7 +319,6 @@ export const NewInvestigation = () => {
                     title: formData.title.trim() || undefined,
                     incidentId: incidentId.trim(),
                     timeRange: incidentPreview?.timeRange || timePreset,
-                    productId: selectedProductId || undefined,
                     pipeline: pipelinePayload,
                 };
                 // Include target if available (from preview or manual entry)
@@ -407,7 +373,6 @@ export const NewInvestigation = () => {
                 ...formData,
                 title: formData.title.trim() || undefined,
                 timeRange: effectiveTimeRange,
-                productId: selectedProductId || undefined,
                 pipeline: pipelinePayload,
             };
             const result = await api.startInvestigation(payload);
@@ -430,7 +395,6 @@ export const NewInvestigation = () => {
             query: sq.query || '',
             model: sq.model || formData.model,
         });
-        if (sq.productId) setSelectedProductId(sq.productId);
         if (sq.timeMode === 'custom') {
             setTimeMode('custom');
             // If the timeRange is a between(...) expression, extract the dates
@@ -474,7 +438,6 @@ export const NewInvestigation = () => {
                 timeRange: effectiveTimeRange,
                 timeMode: effectiveTimeMode,
                 model: formData.model,
-                productId: selectedProductId || undefined,
             };
             let saved: SavedQuery;
             if (loadedQueryId) {
@@ -573,7 +536,6 @@ export const NewInvestigation = () => {
                 </p>
             </div>
 
-            {/* Query Bank + Product side by side */}
             <div className="flex flex-col sm:flex-row gap-4 items-stretch relative z-10">
             {/* Query Bank Bar */}
             <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] flex-1">
@@ -715,22 +677,6 @@ export const NewInvestigation = () => {
                 </div>
             </div>
 
-            {/* Product Selector */}
-            {products.length > 0 && (
-                <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] flex items-center px-4 py-3 gap-3">
-                    <Package className="w-4 h-4 text-slate-400 shrink-0" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 shrink-0">Product</span>
-                    <select
-                        value={selectedProductId}
-                        onChange={(e) => setSelectedProductId(e.target.value)}
-                        className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/50 text-sm font-medium text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all min-w-[180px]"
-                    >
-                        {products.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                    </select>
-                </div>
-            )}
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -738,27 +684,6 @@ export const NewInvestigation = () => {
                 {/* Investigation Mode Toggle */}
                 <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] overflow-hidden relative">
                     <div className="p-4 space-y-4">
-                        {/* Path validation warning */}
-                        {productValidation && !productValidation.valid && (
-                            <div className="flex items-start gap-3 p-3 bg-red-900/20 border border-red-800 rounded-xl">
-                                <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                                <div className="text-sm">
-                                    <div className="font-semibold text-red-400 mb-1">Cannot start investigation - path issues detected</div>
-                                    <ul className="space-y-0.5">
-                                        {productValidation.paths.filter(p => p.error).map(p => (
-                                            <li key={p.field} className="text-red-300 text-xs">
-                                                <span className="font-medium">{p.label}:</span> {p.error}
-                                                {p.value && <span className="ml-1 font-mono text-red-500">({p.value})</span>}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                    <div className="mt-2 text-xs text-red-400">
-                                        Fix these paths in <button type="button" onClick={() => navigate('/settings')} className="underline font-semibold hover:text-red-200">Settings &gt; Products</button> before starting an investigation.
-                                    </div>
-                                </div>
-                            </div>
-                        )}
-
                         {/* Mode Toggle */}
                         <div className="bg-slate-800/50 p-1 rounded-lg flex gap-1">
                             {INVESTIGATION_MODES.map((m) => (
@@ -1489,9 +1414,9 @@ export const NewInvestigation = () => {
                 <div className="pt-4 pb-0">
                     <button
                         type="submit"
-                        disabled={loading || (productValidation !== null && !productValidation.valid)}
+                        disabled={loading}
                         className={`w-full group relative px-6 py-3 rounded-xl font-black text-white text-lg shadow-xl shadow-brand-500/30 transition-all transform hover:scale-[1.01] active:scale-95 overflow-hidden ring-4 ring-transparent hover:ring-brand-500/20 ${
-                            loading || (productValidation !== null && !productValidation.valid)
+                            loading
                                 ? 'bg-slate-700 cursor-not-allowed' 
                                 : 'bg-gradient-to-r from-brand-600 via-brand-500 to-brand-400 hover:from-brand-500 hover:via-brand-400 hover:to-brand-300'
                             }`}

@@ -44,13 +44,9 @@ function copyDir(src, dest) {
 
 function cleanDir(dir) {
     if (fs.existsSync(dir)) {
-        // Remove contents, not the dir itself (avoids EPERM when cwd is inside it)
-        for (const entry of fs.readdirSync(dir)) {
-            fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
-        }
-    } else {
-        fs.mkdirSync(dir, { recursive: true });
+        fs.rmSync(dir, { recursive: true, force: true });
     }
+    fs.mkdirSync(dir, { recursive: true });
 }
 
 // Validate prerequisites
@@ -73,15 +69,23 @@ cleanDir(RELEASE);
 console.log('\n[2/5] Bundling backend with esbuild...');
 const BUNDLED = path.join(DIST, 'server.bundled.js');
 run(
-    `npx esbuild dist/server.js --bundle --platform=node --target=node20 --outfile=dist/server.bundled.js --external:puppeteer --metafile=dist/meta.json`,
+    `npx esbuild dist/server.js --bundle --platform=node --target=node20 --outfile=dist/server.bundled.js --external:puppeteer --minify --metafile=dist/meta.json`,
     BACKEND,
 );
 const bundledSize = (fs.statSync(BUNDLED).size / (1024 * 1024)).toFixed(1);
 console.log(`  Bundled to ${bundledSize} MB (from ${fs.readdirSync(path.join(BACKEND, 'node_modules')).length}+ node_modules packages)`);
 
-// Create a launcher wrapper that starts the server
+// Create a launcher wrapper that shows instant startup feedback
 const LAUNCHER = path.join(DIST, 'launcher.js');
 fs.writeFileSync(LAUNCHER, `#!/usr/bin/env node
+// Launcher — shows instant feedback while the server boots
+process.stdout.write('\\n');
+process.stdout.write('  ╔══════════════════════════════════════╗\\n');
+process.stdout.write('  ║       AI Investigator v' + (require('./version.json').version || '?').padEnd(12) + '║\\n');
+process.stdout.write('  ╠══════════════════════════════════════╣\\n');
+process.stdout.write('  ║  Starting server...                  ║\\n');
+process.stdout.write('  ╚══════════════════════════════════════╝\\n');
+process.stdout.write('\\n');
 require('./server.bundled.js');
 `);
 console.log('  Created launcher.js');
@@ -111,12 +115,8 @@ const stagePkg = {
 };
 fs.writeFileSync(path.join(STAGE, 'package.json'), JSON.stringify(stagePkg, null, 2));
 
-// Use custom icon if available — pass to pkg directly (rcedit corrupts pkg's embedded filesystem)
-const ICON = path.join(ROOT, 'scripts', 'icon.ico');
-const iconFlag = fs.existsSync(ICON) ? ` --icon "${ICON}"` : '';
-
 // Run pkg from BACKEND (where it's installed) but target the staging dir
-run(`npx @yao-pkg/pkg "${STAGE}" --target node20-win-x64 --output "${path.join(RELEASE, EXE_NAME)}"${iconFlag}`, BACKEND);
+run(`npx @yao-pkg/pkg "${STAGE}" --target node20-win-x64 --compress Brotli --output "${path.join(RELEASE, EXE_NAME)}"`, BACKEND);
 
 // Clean up staging dir
 fs.rmSync(STAGE, { recursive: true, force: true });
@@ -128,20 +128,6 @@ if (!fs.existsSync(path.join(RELEASE, EXE_NAME))) {
 
 const exeSize = (fs.statSync(path.join(RELEASE, EXE_NAME)).size / (1024 * 1024)).toFixed(1);
 console.log(`  Created ${EXE_NAME} (${exeSize} MB)`);
-
-// Patch PE subsystem from Console (3) to Windows GUI (2) — no console window on double-click
-const exePath = path.join(RELEASE, EXE_NAME);
-const exeBuf = fs.readFileSync(exePath);
-const peOffset = exeBuf.readUInt32LE(0x3C); // e_lfanew → PE signature offset
-const subsystemOffset = peOffset + 4 + 20 + 68; // PE sig + COFF header + Optional Header offset 68
-const currentSubsystem = exeBuf.readUInt16LE(subsystemOffset);
-if (currentSubsystem === 3) { // IMAGE_SUBSYSTEM_WINDOWS_CUI
-    exeBuf.writeUInt16LE(2, subsystemOffset); // IMAGE_SUBSYSTEM_WINDOWS_GUI
-    fs.writeFileSync(exePath, exeBuf);
-    console.log('  Patched PE subsystem: Console → GUI (no console window)');
-} else {
-    console.log(`  PE subsystem already ${currentSubsystem} (not patched)`);
-}
 
 // Step 4: Bundle Chromium (for PDF export)
 if (!skipChromium) {

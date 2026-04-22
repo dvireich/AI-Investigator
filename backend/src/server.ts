@@ -421,11 +421,7 @@ export function getGlobalInvestigationsDir(): string {
 }
 
 export function shouldScanGlobalInvestigationsDir(): boolean {
-    if (config.investigationsPath) {
-        return true;
-    }
-
-    return !config.products || config.products.length === 0;
+    return true;
 }
 
 export function isPathWithinDirectory(candidatePath: string | undefined, directoryPath: string): boolean {
@@ -437,28 +433,8 @@ export function isPathWithinDirectory(candidatePath: string | undefined, directo
     return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
-export function shouldIncludeInvestigationInList(state: Partial<InvestigationState> & { id: string }): boolean {
-    const products = config.products || [];
-    const activeProductId = config.activeProductId;
-
-    if (products.length === 0 || !activeProductId) {
-        return true;
-    }
-
-    const storagePath = storagePathCache.get(state.id)
-        || (state as StoredInvestigationState)._storagePath
-        || getInvestigationStoragePath(state as { id: string; target?: string; title?: string; productId?: string });
-
-    const activeProduct = products.find(p => p.id === activeProductId);
-    if (activeProduct?.investigationsPath && isPathWithinDirectory(storagePath, activeProduct.investigationsPath)) {
-        return true;
-    }
-
-    if (!shouldScanGlobalInvestigationsDir()) {
-        return false;
-    }
-
-    return isPathWithinDirectory(storagePath, getGlobalInvestigationsDir());
+export function shouldIncludeInvestigationInList(_state: Partial<InvestigationState> & { id: string }): boolean {
+    return true;
 }
 
 export function hasPersistedInvestigationState(state: Partial<InvestigationState> & { id: string }): boolean {
@@ -477,13 +453,7 @@ export function hasPersistedInvestigationState(state: Partial<InvestigationState
 
 /** Compute the on-disk storage path for a given investigation state. */
 export function getInvestigationStoragePath(state: { id: string; target?: string; title?: string; productId?: string }): string {
-    let baseDir: string;
-    if (state.productId && config.products?.length) {
-        const product = config.products.find(p => p.id === state.productId);
-        baseDir = product?.investigationsPath || getGlobalInvestigationsDir();
-    } else {
-        baseDir = getGlobalInvestigationsDir();
-    }
+    const baseDir = getGlobalInvestigationsDir();
     const startDate = !isNaN(Number(state.id)) ? new Date(Number(state.id)) : new Date();
     const timestamp = startDate.toISOString().split('T')[0];
     const safeTarget = (state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
@@ -499,28 +469,13 @@ export function loadHistory() {
     storagePathCache.clear();
     invalidateListCache();
 
-    // Collect all investigation directories to scan
-    const dirsToScan: { dir: string; productId?: string }[] = [];
-    
-    // Add global/default investigations path
-    const globalDir = getGlobalInvestigationsDir();
-    if (shouldScanGlobalInvestigationsDir()) {
-        dirsToScan.push({ dir: globalDir });
-    } else {
-        console.log(`Skipping implicit global investigations directory for product-configured mode: ${globalDir}`);
-    }
-    
-    // Add each product's investigations path
-    if (config.products && config.products.length > 0) {
-        for (const product of config.products) {
-            if (product.investigationsPath && product.investigationsPath !== globalDir) {
-                dirsToScan.push({ dir: product.investigationsPath, productId: product.id });
-            }
-        }
-    }
-    
+    // Single global investigations directory (per-product directories were removed).
+    const dirsToScan: { dir: string; productId?: string }[] = [
+        { dir: getGlobalInvestigationsDir() },
+    ];
+
     console.log(`Scanning ${dirsToScan.length} investigation directories...`);
-    
+
     for (const { dir, productId } of dirsToScan) {
         ensureDirectoryExists(dir);
         
@@ -825,29 +780,12 @@ wss.on('close', () => clearInterval(wsHeartbeatInterval));
 
 /**
  * Build the effective AgentConfig for a given investigation state.
- * 
- * When an investigation was created under a specific product, the product's
- * investigationsPath, repoRoot, prompts, etc. must be used when the runner is
- * rehydrated (e.g. for retrospect, resume, compact, save).
- * Without this, the global config (which may have an empty investigationsPath)
- * would be used, causing artifacts to save to the wrong directory.
+ *
+ * Always returns the global config now — the legacy per-product override has been removed.
+ * Kept as a function (rather than inlining `config`) so callers stay unchanged and so any
+ * future per-investigation overrides have a single hook.
  */
-export function getEffectiveConfig(state?: Partial<InvestigationState>): typeof config {
-    const productId = state?.productId;
-    if (productId) {
-        const product = config.products.find(p => p.id === productId);
-        if (product) {
-            return {
-                ...config,
-                repoRoot: product.repoRoot || config.repoRoot,
-                systemPromptPath: product.systemPromptPath || config.systemPromptPath,
-                knowledgeBasePath: product.knowledgeBasePath || config.knowledgeBasePath,
-                workingDirectory: product.workingDirectory || config.workingDirectory,
-                investigationsPath: product.investigationsPath || config.investigationsPath,
-                pipeline: product.pipeline || config.pipeline,
-            };
-        }
-    }
+export function getEffectiveConfig(_state?: Partial<InvestigationState>): typeof config {
     return config;
 }
 
@@ -881,17 +819,6 @@ export function getDefaultRepoRoot(pkgd: boolean = isPackaged): string {
 }
 const defaultRepoRoot = getDefaultRepoRoot();
 
-interface Product {
-    id: string;
-    name: string;
-    repoRoot: string;
-    systemPromptPath: string;
-    knowledgeBasePath: string;
-    workingDirectory: string;
-    investigationsPath: string;
-    pipeline?: PipelineDefinition;
-}
-
 let config: {
     repoRoot: string;
     systemPromptPath: string;
@@ -912,8 +839,6 @@ let config: {
     investigationsPath: string;
     llmProvider: { type: string; [key: string]: any };
     incidentProvider: { type: string; [key: string]: any };
-    products: Product[];
-    activeProductId: string;
     // Scheduled investigation settings
     maxConcurrentScheduledInvestigations: number;
     scheduledInvestigationMaxSteps: number;
@@ -953,8 +878,6 @@ let config: {
     investigationsPath: '',
     llmProvider: { type: 'copilot' },
     incidentProvider: { type: 'manual' },
-    products: [],
-    activeProductId: '',
     maxConcurrentScheduledInvestigations: 2,
     scheduledInvestigationMaxSteps: 20,
     scheduledInvestigationRetentionCount: 10,
@@ -990,7 +913,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'scheduledInvestigationMaxSteps', 'scheduledInvestigationRetentionCount', 'scheduledReportModel', 'recommendationModel',
     'autoRefreshInterval', 'workingDirectory',
     'notifications', 'notifEnabled', 'notifSound', 'notifEvents',
-    'investigationsPath', 'products', 'activeProductId',
+    'investigationsPath',
     'llmProvider', 'incidentProvider',
     'defaultView', 'defaultSortOrder', 'defaultPageSize',
     'analyticsWidgets', 'analyticsVisible',
@@ -1049,23 +972,6 @@ export function resolveConfigPaths(cfg: any, baseDir: string): void {
         for (const server of cfg.mcpServers) {
             if (server.cwd) {
                 server.cwd = resolveConfigPath(server.cwd, baseDir);
-            }
-        }
-    }
-
-    // Product paths resolve relative to their own repoRoot
-    if (Array.isArray(cfg.products)) {
-        for (const product of cfg.products) {
-            // First resolve repoRoot relative to config file
-            if (product.repoRoot) {
-                product.repoRoot = resolveConfigPath(product.repoRoot, baseDir);
-            }
-            const productBase = product.repoRoot || baseDir;
-            const productPathKeys = ['systemPromptPath', 'knowledgeBasePath', 'workingDirectory', 'investigationsPath'];
-            for (const key of productPathKeys) {
-                if (product[key] && typeof product[key] === 'string') {
-                    product[key] = resolveConfigPath(product[key], productBase);
-                }
             }
         }
     }
@@ -1158,12 +1064,10 @@ app.get('/api/version', async (req, res) => {
 // Onboarding status — checks if minimum config exists
 app.get('/api/onboarding/status', (req, res) => {
     const hasLlm = !!(config.llmProvider && config.llmProvider.type && config.llmProvider.type !== 'none');
-    const hasProduct = config.products && config.products.length > 0;
     const configExists = fs.existsSync(configFile);
     res.json({
         complete: hasLlm && configExists,
         hasLlmProvider: hasLlm,
-        hasProduct: !!hasProduct,
         hasConfig: configExists,
     });
 });
@@ -1312,389 +1216,6 @@ app.post('/api/settings/import', (req, res) => {
         res.json({ imported: Object.keys(filtered).length, config });
     } catch (e: any) {
         console.error("Failed to import settings:", e);
-        res.status(500).json({ error: sanitizedError(e) });
-    }
-});
-
-// Products API
-app.get('/api/products', (req, res) => {
-    const products: Product[] = config.products || [];
-    res.json(products);
-});
-
-app.get('/api/products/active', (req, res) => {
-    const products: Product[] = config.products || [];
-    const activeProduct = products.find(p => p.id === config.activeProductId) || null;
-    res.json(activeProduct);
-});
-
-app.put('/api/products/active', (req, res) => {
-    try {
-        const { productId } = req.body;
-        if (!productId) {
-            return res.status(400).json({ error: 'productId is required' });
-        }
-        const products: Product[] = config.products || [];
-        const product = products.find(p => p.id === productId);
-        if (!product) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-        config.activeProductId = productId;
-        persistedConfig.activeProductId = productId;
-        invalidateListCache();
-        saveConfigToDisk();
-        res.json({ success: true });
-    } catch (e: any) {
-        console.error("Failed to set active product:", e);
-        res.status(500).json({ error: sanitizedError(e) });
-    }
-});
-
-app.post('/api/products', (req, res) => {
-    try {
-        const product: Omit<Product, 'id'> = req.body;
-        if (!product.name) {
-            return res.status(400).json({ error: 'name is required' });
-        }
-        // Generate a unique ID from the name
-        const id = product.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        if (!config.products) {
-            config.products = [];
-        }
-        if (config.products.some((p: Product) => p.id === id)) {
-            return res.status(409).json({ error: 'Product with this name already exists' });
-        }
-        const newProduct: Product = { id, ...product };
-        config.products.push(newProduct);
-        persistedConfig.products = [...config.products];
-        saveConfigToDisk();
-        // Reload history to include investigations from new product directory
-        if (newProduct.investigationsPath) {
-            console.log(`New product added with investigationsPath: ${newProduct.investigationsPath}. Reloading history...`);
-            history.clear();
-            loadHistory();
-        }
-        res.json(newProduct);
-    } catch (e: any) {
-        console.error("Failed to add product:", e);
-        res.status(500).json({ error: sanitizedError(e) });
-    }
-});
-
-app.put('/api/products/:id', (req, res) => {
-    try {
-        const { id } = req.params;
-        const updates: Partial<Product> = req.body;
-        const products: Product[] = config.products || [];
-        const index = products.findIndex(p => p.id === id);
-        if (index === -1) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-        // Prevent changing the ID
-        delete updates.id;
-        const oldInvestigationsPath = config.products[index].investigationsPath;
-        config.products[index] = { ...config.products[index], ...updates };
-        persistedConfig.products = [...config.products];
-        saveConfigToDisk();
-        // Reload history if investigationsPath changed
-        if (updates.investigationsPath && updates.investigationsPath !== oldInvestigationsPath) {
-            console.log(`Product investigationsPath changed to ${updates.investigationsPath}. Reloading history...`);
-            history.clear();
-            loadHistory();
-        }
-        res.json(config.products[index]);
-    } catch (e: any) {
-        console.error("Failed to update product:", e);
-        res.status(500).json({ error: sanitizedError(e) });
-    }
-});
-
-app.delete('/api/products/:id', (req, res) => {
-    try {
-        const { id } = req.params;
-        if (!config.products || config.products.length === 0) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-        const index = config.products.findIndex((p: Product) => p.id === id);
-        if (index === -1) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-        // Don't allow deleting the last product
-        if (config.products.length === 1) {
-            return res.status(400).json({ error: 'Cannot delete the last product' });
-        }
-        // If deleting the active product, switch to first available
-        if (config.activeProductId === id) {
-            const remaining = config.products.filter((p: Product) => p.id !== id);
-            config.activeProductId = remaining[0]?.id || '';
-        }
-        config.products.splice(index, 1);
-        persistedConfig.products = [...config.products];
-        persistedConfig.activeProductId = config.activeProductId;
-        saveConfigToDisk();
-        res.json({ success: true });
-    } catch (e: any) {
-        console.error("Failed to delete product:", e);
-        res.status(500).json({ error: sanitizedError(e) });
-    }
-});
-
-// --- Product Path Validation ---
-interface PathValidationResult {
-    field: string;
-    label: string;
-    value: string;
-    isAbsolute: boolean;
-    exists: boolean;
-    error: string | null;
-}
-interface ProductValidation {
-    valid: boolean;
-    paths: PathValidationResult[];
-}
-
-export function validateProductPaths(product: Product): ProductValidation {
-    const pathFields: { field: 'id' | 'name' | 'repoRoot' | 'systemPromptPath' | 'knowledgeBasePath' | 'workingDirectory' | 'investigationsPath'; label: string; required: boolean }[] = [
-        { field: 'repoRoot', label: 'Repository Root', required: true },
-        { field: 'systemPromptPath', label: 'System Prompt', required: false },
-        { field: 'knowledgeBasePath', label: 'Knowledge Base', required: false },
-        { field: 'workingDirectory', label: 'Working Directory', required: false },
-        { field: 'investigationsPath', label: 'Investigations Storage', required: false },
-    ];
-
-    const results: PathValidationResult[] = [];
-    let allValid = true;
-
-    for (const { field, label, required } of pathFields) {
-        const value = product[field] || '';
-        if (!value) {
-            // Empty path - only an error if required
-            if (required) {
-                results.push({ field, label, value, isAbsolute: false, exists: false, error: 'Path is required' });
-                allValid = false;
-            }
-            continue; // skip unconfigured optional paths
-        }
-
-        const isAbsolute = path.isAbsolute(value);
-        let exists = false;
-        let error: string | null = null;
-
-        if (!isAbsolute) {
-            error = 'Path must be absolute (full path, not relative)';
-            allValid = false;
-        } else {
-            try {
-                exists = fs.existsSync(value);
-                if (!exists) {
-                    error = 'Path does not exist on disk';
-                    allValid = false;
-                }
-            } catch {
-                error = 'Unable to check path on disk';
-                allValid = false;
-            }
-        }
-
-        results.push({ field, label, value, isAbsolute, exists, error });
-    }
-
-    return { valid: allValid, paths: results };
-}
-
-app.get('/api/products/:id/validate', (req, res) => {
-    try {
-        const { id } = req.params;
-        const products: Product[] = config.products || [];
-        const product = products.find(p => p.id === id);
-        if (!product) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
-        const validation = validateProductPaths(product);
-        res.json(validation);
-    } catch (e: any) {
-        console.error("Failed to validate product:", e);
-        res.status(500).json({ error: sanitizedError(e) });
-    }
-});
-
-// --- Product Discovery & Clone ---
-
-interface InvestigatorManifest {
-    name?: string;
-    description?: string;
-    systemPrompt?: string;
-    systemPromptPath?: string;
-    knowledgeBase?: string;
-    knowledgeBasePath?: string;
-    workingDirectory?: string;
-    investigationsPath?: string;
-}
-
-interface DiscoverResult {
-    source: 'manifest' | 'auto-discovered' | 'none';
-    product: Partial<Product>;
-    suggestions: string[];
-}
-
-const WORKING_DIRECTORY_DEFAULT_SUGGESTION = 'Working directory defaulted to repo root';
-
-/**
- * Resolve a manifest's relative paths to absolute paths based on repoRoot.
- */
-export function resolveManifest(repoRoot: string, manifest: InvestigatorManifest): Partial<Product> {
-    const abs = (rel?: string) => rel ? path.resolve(repoRoot, rel) : '';
-    return {
-        name: manifest.name || path.basename(repoRoot),
-        repoRoot,
-        systemPromptPath: abs(manifest.systemPrompt || manifest.systemPromptPath),
-        knowledgeBasePath: abs(manifest.knowledgeBase || manifest.knowledgeBasePath),
-        workingDirectory: abs(manifest.workingDirectory),
-        investigationsPath: abs(manifest.investigationsPath),
-    };
-}
-
-/**
- * Auto-discover product configuration by scanning repo structure for known patterns.
- */
-export function autoDiscoverProduct(repoRoot: string): { product: Partial<Product>; suggestions: string[] } {
-    const product: Partial<Product> = { name: path.basename(repoRoot), repoRoot };
-    const suggestions: string[] = [];
-
-    // Look for agent prompts
-    const agentsDir = path.join(repoRoot, '.github', 'agents');
-    if (fs.existsSync(agentsDir)) {
-        try {
-            const agentFiles = fs.readdirSync(agentsDir).filter(f => f.endsWith('.agent.md'));
-            if (agentFiles.length === 1) {
-                product.systemPromptPath = path.join(agentsDir, agentFiles[0]);
-                suggestions.push(`Found agent prompt: ${agentFiles[0]}`);
-            } else if (agentFiles.length > 1) {
-                suggestions.push(`Found ${agentFiles.length} agent prompts in .github/agents/ — pick one for System Prompt`);
-            }
-        } catch { /* ignore read errors */ }
-    }
-
-    // Look for knowledge base directories (ordered generic-first)
-    const kbCandidates = ['docs/investigations', 'docs', 'knowledge', 'docs/telemetry-investigations'];
-    for (const candidate of kbCandidates) {
-        const full = path.join(repoRoot, candidate);
-        if (fs.existsSync(full) && fs.statSync(full).isDirectory()) {
-            product.knowledgeBasePath = full;
-            suggestions.push(`Found knowledge base directory at ${candidate}`);
-            break;
-        }
-    }
-
-    // Look for investigations directory (ordered generic-first)
-    const invCandidates = [
-        'investigations',
-        'docs/investigations/AgentInvestigations',
-        'docs/telemetry-investigations/Investigations/AgentInvestigations',
-    ];
-    for (const candidate of invCandidates) {
-        const full = path.join(repoRoot, candidate);
-        if (fs.existsSync(full) && fs.statSync(full).isDirectory()) {
-            product.investigationsPath = full;
-            suggestions.push(`Found investigations directory at ${candidate}`);
-            break;
-        }
-    }
-
-    // Working directory — default to repo root
-    product.workingDirectory = repoRoot;
-    suggestions.push(WORKING_DIRECTORY_DEFAULT_SUGGESTION);
-
-    return { product, suggestions };
-}
-
-app.get('/api/products/discover', (req, res) => {
-    try {
-        const repoRoot = req.query.repoRoot as string;
-        if (!repoRoot) {
-            return res.status(400).json({ error: 'repoRoot query parameter is required' });
-        }
-        const resolvedRoot = path.resolve(repoRoot);
-        if (!fs.existsSync(resolvedRoot)) {
-            return res.status(404).json({ error: 'Repository root does not exist on disk' });
-        }
-
-        // Step 1: Try .investigator.json manifest
-        const manifestPath = path.join(resolvedRoot, '.investigator.json');
-        if (fs.existsSync(manifestPath)) {
-            try {
-                const raw = fs.readFileSync(manifestPath, 'utf-8');
-                const manifest: InvestigatorManifest = JSON.parse(raw);
-                const product = resolveManifest(resolvedRoot, manifest);
-                const result: DiscoverResult = {
-                    source: 'manifest',
-                    product,
-                    suggestions: ['Loaded from .investigator.json manifest'],
-                };
-                return res.json(result);
-            } catch (parseErr: any) {
-                // Manifest exists but is malformed — fall through to auto-discover
-                console.warn(`Malformed .investigator.json at ${manifestPath}: ${parseErr.message}`);
-            }
-        }
-
-        // Step 2: Auto-discover by pattern scanning
-        const { product, suggestions } = autoDiscoverProduct(resolvedRoot);
-        const hasDetectedStructure = suggestions.some(
-            suggestion => suggestion !== WORKING_DIRECTORY_DEFAULT_SUGGESTION,
-        );
-        if (hasDetectedStructure) {
-            const result: DiscoverResult = {
-                source: 'auto-discovered',
-                product,
-                suggestions,
-            };
-            return res.json(result);
-        }
-
-        // Step 3: Nothing found
-        const result: DiscoverResult = {
-            source: 'none',
-            product: { name: path.basename(resolvedRoot), repoRoot: resolvedRoot },
-            suggestions: ['No .investigator.json or recognizable structure found — configure paths manually'],
-        };
-        res.json(result);
-    } catch (e: any) {
-        console.error("Failed to discover product:", e);
-        res.status(500).json({ error: sanitizedError(e) });
-    }
-});
-
-app.post('/api/products/:id/clone', (req, res) => {
-    try {
-        const { id } = req.params;
-        const products: Product[] = config.products || [];
-        const source = products.find(p => p.id === id);
-        if (!source) {
-            return res.status(404).json({ error: 'Source product not found' });
-        }
-
-        // Generate a unique clone ID
-        let baseId = source.id + '-copy';
-        let cloneId = baseId;
-        let counter = 2;
-        while (products.some(p => p.id === cloneId)) {
-            cloneId = `${baseId}-${counter++}`;
-        }
-
-        const clonedProduct: Product = {
-            ...source,
-            id: cloneId,
-            name: `${source.name} (Copy)`,
-        };
-
-        config.products.push(clonedProduct);
-        persistedConfig.products = [...config.products];
-        saveConfigToDisk();
-
-        res.json(clonedProduct);
-    } catch (e: any) {
-        console.error("Failed to clone product:", e);
         res.status(500).json({ error: sanitizedError(e) });
     }
 });
@@ -1884,50 +1405,20 @@ interface CreateInvestigationParams {
     category?: string;
     incidentId?: string;
     model?: string;
-    productId?: string;
     maxSteps?: number;
     source?: 'manual' | 'scheduled';
     scheduleId?: string;
     title?: string;
     createdBy?: string;
-    /** Optional pipeline override — takes precedence over product/global pipeline config */
+    /** Optional pipeline override — takes precedence over the global pipeline config */
     pipeline?: PipelineDefinition;
 }
 
 export function createInvestigation(params: CreateInvestigationParams): { id: string; runner: AgentRunner } {
-    const { query, target, timeRange, correlationId, category, incidentId, model, productId, maxSteps, source, scheduleId, title, createdBy, pipeline: pipelineOverride } = params;
+    const { query, target, timeRange, correlationId, category, incidentId, model, maxSteps, source, scheduleId, title, createdBy, pipeline: pipelineOverride } = params;
 
-    // Determine which config to use (product-specific or global)
+    // Effective config is now always the global config — per-product overrides have been removed.
     let effectiveConfig: typeof config = config;
-    if (productId && config.products && config.products.length > 0) {
-        const product = config.products.find(p => p.id === productId);
-        if (product) {
-            const resolvedProductConfig = {
-                ...product,
-                repoRoot: product.repoRoot || config.repoRoot,
-                systemPromptPath: product.systemPromptPath || config.systemPromptPath,
-                knowledgeBasePath: product.knowledgeBasePath || config.knowledgeBasePath,
-                workingDirectory: product.workingDirectory || config.workingDirectory,
-                investigationsPath: product.investigationsPath || config.investigationsPath,
-            };
-            const validation = validateProductPaths(resolvedProductConfig);
-            if (!validation.valid) {
-                const issues = validation.paths
-                    .filter(p => p.error)
-                    .map(p => `${p.label}: ${p.error}`)
-                    .join('; ');
-                throw new Error(`Product "${product.name}" has path issues: ${issues}`);
-            }
-            effectiveConfig = {
-                ...config,
-                repoRoot: resolvedProductConfig.repoRoot,
-                systemPromptPath: resolvedProductConfig.systemPromptPath,
-                knowledgeBasePath: resolvedProductConfig.knowledgeBasePath,
-                workingDirectory: resolvedProductConfig.workingDirectory,
-                investigationsPath: resolvedProductConfig.investigationsPath
-            };
-        }
-    }
 
     // Apply maxSteps override if provided
     if (maxSteps !== undefined) {
@@ -1957,7 +1448,7 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
         const pipelineCreatedBy = createdBy ?? (source === 'scheduled' ? 'scheduler' : undefined);
         return createPipelineInvestigation(pipelineDef, effectiveConfig, activeLlmProvider, fullQuery, {
             target, timeRange, correlationId, category, incidentId,
-            model: model || effectiveConfig.model, productId,
+            model: model || effectiveConfig.model,
             source: source || 'manual', scheduleId, title,
             createdBy: pipelineCreatedBy,
         });
@@ -1971,7 +1462,6 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
         category,
         incidentId,
         model: model || effectiveConfig.model,
-        productId,
         source: source || 'manual',
         scheduleId,
         title,
@@ -2058,7 +1548,6 @@ function createPipelineInvestigation(
         correlationId: metadata.correlationId,
         category: metadata.category,
         incidentId: metadata.incidentId,
-        productId: metadata.productId,
         source: metadata.source,
         scheduleId: metadata.scheduleId,
         title: metadata.title,
@@ -2309,7 +1798,7 @@ function restartPipelineForContest(runner: AgentRunner, id: string): void {
 }
 
 app.post('/api/investigations', async (req, res) => {
-    const { query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy, pipeline } = req.body;
+    const { query, target, timeRange, correlationId, category, incidentId, model, title, createdBy, pipeline } = req.body;
 
     // Resolve createdBy: use provided value, fall back to OS username
     let resolvedCreatedBy = createdBy;
@@ -2336,7 +1825,7 @@ app.post('/api/investigations', async (req, res) => {
     }
 
     try {
-        const { id } = createInvestigation({ query, target, timeRange, correlationId, category, incidentId, model, productId, title, createdBy: resolvedCreatedBy, pipeline });
+        const { id } = createInvestigation({ query, target, timeRange, correlationId, category, incidentId, model, title, createdBy: resolvedCreatedBy, pipeline });
         res.json({ id, status: 'running' });
     } catch (err: any) {
         return res.status(400).json({ error: err.message });
@@ -2352,7 +1841,6 @@ app.get('/api/investigations', (req, res) => {
         ? (req.query.sortOrder as 'newest' | 'oldest' | 'steps' | 'modified')
         : 'newest';
     const filterStatus = req.query.filter as string || 'all';
-    const filterProduct = req.query.productFilter as string || 'all';
     const filterSource = req.query.sourceFilter as string || 'all';
     const filterTag = req.query.tagFilter as string || 'all';
     const filterCreatedBy = req.query.createdByFilter as string || 'all';
@@ -2361,7 +1849,7 @@ app.get('/api/investigations', (req, res) => {
     const pinnedIds = new Set(pinnedIdsParam ? pinnedIdsParam.split(',') : []);
 
     // ── Build cache key from all params ─────────────────────────────
-    const cacheKey = `${page}:${pageSize}:${sortOrder}:${filterStatus}:${filterProduct}:${filterSource}:${filterTag}:${filterCreatedBy}:${searchQuery}:${pinnedIdsParam}`;
+    const cacheKey = `${page}:${pageSize}:${sortOrder}:${filterStatus}:${filterSource}:${filterTag}:${filterCreatedBy}:${searchQuery}:${pinnedIdsParam}`;
 
     // Check if any runners are active — if so, always rebuild (state changes constantly)
     const hasActiveRunners = Array.from(runners.values()).some(r => (r as any).state?.status === 'running');
@@ -2388,12 +1876,7 @@ app.get('/api/investigations', (req, res) => {
         .filter(p => shouldIncludeInvestigationInList(p));
     const all = [...active, ...past];
 
-    // Create a product name lookup map
-    const productMap = new Map<string, string>();
-    (config.products || []).forEach((p: Product) => productMap.set(p.id, p.name));
-
     // ── Collect filter metadata and stats from raw data (lightweight) ──
-    const productsSet = new Map<string, string>();
     const tagsSet = new Set<string>();
     const creatorsSet = new Set<string>();
     const statusCounts: Record<string, number> = { running: 0, paused: 0, completed: 0, failed: 0, aborted: 0 };
@@ -2411,8 +1894,6 @@ app.get('/api/investigations', (req, res) => {
         if (!s || !s.id) continue;
         const source = s.source || 'manual';
         if (source === 'scheduled') continue; // exclude scheduled from stats
-        const pName = s.productId ? productMap.get(s.productId) || 'Unknown' : '';
-        if (s.productId && pName) productsSet.set(s.productId, pName);
         for (const t of (s.tags || [])) tagsSet.add(t);
         if (s.createdBy) creatorsSet.add(s.createdBy);
         if (s.status in statusCounts) statusCounts[s.status]++;
@@ -2438,7 +1919,7 @@ app.get('/api/investigations', (req, res) => {
     }
 
     const filterMeta = {
-        products: Array.from(productsSet.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+        products: [] as { id: string; name: string }[],
         tags: Array.from(tagsSet).sort(),
         creators: Array.from(creatorsSet).sort(),
     };
@@ -2464,7 +1945,6 @@ app.get('/api/investigations', (req, res) => {
         preFiltered = preFiltered.filter(s => (s.source || 'manual') === filterSource);
     }
     if (filterStatus !== 'all') preFiltered = preFiltered.filter(s => s.status === filterStatus);
-    if (filterProduct !== 'all') preFiltered = preFiltered.filter(s => s.productId === filterProduct);
     if (filterTag !== 'all') preFiltered = preFiltered.filter(s => (s.tags || []).includes(filterTag));
     if (filterCreatedBy !== 'all') preFiltered = preFiltered.filter(s => (s.createdBy || '') === filterCreatedBy);
 
@@ -2504,8 +1984,6 @@ app.get('/api/investigations', (req, res) => {
         category: s.category || '',
         incidentId: s.incidentId || '',
         model: s.model,
-        productId: s.productId,
-        productName: s.productId ? productMap.get(s.productId) || 'Unknown' : '',
         storagePath,
         tags: s.tags || [],
         source: s.source || 'manual',
@@ -2544,7 +2022,6 @@ app.get('/api/investigations', (req, res) => {
                 s.target.toLowerCase().includes(searchQuery) ||
                 s.category.toLowerCase().includes(searchQuery) ||
                 s.incidentId.toLowerCase().includes(searchQuery) ||
-                s.productName.toLowerCase().includes(searchQuery) ||
                 s.tags.some((t: string) => t.toLowerCase().includes(searchQuery)) ||
                 s.createdBy.toLowerCase().includes(searchQuery) ||
                 s.id.toLowerCase().includes(searchQuery) ||
@@ -3352,14 +2829,8 @@ app.delete('/api/investigations/:id', async (req, res) => {
         return res.status(404).json({ error: 'Investigation not found' });
     }
 
-    // Determine the correct investigations directory based on productId
-    let investigationsDir = getGlobalInvestigationsDir();
-    if (investigation.productId) {
-        const product = (config.products || []).find((p: Product) => p.id === investigation.productId);
-        if (product && product.investigationsPath) {
-            investigationsDir = product.investigationsPath;
-        }
-    }
+    // Single global investigations directory (per-product directories were removed).
+    const investigationsDir = getGlobalInvestigationsDir();
 
     history.delete(id);
 
@@ -3406,14 +2877,8 @@ app.get('/api/investigations/:id/export', async (req, res) => {
         return res.status(404).json({ error: 'Investigation not found' });
     }
 
-    // Resolve the investigations directory
-    let investigationsDir = getGlobalInvestigationsDir();
-    if (investigation.productId) {
-        const product = (config.products || []).find((p: Product) => p.id === investigation.productId);
-        if (product && product.investigationsPath) {
-            investigationsDir = product.investigationsPath;
-        }
-    }
+    // Single global investigations directory (per-product directories were removed).
+    const investigationsDir = getGlobalInvestigationsDir();
 
     // Try to read full state from disk (not truncated like the GET /:id endpoint)
     const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
@@ -3468,8 +2933,9 @@ app.post('/api/investigations/import', async (req, res) => {
         importCreatedBy = os.userInfo().username;
     }
 
-    // Re-map productId to the active product — the source system's productId is meaningless here
-    const localProductId = config.activeProductId || importedState.productId;
+    // Re-map productId from the import payload — the source system's productId is meaningless here.
+    // The product concept has been removed; preserve the legacy field on the imported state but do not set it.
+    const localProductId: string | undefined = undefined;
 
     const state: InvestigationState = {
         ...importedState,
@@ -3477,8 +2943,8 @@ app.post('/api/investigations/import', async (req, res) => {
         // Force terminal status — imported investigations should never be 'running'
         status: ['completed', 'failed', 'aborted'].includes(importedState.status) ? importedState.status : 'completed',
         createdBy: importCreatedBy,
-        productId: localProductId,
     };
+    delete (state as any).productId;
 
     // Add an import note to thoughts
     if (!Array.isArray(state.thoughts)) state.thoughts = [];
@@ -3488,14 +2954,9 @@ app.post('/api/investigations/import', async (req, res) => {
     if (!Array.isArray(state.actions)) state.actions = [];
     if (!Array.isArray(state.logs)) state.logs = [];
 
-    // Determine investigations directory
-    let investigationsDir = getGlobalInvestigationsDir();
-    if (localProductId) {
-        const product = (config.products || []).find((p: Product) => p.id === localProductId);
-        if (product && product.investigationsPath) {
-            investigationsDir = product.investigationsPath;
-        }
-    }
+    // Single global investigations directory (per-product directories were removed).
+    const investigationsDir = getGlobalInvestigationsDir();
+    void localProductId;
 
     // Save to disk using the same folder naming pattern as AgentRunner.saveArtifacts()
     let investigationDir: string | undefined;
@@ -3570,13 +3031,6 @@ app.get('/api/investigations/:id/pdf', async (req, res) => {
         return res.status(400).json({ error: 'No final report available for this investigation. The investigation must be completed first.' });
     }
 
-    // Resolve product name for metadata
-    let productName: string | undefined;
-    if (state.productId) {
-        const product = (config.products || []).find((p: Product) => p.id === state!.productId);
-        if (product) productName = product.name;
-    }
-
     try {
         const pdfBuffer = await renderPdf(state.finalReport, {
             id: state.id,
@@ -3587,7 +3041,6 @@ app.get('/api/investigations/:id/pdf', async (req, res) => {
             model: state.model,
             correlationId: state.correlationId,
             incidentId: state.incidentId,
-            productName,
             contestCount: state.contestCount,
         });
 
@@ -4001,13 +3454,9 @@ app.post('/api/investigations/:id/mcp/restart', async (req, res) => {
 
 // ── Scheduled Investigations ─────────────────────────────────────────────
 
-// Determine the base investigations path (global or first product with one)
+// Determine the base investigations path for scheduled investigations.
 export function getScheduleInvestigationsPath(): string {
     if (config.investigationsPath) return config.investigationsPath;
-    if (config.products?.length > 0) {
-        const first = config.products.find(p => p.investigationsPath);
-        if (first) return first.investigationsPath;
-    }
     return getGlobalInvestigationsDir();
 }
 
@@ -4027,13 +3476,8 @@ async function deleteInvestigationFromDisk(investigationId: string): Promise<voi
     const investigation = history.get(investigationId);
     if (!investigation) return;
 
-    let investigationsDir = getGlobalInvestigationsDir();
-    if (investigation.productId) {
-        const product = (config.products || []).find((p: Product) => p.id === investigation.productId);
-        if (product && product.investigationsPath) {
-            investigationsDir = product.investigationsPath;
-        }
-    }
+    // Single global investigations directory (per-product directories were removed).
+    const investigationsDir = getGlobalInvestigationsDir();
 
     history.delete(investigationId);
 
@@ -4224,7 +3668,7 @@ app.post('/api/schedules', async (req, res) => {
             return res.status(500).json({ error: 'Scheduler not initialized' });
         }
     }
-    const { name, target, query, intervalMinutes, productId, model, maxSteps, timeRange, category, autoEscalate, escalationQuery, enabled } = req.body;
+    const { name, target, query, intervalMinutes, model, maxSteps, timeRange, category, autoEscalate, escalationQuery, enabled } = req.body;
     if (!name || !target || !query) {
         return res.status(400).json({ error: 'name, target, and query are required' });
     }
@@ -4238,7 +3682,6 @@ app.post('/api/schedules', async (req, res) => {
         target,
         query,
         intervalMinutes: intervalMinutes || 15,
-        productId,
         model,
         maxSteps,
         timeRange,
@@ -4307,14 +3750,8 @@ app.delete('/api/schedules/:id', (req, res) => {
         // Determine disk path from history or runner state
         const inv = history.get(invId) || (runner ? (runner as any).state : undefined);
         if (inv) {
-            // Delete from disk
-            let investigationsDir = getGlobalInvestigationsDir();
-            if (inv.productId) {
-                const product = (config.products || []).find((p: Product) => p.id === inv.productId);
-                if (product && product.investigationsPath) {
-                    investigationsDir = product.investigationsPath;
-                }
-            }
+            // Delete from disk — single global investigations directory.
+            const investigationsDir = getGlobalInvestigationsDir();
             const safeId = invId.replace(/[^a-zA-Z0-9]/g, '');
             try {
                 const entries = fs.readdirSync(investigationsDir);

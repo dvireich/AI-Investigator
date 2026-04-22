@@ -5,7 +5,6 @@ import { api } from '../api';
 import { useToast } from '../components/Toast';
 import { TIME_PRESETS } from '../constants';
 import type { ScheduleDefinition, ScheduleHistoryEntry, ScheduleReport } from '../types/schedule';
-import type { Product } from '../types/product';
 import {
     Clock, Play, Pause, Plus, Trash2, Pencil, CheckCircle2, AlertTriangle,
     XCircle, Activity, RefreshCw, ChevronDown, ChevronRight, ChevronLeft, Server, Timer,
@@ -40,7 +39,7 @@ export const Schedules = () => {
     const [schedules, setSchedules] = useState<ScheduleDefinition[]>([]);
     const [schedulesTotalCount, setSchedulesTotalCount] = useState(0);
     const [schedulesTotalPages, setSchedulesTotalPages] = useState(1);
-    const [products, setProducts] = useState<Product[]>([]);
+    const [products] = useState<{ id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(true);
     const [schedulerRunning, setSchedulerRunning] = useState(false);
     const [defaultMaxSteps, setDefaultMaxSteps] = useState(20);
@@ -94,7 +93,8 @@ export const Schedules = () => {
 
     useEffect(() => {
         refresh();
-        api.listProducts().then(setProducts).catch(() => {});
+        // Products were removed in the agent-oriented refactor; keep an empty list
+        // so legacy productId lookups stay harmless until the UI is fully torn down.
         api.listModels().then(list => setModels(Array.from(new Set(list)))).catch(() => {});
         api.getSettings().then((s: any) => {
             if (s?.scheduledInvestigationMaxSteps) setDefaultMaxSteps(s.scheduledInvestigationMaxSteps);
@@ -212,7 +212,6 @@ export const Schedules = () => {
                 target: sched.target,
                 query: sched.query,
                 intervalMinutes: sched.intervalMinutes,
-                productId: sched.productId,
                 model: sched.model,
                 maxSteps: sched.maxSteps,
                 timeRange: sched.timeRange,
@@ -431,7 +430,7 @@ export const Schedules = () => {
                                                 {(sched.historyCount ?? 0) > 0 && (
                                                     <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{sched.historyCount} run{sched.historyCount !== 1 ? 's' : ''}</span>
                                                 )}
-                                                {sched.productId && <span className="text-slate-600">· {productName(sched.productId)}</span>}
+                                                {sched.productId && <span className="text-slate-600">· {productName(sched.productId as string)}</span>}
                                             </div>
                                         </div>
 
@@ -619,11 +618,11 @@ export const Schedules = () => {
                                                         )}
                                                     </div>
                                                 )}
-                                                {/* Product */}
+                                                {/* Product (legacy field, hidden when absent) */}
                                                 {sched.productId && (
                                                     <div className="bg-slate-800/30 rounded-xl px-3 py-2.5 border border-slate-700/20">
                                                         <div className="text-[10px] text-slate-500 flex items-center gap-1 mb-0.5"><Activity className="w-3 h-3" /> Product</div>
-                                                        <div className="text-xs text-slate-300">{productName(sched.productId)}</div>
+                                                        <div className="text-xs text-slate-300">{productName(sched.productId as string)}</div>
                                                     </div>
                                                 )}
                                                 {/* Interval */}

@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link, useNavigate } from 'react-router-dom';
 import { api, type Investigation, type InvestigationFilterMeta, type InvestigationStats } from '../api';
 import { useToast } from '../components/Toast';
-import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, ChevronLeft, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, Package, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag, User, Wrench } from 'lucide-react';
+import { Play, Pause, Activity, CheckCircle2, XCircle, Clock, Search, FileText, ChevronRight, ChevronLeft, Timer, Pencil, Server, Trash2, Ban, LayoutGrid, Sparkles, List, ArrowDownUp, Copy, CheckCheck, X, Pin, AlertTriangle, ShieldAlert, BarChart3, ChevronDown, RotateCcw, RefreshCw, Upload, Loader2, FileUp, Tag, User, Wrench } from 'lucide-react';
 import { Pagination, DEFAULT_PAGE_SIZE } from '../components/Pagination';
 import { KpiBar } from '../components/charts/KpiBar';
 import { getSelectedWidgetIds, getWidgetById } from '../components/charts/widgetRegistry';
@@ -130,7 +130,6 @@ export const Dashboard = () => {
     const [search, setSearch] = useState('');
     const [maxSteps, setMaxSteps] = useState<number>(0);
     const [filter, setFilter] = useState<'all' | 'running' | 'paused' | 'completed' | 'failed' | 'aborted'>('all');
-    const [productFilter, setProductFilter] = useState<string>('all');
     const [tagFilter, setTagFilter] = useState<string>('all');
     const [createdByFilter, setCreatedByFilter] = useState<string>('all');
     const [editingId, setEditingId] = useState<string | null>(null);
@@ -275,7 +274,6 @@ export const Dashboard = () => {
             pageSize,
             sortOrder,
             filter,
-            productFilter,
             tagFilter,
             createdByFilter,
             search: debouncedSearch,
@@ -322,7 +320,7 @@ export const Dashboard = () => {
         document.addEventListener('visibilitychange', handleVisibility);
         return () => { ac.abort(); clearInterval(interval); document.removeEventListener('visibilitychange', handleVisibility); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [currentPage, pageSize, sortOrder, filter, productFilter, tagFilter, createdByFilter, debouncedSearch, pinnedIds]);
+    }, [currentPage, pageSize, sortOrder, filter, tagFilter, createdByFilter, debouncedSearch, pinnedIds]);
 
     const handleAction = async (e: React.MouseEvent, invId: string, action: string) => {
         e.preventDefault();
@@ -472,12 +470,11 @@ export const Dashboard = () => {
     };
 
     // Filter metadata from server (no client-side computation needed)
-    const uniqueProducts = filterMeta.products;
     const uniqueTags = filterMeta.tags;
     const uniqueCreators = filterMeta.creators;
 
     // Reset to page 1 when filters, search, or sort change
-    useEffect(() => { setCurrentPage(1); }, [filter, productFilter, tagFilter, createdByFilter, debouncedSearch, sortOrder]);
+    useEffect(() => { setCurrentPage(1); }, [filter, tagFilter, createdByFilter, debouncedSearch, sortOrder]);
 
     // Refs so the keyboard handler always sees the latest values without re-registering
     const sortedRef = useRef(pageItems);
@@ -796,29 +793,6 @@ export const Dashboard = () => {
 
                 {/* Sort & View */}
                 <div className="flex items-center gap-1.5 w-full sm:w-auto flex-wrap sm:shrink-0 sm:ml-auto">
-                    {/* Product filter */}
-                    {uniqueProducts.length > 0 && (
-                        <div className="relative">
-                            <select
-                                value={productFilter}
-                                onChange={(e) => setProductFilter(e.target.value)}
-                                className={`appearance-none pl-6 pr-4 py-1.5 sm:pl-7 sm:pr-6 sm:py-2 border rounded-xl text-[11px] sm:text-xs font-bold shadow-sm cursor-pointer focus:outline-none focus:ring-2 focus:ring-brand-500/40 hover:border-slate-600 transition-all min-w-0 ${
-                                    productFilter !== 'all' 
-                                        ? 'bg-purple-500/10 border-purple-500/30 text-purple-400' 
-                                        : 'bg-slate-900/60 border-slate-700/50 text-slate-400'
-                                }`}
-                            >
-                                <option value="all">All Products</option>
-                                {uniqueProducts.map(p => (
-                                    <option key={p.id} value={p.id}>{p.name}</option>
-                                ))}
-                            </select>
-                            <Package className={`absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none ${
-                                productFilter !== 'all' ? 'text-purple-500' : 'text-slate-400'
-                            }`} />
-                        </div>
-                    )}
-
                     {uniqueTags.length > 0 && (
                         <div className="relative">
                             <select
@@ -861,9 +835,9 @@ export const Dashboard = () => {
                             }`} />
                         </div>
                     )}
-                    {(filter !== 'all' || productFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all' || search) && (
+                    {(filter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all' || search) && (
                         <button
-                            onClick={() => { setFilter('all'); setProductFilter('all'); setTagFilter('all'); setCreatedByFilter('all'); setSearch(''); setDebouncedSearch(''); }}
+                            onClick={() => { setFilter('all'); setTagFilter('all'); setCreatedByFilter('all'); setSearch(''); setDebouncedSearch(''); }}
                             className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-[11px] sm:text-xs font-bold text-red-400 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-all shadow-sm whitespace-nowrap"
                         >
                             <X className="w-3 h-3" />
@@ -925,22 +899,10 @@ export const Dashboard = () => {
             </div>
 
             {/* Results count */}
-            {(search || filter !== 'all' || productFilter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all') && serverTotalCount > 0 && (
+            {(search || filter !== 'all' || tagFilter !== 'all' || createdByFilter !== 'all') && serverTotalCount > 0 && (
                 <p className="text-xs text-slate-400 font-medium flex items-center gap-2">
                     <span>{serverTotalCount} {serverTotalCount === 1 ? 'investigation' : 'investigations'}</span>
                     {search && <><span>matching</span> <span className="font-bold text-slate-300">"{search}"</span></>}
-                    {productFilter !== 'all' && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 rounded-full font-bold">
-                            <Package className="w-3 h-3" />
-                            {uniqueProducts.find(p => p.id === productFilter)?.name}
-                            <button 
-                                onClick={() => setProductFilter('all')} 
-                                className="ml-0.5 hover:text-purple-300"
-                            >
-                                <X className="w-3 h-3" />
-                            </button>
-                        </span>
-                    )}
 
                     {tagFilter !== 'all' && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-full font-bold">
@@ -1096,16 +1058,6 @@ export const Dashboard = () => {
                                         {/* Body */}
                                         <div className="flex-1 space-y-2">
                                             <div className="flex flex-wrap gap-1.5">
-                                                {inv.productName && (
-                                                    <span 
-                                                        className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2 py-0.5 rounded-full cursor-pointer hover:bg-purple-500/20 transition-colors"
-                                                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProductFilter(inv.productId!); }}
-                                                        title={`Filter by ${inv.productName}`}
-                                                    >
-                                                        <Package className="w-2.5 h-2.5" />
-                                                        {inv.productName}
-                                                    </span>
-                                                )}
                                                 {inv.category && (
                                                     <span className="inline-block text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-2 py-0.5 rounded-full border border-brand-500/20">#{inv.category}</span>
                                                 )}
@@ -1289,16 +1241,6 @@ export const Dashboard = () => {
 
                                                 {/* Tags & meta */}
                                                 <div className="hidden sm:flex items-center gap-2 shrink-0">
-                                                    {inv.productName && (
-                                                        <span 
-                                                            className="inline-flex items-center gap-1 text-[10px] font-bold text-purple-400 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-full cursor-pointer hover:bg-purple-500/20 transition-colors"
-                                                            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setProductFilter(inv.productId!); }}
-                                                            title={`Filter by ${inv.productName}`}
-                                                        >
-                                                            <Package className="w-2.5 h-2.5" />
-                                                            {inv.productName}
-                                                        </span>
-                                                    )}
                                                     {inv.category && (
                                                         <span className="text-[10px] font-mono font-bold text-brand-400 bg-brand-500/10 px-1.5 py-0.5 rounded-full border border-brand-500/20">#{inv.category}</span>
                                                     )}

@@ -26,9 +26,6 @@ vi.mock('../pages/ScheduleForm', () => ({
 vi.mock('../pages/About', () => ({
     About: () => <div data-testid="about">About</div>,
 }));
-vi.mock('../pages/OnboardingWizard', () => ({
-    OnboardingWizard: () => <div data-testid="onboarding">Onboarding</div>,
-}));
 vi.mock('../pages/NotFound', () => ({
     NotFound: () => <div data-testid="not-found">Not Found</div>,
 }));
@@ -62,13 +59,7 @@ function renderApp(route: string) {
 
 describe('App', () => {
     beforeEach(() => {
-        // Mock onboarding status as complete so Dashboard renders
-        vi.stubGlobal('fetch', vi.fn((url: string) => {
-            if (url === '/api/onboarding/status') {
-                return Promise.resolve({ ok: true, json: () => Promise.resolve({ complete: true }) });
-            }
-            return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
-        }));
+        vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, json: () => Promise.resolve({}) })));
     });
 
     it('renders Dashboard at root', async () => {
@@ -101,49 +92,9 @@ describe('App', () => {
         await waitFor(() => expect(screen.getByTestId('about')).toBeInTheDocument());
     });
 
-    it('renders OnboardingWizard at /onboarding', async () => {
-        renderApp('/onboarding');
-        await waitFor(() => expect(screen.getByTestId('onboarding')).toBeInTheDocument());
-    });
-
-    it('redirects to onboarding when onboarding is not complete', async () => {
-        vi.stubGlobal('fetch', vi.fn((url: string) => {
-            if (url === '/api/onboarding/status') {
-                return Promise.resolve({ ok: true, json: () => Promise.resolve({ complete: false }) });
-            }
-            return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
-        }));
-        renderApp('/');
-        await waitFor(() => expect(screen.getByTestId('onboarding')).toBeInTheDocument());
-    });
-
     it('renders NotFound for unknown routes', async () => {
         renderApp('/some/unknown/path');
         await waitFor(() => expect(screen.getByTestId('not-found')).toBeInTheDocument());
-    });
-
-    it('shows dashboard when onboarding fetch fails', async () => {
-        vi.stubGlobal('fetch', vi.fn((url: string) => {
-            if (url === '/api/onboarding/status') {
-                return Promise.reject(new Error('Network error'));
-            }
-            return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
-        }));
-        renderApp('/');
-        await waitFor(() => expect(screen.getByTestId('dashboard')).toBeInTheDocument());
-    });
-
-    it('stays in loading state when onboarding response is not ok', async () => {
-        vi.stubGlobal('fetch', vi.fn((url: string) => {
-            if (url === '/api/onboarding/status') {
-                return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
-            }
-            return Promise.resolve({ ok: false, json: () => Promise.resolve({}) });
-        }));
-        renderApp('/');
-        // Wait a tick then verify nothing renders (stuck in loading since data=null → needsOnboarding stays null)
-        await new Promise(r => setTimeout(r, 100));
-        expect(screen.queryByTestId('dashboard')).not.toBeInTheDocument();
     });
 });
 

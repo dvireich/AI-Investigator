@@ -11,6 +11,7 @@ import { ProgressRing } from '../components/ProgressRing';
 import { PipelineStepper } from '../components/PipelineStepper';
 import { PipelineTimeline } from '../components/PipelineTimeline';
 import type { PipelineState, ConversationEntry } from '../types/pipeline';
+import { findAgentsByKind } from '../types/pipeline';
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -2108,6 +2109,19 @@ export const InvestigationDetail = () => {
                                                 : <Sparkles className="w-6 h-6 text-purple-400" />}
                                         </div>
                                         <h3 className="text-slate-200 font-bold">Knowledge Improvement</h3>
+                                        {(() => {
+                                            // Surface any retrospect-kind agents from the investigation's pipeline so the
+                                            // UI isn't hardcoded to the built-in retrospect agent.
+                                            const pipelineDef = (investigation as any).pipeline || pipelineState?.pipeline;
+                                            const retroAgents = pipelineDef ? findAgentsByKind(pipelineDef, 'retrospect') : [];
+                                            if (retroAgents.length === 0) return null;
+                                            return (
+                                                <div className="mt-2 inline-flex items-center gap-1.5 text-[10px] font-bold text-slate-400 bg-slate-800/40 border border-slate-700/50 px-2.5 py-1 rounded-full">
+                                                    <span className="text-slate-500">Agent:</span>
+                                                    <span className="text-slate-300">{retroAgents.map(a => a.name).join(', ')}</span>
+                                                </div>
+                                            );
+                                        })()}
                                         {investigation.retrospect?.completed ? (
                                             <div className="mt-2 inline-flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 text-xs font-bold px-3 py-1.5 rounded-full border border-emerald-500/20">
                                                 <CheckCircle2 className="w-3.5 h-3.5" />

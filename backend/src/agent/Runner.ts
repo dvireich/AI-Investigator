@@ -233,6 +233,8 @@ export class AgentRunner extends EventEmitter {
     private openaiClient: OpenAI | null = null;
     /** When running as a pipeline stage, carries context from the orchestrator. */
     private stageContext?: StageContext;
+    /** Tracks whether tool_choice:'required' has caused a 400 error, to avoid retrying it repeatedly. */
+    private toolChoiceRequiredFailed: boolean = false;
     // Tracks how many entries from `thoughts` have been archived into `fullHistory`.
     // This allows us to sync incrementally without duplicating entries.
     private fullHistorySyncCursor: number = 0;
@@ -428,6 +430,7 @@ export class AgentRunner extends EventEmitter {
         let consecutiveThoughts = 0;
         let consecutiveLLMErrors = 0;
         const maxConsecutiveErrors = 3;
+        const maxConsecutiveThoughts = 6;
 
         while (!this.aborted && this.state.status !== 'completed' && stepCount < maxSteps) {
             stepCount++;
@@ -607,11 +610,19 @@ export class AgentRunner extends EventEmitter {
                     consecutiveThoughts++;
                     this.state.actions.push(null as any);
 
-                    if (consecutiveThoughts >= 3) {
+                    if (consecutiveThoughts >= maxConsecutiveThoughts) {
+                        // Auto-pause: the model is stuck in a text-only loop and tool forcing isn't working
+                        const pauseMsg = `System: Investigation auto-paused after ${consecutiveThoughts} consecutive text-only responses without tool calls. ` +
+                            `The model appears stuck. You can try: (1) Resume to retry, (2) Switch to a different model, then Resume, or (3) Abort.`;
+                        this.log(pauseMsg);
+                        this.state.thoughts.push(pauseMsg);
+                        this.state.actions.push(null as any);
+                        this.emit('thought', pauseMsg);
+                        this.pause();
+                        consecutiveThoughts = 0; // Reset so resume gets fresh attempts
+                        continue;
+                    } else if (consecutiveThoughts >= 3) {
                         this.log("Forcing tool usage due to consecutive thoughts.");
-                        // We can force the next prompt to demand a tool
-                        // But we can't easily inject it into `this.callLLM` without changing signature.
-                        // Instead, we can append a system warning to the history? No, history is state.thoughts.
                         this.state.thoughts.push({ role: 'system', content: "You are looping with thoughts. You MUST call a tool now or finish." });
                         this.state.actions.push(null as any);
                     }
@@ -2683,7 +2694,7 @@ ${recsText}
                 // Force tool usage if looping AND we have tools
                 let toolChoice: any = openAiTools ? 'auto' : undefined;
 
-                if (forceTool && !forceToolDowngraded) {
+                if (forceTool && !forceToolDowngraded && !this.toolChoiceRequiredFailed) {
                     if (openAiTools) {
                         this.log("Forcing tool_choice: 'required' due to consecutive thoughts.");
                         toolChoice = 'required';
@@ -2792,23 +2803,28 @@ ${recsText}
                     this.log(`400 Error (Attempt ${attempt + 1}/${maxAttempts}): ${errorDetail}. Payload: ${payloadInfo}`);
 
                     // Progressive recovery — each retry applies more aggressive reduction:
-                    //   Level 0: downgrade tool_choice from 'required' to 'auto'
+                    //   Level 0: downgrade tool_choice from 'required' to 'auto' (no compaction — the 400 is likely caused by the tool_choice, not payload size)
                     //   Level 1: compact history + strip prior agent context
                     //   Level 2: aggressive trim (keep only 4 recent thoughts, cap system prompt)
                     if (attempt < maxAttempts - 1) {
                         this.log(`Applying 400 recovery level ${attempt + 1}...`);
 
                         // Always try downgrading tool_choice first — some APIs
-                        // (e.g. Copilot proxy) reject 'required' with a bare 400
+                        // (e.g. Copilot proxy, Anthropic with thinking) reject 'required' with a bare 400
+                        let downgradeOnly = false;
                         if (forceTool && !forceToolDowngraded) {
                             this.log(`Downgrading tool_choice from 'required' to 'auto' for retry.`);
                             forceToolDowngraded = true;
+                            this.toolChoiceRequiredFailed = true; // Prevent future attempts across callLLM invocations
+                            downgradeOnly = true; // Skip compaction — the 400 is likely from tool_choice, not payload size
                         }
 
-                        // Always attempt compaction first
-                        const compacted = await this.compactHistory(system, userQuery, this.state.thoughts);
-                        if (compacted) {
-                            currentHistory = this.state.thoughts;
+                        // Only compact if the 400 wasn't caused by the tool_choice downgrade
+                        if (!downgradeOnly) {
+                            const compacted = await this.compactHistory(system, userQuery, this.state.thoughts);
+                            if (compacted) {
+                                currentHistory = this.state.thoughts;
+                            }
                         }
 
                         // Strip prior agent context from system prompt

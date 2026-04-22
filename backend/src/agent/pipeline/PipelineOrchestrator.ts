@@ -161,10 +161,15 @@ export class PipelineOrchestrator extends EventEmitter {
                 // Build the system prompt for this agent
                 const systemPrompt = this.buildAgentPrompt(agent, stage, stageIndex, currentState);
 
-                // Build config overrides for this stage
+                // Build config overrides for this stage. Per-agent path fields
+                // (repoRoot/knowledgeBasePath/workingDirectory) override the global
+                // config when present; otherwise the global values are kept.
                 const stageConfig: AgentConfig = {
                     ...this.baseConfig,
                     mcpServers: agent.mcpServers || this.baseConfig.mcpServers,
+                    repoRoot: agent.repoRoot ?? this.baseConfig.repoRoot,
+                    knowledgeBasePath: agent.knowledgeBasePath ?? this.baseConfig.knowledgeBasePath,
+                    workingDirectory: agent.workingDirectory ?? this.baseConfig.workingDirectory,
                 };
 
                 // For retrospect stages, keep finalReport so it can analyze

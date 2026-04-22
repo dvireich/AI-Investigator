@@ -125,8 +125,8 @@ export const About = () => {
                     <FeatureCard icon={<Globe className="w-4 h-4" />}
                         color="bg-brand-500/10 border border-brand-500/20 text-brand-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-brand-500/20"
-                        title="Multi-product support"
-                        desc="Configure multiple investigation targets with their own knowledge bases, prompts, and storage paths. Switch between products instantly from the investigation form." />
+                        title="Bring-your-own agent"
+                        desc="Compose investigations from any markdown agent file you point at — no shared product configuration. Built-in agents (investigator, retrospect, planner, validator, reporter) ship out of the box; add your own and chain them into named workflows." />
                     <FeatureCard icon={<Radio className="w-4 h-4" />}
                         color="bg-sky-500/10 border border-sky-500/20 text-sky-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-sky-500/20"
@@ -140,8 +140,8 @@ export const About = () => {
                     <FeatureCard icon={<Compass className="w-4 h-4" />}
                         color="bg-teal-500/10 border border-teal-500/20 text-teal-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-teal-500/20"
-                        title="Auto-discovery onboarding"
-                        desc="Drop a .investigator.json manifest at any repo root for one-click product setup. Auto-scans for agent files, docs, and prompts when no manifest is found." />
+                        title="Custom workflows"
+                        desc="Stitch built-in and custom agents into reusable pipelines. Save them as named workflows you can launch from the New Investigation form or schedule for recurring runs." />
                     <FeatureCard icon={<Share2 className="w-4 h-4" />}
                         color="bg-sky-500/10 border border-sky-500/20 text-sky-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-sky-500/20"
@@ -191,7 +191,7 @@ export const About = () => {
                         color="bg-stone-500/10 border border-stone-500/20 text-stone-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-stone-500/20"
                         title="External config file"
-                        desc="Keep your team's config in your own repo and pass it at launch with --config. Version-controlled settings that survive re-clones and enable one-click team onboarding." />
+                        desc="Keep your team's config in your own repo and pass it at launch with --config. Version-controlled settings that survive re-clones." />
                     <FeatureCard icon={<Package className="w-4 h-4" />}
                         color="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-emerald-500/20"
@@ -200,8 +200,8 @@ export const About = () => {
                     <FeatureCard icon={<Rocket className="w-4 h-4" />}
                         color="bg-lime-500/10 border border-lime-500/20 text-lime-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-lime-500/20"
-                        title="First-launch onboarding"
-                        desc="A guided wizard on first launch walks you through LLM provider selection and product discovery. Skippable, and stays out of the way once configured." />
+                        title="Zero-config startup"
+                        desc="Launches straight into the dashboard — no setup wizard, no required configuration. Add custom agents and workflows when you're ready." />
                     <FeatureCard icon={<Bell className="w-4 h-4" />}
                         color="bg-brand-500/10 border border-brand-500/20 text-brand-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-brand-500/20"
@@ -321,7 +321,7 @@ export const About = () => {
                         [RotateCcw,     'text-amber-400',   'Contest reports — provide feedback and the agent re-investigates'],
                         [Database,      'text-emerald-400', 'MCP-powered data sources — connect any MCP server for querying'],
                         [AlertCircle,   'text-rose-400',    'Incident auto-extraction — start from incident IDs with auto-populated fields'],
-                        [Compass,       'text-teal-400',    'Auto-discovery — .investigator.json manifest for one-click product onboarding'],
+                        [Compass,       'text-teal-400',    'Custom workflows — chain built-in and custom agents into reusable named pipelines'],
                         [Layers,        'text-indigo-400',  'Token auto-compaction — proactive summarization before hitting context limits'],
                         [LayoutGrid,    'text-cyan-400',    'Rich dashboard — grid/list views, pinning, full-text search, keyboard shortcuts (press ?)'],
                         [ShieldAlert,   'text-orange-400',  'Security-first design — sandboxed agent execution with path traversal protection'],
@@ -342,7 +342,7 @@ export const About = () => {
                         [Pin,               'text-yellow-400',  'Pin & tag — pin investigations to top and organize with custom tags'],
                         [Settings2,         'text-stone-400',   'External config — pass --config to load team settings from your own repo'],
                         [Package,           'text-emerald-400', 'Standalone exe — desktop app with no console window, frameless Edge window, bundled Chromium'],
-                        [Rocket,            'text-lime-400',    'Onboarding wizard — guided first-launch setup for LLM provider and product discovery'],
+                        [Rocket,            'text-lime-400',    'Zero-config startup — launches straight into the dashboard with no required setup'],
                         [Bell,              'text-brand-400',   'Auto-update — checks for new releases on startup with a floating notification card'],
                         [Cpu,               'text-rose-400',    'Implementation agent — select report recommendations and generate code change proposals'],
                         [StickyNote,        'text-amber-400',   'Investigation notes — markdown editor with AI rephrase, formatting toolbar, and auto-save'],

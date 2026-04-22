@@ -101,14 +101,6 @@ describe('NewInvestigation', () => {
         });
     });
 
-    it('loads products on mount', async () => {
-        const { api } = await import('../../api');
-        renderNewInvestigation();
-        await waitFor(() => {
-            expect(api.listProducts).toHaveBeenCalled();
-        });
-    });
-
     it('shows time range related UI', async () => {
         renderNewInvestigation();
         await waitFor(() => {
@@ -176,14 +168,6 @@ describe('NewInvestigation', () => {
         renderNewInvestigation();
         await waitFor(() => {
             expect(api.getSavedQueries).toHaveBeenCalled();
-        });
-    });
-
-    it('validates active product', async () => {
-        const { api } = await import('../../api');
-        renderNewInvestigation();
-        await waitFor(() => {
-            expect(api.validateProduct).toHaveBeenCalled();
         });
     });
 
@@ -985,43 +969,6 @@ describe('NewInvestigation', () => {
         });
     });
 
-    // ── Product Validation ────────────────────────────────────────
-
-    it('shows product validation errors', async () => {
-        const { api } = await import('../../api');
-        vi.mocked(api.validateProduct).mockResolvedValue({
-            valid: false,
-            paths: [
-                { field: 'systemPromptPath', label: 'System Prompt', error: 'File not found', value: '/bad/path.md' },
-            ],
-        } as any);
-
-        renderNewInvestigation();
-
-        await waitFor(() => {
-            expect(screen.getByText(/Cannot start investigation/)).toBeInTheDocument();
-            expect(screen.getByText(/System Prompt/)).toBeInTheDocument();
-            expect(screen.getByText(/File not found/)).toBeInTheDocument();
-        });
-    });
-
-    it('navigates to settings when fix paths button clicked', async () => {
-        const { api } = await import('../../api');
-        vi.mocked(api.validateProduct).mockResolvedValue({
-            valid: false,
-            paths: [{ field: 'sysp', label: 'Prompt', error: 'bad' }],
-        } as any);
-
-        const user = userEvent.setup();
-        renderNewInvestigation();
-        await waitFor(() => screen.getByText(/Cannot start investigation/));
-
-        const fixLink = screen.getByText(/Settings/);
-        await user.click(fixLink);
-
-        expect(mockNavigate).toHaveBeenCalledWith('/settings');
-    });
-
     // ── Product / Settings Edge Cases ─────────────────────────────
 
     it('handles getActiveProduct returning null', async () => {
@@ -1408,7 +1355,7 @@ describe('NewInvestigation', () => {
         expect(modelSelect).toHaveValue('claude-3');
     });
 
-    it('submits with title and productId', async () => {
+    it('submits with title', async () => {
         const { api } = await import('../../api');
         const user = userEvent.setup();
         renderNewInvestigation();
@@ -1426,7 +1373,6 @@ describe('NewInvestigation', () => {
         await waitFor(() => {
             const payload = vi.mocked(api.startInvestigation).mock.calls[0][0] as any;
             expect(payload.title).toBe('Named Investigation');
-            expect(payload.productId).toBe('p1');
         });
     });
 
@@ -1538,50 +1484,6 @@ describe('NewInvestigation', () => {
         renderNewInvestigation();
         await waitFor(() => {
             expect(screen.getByText(/Initiate Investigation/i)).toBeInTheDocument();
-        });
-    });
-
-    it('handles product change', async () => {
-        const { api } = await import('../../api');
-        vi.mocked(api.listProducts).mockResolvedValue([
-            { id: 'p1', name: 'Product 1' },
-            { id: 'p2', name: 'Product 2' },
-        ] as any);
-
-        const user = userEvent.setup();
-        renderNewInvestigation();
-        await waitFor(() => screen.getByText(/Initiate Investigation/i));
-
-        // Wait for products to load
-        await waitFor(() => {
-            expect(screen.getByDisplayValue('Product 1')).toBeInTheDocument();
-        });
-
-        const productSelect = screen.getByDisplayValue('Product 1');
-        await user.selectOptions(productSelect, 'p2');
-
-        await waitFor(() => {
-            // Should re-validate with new product
-            expect(api.validateProduct).toHaveBeenCalledWith('p2');
-        });
-    });
-
-    it('handles saved query with productId', async () => {
-        const { api } = await import('../../api');
-        vi.mocked(api.getSavedQueries).mockResolvedValue([
-            { id: 'sq1', name: 'Product Q', target: 't', query: 'q', model: 'gpt-4o', productId: 'p1' },
-        ] as any);
-
-        const user = userEvent.setup();
-        renderNewInvestigation();
-        await waitFor(() => screen.getByText(/Select a saved query/));
-
-        await user.click(screen.getByText(/Select a saved query/));
-        await user.click(screen.getByText('Product Q'));
-
-        // productId should be set from loaded query
-        await waitFor(() => {
-            expect(api.validateProduct).toHaveBeenCalledWith('p1');
         });
     });
 
@@ -2117,47 +2019,6 @@ describe('NewInvestigation additional coverage', () => {
             });
         });
 
-        it('covers selectedProductId || undefined in standard submit when no products', async () => {
-            const { api } = await import('../../api');
-            vi.mocked(api.listProducts).mockResolvedValue([]);
-            vi.mocked(api.getActiveProduct).mockResolvedValue(null as any);
-            vi.mocked(api.startInvestigation).mockResolvedValue({ id: 'noprod-123' } as any);
-            const user = userEvent.setup();
-            renderNewInvestigation();
-            await waitFor(() => screen.getByText(/Initiate Investigation/i));
-            const targetInput = screen.getByPlaceholderText(/e\.g\. my-app-prd-eus2-01/i);
-            await user.type(targetInput, 'my-stamp');
-            await user.click(screen.getByRole('button', { name: /start investigation/i }));
-            await waitFor(() => {
-                expect(api.startInvestigation).toHaveBeenCalledWith(
-                    expect.objectContaining({ productId: undefined })
-                );
-            });
-        });
-
-        it('covers selectedProductId || undefined in incident submit when no products', async () => {
-            const { api } = await import('../../api');
-            vi.mocked(api.listProducts).mockResolvedValue([]);
-            vi.mocked(api.getActiveProduct).mockResolvedValue(null as any);
-            vi.mocked(api.checkIncidentStatus).mockResolvedValue({ available: true });
-            vi.mocked(api.fetchIncident).mockResolvedValue({ title: 'Test', severity: '3', raw: 'data' } as any);
-            vi.mocked(api.startInvestigation).mockResolvedValue({ id: 'inc-noprod-123' } as any);
-            const user = userEvent.setup();
-            renderNewInvestigation();
-            await waitFor(() => screen.getByText(/Initiate Investigation/i));
-            await user.click(screen.getByText('Incident'));
-            await waitFor(() => screen.getByPlaceholderText(/712467004/));
-            await user.type(screen.getByPlaceholderText(/712467004/), '55555');
-            await user.click(screen.getByText('Fetch'));
-            await waitFor(() => screen.getByText('Test'));
-            await user.click(screen.getByRole('button', { name: /start investigation/i }));
-            await waitFor(() => {
-                expect(api.startInvestigation).toHaveBeenCalledWith(
-                    expect.objectContaining({ productId: undefined })
-                );
-            });
-        });
-
         it('covers updateSavedQuery path and q.id===saved.id ternary both arms', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSavedQueries).mockResolvedValue([
@@ -2209,29 +2070,6 @@ describe('NewInvestigation additional coverage', () => {
             // Placeholder should be 'Query name' (empty name || 'Query name')
             await waitFor(() => {
                 expect(screen.getByPlaceholderText('Query name')).toBeInTheDocument();
-            });
-        });
-
-        it('covers selectedProductId || undefined in saveQuery when no products', async () => {
-            const { api } = await import('../../api');
-            vi.mocked(api.listProducts).mockResolvedValue([]);
-            vi.mocked(api.getActiveProduct).mockResolvedValue(null as any);
-            vi.mocked(api.getSavedQueries).mockResolvedValue([]);
-            vi.mocked(api.createSavedQuery).mockResolvedValue({ id: 'new-sq', name: 'Test Save', timeRange: 'ago(1h)', timeMode: 'preset', createdAt: '2024-01-01', updatedAt: '2024-01-01' } as any);
-            const user = userEvent.setup();
-            renderNewInvestigation();
-            await waitFor(() => screen.getByText(/Initiate Investigation/i));
-            // Open save dialog
-            const saveBtn = screen.getByTitle('Save current form (target, category, time range, query, model) as a reusable template');
-            await user.click(saveBtn);
-            await waitFor(() => screen.getByPlaceholderText('Query name'));
-            const nameInput = document.querySelector('input[placeholder="Query name"]') as HTMLInputElement;
-            fireEvent.change(nameInput!, { target: { value: 'Test Save' } });
-            await user.click(screen.getByTitle('Confirm save'));
-            await waitFor(() => {
-                expect(api.createSavedQuery).toHaveBeenCalledWith(
-                    expect.objectContaining({ productId: undefined })
-                );
             });
         });
 

@@ -1,8 +1,50 @@
 // ── Multi-Agent Pipeline Types ─────────────────────────────────────
 
+/**
+ * Closed enum of agent roles ("kinds"). Drives UI routing — e.g. the Retrospect tab
+ * surfaces output from any agent with `kind: 'retrospect'`. Custom user agents that
+ * don't fit a standard role use `'custom'`.
+ */
+export type AgentKind =
+    | 'investigator'
+    | 'retrospect'
+    | 'implementation'
+    | 'validator'
+    | 'planner'
+    | 'triage'
+    | 'correlator'
+    | 'devils-advocate'
+    | 'summarizer'
+    | 'remediation'
+    | 'timeline'
+    | 'enrichment'
+    | 'compliance'
+    | 'signal-grounding'
+    | 'custom';
+
+/** All known agent kinds (useful for UI dropdowns and validation). */
+export const AGENT_KINDS: readonly AgentKind[] = [
+    'investigator',
+    'retrospect',
+    'implementation',
+    'validator',
+    'planner',
+    'triage',
+    'correlator',
+    'devils-advocate',
+    'summarizer',
+    'remediation',
+    'timeline',
+    'enrichment',
+    'compliance',
+    'signal-grounding',
+    'custom',
+] as const;
+
 export interface AgentDefinition {
     id: string;
     name: string;
+    kind?: AgentKind;
     source: 'builtin' | 'file' | 'inline';
     builtinType?: string;
     promptPath?: string;
@@ -12,6 +54,12 @@ export interface AgentDefinition {
     maxSteps?: number;
     tools?: ToolAccess;
     mcpServers?: McpServerConfig[];
+    /** Per-agent repo root override (only meaningful for filesystem-touching agents). */
+    repoRoot?: string;
+    /** Per-agent knowledge base directory override. */
+    knowledgeBasePath?: string;
+    /** Per-agent working directory passed to spawned MCP servers. */
+    workingDirectory?: string;
     color?: string;
     icon?: string;
 }
@@ -57,6 +105,51 @@ export interface PipelineDefinition {
     name?: string;
     stages: PipelineStage[];
     agents?: AgentDefinition[];
+}
+
+/**
+ * Resolve an agent's kind, defaulting to `'custom'` when not set.
+ * Use this everywhere instead of reading `agent.kind` directly so legacy agent
+ * definitions without a `kind` field behave predictably.
+ */
+export function getAgentKind(agent: AgentDefinition): AgentKind {
+    return agent.kind ?? 'custom';
+}
+
+/**
+ * Find every agent in a pipeline that matches the given kind.
+ * Returns each match with its stage index (-1 if only in the pipeline.agents library).
+ */
+export function findAgentsByKind(
+    pipeline: PipelineDefinition,
+    kind: AgentKind
+): { agent: AgentDefinition; stageIndex: number }[] {
+    const results: { agent: AgentDefinition; stageIndex: number }[] = [];
+    const seenIds = new Set<string>();
+
+    pipeline.stages.forEach((stage, stageIndex) => {
+        let resolved: AgentDefinition | undefined;
+        if (stage.agentId && pipeline.agents) {
+            resolved = pipeline.agents.find(a => a.id === stage.agentId);
+        }
+        if (!resolved && stage.agent) {
+            resolved = stage.agent;
+        }
+        if (resolved && getAgentKind(resolved) === kind) {
+            results.push({ agent: resolved, stageIndex });
+            seenIds.add(resolved.id);
+        }
+    });
+
+    if (pipeline.agents) {
+        for (const agent of pipeline.agents) {
+            if (getAgentKind(agent) === kind && !seenIds.has(agent.id)) {
+                results.push({ agent, stageIndex: -1 });
+            }
+        }
+    }
+
+    return results;
 }
 
 /** A compact stage definition inside a preset — references agents by builtinType. */

@@ -115,7 +115,7 @@ app.post('/api/investigations', (req, res) => {
     const body = req.body || {};
 
     // Build pipeline stages: use what the frontend sent, or fall back to
-    // the Deep Investigation pipeline from the settings fixture.
+    // the Standard pipeline from the settings fixture.
     let pipelineSource = body.pipeline;
     if (!pipelineSource || !pipelineSource.stages || pipelineSource.stages.length === 0) {
         pipelineSource = settingsData.pipeline || { stages: [] };
@@ -146,8 +146,8 @@ app.post('/api/investigations', (req, res) => {
         actions: [],
         logs: ['[Planner] Starting investigation...'],
         pipeline: {
-            id: pipelineSource.id || 'deep-investigation',
-            name: pipelineSource.name || 'Deep Investigation',
+            id: pipelineSource.id || 'preset-default',
+            name: pipelineSource.name || 'Standard',
             currentStageIndex: 0,
             conversationLog: [],
             stages: pipelineStages,
@@ -467,6 +467,78 @@ app.get('/api/pipeline/builtins', (_req, res) => {
             color: '#84cc16',
             icon: '📜',
         },
+        {
+            id: 'builtin-signal-grounding',
+            name: 'Signal Grounding Auditor',
+            description: 'Audits conclusions to ensure they are grounded in observed telemetry, not inferred from missing data. Rejects absence-based reasoning — missing telemetry says nothing.',
+            source: 'builtin',
+            builtinType: 'signal-grounding',
+            color: '#d946ef',
+            icon: '📡',
+        },
+    ]);
+});
+
+app.get('/api/pipeline/presets', (_req, res) => {
+    res.json([
+        { id: 'default', name: 'Standard', description: 'Balanced pipeline: investigate, validate, propose changes, and improve knowledge base.', icon: '⚡', stages: [
+            { builtinType: 'investigator' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 2 },
+            { builtinType: 'implementation' },
+            { builtinType: 'retrospect' },
+        ]},
+        { id: 'deep-investigation', name: 'Deep Investigation', description: 'Thorough pipeline with planning, adversarial review, grounding audit, and executive summary for complex issues.', icon: '🔬', stages: [
+            { builtinType: 'planner' },
+            { builtinType: 'investigator' },
+            { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'summarizer' },
+            { builtinType: 'retrospect' },
+        ]},
+        { id: 'incident-response', name: 'Incident Response', description: 'Fast triage, enrichment, timeline reconstruction, and remediation for active incidents.', icon: '🚨', stages: [
+            { builtinType: 'triage' },
+            { builtinType: 'enrichment' },
+            { builtinType: 'investigator' },
+            { builtinType: 'timeline' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'remediation' },
+            { builtinType: 'summarizer' },
+        ]},
+        { id: 'quick-health-check', name: 'Quick Health Check', description: 'Lightweight pipeline for scheduled health checks and routine monitoring.', icon: '💚', stages: [
+            { builtinType: 'triage' },
+            { builtinType: 'investigator' },
+            { builtinType: 'validator' },
+        ]},
+        { id: 'compliance-review', name: 'Compliance Review', description: 'Investigation followed by grounding audit, compliance auditing, and change proposals.', icon: '📜', stages: [
+            { builtinType: 'investigator' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 'previous', maxRetries: 2 },
+            { builtinType: 'compliance', canReject: true, onReject: 'flag' },
+            { builtinType: 'implementation' },
+            { builtinType: 'retrospect' },
+        ]},
+        { id: 'root-cause-analysis', name: 'Root Cause Analysis', description: 'Correlate with past incidents, reconstruct timeline, verify grounding, and generate remediation plan.', icon: '🔍', stages: [
+            { builtinType: 'planner' },
+            { builtinType: 'investigator' },
+            { builtinType: 'correlator' },
+            { builtinType: 'timeline' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'remediation' },
+            { builtinType: 'retrospect' },
+        ]},
+        { id: 'grounded-investigation', name: 'Grounded Investigation', description: 'Rigorous pipeline that ensures all conclusions are grounded in observed telemetry — rejects absence-based reasoning.', icon: '📡', stages: [
+            { builtinType: 'planner' },
+            { builtinType: 'investigator' },
+            { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'summarizer' },
+            { builtinType: 'retrospect' },
+        ]},
     ]);
 });
 

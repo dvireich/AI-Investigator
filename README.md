@@ -64,14 +64,13 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Scheduled Investigations** | Recurring automated health checks with configurable intervals, verdict tracking, and run history |
 | **Query Bank** | Save and reuse investigation configurations as named templates across forms and schedules |
 | **Dashboard Analytics** | Interactive charts — configurable 3-widget layout from 8 chart types, KPI bar, creator badges, and filter-by-creator |
-| **Multi-Product Support** | Configure multiple investigation targets with independent paths, prompts, and knowledge bases |
 | **Multi-User Tracking** | Every investigation records who created it (GitHub login, OS username, or scheduler) with dashboard filtering |
 | **Standalone Executable** | Download a single `.exe` — runs as a desktop app with no console window, opens in a frameless Edge window. No Node.js required |
-| **First-Launch Onboarding** | Multi-step setup wizard guides new users through LLM provider selection and product discovery |
+| **First-Launch Onboarding** | Multi-step setup wizard guides new users through LLM provider selection |
 | **Auto-Update Checking** | Checks for new releases on startup, shows a floating notification card with download and release notes links. Session-only dismiss |
 | **Implementation Agent** | Select recommendations from the final report and let an AI coding agent propose exact code changes |
-| **Multi-Agent Pipelines** | Orchestrate sequential agent workflows with 13 built-in agents, 7 workflow presets, rejection loops, subagent invocation, and shared context |
-| **Agent Workflow Presets** | Choose from pre-built workflow templates (Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis) or create and save your own custom workflows with the visual pipeline editor. Searchable, paginated selector with agent stage previews |
+| **Multi-Agent Pipelines** | Orchestrate sequential agent workflows with 14 built-in agents, 7 workflow presets, rejection loops, subagent invocation, and shared context |
+| **Agent Workflow Presets** | Choose from pre-built workflow templates (Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis, Grounded Investigation) or create and save your own custom workflows with the visual pipeline editor. Searchable, paginated selector with agent stage previews |
 
 ---
 
@@ -81,7 +80,7 @@ After each investigation, a **retrospective system** analyzes what went well and
 
 ### 1. Onboarding Wizard
 
-First-launch experience that walks you through LLM provider selection and optional product discovery. Four steps: Welcome → LLM Provider → Product → Ready.
+First-launch experience that walks you through LLM provider selection. Three steps: Welcome → LLM Provider → Ready.
 
 ![Onboarding Wizard](docs/screenshots/onboarding-wizard.png)
 
@@ -239,7 +238,7 @@ After auto-analysis, continue chatting with the retrospective agent to explore a
 
 ### 18. Settings
 
-Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across seven tabs: Products, Connections, Agent Behavior, Schedules, Analytics, Appearance, and System.
+Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across seven tabs: Connections, Paths, Agent Behavior, Schedules, Analytics, Appearance, and System.
 
 ![Settings](docs/screenshots/settings.png)
 
@@ -363,13 +362,13 @@ Attach freeform markdown notes to any investigation. The rich-text editor suppor
 
 ### 32. Settings — Multi-Agent Pipeline
 
-Build multi-agent investigation workflows with a drag-and-drop pipeline editor. Add stages from 13 built-in agents across three tiers (Core: Investigator, Validator, Proposer, Retrospect; Analysis: Planner, Triage, Correlator, Devil's Advocate, Summarizer; Specialist: Remediation, Timeline, Enrichment, Compliance). Configure rejection loops, per-stage model overrides, and timeout limits. Each agent has descriptive hover tooltips showing its role. Choose from 6 pre-built workflow presets, create and save your own custom workflows, or use your configured pipeline. The agent palette features search and pagination for quick access.
+Build multi-agent investigation workflows with a drag-and-drop pipeline editor. Add stages from 14 built-in agents across three tiers (Core: Investigator, Validator, Proposer, Retrospect; Analysis: Planner, Triage, Correlator, Devil's Advocate, Summarizer; Specialist: Remediation, Timeline, Enrichment, Compliance, Signal Grounding). Configure rejection loops, per-stage model overrides, and timeout limits. Each agent has descriptive hover tooltips showing its role. Choose from 7 pre-built workflow presets, create and save your own custom workflows, or use your configured pipeline. The agent palette features search and pagination for quick access.
 
 **Empty state** — the pipeline builder before any stages are added, showing the agent palette with search and help guide:
 
 ![Settings — Pipeline (empty)](docs/screenshots/settings-pipeline-empty.png)
 
-**Recommended pipeline** — the default 4-stage pipeline (Investigator → Validator → Proposer → Retrospect) with rejection loops configured:
+**Recommended pipeline** — the default 5-stage Standard pipeline (Investigator → Signal Grounding → Validator → Proposer → Retrospect) with rejection loops configured:
 
 ![Settings — Pipeline (default)](docs/screenshots/settings-pipeline.png)
 
@@ -385,7 +384,7 @@ When running a multi-agent workflow, the **Pipeline** tab shows real-time progre
 
 ![Investigation Pipeline Timeline](docs/screenshots/investigation-pipeline-timeline.png)
 
-<!-- Screenshot: Pipeline tab on investigation detail — PipelineStepper with 6-stage Deep Investigation pipeline and PipelineTimeline conversation below. -->
+<!-- Screenshot: Pipeline tab on investigation detail — PipelineStepper with 5-stage Standard pipeline and PipelineTimeline conversation below. -->
 
 ---
 
@@ -480,16 +479,18 @@ Orchestrate sequential agent workflows where multiple specialized agents collabo
   | ⏱️ **Timeline** | Reconstructs chronological event sequences from investigation data |
   | 🔎 **Enrichment** | Gathers additional context from external sources and documentation |
   | 📜 **Compliance** | Audits findings against security policies and regulatory requirements |
-- **Workflow Presets** — Six pre-built pipeline templates selectable per investigation:
+  | 📡 **Signal Grounding** | Validates that all conclusions are grounded in observed telemetry signals — rejects absence-based reasoning |
+- **Workflow Presets** — Seven pre-built pipeline templates selectable per investigation:
   | Preset | Stages |
   |--------|--------|
-  | ⚡ **Standard** | Investigator → Validator → Proposer → Retrospect |
+  | ⚡ **Standard** | Investigator → Signal Grounding → Validator → Proposer → Retrospect |
   | 🔬 **Deep Investigation** | Planner → Investigator → Correlator → Devil's Advocate → Validator → Summarizer → Retrospect |
   | 🚨 **Incident Response** | Triage → Enrichment → Correlator → Timeline → Investigator → Remediation → Summarizer |
   | 💚 **Quick Health Check** | Investigator → Validator → Retrospect |
   | 📋 **Compliance Review** | Investigator → Validator → Compliance → Summarizer → Retrospect |
   | 🔍 **Root Cause Analysis** | Correlator → Timeline → Investigator → Devil's Advocate → Remediation → Summarizer |
-- **Saved Custom Workflows** — Create, save, edit, and delete your own workflow templates. The visual pipeline editor lets you build custom agent sequences with the full palette of 13 agents. Saved workflows appear in the "My Workflows" section on both the New Investigation and Settings pages
+  | 📡 **Grounded Investigation** | Planner → Investigator → Devil's Advocate → Signal Grounding → Validator → Summarizer → Retrospect |
+- **Saved Custom Workflows** — Create, save, edit, and delete your own workflow templates. The visual pipeline editor lets you build custom agent sequences with the full palette of 14 agents. Saved workflows appear in the "My Workflows" section on both the New Investigation and Settings pages
 - **Per-Investigation Workflow** — Choose a workflow preset or saved custom workflow when starting each investigation. The Agent Workflow selector shows searchable, paginated cards with agent stage previews. Your configured pipeline from Settings is auto-selected when present
 - **Workflow Search** — Search bar filters both saved workflows and built-in presets by name and description across the New Investigation and Settings pages
 - **Rejection Loops** — Validator (or any agent with `canReject`) can send work back to the previous stage with feedback. Three rejection modes: **loop** (re-run), **flag** (mark and continue), **abort** (stop pipeline)
@@ -648,10 +649,8 @@ A guided multi-step wizard appears on first launch to get new users productive i
 
 - **Step 1: Welcome** — Introduction to the platform with a feature overview
 - **Step 2: LLM Provider** — Choose from available providers (OpenAI, Anthropic, GitHub Copilot, Azure OpenAI, Ollama) with auth requirement indicators
-- **Step 3: Product Discovery** — Optionally point to a repository path; the system auto-discovers `.investigator.json` manifests or scans for known patterns
-- **Step 4: Ready** — Confirmation screen with a link to the dashboard
+- **Step 3: Ready** — Confirmation screen with a link to the dashboard
 - **Progress Bar** — Visual step completion indicator
-- **Skippable** — The product step can be skipped; the wizard stays out of the way once an LLM provider is configured
 
 ### 🔄 Auto-Update Checking
 
@@ -711,46 +710,9 @@ The retrospective prompt supports six change categories: `[Fix Wrong Info]`, `[A
 - Server restart recovery — running investigations auto-pause, all state preserved
 - Legacy format support — loads old flat JSON and standalone Markdown reports
 
-### 📦 Multi-Product Support
+### 📦 Multi-Target Support
 
-Configure multiple investigation targets (products) with independent paths:
-
-- **Products Tab** — Add, edit, delete, and clone products in Settings
-- **Per-Product Paths** — Each product has its own repoRoot, systemPromptPath, knowledgeBasePath, investigationsPath, etc.
-- **Active Product Selector** — Choose which product to use when launching new investigations
-- **Product Switching** — Select product from dropdown in the New Investigation form
-- **Product Path Validation** — Server-side validation of all configured paths (existence, absolute path check), shown in Settings and pre-launch checks
-- **Product Labels on Dashboard** — Product name displayed on each investigation card with product-based filtering
-- **Clone Product** — Duplicate an existing product configuration as a starting point for a new one
-
-#### `.investigator.json` Manifest
-
-Drop a `.investigator.json` file at the root of any repository to enable **one-click product onboarding**. The manifest uses repo-relative paths that are automatically resolved to absolute paths during discovery:
-
-```json
-{
-  "name": "My Product",
-  "description": "What this product investigates",
-  "systemPrompt": ".github/agents/MyAgent.agent.md",
-  "knowledgeBase": "docs/investigations",
-  "workingDirectory": ".",
-  "investigationsPath": "docs/investigations/AgentInvestigations"
-}
-```
-
-All fields are optional. Only `name` is recommended.
-
-#### Auto-Discovery
-
-When adding a new product, the **Discover** flow provides three levels of configuration:
-
-| Priority | Source | Description |
-|----------|--------|-------------|
-| 1 | `.investigator.json` | Manifest file at repo root — all paths resolved automatically |
-| 2 | Auto-scan | Scans for `.github/agents/*.agent.md`, `docs/`, `prompts/`, and other known patterns |
-| 3 | Manual | No manifest or patterns found — configure all paths by hand |
-
-The Add Product modal starts with a **Discover** step: point to a repo root, click Discover, and all fields are auto-filled. Source badges indicate whether values came from a manifest (green) or pattern scanning (amber). All fields remain editable before saving.
+Each workspace writes investigation outputs to a single global `investigationsPath`. Everything else (repo, prompt, knowledge base, working directory) is defined inside each agent's markdown file, so swapping agents swaps context. To target a different storage folder, edit **Settings → Paths** or relaunch with a different `-ConfigFile`.
 
 ### 🔐 Authentication
 
@@ -766,13 +728,13 @@ The Add Product modal starts with a **Discover** step: point to a repo root, cli
 - **Concurrent Operation Guards** — Prevents double-resume, double-contest, and concurrent runner creation race conditions
 - **3-Strike LLM Failure** — Investigation fails after 3 consecutive system-level LLM errors (counter resets on successful tool call)
 - **Forced Tool Use** — After 3 consecutive thoughts without a tool call, agent is forced to invoke a tool or finish
-- **File Browser Restriction** — Server-side file browser only allows browsing under `repoRoot` or `investigationsPath`
+- **File Browser Restriction** — Server-side file browser only allows browsing under the active agent's repo or `investigationsPath`
 
 ### ⚙️ Settings
 
-Eight-tab Settings page:
-- **Products** — Configure investigation targets with discover-first onboarding (`.investigator.json` manifest or auto-scan), expand/collapse product cards, path validation, and clone
+Seven-tab Settings page:
 - **Connections** — LLM provider selection (OpenAI, Anthropic, Azure OpenAI, GitHub Copilot, Ollama), MCP server management (add/edit/delete servers with environment variable injection), and incident provider configuration (IcM, PagerDuty, manual) — all external integrations in one place
+- **Paths** — Global `investigationsPath` (where investigation outputs are saved) with an integrated server-side file browser. Per-agent paths (repo, prompt, knowledge base, working directory) live inside each agent's markdown file, not here
 - **Agent Behavior** — Max steps, default model, retrospective timeout, recommendation extraction model, system prompt path, working directory, investigation storage path
 - **Pipeline** — Select default pipeline from searchable, paginated preset cards. Create, edit, and manage saved custom workflows with the visual pipeline builder. Drag-and-drop agent palette with search and pagination
 - **Schedules** — Max concurrent scheduled investigations (0–10), scheduled investigation retention count (auto-delete oldest), and scheduled report model (LLM for AI-generated executive summaries, default: gpt-4o-mini)
@@ -913,16 +875,10 @@ your-product-repo/
 
 #### 2. Configure via the Settings UI
 
-1. Open the dashboard → **Settings** → **Products** tab
-2. Click **Add Product**
-3. Enter your product's repo root path — the **Auto-Discover** feature scans for agent prompts, knowledge base directories, and investigation paths automatically
-4. Review and adjust the discovered paths, then save
-
-Or use the discover API directly:
-
-```
-GET /api/products/discover?repoRoot=C:\Repositories\YourProduct
-```
+1. Open the dashboard → **Settings** → **Paths** tab
+2. Set `investigationsPath` (where investigation outputs are written) using the **Browse** button
+3. Add your agent(s) from the **Pipeline** tab — each agent's markdown file declares the repo, prompt, knowledge base, and working directory it needs
+4. Save
 
 #### 3. Alternatively, edit config.json manually
 
@@ -932,34 +888,15 @@ Copy `backend/config.sample.json` to `backend/config.json` and configure:
 {
   "model": "claude-opus-4.6",
   "maxSteps": 50,
-  "products": [
-    {
-      "id": "your-product",
-      "name": "Your Product",
-      "repoRoot": "C:/Repositories/YourProduct",
-      "systemPromptPath": "C:/Repositories/YourProduct/.github/agents/YourProduct_Investigation.agent.md",
-      "knowledgeBasePath": "C:/Repositories/YourProduct/docs/investigations",
-      "workingDirectory": "C:/Repositories/YourProduct",
-      "investigationsPath": "C:/Repositories/YourProduct/investigations"
-    }
-  ],
-  "activeProductId": "your-product"
+  "investigationsPath": "C:/Repositories/YourRepo/investigations"
 }
 ```
 
-#### 4. Multiple products
+Custom agents are added from the UI — each one brings its own markdown prompt file; there is no longer a "products" concept.
 
-Add multiple products to investigate different systems from the same dashboard:
+#### 4. Multiple investigation targets
 
-```json
-"products": [
-  { "id": "frontend", "name": "Frontend Service", "repoRoot": "C:/Repos/frontend-service", ... },
-  { "id": "backend", "name": "Backend API", "repoRoot": "C:/Repos/backend-api", ... },
-  { "id": "infra", "name": "Infrastructure", "repoRoot": "C:/Repos/infra-platform", ... }
-]
-```
-
-Switch between products in the **New Investigation** form or **Settings** → **Products** → **Set Active**.
+To investigate a different repo, switch the active agent (each agent's markdown file points at its own repo/prompt/knowledge base). For multiple workspaces in parallel, run multiple instances with separate `-ConfigFile` arguments — each instance gets its own `investigationsPath` storage folder.
 
 #### 5. External config file (recommended for teams)
 
@@ -982,18 +919,7 @@ This way your team's config is version-controlled alongside the product repo.
   "notifications": true,
   "defaultView": "grid",
   "defaultSortOrder": "modified",
-  "products": [
-    {
-      "id": "my-product",
-      "name": "My Product",
-      "repoRoot": "C:/Repositories/MyProduct",
-      "systemPromptPath": "C:/Repositories/MyProduct/.github/agents/MyProduct_Investigation.agent.md",
-      "knowledgeBasePath": "C:/Repositories/MyProduct/docs/investigations",
-      "workingDirectory": "C:/Repositories/MyProduct",
-      "investigationsPath": "C:/Repositories/MyProduct/investigations"
-    }
-  ],
-  "activeProductId": "my-product"
+  "investigationsPath": "C:/Repositories/MyRepo/investigations"
 }
 ```
 
@@ -1166,41 +1092,23 @@ Configuration is managed through the Settings UI or directly in `backend/config.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `repoRoot` | Auto-detected | Absolute path to your repository root. All relative paths resolve from here |
 | `model` | `gpt-4o` | Default LLM model for new investigations |
 | `maxSteps` | `50` | Max reasoning steps before auto-pause (0 = unlimited) |
-| `systemPromptPath` | *(empty)* | Path to the agent's system prompt `.md` file |
-| `knowledgeBasePath` | *(empty)* | Repo-relative path to the knowledge base directory (e.g., `docs/investigations`). Used by retrospective for doc discovery |
-| `investigationsPath` | `<repoRoot>/investigations` | Where investigation artifacts (JSON + Markdown) are saved |
+| `investigationsPath` | `<cwd>/investigations` | Where investigation artifacts (JSON + Markdown) are saved |
 | `defaultTimeRange` | `ago(1h)` | Default time range preset for investigations |
 | `maxConcurrentInvestigations` | `3` | Maximum parallel investigations |
 | `autoRefreshInterval` | `30` | Dashboard refresh interval (seconds) |
-| `workingDirectory` | Backend CWD | Working directory for file operations |
 | `retrospectTimeoutMinutes` | `10` | Timeout in minutes for retrospective auto-analysis (0 = unlimited) |
 | `notifications` | `true` | Enable toast notifications when investigations complete or fail |
 | `mcpServers` | `[]` | MCP server configurations for tool execution |
 | `theme` | `light` | UI theme preference |
-| `products` | `[]` | Array of product configurations (see Multi-Product Support) |
-| `activeProductId` | *(empty)* | ID of the currently selected product for new investigations |
 | `defaultSortOrder` | `newest` | Dashboard sort order: `newest`, `modified`, `oldest`, or `steps` |
 | `defaultPageSize` | `12` | Items per page on dashboard and schedules (6, 12, 24, or 48) |
 | `maxConcurrentScheduledInvestigations` | `2` | Maximum parallel scheduled investigations (0 = unlimited) |
 | `scheduledInvestigationRetentionCount` | `10` | Max completed investigations to keep per schedule (0 = keep all) |
 | `scheduledReportModel` | `gpt-4o-mini` | LLM model for AI-generated schedule executive reports |
 
-### Product Configuration
-
-Each product in the `products` array has:
-
-| Field | Description |
-|-------|-------------|
-| `id` | Unique identifier (auto-generated from name) |
-| `name` | Display name for the product |
-| `repoRoot` | Repository root path for this product |
-| `systemPromptPath` | Path to agent system prompt |
-| `knowledgeBasePath` | Path to knowledge base directory |
-| `workingDirectory` | Working directory for file operations |
-| `investigationsPath` | Where investigation artifacts are saved |
+> **Note:** Repository, system prompt, knowledge base, and working directory are defined per-agent inside each agent's markdown file — not in `config.json`. Only `investigationsPath` is a global filesystem setting.
 
 ---
 
@@ -1237,20 +1145,6 @@ Each product in the `products` array has:
 | `PATCH` | `/api/investigations/:id/retrospect/proposals/:pid` | Approve / Reject proposal |
 | `POST` | `/api/investigations/:id/retrospect/apply` | Apply all approved proposals |
 | `POST` | `/api/investigations/:id/retrospect/complete` | Mark complete / Reopen |
-
-### Products
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/api/products` | List all configured products |
-| `POST` | `/api/products` | Add a new product |
-| `GET` | `/api/products/active` | Get the currently active product |
-| `PUT` | `/api/products/active` | Set the active product |
-| `GET` | `/api/products/discover?repoRoot=` | Discover product config from `.investigator.json` or repo structure |
-| `PUT` | `/api/products/:id` | Update a product |
-| `DELETE` | `/api/products/:id` | Delete a product |
-| `GET` | `/api/products/:id/validate` | Validate product paths (existence, absolute path check) |
-| `POST` | `/api/products/:id/clone` | Clone a product configuration |
 
 ### Schedules
 
@@ -1444,9 +1338,9 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │           ├── InvestigationDetail.tsx  # Live session + Report + Retrospect + Implementation
 │           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
 │           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
-│           ├── Settings.tsx          # Configuration management (7 tabs: Products, Connections, Agent, Schedules, Analytics, Appearance, System)
+│           ├── Settings.tsx          # Configuration management (7 tabs: Connections, Paths, Agent, Schedules, Analytics, Appearance, System)
 │           ├── About.tsx             # Feature showcase + version info + update check
-│           └── OnboardingWizard.tsx  # First-launch setup wizard (LLM + product discovery)
+│           └── OnboardingWizard.tsx  # First-launch setup wizard (LLM provider)
 └── docs/
     └── screenshots/              # UI screenshots (see Visual Walkthrough)
 ```
@@ -1523,7 +1417,7 @@ The capture script produces these 42 files in `docs/screenshots/`:
 | 18 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
 | 19 | `proposals-panel.png` | Retrospective tab — expanded proposals |
 | 20 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
-| 21 | `settings.png` | Settings — Products tab expanded |
+| 21 | `settings.png` | Settings — Paths tab |
 | 22 | `settings-pipeline-empty.png` | Settings — Pipeline tab (empty builder with agent palette and search) |
 | 23 | `settings-pipeline.png` | Settings — Pipeline tab (recommended 4-stage pipeline) |
 | 24 | `settings-pipeline-saved.png` | Settings — Pipeline tab (saved custom workflows management) |
@@ -1564,7 +1458,7 @@ scripts/screenshots/
     ├── investigation-failed.json     # Failed due to auth error
     ├── investigation-retrospect.json # Retrospective with proposals (4 proposals)
     ├── investigation-retrospect-chat.json  # Retrospective with follow-up chat
-    └── settings.json                 # Settings, models, products, validations
+    └── settings.json                 # Settings, models, validations
 ```
 
 ### Customizing Screenshots

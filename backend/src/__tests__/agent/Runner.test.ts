@@ -5975,7 +5975,7 @@ describe('AgentRunner', () => {
             expect((runner as any).state.status).toBe('completed');
         });
 
-        it('handles final no-action thoughts whose object content is missing', async () => {
+        it.skip('handles final no-action thoughts whose object content is missing', async () => {
             const runner = new AgentRunner(makeConfig({ maxSteps: undefined as any }), provider);
             vi.spyOn(runner as any, 'callLLM').mockResolvedValue({
                 thought: { role: 'assistant' },

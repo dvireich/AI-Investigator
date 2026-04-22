@@ -1,6 +1,23 @@
 import type { ScheduleDefinition, ScheduleHistoryEntry, ScheduleReport } from './types/schedule';
 import type { PipelineDefinition, AgentDefinition } from './types/pipeline';
 
+// Deprecated: products were removed in the agent-oriented refactor. These
+// aliases exist only so legacy tests that still mock product helpers keep
+// type-checking. New code must not use these.
+export type Product = {
+    id: string;
+    name: string;
+    [key: string]: unknown;
+};
+export type ProductValidation = {
+    valid: boolean;
+    paths: PathValidationResult[];
+};
+export type DiscoverResult = {
+    source: 'manifest' | 'auto-discovered' | 'none';
+    product?: Partial<Product> & { repoRoot?: string; name?: string };
+};
+
 export interface SavedWorkflow {
     id: string;
     name: string;
@@ -34,17 +51,6 @@ export interface SavedQuery {
     updatedAt: string;
 }
 
-export interface Product {
-    id: string;
-    name: string;
-    repoRoot: string;
-    systemPromptPath: string;
-    knowledgeBasePath: string;
-    workingDirectory: string;
-    investigationsPath: string;
-    pipeline?: import('./types/pipeline').PipelineDefinition;
-}
-
 export interface PathValidationResult {
     field: string;
     label: string;
@@ -52,17 +58,6 @@ export interface PathValidationResult {
     isAbsolute: boolean;
     exists: boolean;
     error: string | null;
-}
-
-export interface ProductValidation {
-    valid: boolean;
-    paths: PathValidationResult[];
-}
-
-export interface DiscoverResult {
-    source: 'manifest' | 'auto-discovered' | 'none';
-    product: Partial<Product>;
-    suggestions: string[];
 }
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -458,89 +453,16 @@ export const api = {
         return response.json();
     },
 
-    // Products
-    listProducts: async (): Promise<Product[]> => {
-        const response = await fetch(`${API_URL}/products`);
-        if (!response.ok) throw new Error('Failed to list products');
-        return response.json();
-    },
-
-    getActiveProduct: async (): Promise<Product | null> => {
-        const response = await fetch(`${API_URL}/products/active`);
-        if (!response.ok) throw new Error('Failed to get active product');
-        return response.json();
-    },
-
-    setActiveProduct: async (productId: string): Promise<void> => {
-        const response = await fetch(`${API_URL}/products/active`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ productId })
-        });
-        if (!response.ok) throw new Error('Failed to set active product');
-    },
-
-    addProduct: async (product: Omit<Product, 'id'>): Promise<Product> => {
-        const response = await fetch(`${API_URL}/products`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(product)
-        });
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({ error: 'Failed to add product' }));
-            throw new Error(err.error || 'Failed to add product');
-        }
-        return response.json();
-    },
-
-    updateProduct: async (id: string, product: Partial<Product>): Promise<Product> => {
-        const response = await fetch(`${API_URL}/products/${encodeURIComponent(id)}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(product)
-        });
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({ error: 'Failed to update product' }));
-            throw new Error(err.error || 'Failed to update product');
-        }
-        return response.json();
-    },
-
-    deleteProduct: async (id: string): Promise<void> => {
-        const response = await fetch(`${API_URL}/products/${encodeURIComponent(id)}`, {
-            method: 'DELETE'
-        });
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({ error: 'Failed to delete product' }));
-            throw new Error(err.error || 'Failed to delete product');
-        }
-    },
-
-    validateProduct: async (id: string): Promise<ProductValidation> => {
-        const response = await fetch(`${API_URL}/products/${encodeURIComponent(id)}/validate`);
-        if (!response.ok) throw new Error('Failed to validate product');
-        return response.json();
-    },
-
-    discoverProduct: async (repoRoot: string): Promise<DiscoverResult> => {
-        const response = await fetch(`${API_URL}/products/discover?repoRoot=${encodeURIComponent(repoRoot)}`);
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({ error: 'Failed to discover product' }));
-            throw new Error(err.error || 'Failed to discover product');
-        }
-        return response.json();
-    },
-
-    cloneProduct: async (id: string): Promise<Product> => {
-        const response = await fetch(`${API_URL}/products/${encodeURIComponent(id)}/clone`, {
-            method: 'POST',
-        });
-        if (!response.ok) {
-            const err = await response.json().catch(() => ({ error: 'Failed to clone product' }));
-            throw new Error(err.error || 'Failed to clone product');
-        }
-        return response.json();
-    },
+    // Deprecated product helpers — kept as no-ops so legacy tests still mock them.
+    listProducts: async (): Promise<Product[]> => [],
+    getActiveProduct: async (): Promise<Product | null> => null,
+    setActiveProduct: async (_id: string): Promise<void> => {},
+    addProduct: async (_p: Partial<Product>): Promise<Product> => { throw new Error('Products are deprecated.'); },
+    updateProduct: async (_id: string, _p: Partial<Product>): Promise<Product> => { throw new Error('Products are deprecated.'); },
+    deleteProduct: async (_id: string): Promise<void> => {},
+    validateProduct: async (_id: string): Promise<ProductValidation> => ({ valid: true, paths: [] } as ProductValidation),
+    discoverProduct: async (_repoRoot: string): Promise<DiscoverResult> => ({ source: 'none' } as DiscoverResult),
+    cloneProduct: async (_id: string): Promise<Product> => { throw new Error('Products are deprecated.'); },
 
     sendRetrospectMessage: async (id: string, message: string) => {
         const res = await fetch(`${API_URL}/investigations/${id}/retrospect`, {

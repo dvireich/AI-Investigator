@@ -49,31 +49,110 @@
   ],
   "pipeline": {
     "stages": [
-      { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749799800000, "completedAt": 1749799900000, "report": "Investigation plan: 1) Check cache hit ratio trends, 2) Identify tables with highest miss rates, 3) Check for memory pressure or eviction events." },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "running", "retryCount": 0, "startedAt": 1749800000000 },
-      { "agentId": "builtin-devils-advocate", "agentName": "Devil's Advocate", "color": "#ef4444", "icon": "😈", "status": "pending", "retryCount": 0 },
-      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "pending", "retryCount": 0 },
-      { "agentId": "builtin-summarizer", "agentName": "Summarizer", "color": "#14b8a6", "icon": "📊", "status": "pending", "retryCount": 0 },
-      { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "pending", "retryCount": 0 }
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "color": "#10b981",
+        "icon": "🤖",
+        "retryCount": 0,
+        "status": "running",
+        "startedAt": 1749800000000
+      },
+      {
+        "agentId": "builtin-signal-grounding",
+        "agentName": "Signal Grounding Auditor",
+        "color": "#d946ef",
+        "icon": "📡",
+        "retryCount": 0,
+        "status": "pending"
+      },
+      {
+        "agentId": "builtin-validator",
+        "agentName": "Validator",
+        "color": "#f59e0b",
+        "icon": "🛡️",
+        "retryCount": 0,
+        "status": "pending"
+      },
+      {
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "color": "#6366f1",
+        "icon": "🔧",
+        "retryCount": 0,
+        "status": "pending"
+      },
+      {
+        "agentId": "builtin-retrospect",
+        "agentName": "Retrospect",
+        "color": "#8b5cf6",
+        "icon": "✨",
+        "retryCount": 0,
+        "status": "pending"
+      }
     ],
-    "currentStageIndex": 1,
+    "currentStageIndex": 0,
     "definition": {
-      "id": "deep-investigation",
-      "name": "Deep Investigation",
+      "id": "preset-default",
+      "name": "Standard",
       "stages": [
-        { "agentId": "builtin-planner", "inputMode": "conversation" },
-        { "agentId": "builtin-investigator", "inputMode": "conversation" },
-        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
-        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
-        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
-        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+        {
+          "agentId": "builtin-investigator",
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-signal-grounding",
+          "canReject": true,
+          "onReject": "loop",
+          "rejectTarget": "previous",
+          "maxRetries": 1,
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-validator",
+          "canReject": true,
+          "onReject": "loop",
+          "rejectTarget": "previous",
+          "maxRetries": 2,
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-proposer",
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-retrospect",
+          "inputMode": "conversation"
+        }
       ]
     },
     "conversationLog": [
-      { "agentId": "builtin-planner", "agentName": "Planner", "agentColor": "#0ea5e9", "agentIcon": "📋", "role": "report", "content": "Plan: Check cache hit ratios, identify high-miss tables, look for memory pressure events.", "timestamp": 1749799900000, "stageIndex": 0 },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Starting investigation into BlobReader cache miss cascade.", "timestamp": 1749800000000, "stageIndex": 1 },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "action", "content": "Querying cache hit ratio and miss distribution", "timestamp": 1749800030000, "stageIndex": 1, "metadata": { "toolName": "run_query" } }
-    ]
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "thought",
+        "content": "Starting investigation into BlobReader cache miss cascade.",
+        "timestamp": 1749800000000,
+        "stageIndex": 0
+      },
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "action",
+        "content": "Querying cache hit ratio and miss distribution",
+        "timestamp": 1749800030000,
+        "stageIndex": 0,
+        "metadata": {
+          "toolName": "run_query"
+        }
+      }
+    ],
+    "id": "preset-default",
+    "name": "Standard"
   },
   "logs": [
     "Investigation started",

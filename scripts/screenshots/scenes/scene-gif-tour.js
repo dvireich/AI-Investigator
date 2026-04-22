@@ -214,8 +214,8 @@ export default async function sceneGifTour(page) {
             await pause(1);
         }
         await showCaption(page,
-            'Deep Investigation',
-            'Six agents in sequence — from planning through validation to retrospective analysis.');
+            'Standard Pipeline',
+            'Five agents: Investigator, Signal Grounding, Validator, Proposer, and Retrospect.');
         await pause(3.5);
     }
 
@@ -278,7 +278,7 @@ export default async function sceneGifTour(page) {
 
     await showCaption(page,
         'Settings',
-        'Eight configuration tabs — Products, Pipeline, Connections, Schedules, Analytics, and more.');
+        'Nine configuration tabs — Products, Pipeline, Agents, Connections, Schedules, Analytics, and more.');
     await showCursor(page);
     await pause(3);
 
@@ -290,7 +290,7 @@ export default async function sceneGifTour(page) {
 
         await showCaption(page,
             'Pipeline Builder',
-            'Drag-and-drop agent stages with 13 built-in agents. Search the palette, set per-stage models and rejection loops.');
+            'Drag-and-drop agent stages with 14 built-in agents. Search the palette, set per-stage models and rejection loops.');
         await pause(4);
 
         // Scroll down to show the saved workflows section

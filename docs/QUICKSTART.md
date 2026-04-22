@@ -75,30 +75,17 @@ Other provider examples:
 
 ---
 
-## Adding a Product
+## Configuring Storage
 
-A "product" is a repository you want to investigate. You can add products from:
-
-- **Settings page** → Products section → enter the repo path
-- **Onboarding wizard** (first launch) → Discover step
-- **config.json** → `products` array
+The only filesystem path AI Investigator manages globally is where investigation outputs are written. Set it via **Settings → Paths** or in `config.json`:
 
 ```jsonc
 {
-    "products": [
-        {
-            "id": "my-service",
-            "name": "My Service",
-            "repoRoot": "C:\\Repos\\my-service",
-            "systemPromptPath": "docs/agent-prompt.md",
-            "knowledgeBasePath": "docs/investigations",
-            "investigationsPath": "investigations"
-        }
-    ]
+    "investigationsPath": "C:\\Repos\\my-service\\investigations"
 }
 ```
 
-Or just point to a repo that has a `.investigator.json` manifest — AI Investigator will auto-discover the configuration.
+Everything else (repo root, system prompt, knowledge base, working directory) is declared per-agent inside each agent's markdown file. Add agents from **Settings → Pipeline**.
 
 ---
 
@@ -174,8 +161,7 @@ All fields in `config.json` (and `config.sample.json`):
 | `llmProvider.type` | string | — | `"openai"`, `"azure-openai"`, `"anthropic"`, `"copilot"`, or `"ollama"` |
 | `incidentProvider` | object | `{"type":"manual"}` | Incident provider (`"manual"` or `"sentinel"`) |
 | `mcpServers` | array | `[]` | MCP server definitions (name, command, args, env, cwd) |
-| `products` | array | `[]` | Product definitions for multi-repo support |
-| `activeProductId` | string | — | Currently active product ID |
+| `investigationsPath` | string | — | Absolute path where investigation state/reports are saved |
 
 ---
 
