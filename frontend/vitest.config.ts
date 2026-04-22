@@ -21,14 +21,10 @@ export default defineConfig({
                 'src/components/PipelineTimeline.tsx',
             ],
             thresholds: {
-                // Temporarily lowered after the product → agent-oriented refactor.
-                // Many product/onboarding tests were skipped or removed; the corresponding
-                // dead-code paths are still being trimmed. Follow-up: rewrite missing tests
-                // against the new surface (agents, paths) and restore the 100% threshold.
-                lines: 94,
-                branches: 98,
-                functions: 94,
-                statements: 94,
+                lines: 100,
+                branches: 100,
+                functions: 100,
+                statements: 100,
             },
         },
     },
