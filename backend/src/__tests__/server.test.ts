@@ -36,7 +36,6 @@ import {
     resolveManifest,
     shouldAutoStartServer,
     shouldIncludeInvestigationInList,
-    shouldScanGlobalInvestigationsDir,
     summarizeRetrospect,
     startServer,
     stopServer,
@@ -188,17 +187,16 @@ describe('server utilities and routes', () => {
             });
         });
 
-        it('normalizes running historical state into paused and applies productId', () => {
+        it('normalizes running historical state into paused', () => {
             const result = normalizeHistoricalState({
                 id: '1',
                 status: 'running',
                 thoughts: [],
                 actions: undefined as any,
                 logs: undefined as any,
-            } as any, 'prod-1');
+            } as any);
 
             expect(result.status).toBe('paused');
-            expect(result.productId).toBe('prod-1');
             expect(result.thoughts).toContain('System: Investigation automatically paused due to server restart.');
             expect(result.actions).toEqual([]);
             expect(result.logs).toEqual([]);
@@ -1084,7 +1082,7 @@ describe('server utilities and routes', () => {
             logSpy.mockRestore();
         });
 
-        it.skip('covers direct startup helpers and schedule path selection', () => {
+        it('covers direct startup helpers and schedule path selection', () => {
             const logger = { error: vi.fn() };
             handleServerStarted(() => {
                 throw new Error('scheduler init failed');
@@ -1097,11 +1095,13 @@ describe('server utilities and routes', () => {
             autoStartServerIfNeeded({ VITEST: 'false' } as any, starter);
             expect(starter).toHaveBeenCalledTimes(1);
 
-            __testUtils.setConfig({ investigationsPath: '', products: [{ id: 'prod-path', investigationsPath: 'C:/tmp/prod-path' } as any] });
-            expect(getScheduleInvestigationsPath()).toBe('C:/tmp/prod-path');
-
-            __testUtils.setConfig({ investigationsPath: '', products: [{ id: 'prod-empty' } as any] });
+            // Schedule path falls back to global investigations dir when investigationsPath is empty
+            const originalCfg = __testUtils.getConfig();
+            __testUtils.setConfig({ ...originalCfg, investigationsPath: '' });
             expect(getScheduleInvestigationsPath()).toBe(getGlobalInvestigationsDir());
+
+            __testUtils.setConfig({ ...originalCfg, investigationsPath: 'C:/tmp/scheduled' });
+            expect(getScheduleInvestigationsPath()).toBe('C:/tmp/scheduled');
         });
 
         it('covers process error handlers, websocket helpers, config bootstrap, and provider fallbacks', async () => {

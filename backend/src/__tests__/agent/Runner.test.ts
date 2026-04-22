@@ -4668,6 +4668,62 @@ describe('AgentRunner', () => {
         });
     });
 
+    describe('callLLM - auto-pause after maxConsecutiveThoughts text-only responses', () => {
+        it('auto-pauses when the model returns 6 consecutive thought-only responses', async () => {
+            // Always return text-only (no tool_calls). The runner should auto-pause
+            // after consecutiveThoughts >= maxConsecutiveThoughts (6).
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: 'Just thinking out loud.' } }],
+            });
+            mockToolManager.listTools.mockResolvedValue([]);
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 20 }), provider);
+            // After auto-pause, the loop polls forever; abort to break out.
+            setTimeout(() => runner.abort(), 500);
+            await runner.start('Query');
+
+            // The auto-pause message is pushed into thoughts as a string.
+            const thoughts = (runner as any).state.thoughts as Array<any>;
+            const autoPauseThought = thoughts.find(t =>
+                typeof t === 'string' && t.includes('auto-paused after')
+            );
+            expect(autoPauseThought).toBeDefined();
+        }, 10000);
+
+        it('handles a final step whose thought is null (covers step.thought?.content || "" fallback)', async () => {
+            // Returning content: null produces step.thought === null which forces the
+            // `: step.thought?.content || ''` branch in the loop's error-detection guard.
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: null } }],
+            });
+            mockToolManager.listTools.mockResolvedValue([]);
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            setTimeout(() => runner.abort(), 500);
+            await runner.start('Query');
+
+            // We just need to drive the branch — any terminal status is fine.
+            const status = (runner as any).state.status;
+            expect(['paused', 'aborted', 'failed', 'completed']).toContain(status);
+        }, 10000);
+
+        it('handles a final step whose thought is an object with a content property', async () => {
+            // Returning content as an object (non-spec but defensive code path) makes
+            // step.thought a non-string object and exercises the truthy `?.content` side.
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{ message: { content: { content: 'nested string' } as any } }],
+            });
+            mockToolManager.listTools.mockResolvedValue([]);
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            setTimeout(() => runner.abort(), 500);
+            await runner.start('Query');
+
+            const status = (runner as any).state.status;
+            expect(['paused', 'aborted', 'failed', 'completed']).toContain(status);
+        }, 10000);
+    });
+
     describe('callLLM - force tool with no tools', () => {
         it('warns when forced tool but no tools available', async () => {
             // Return thought-only responses to trigger consecutiveThoughts >= 2

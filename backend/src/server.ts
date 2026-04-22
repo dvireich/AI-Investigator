@@ -79,7 +79,7 @@ export function inferTarget(state: Record<string, any>): string | undefined {
     return undefined;
 }
 
-export function normalizeHistoricalState(state: InvestigationState, productId?: string): StoredInvestigationState {
+export function normalizeHistoricalState(state: InvestigationState): StoredInvestigationState {
     const normalized = { ...state } as StoredInvestigationState;
     normalized.thoughts = Array.isArray(normalized.thoughts) ? [...normalized.thoughts] : [];
     normalized.actions = Array.isArray(normalized.actions) ? normalized.actions : [];
@@ -93,10 +93,6 @@ export function normalizeHistoricalState(state: InvestigationState, productId?: 
     // Clear stale implementation flag — no runner survives a restart
     if (normalized.implementationRunning) {
         normalized.implementationRunning = false;
-    }
-
-    if (productId && !normalized.productId) {
-        normalized.productId = productId;
     }
 
     // Migrate legacy 'stamp' field or extract target from query text
@@ -155,7 +151,7 @@ export function hydrateStoredState(stored: StoredInvestigationState): StoredInve
     try {
         const content = fs.readFileSync(stored._statePath, 'utf-8');
         const parsed = JSON.parse(content) as InvestigationState;
-        const normalized = normalizeHistoricalState(parsed, stored.productId);
+        const normalized = normalizeHistoricalState(parsed);
         const stateStat = fs.statSync(stored._statePath);
         normalized._summaryOnly = false;
         normalized._lastModified = stateStat.mtimeMs;
@@ -420,10 +416,6 @@ export function getGlobalInvestigationsDir(): string {
     return config.investigationsPath || path.join(config.repoRoot || defaultRepoRoot, 'investigations');
 }
 
-export function shouldScanGlobalInvestigationsDir(): boolean {
-    return true;
-}
-
 export function isPathWithinDirectory(candidatePath: string | undefined, directoryPath: string): boolean {
     if (!candidatePath) {
         return false;
@@ -470,123 +462,108 @@ export function loadHistory() {
     invalidateListCache();
 
     // Single global investigations directory (per-product directories were removed).
-    const dirsToScan: { dir: string; productId?: string }[] = [
-        { dir: getGlobalInvestigationsDir() },
-    ];
+    const dir = getGlobalInvestigationsDir();
+    ensureDirectoryExists(dir);
 
-    console.log(`Scanning ${dirsToScan.length} investigation directories...`);
+    try {
+        const files = fs.readdirSync(dir);
+        console.log(`Scanning ${files.length} files in ${dir}`);
 
-    for (const { dir, productId } of dirsToScan) {
-        ensureDirectoryExists(dir);
-        
-        try {
-            const files = fs.readdirSync(dir);
-            console.log(`Scanning ${files.length} files in ${dir}${productId ? ` (product: ${productId})` : ''}`);
+        // 1. Scan for directories (New Structure) and JSON files (Legacy)
+        for (const file of files) {
+            const fullPath = path.join(dir, file);
+            try {
+                const stat = fs.statSync(fullPath);
 
-            // 1. Scan for directories (New Structure) and JSON files (Legacy)
-            for (const file of files) {
-                const fullPath = path.join(dir, file);
-                try {
-                    const stat = fs.statSync(fullPath);
+                if (stat.isDirectory()) {
+                    // Check for state.json inside
+                    const statePath = path.join(fullPath, 'state.json');
+                    if (fs.existsSync(statePath)) {
+                        const summaryPath = path.join(fullPath, 'summary.json');
 
-                    if (stat.isDirectory()) {
-                        // Check for state.json inside
-                        const statePath = path.join(fullPath, 'state.json');
-                        if (fs.existsSync(statePath)) {
-                            const summaryPath = path.join(fullPath, 'summary.json');
-
-                            if (fs.existsSync(summaryPath)) {
-                                const content = fs.readFileSync(summaryPath, 'utf-8');
-                                const summary = JSON.parse(content) as StoredInvestigationState;
-                                if (summary.id) {
-                                    const summaryStat = fs.statSync(summaryPath);
-                                    if (summary.status === 'running') {
-                                        summary.status = 'paused';
-                                    }
-                                    if (productId && !summary.productId) {
-                                        summary.productId = productId;
-                                    }
-                                    // Migrate legacy 'stamp' field or extract target from query
-                                    const inferred = inferTarget(summary);
-                                    if (inferred) {
-                                        summary.target = inferred;
-                                        // Persist the fix so it doesn't need re-inference next load
-                                        try {
-                                            const tmpPath = summaryPath + '.tmp';
-                                            const updated = JSON.parse(content);
-                                            updated.target = inferred;
-                                            fs.writeFileSync(tmpPath, JSON.stringify(updated, null, 2));
-                                            fs.renameSync(tmpPath, summaryPath);
-                                        } catch { /* best-effort */ }
-                                    }
-                                    summary._summaryOnly = true;
-                                    summary._lastModified = summaryStat.mtimeMs;
-                                    summary._storagePath = fullPath;
-                                    summary._statePath = statePath;
-                                    history.set(summary.id, summary);
+                        if (fs.existsSync(summaryPath)) {
+                            const content = fs.readFileSync(summaryPath, 'utf-8');
+                            const summary = JSON.parse(content) as StoredInvestigationState;
+                            if (summary.id) {
+                                const summaryStat = fs.statSync(summaryPath);
+                                if (summary.status === 'running') {
+                                    summary.status = 'paused';
                                 }
-                            } else {
-                                const content = fs.readFileSync(statePath, 'utf-8');
-                                const parsed = JSON.parse(content) as InvestigationState;
-                                const normalized = normalizeHistoricalState(parsed, productId);
-                                const stateFileStat = fs.statSync(statePath);
-
-                                if (normalized.id) {
-                                    const summary = createSummaryState(normalized, fullPath, statePath, stateFileStat.mtimeMs);
-                                    history.set(normalized.id, summary);
-
+                                // Migrate legacy 'stamp' field or extract target from query
+                                const inferred = inferTarget(summary);
+                                if (inferred) {
+                                    summary.target = inferred;
+                                    // Persist the fix so it doesn't need re-inference next load
                                     try {
-                                        const tmpSummaryPath = summaryPath + '.tmp';
-                                        fs.writeFileSync(tmpSummaryPath, JSON.stringify(summary, null, 2));
-                                        fs.renameSync(tmpSummaryPath, summaryPath);
-                                    } catch (summaryError) {
-                                        console.error(`Failed to backfill summary for ${statePath}:`, summaryError);
-                                    }
+                                        const tmpPath = summaryPath + '.tmp';
+                                        const updated = JSON.parse(content);
+                                        updated.target = inferred;
+                                        fs.writeFileSync(tmpPath, JSON.stringify(updated, null, 2));
+                                        fs.renameSync(tmpPath, summaryPath);
+                                    } catch { /* best-effort */ }
+                                }
+                                summary._summaryOnly = true;
+                                summary._lastModified = summaryStat.mtimeMs;
+                                summary._storagePath = fullPath;
+                                summary._statePath = statePath;
+                                history.set(summary.id, summary);
+                            }
+                        } else {
+                            const content = fs.readFileSync(statePath, 'utf-8');
+                            const parsed = JSON.parse(content) as InvestigationState;
+                            const normalized = normalizeHistoricalState(parsed);
+                            const stateFileStat = fs.statSync(statePath);
+
+                            if (normalized.id) {
+                                const summary = createSummaryState(normalized, fullPath, statePath, stateFileStat.mtimeMs);
+                                history.set(normalized.id, summary);
+
+                                try {
+                                    const tmpSummaryPath = summaryPath + '.tmp';
+                                    fs.writeFileSync(tmpSummaryPath, JSON.stringify(summary, null, 2));
+                                    fs.renameSync(tmpSummaryPath, summaryPath);
+                                } catch (summaryError) {
+                                    console.error(`Failed to backfill summary for ${statePath}:`, summaryError);
                                 }
                             }
                         }
-                    } else if (file.endsWith('.json')) {
-                        // Legacy flat file support
-                        const content = fs.readFileSync(fullPath, 'utf-8');
-                        const parsed = JSON.parse(content) as InvestigationState;
-                        const normalized = normalizeHistoricalState(parsed, productId);
-                        if (normalized.id) {
-                            const summary = createSummaryState(normalized, path.dirname(fullPath), fullPath, stat.mtimeMs);
-                            history.set(normalized.id, summary);
-                        }
                     }
-                } catch (e) {
-                    console.error(`Failed to load ${file}:`, e);
-                }
-            }
-
-            // 2. Load Markdown reports (legacy/completed) if no JSON exists for them
-            const mdFiles = files.filter(f => f.endsWith('.md'));
-            for (const file of mdFiles) {
-                const id = file.replace('.md', '');
-
-                // If we don't have this ID yet (from JSON), create a synthetic state
-                if (!history.has(id)) {
-                    try {
-                        const stats = fs.statSync(path.join(dir, file));
-                        history.set(id, {
-                            id: id,
-                            status: 'completed',
-                            thoughts: [`Legacy report loaded from ${file}`],
-                            actions: [],
-                            logs: [`Imported from ${file} on ${new Date().toISOString()}`],
-                            productId: productId, // Tag with product if from product directory
-                        });
-                    } catch (e) {
-                        console.error(`Failed to load legacy MD ${file}:`, e);
+                } else if (file.endsWith('.json')) {
+                    // Legacy flat file support
+                    const content = fs.readFileSync(fullPath, 'utf-8');
+                    const parsed = JSON.parse(content) as InvestigationState;
+                    const normalized = normalizeHistoricalState(parsed);
+                    if (normalized.id) {
+                        const summary = createSummaryState(normalized, path.dirname(fullPath), fullPath, stat.mtimeMs);
+                        history.set(normalized.id, summary);
                     }
                 }
+            } catch (e) {
+                console.error(`Failed to load ${file}:`, e);
             }
-        } catch (e) {
-            console.error(`Failed to read investigations directory ${dir}:`, e);
         }
+
+        // 2. Load Markdown reports (legacy/completed) if no JSON exists for them
+        const mdFiles = files.filter(f => f.endsWith('.md'));
+        for (const file of mdFiles) {
+            const id = file.replace('.md', '');
+
+            // If we don't have this ID yet (from JSON), create a synthetic state
+            if (!history.has(id)) {
+                fs.statSync(path.join(dir, file));
+                history.set(id, {
+                    id: id,
+                    status: 'completed',
+                    thoughts: [`Legacy report loaded from ${file}`],
+                    actions: [],
+                    logs: [`Imported from ${file} on ${new Date().toISOString()}`],
+                });
+            }
+        }
+    } catch (e) {
+        console.error(`Failed to read investigations directory ${dir}:`, e);
     }
-    
+
     console.log(`Loaded ${history.size} total investigations into history.`);
 }
 
@@ -1017,13 +994,9 @@ export function loadConfigFromDisk(targetConfigFile: string, baseConfig: typeof 
     // An explicit pipeline object always takes priority over defaultPipelineId.
     // Resolution order: built-in preset -> workflows.json -> undefined (no default).
     if (!mergedConfig.pipeline && mergedConfig.defaultPipelineId) {
-        try {
-            const resolved = resolveDefaultPipeline(mergedConfig.defaultPipelineId, mergedConfig.investigationsPath);
-            if (resolved) {
-                mergedConfig.pipeline = resolved;
-            }
-        } catch (err: any) {
-            console.error(`[Config] Failed to resolve defaultPipelineId "${mergedConfig.defaultPipelineId}": ${err.message}`);
+        const resolved = resolveDefaultPipeline(mergedConfig.defaultPipelineId, mergedConfig.investigationsPath);
+        if (resolved) {
+            mergedConfig.pipeline = resolved;
         }
     }
 
@@ -1039,9 +1012,6 @@ try {
     const loadedConfig = loadConfigFromDisk(configFile, config, configFileDir);
     config = loadedConfig.config;
     persistedConfig = loadedConfig.persistedConfig;
-    if (loadedConfig.loaded) {
-        console.log("Loaded configuration from disk.");
-    }
 } catch (e) {
     console.error("Failed to load config file:", e);
 }
@@ -1914,7 +1884,7 @@ app.get('/api/investigations', (req, res) => {
     let thisWeekCount = 0, lastWeekCount = 0;
 
     for (const s of all) {
-        if (!s || !s.id) continue;
+        if (!s.id) continue;
         const source = s.source || 'manual';
         if (source === 'scheduled') continue; // exclude scheduled from stats
         for (const t of (s.tags || [])) tagsSet.add(t);
@@ -1975,7 +1945,7 @@ app.get('/api/investigations', (req, res) => {
     const summaries: any[] = [];
     for (const s of preFiltered) {
         try {
-        if (!s || !s.id) continue; // skip invalid entries
+        if (!s.id) continue; // skip invalid entries
         // For active runners, lastModified is now; for history, use file mtime or fall back to creation time
         const isActive = runners.has(s.id);
         const lastModified = isActive ? Date.now() : ((s as any)._lastModified || Number(s.id) || Date.now());
@@ -4291,6 +4261,7 @@ export const __testUtils = {
     setActiveLlmProvider: (provider: LlmProvider | null) => {
         activeLlmProvider = provider;
     },
+    getActiveLlmProvider: () => activeLlmProvider,
     setActiveIncidentProvider: (provider: IncidentProvider | null) => {
         activeIncidentProvider = provider;
     },
