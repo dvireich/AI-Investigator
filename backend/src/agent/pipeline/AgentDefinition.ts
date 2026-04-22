@@ -22,6 +22,11 @@ export type AgentKind =
     | 'investigator'
     | 'retrospect'
     | 'implementation'
+    | 'kb-improver'
+    | 'code-implementer'
+    | 'recommendation-extractor'
+    | 'executive-report'
+    | 'notes-rephraser'
     | 'validator'
     | 'planner'
     | 'triage'
@@ -41,6 +46,11 @@ export const AGENT_KINDS: readonly AgentKind[] = [
     'investigator',
     'retrospect',
     'implementation',
+    'kb-improver',
+    'code-implementer',
+    'recommendation-extractor',
+    'executive-report',
+    'notes-rephraser',
     'validator',
     'planner',
     'triage',
@@ -146,6 +156,37 @@ export interface AgentDefinition {
      * Auto-assigned if not set.
      */
     icon?: string;
+
+    /**
+     * How the agent's LLM call is executed.
+     *
+     * - `'tool-loop'` (default) — multi-turn loop with MCP tools, terminated by the `finish` tool.
+     *   Used by investigator-class agents that need to gather evidence iteratively.
+     * - `'single-shot'` — one LLM call, no tool loop, response returned directly. Used by
+     *   stateless reasoning agents like recommendation extractors, summarizers, and rephrasers.
+     *
+     * Built-in agent factories declare this explicitly. Custom agents default to `'tool-loop'`
+     * for backwards compatibility.
+     */
+    executionMode?: 'tool-loop' | 'single-shot';
+
+    /**
+     * Expected format of the agent's final output.
+     *
+     * - `'markdown'` (default) — free-form markdown text returned as-is.
+     * - `'json'` — the response is expected to contain a JSON value (object or array). The
+     *   runner extracts the first JSON block via regex and validates it against `outputSchema`
+     *   if provided. On parse/validation failure the runner returns an empty result with a
+     *   warning logged — callers decide how to surface this.
+     */
+    outputFormat?: 'markdown' | 'json';
+
+    /**
+     * Optional JSON Schema describing the expected shape of a `outputFormat: 'json'` response.
+     * The runner runs a minimal validator (type, items, required, enum) against the parsed
+     * output. Ignored when `outputFormat !== 'json'`.
+     */
+    outputSchema?: object;
 }
 
 /**

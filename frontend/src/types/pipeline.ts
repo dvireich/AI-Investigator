@@ -9,6 +9,11 @@ export type AgentKind =
     | 'investigator'
     | 'retrospect'
     | 'implementation'
+    | 'kb-improver'
+    | 'code-implementer'
+    | 'recommendation-extractor'
+    | 'executive-report'
+    | 'notes-rephraser'
     | 'validator'
     | 'planner'
     | 'triage'
@@ -28,6 +33,11 @@ export const AGENT_KINDS: readonly AgentKind[] = [
     'investigator',
     'retrospect',
     'implementation',
+    'kb-improver',
+    'code-implementer',
+    'recommendation-extractor',
+    'executive-report',
+    'notes-rephraser',
     'validator',
     'planner',
     'triage',
@@ -64,6 +74,12 @@ export interface AgentDefinition {
     workingDirectory?: string;
     color?: string;
     icon?: string;
+    /** How the agent's LLM call is executed: multi-turn tool loop or single-shot. */
+    executionMode?: 'tool-loop' | 'single-shot';
+    /** Expected output format. JSON output is parsed and optionally validated against `outputSchema`. */
+    outputFormat?: 'markdown' | 'json';
+    /** Optional JSON Schema for `outputFormat: 'json'` responses. */
+    outputSchema?: object;
 }
 
 export interface ToolAccess {
