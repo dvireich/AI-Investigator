@@ -1299,28 +1299,28 @@ describe('server utilities and routes', () => {
             fs.writeFileSync(malformedPath, '{bad json');
             expect(() => __testUtils.loadConfigFromDisk(malformedPath, JSON.parse(JSON.stringify(defaultConfig)), malformedDir)).toThrow();
 
-            // Test pipelinePreset resolution
+            // Test defaultPipelineId resolution
             const presetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-preset-'));
             const presetPath = path.join(presetDir, 'config.json');
-            fs.writeFileSync(presetPath, JSON.stringify({ pipelinePreset: 'deep-investigation' }));
+            fs.writeFileSync(presetPath, JSON.stringify({ defaultPipelineId: 'deep-investigation' }));
             const presetLoad = __testUtils.loadConfigFromDisk(presetPath, JSON.parse(JSON.stringify(defaultConfig)), presetDir);
             expect(presetLoad.loaded).toBe(true);
             expect(presetLoad.config.pipeline).toBeDefined();
             expect(presetLoad.config.pipeline!.name).toBe('Deep Investigation');
             expect(presetLoad.config.pipeline!.stages.length).toBeGreaterThan(0);
 
-            // Explicit pipeline takes priority over pipelinePreset
+            // Explicit pipeline takes priority over defaultPipelineId
             const bothDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-both-'));
             const bothPath = path.join(bothDir, 'config.json');
             const explicitPipeline = { id: 'custom', name: 'My Custom', stages: [{ agent: { id: 'a', name: 'A', source: 'inline' } }] };
-            fs.writeFileSync(bothPath, JSON.stringify({ pipeline: explicitPipeline, pipelinePreset: 'deep-investigation' }));
+            fs.writeFileSync(bothPath, JSON.stringify({ pipeline: explicitPipeline, defaultPipelineId: 'deep-investigation' }));
             const bothLoad = __testUtils.loadConfigFromDisk(bothPath, JSON.parse(JSON.stringify(defaultConfig)), bothDir);
             expect(bothLoad.config.pipeline!.name).toBe('My Custom');
 
-            // Unknown pipelinePreset logs error but doesn't crash
+            // Unknown defaultPipelineId logs error but doesn't crash
             const badPresetDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-badpreset-'));
             const badPresetPath = path.join(badPresetDir, 'config.json');
-            fs.writeFileSync(badPresetPath, JSON.stringify({ pipelinePreset: 'nonexistent-preset' }));
+            fs.writeFileSync(badPresetPath, JSON.stringify({ defaultPipelineId: 'nonexistent-preset' }));
             const badPresetLoad = __testUtils.loadConfigFromDisk(badPresetPath, JSON.parse(JSON.stringify(defaultConfig)), badPresetDir);
             expect(badPresetLoad.loaded).toBe(true);
             expect(badPresetLoad.config.pipeline).toBeUndefined();
@@ -2117,37 +2117,37 @@ describe('server utilities and routes', () => {
             consoleSpy.mockRestore();
         });
 
-        it('POST /api/settings persists pipelinePreset instead of full pipeline when it matches a preset', async () => {
+        it('POST /api/settings persists defaultPipelineId instead of full pipeline when it matches a preset', async () => {
             const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
             try {
                 const pipeline = buildPipelinePreset('deep-investigation');
                 const response = await api().post('/api/settings').send({ pipeline });
                 expect(response.status).toBe(200);
-                // Runtime config should have both pipeline and pipelinePreset
-                expect(response.body.pipelinePreset).toBe('deep-investigation');
-                // Disk should have pipelinePreset, not pipeline
+                // Runtime config should have both pipeline and defaultPipelineId
+                expect(response.body.defaultPipelineId).toBe('deep-investigation');
+                // Disk should have defaultPipelineId, not pipeline
                 const onDisk = JSON.parse(fs.readFileSync(backendConfigFile, 'utf-8'));
-                expect(onDisk.pipelinePreset).toBe('deep-investigation');
+                expect(onDisk.defaultPipelineId).toBe('deep-investigation');
                 expect(onDisk.pipeline).toBeUndefined();
             } finally {
                 fs.writeFileSync(backendConfigFile, originalConfig);
-                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+                __testUtils.setConfig({ pipeline: undefined, defaultPipelineId: undefined });
             }
         });
 
-        it('POST /api/settings persists custom pipeline inline and clears stale pipelinePreset', async () => {
+        it('POST /api/settings persists custom pipeline inline and clears stale defaultPipelineId', async () => {
             const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
             try {
                 const customPipeline = { id: 'my-custom', name: 'Custom', stages: [{ agent: { name: 'a', builtinType: 'investigator', role: 'test', systemPrompt: '' }, inputMode: 'conversation' as const }] };
                 const response = await api().post('/api/settings').send({ pipeline: customPipeline });
                 expect(response.status).toBe(200);
-                expect(response.body.pipelinePreset).toBeUndefined();
-                // Disk should NOT have pipelinePreset
+                expect(response.body.defaultPipelineId).toBeUndefined();
+                // Disk should NOT have defaultPipelineId
                 const onDisk = JSON.parse(fs.readFileSync(backendConfigFile, 'utf-8'));
-                expect(onDisk.pipelinePreset).toBeUndefined();
+                expect(onDisk.defaultPipelineId).toBeUndefined();
             } finally {
                 fs.writeFileSync(backendConfigFile, originalConfig);
-                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+                __testUtils.setConfig({ pipeline: undefined, defaultPipelineId: undefined });
             }
         });
 
@@ -2158,11 +2158,11 @@ describe('server utilities and routes', () => {
                 const response = await api().post('/api/settings/import').send({ pipeline });
                 expect(response.status).toBe(200);
                 const onDisk = JSON.parse(fs.readFileSync(backendConfigFile, 'utf-8'));
-                expect(onDisk.pipelinePreset).toBe('default');
+                expect(onDisk.defaultPipelineId).toBe('default');
                 expect(onDisk.pipeline).toBeUndefined();
             } finally {
                 fs.writeFileSync(backendConfigFile, originalConfig);
-                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+                __testUtils.setConfig({ pipeline: undefined, defaultPipelineId: undefined });
             }
         });
 
@@ -2173,38 +2173,88 @@ describe('server utilities and routes', () => {
                 const response = await api().post('/api/settings/import').send({ pipeline: customPipeline });
                 expect(response.status).toBe(200);
                 const onDisk = JSON.parse(fs.readFileSync(backendConfigFile, 'utf-8'));
-                expect(onDisk.pipelinePreset).toBeUndefined();
+                expect(onDisk.defaultPipelineId).toBeUndefined();
             } finally {
                 fs.writeFileSync(backendConfigFile, originalConfig);
-                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+                __testUtils.setConfig({ pipeline: undefined, defaultPipelineId: undefined });
             }
         });
 
-        it('POST /api/settings/import with pipelinePreset resolves to full pipeline at runtime', async () => {
+        it('POST /api/settings/import with defaultPipelineId resolves to full pipeline at runtime', async () => {
             const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
             try {
-                const response = await api().post('/api/settings/import').send({ pipelinePreset: 'deep-investigation' });
+                const response = await api().post('/api/settings/import').send({ defaultPipelineId: 'deep-investigation' });
                 expect(response.status).toBe(200);
                 // Runtime config should have the resolved pipeline
                 expect(response.body.config.pipeline).toBeDefined();
                 expect(response.body.config.pipeline.name).toBe('Deep Investigation');
             } finally {
                 fs.writeFileSync(backendConfigFile, originalConfig);
-                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+                __testUtils.setConfig({ pipeline: undefined, defaultPipelineId: undefined });
             }
         });
 
-        it('POST /api/settings/import with unknown pipelinePreset does not crash', async () => {
+        it('POST /api/settings/import with unknown defaultPipelineId does not crash', async () => {
             const originalConfig = fs.readFileSync(backendConfigFile, 'utf-8');
             try {
-                const response = await api().post('/api/settings/import').send({ pipelinePreset: 'nonexistent-preset' });
+                const response = await api().post('/api/settings/import').send({ defaultPipelineId: 'nonexistent-preset' });
                 expect(response.status).toBe(200);
                 // Should not have resolved a pipeline from the unknown preset
-                expect(response.body.config.pipelinePreset).toBe('nonexistent-preset');
+                expect(response.body.config.defaultPipelineId).toBe('nonexistent-preset');
             } finally {
                 fs.writeFileSync(backendConfigFile, originalConfig);
-                __testUtils.setConfig({ pipeline: undefined, pipelinePreset: undefined });
+                __testUtils.setConfig({ pipeline: undefined, defaultPipelineId: undefined });
             }
+        });
+
+        it('migrates legacy pipelinePreset field to defaultPipelineId on disk-load', () => {
+            // Write a config file using the legacy field name
+            const legacyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-legacy-'));
+            const legacyPath = path.join(legacyDir, 'config.json');
+            fs.writeFileSync(legacyPath, JSON.stringify({ pipelinePreset: 'deep-investigation' }));
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => { /* silent */ });
+            try {
+                const loaded = __testUtils.loadConfigFromDisk(legacyPath, JSON.parse(JSON.stringify(defaultConfig)), legacyDir);
+                expect(loaded.loaded).toBe(true);
+                // Migrated to the new field name
+                expect(loaded.config.defaultPipelineId).toBe('deep-investigation');
+                // Pipeline got resolved
+                expect(loaded.config.pipeline).toBeDefined();
+                expect(loaded.config.pipeline!.name).toBe('Deep Investigation');
+                // Persisted snapshot also migrated
+                expect(loaded.persistedConfig.defaultPipelineId).toBe('deep-investigation');
+                expect(loaded.persistedConfig.pipelinePreset).toBeUndefined();
+                // Deprecation warning surfaced
+                expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('deprecated'));
+            } finally {
+                warnSpy.mockRestore();
+            }
+        });
+
+        it('resolves a defaultPipelineId from workflows.json when no built-in matches', () => {
+            // Create an investigations dir with a workflow whose pipeline.id we can reference
+            const invDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-wf-inv-'));
+            fs.writeFileSync(path.join(invDir, 'workflows.json'), JSON.stringify([
+                {
+                    id: '12345',
+                    name: 'My Custom Workflow',
+                    pipeline: {
+                        id: 'my-custom-workflow',
+                        name: 'My Custom Workflow',
+                        stages: [{ agent: { id: 'a', name: 'A', source: 'inline' } }],
+                    },
+                },
+            ]));
+            const cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-wf-cfg-'));
+            const cfgPath = path.join(cfgDir, 'config.json');
+            fs.writeFileSync(cfgPath, JSON.stringify({
+                investigationsPath: invDir,
+                defaultPipelineId: 'my-custom-workflow',
+            }));
+            const loaded = __testUtils.loadConfigFromDisk(cfgPath, JSON.parse(JSON.stringify(defaultConfig)), cfgDir);
+            expect(loaded.loaded).toBe(true);
+            expect(loaded.config.pipeline).toBeDefined();
+            expect(loaded.config.pipeline!.name).toBe('My Custom Workflow');
         });
 
         it('supports auth login, polling, and configure success paths', async () => {

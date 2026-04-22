@@ -23,4 +23,9 @@ export {
     listPipelinePresets,
     matchPipelinePreset,
 } from './builtinAgents';
+export {
+    findWorkflowPipelineById,
+    resolveDefaultPipeline,
+    matchDefaultPipelineId,
+} from './pipelineResolver';
 export { PipelineOrchestrator } from './PipelineOrchestrator';

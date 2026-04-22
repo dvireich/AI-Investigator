@@ -3,7 +3,7 @@ import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import { AgentRunner, InvestigationState } from './agent/Runner';
-import { PipelineDefinition, PipelineOrchestrator, listBuiltinAgents, validatePipeline, buildPipelinePreset, listPipelinePresets, matchPipelinePreset } from './agent/pipeline';
+import { PipelineDefinition, PipelineOrchestrator, listBuiltinAgents, validatePipeline, buildPipelinePreset, listPipelinePresets, matchPipelinePreset, resolveDefaultPipeline, matchDefaultPipelineId } from './agent/pipeline';
 import { LlmProviderRegistry } from './agent/llm/LlmProviderRegistry';
 import { LlmProvider } from './agent/llm/LlmProvider';
 import { IncidentProviderRegistry } from './agent/incidents/IncidentProviderRegistry';
@@ -854,8 +854,13 @@ let config: {
     analyticsVisible: boolean;
     // Multi-agent pipeline configuration
     pipeline?: PipelineDefinition;
-    /** Shorthand: reference a built-in pipeline preset by ID instead of defining pipeline inline. */
-    pipelinePreset?: string;
+    /**
+     * Shorthand: reference a built-in preset OR a saved workflow by ID instead of
+     * defining the pipeline inline. Resolution order: built-in preset first, then
+     * `<investigationsPath>/workflows.json`. Unknown IDs log a warning and fall
+     * through to no default.
+     */
+    defaultPipelineId?: string;
     // Time zone preference for custom time ranges
     defaultTimeZoneMode: 'utc' | 'local';
 } = {
@@ -889,7 +894,7 @@ let config: {
     analyticsWidgets: ['trend', 'targetActivity', 'successRate'],
     analyticsVisible: true,
     pipeline: undefined,
-    pipelinePreset: undefined,
+    defaultPipelineId: undefined,
     defaultTimeZoneMode: 'utc',
 };
 
@@ -917,7 +922,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'llmProvider', 'incidentProvider',
     'defaultView', 'defaultSortOrder', 'defaultPageSize',
     'analyticsWidgets', 'analyticsVisible',
-    'pipeline', 'pipelinePreset',
+    'pipeline', 'defaultPipelineId',
     'defaultTimeZoneMode',
 ]);
 
@@ -996,13 +1001,29 @@ export function loadConfigFromDisk(targetConfigFile: string, baseConfig: typeof 
     mergedConfig.retrospectPromptPath = resolvedRetrospectPromptPath;
     resolveConfigPaths(mergedConfig, baseDir);
 
-    // Resolve pipelinePreset shorthand to a full pipeline definition.
-    // An explicit pipeline object always takes priority over pipelinePreset.
-    if (!mergedConfig.pipeline && mergedConfig.pipelinePreset) {
+    // Backward-compat: migrate the legacy `pipelinePreset` field to `defaultPipelineId`
+    // on read. The on-disk file is rewritten under the new name on the next save.
+    if (mergedConfig.pipelinePreset && !mergedConfig.defaultPipelineId) {
+        console.warn('[Config] `pipelinePreset` is deprecated. Migrating to `defaultPipelineId`.');
+        mergedConfig.defaultPipelineId = mergedConfig.pipelinePreset;
+        if (nextPersistedConfig.pipelinePreset && !nextPersistedConfig.defaultPipelineId) {
+            nextPersistedConfig.defaultPipelineId = nextPersistedConfig.pipelinePreset;
+            delete nextPersistedConfig.pipelinePreset;
+        }
+    }
+    delete mergedConfig.pipelinePreset;
+
+    // Resolve defaultPipelineId shorthand to a full pipeline definition.
+    // An explicit pipeline object always takes priority over defaultPipelineId.
+    // Resolution order: built-in preset -> workflows.json -> undefined (no default).
+    if (!mergedConfig.pipeline && mergedConfig.defaultPipelineId) {
         try {
-            mergedConfig.pipeline = buildPipelinePreset(mergedConfig.pipelinePreset);
+            const resolved = resolveDefaultPipeline(mergedConfig.defaultPipelineId, mergedConfig.investigationsPath);
+            if (resolved) {
+                mergedConfig.pipeline = resolved;
+            }
         } catch (err: any) {
-            console.error(`[Config] Failed to resolve pipelinePreset "${mergedConfig.pipelinePreset}": ${err.message}`);
+            console.error(`[Config] Failed to resolve defaultPipelineId "${mergedConfig.defaultPipelineId}": ${err.message}`);
         }
     }
 
@@ -1107,19 +1128,19 @@ app.post('/api/settings', (req, res) => {
         config = { ...config, ...sanitized };
 
         // Smart pipeline persistence: if the saved pipeline matches a built-in
-        // preset, persist the compact pipelinePreset ID instead of the full
-        // expanded pipeline definition. This keeps config.json clean.
+        // preset OR a saved workflow, persist the compact `defaultPipelineId`
+        // instead of the full expanded pipeline definition. Keeps config.json clean.
         if ('pipeline' in sanitized && sanitized.pipeline) {
-            const presetId = matchPipelinePreset(sanitized.pipeline);
-            if (presetId) {
+            const matchedId = matchDefaultPipelineId(sanitized.pipeline, config.investigationsPath);
+            if (matchedId) {
                 // Store the compact form
-                persistedConfig.pipelinePreset = presetId;
+                persistedConfig.defaultPipelineId = matchedId;
                 delete persistedConfig.pipeline;
-                config.pipelinePreset = presetId;
+                config.defaultPipelineId = matchedId;
             } else {
-                // Custom pipeline — store inline, clear any stale preset ref
-                delete persistedConfig.pipelinePreset;
-                config.pipelinePreset = undefined;
+                // Custom pipeline — store inline, clear any stale id ref
+                delete persistedConfig.defaultPipelineId;
+                config.defaultPipelineId = undefined;
             }
         }
 
@@ -1183,23 +1204,25 @@ app.post('/api/settings/import', (req, res) => {
         const sanitized = JSON.parse(JSON.stringify(filtered));
         config = { ...config, ...sanitized };
 
-        // Resolve pipelinePreset if imported without an explicit pipeline
-        if (!sanitized.pipeline && sanitized.pipelinePreset) {
-            try {
-                config.pipeline = buildPipelinePreset(sanitized.pipelinePreset);
-            } catch { /* ignore — unknown preset */ }
+        // Resolve defaultPipelineId if imported without an explicit pipeline.
+        // Goes through the same builtin -> workflow.json resolver as on-disk loads.
+        if (!sanitized.pipeline && sanitized.defaultPipelineId) {
+            const resolved = resolveDefaultPipeline(sanitized.defaultPipelineId, config.investigationsPath);
+            if (resolved) {
+                config.pipeline = resolved;
+            }
         }
 
         // Smart pipeline persistence (same logic as POST /api/settings)
         if ('pipeline' in sanitized && sanitized.pipeline) {
-            const presetId = matchPipelinePreset(sanitized.pipeline);
-            if (presetId) {
-                persistedConfig.pipelinePreset = presetId;
+            const matchedId = matchDefaultPipelineId(sanitized.pipeline, config.investigationsPath);
+            if (matchedId) {
+                persistedConfig.defaultPipelineId = matchedId;
                 delete persistedConfig.pipeline;
-                config.pipelinePreset = presetId;
+                config.defaultPipelineId = matchedId;
             } else {
-                delete persistedConfig.pipelinePreset;
-                config.pipelinePreset = undefined;
+                delete persistedConfig.defaultPipelineId;
+                config.defaultPipelineId = undefined;
             }
         }
 
