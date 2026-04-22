@@ -29,3 +29,9 @@ export {
     matchDefaultPipelineId,
 } from './pipelineResolver';
 export { PipelineOrchestrator } from './PipelineOrchestrator';
+export { runSingleAgent, substituteTemplate, loadAgentPrompt, extractLastReport } from './SingleAgentRunner';
+export type { SingleAgentContext, SingleAgentResult, SingleAgentRunOptions } from './SingleAgentRunner';
+export { validateAgainstSchema, extractFirstJson } from './jsonSchemaValidator';
+export type { ValidationError, ValidationResult } from './jsonSchemaValidator';
+export { AGENT_KINDS } from './AgentDefinition';
+export type { AgentKind } from './AgentDefinition';
