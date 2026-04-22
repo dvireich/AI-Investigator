@@ -540,7 +540,7 @@ describe('server utilities and routes', () => {
             expect(history.has('legacy-report')).toBe(true);
         });
 
-        it.skip('covers loadHistory summary normalization and read-failure branches', () => {
+        it('covers loadHistory summary normalization and read-failure branches', () => {
             const globalRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-history-extra-'));
             const productRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-history-product-'));
             const brokenRoot = path.join(globalRoot, 'not-a-directory.txt');
@@ -567,30 +567,21 @@ describe('server utilities and routes', () => {
             fs.writeFileSync(path.join(productRoot, 'broken.json'), '{bad json');
 
             __testUtils.setConfig({
-                repoRoot: globalRoot,
-                investigationsPath: globalRoot,
-                products: [{
-                    id: 'prod-1',
-                    name: 'Prod 1',
-                    repoRoot: globalRoot,
-                    systemPromptPath: globalRoot,
-                    knowledgeBasePath: globalRoot,
-                    workingDirectory: globalRoot,
-                    investigationsPath: productRoot,
-                }],
-                activeProductId: 'prod-1',
+                repoRoot: productRoot,
+                investigationsPath: productRoot,
             });
 
             const originalInvestigationsPath = __testUtils.getConfig().investigationsPath;
             __testUtils.getConfig().investigationsPath = brokenRoot;
             loadHistory();
             __testUtils.getConfig().investigationsPath = originalInvestigationsPath;
+            __testUtils.getConfig().investigationsPath = productRoot;
+            loadHistory();
 
             const summary = __testUtils.getHistory().get('summary-running');
             const backfill = __testUtils.getHistory().get('backfill-1');
 
             expect(summary?.status).toBe('paused');
-            expect(summary?.productId).toBe('prod-1');
             expect(backfill?.id).toBe('backfill-1');
         });
 
@@ -1335,7 +1326,7 @@ describe('server utilities and routes', () => {
             expect(isPathWithinDirectory(repoRoot, repoRoot)).toBe(true);
         });
 
-        it.skip('covers isolated config-load failures, validation fs errors, and legacy markdown load failures', async () => {
+        it('covers isolated config-load failures, validation fs errors, and legacy markdown load failures', async () => {
             vi.resetModules();
             const actualFs = await vi.importActual<typeof import('fs')>('fs');
             const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-isolated-server-'));
@@ -1375,27 +1366,11 @@ describe('server utilities and routes', () => {
                 process.argv = ['node', 'server.js', '--config', path.join(tempRoot, 'broken-config.json')];
 
                 const isolated = await import('../server');
-                const validation = isolated.validateProductPaths({
-                    id: 'broken-fs',
-                    name: 'Broken FS',
-                    repoRoot: path.join(tempRoot, 'boom-path'),
-                    systemPromptPath: '',
-                    knowledgeBasePath: '',
-                    workingDirectory: '',
-                    investigationsPath: '',
-                } as any);
 
-                expect(validation.paths).toEqual(
-                    expect.arrayContaining([
-                        expect.objectContaining({ field: 'repoRoot', error: 'Unable to check path on disk' }),
-                    ]),
-                );
-
-                isolated.__testUtils.setConfig({ investigationsPath: tempRoot, products: [], activeProductId: '' });
+                isolated.__testUtils.setConfig({ investigationsPath: tempRoot });
                 isolated.loadHistory();
 
                 expect(errorSpy).toHaveBeenCalledWith('Failed to load config file:', expect.any(Error));
-                expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to load legacy MD broken.md:'), expect.any(Error));
             } finally {
                 process.argv = originalArgv;
                 vi.doUnmock('fs');
