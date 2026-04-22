@@ -13,6 +13,5 @@ if (!fs.existsSync(backendConfigFile)) {
     fs.writeFileSync(backendConfigFile, JSON.stringify({
         model: 'gpt-4o',
         maxSteps: 50,
-        products: [],
     }));
 }

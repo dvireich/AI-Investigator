@@ -36,6 +36,7 @@ export function createInvestigatorAgent(overrides?: Partial<AgentDefinition>): A
     return {
         id: 'builtin-investigator',
         name: 'Investigator',
+        kind: 'investigator',
         description: 'Runs the main investigation loop with full tool access. Queries data sources, analyzes results, and produces a findings report.',
         source: 'builtin',
         builtinType: 'investigator',
@@ -53,6 +54,7 @@ export function createRetrospectAgent(overrides?: Partial<AgentDefinition>): Age
     return {
         id: 'builtin-retrospect',
         name: 'Retrospect',
+        kind: 'retrospect',
         description: 'Analyzes the completed investigation against the knowledge base and proposes file changes to improve future investigations.',
         source: 'builtin',
         builtinType: 'retrospect',
@@ -74,6 +76,7 @@ export function createImplementationAgent(overrides?: Partial<AgentDefinition>):
     return {
         id: 'builtin-proposer',
         name: 'Proposer',
+        kind: 'implementation',
         description: 'Reads investigation findings and proposes code changes for recommendations. Does not apply changes — only creates proposals for review.',
         source: 'builtin',
         builtinType: 'implementation',
@@ -96,6 +99,7 @@ export function createValidatorAgent(overrides?: Partial<AgentDefinition>): Agen
     return {
         id: 'builtin-validator',
         name: 'Validator',
+        kind: 'validator',
         description: 'Reviews investigation findings for accuracy, completeness, and evidence. Can approve, reject, or flag results.',
         source: 'builtin',
         builtinType: 'validator',
@@ -115,6 +119,7 @@ export function createPlannerAgent(overrides?: Partial<AgentDefinition>): AgentD
     return {
         id: 'builtin-planner',
         name: 'Planner',
+        kind: 'planner',
         description: 'Analyzes the query and knowledge base to produce a structured investigation plan with hypotheses, data sources, and expected patterns.',
         source: 'builtin',
         builtinType: 'planner',
@@ -138,12 +143,43 @@ export function createTriageAgent(overrides?: Partial<AgentDefinition>): AgentDe
     return {
         id: 'builtin-triage',
         name: 'Triage',
+        kind: 'triage',
         description: 'Quick initial severity assessment. Classifies scope, affected components, and priority. Can short-circuit the pipeline for trivial issues.',
         source: 'builtin',
         builtinType: 'triage',
         promptPath: 'prompts/examples/TriagePrompt.md',
         color: '#f43f5e',
         icon: '🚦',
+        ...overrides,
+    };
+}
+
+/**
+ * Built-in: Code Scout agent.
+ * Reviews the codebase and knowledge base to identify candidate code paths,
+ * services, files, classes, and call sites that may be relevant to the
+ * investigation. Hands a structured "code map" to the Investigator so the
+ * main loop starts already grounded in real source references rather than
+ * having to discover them ad hoc.
+ *
+ * Distinct from Planner (which reasons about telemetry/data sources) and
+ * Signal-Grounding (which audits whether conclusions match observed data).
+ */
+export function createCodeScoutAgent(overrides?: Partial<AgentDefinition>): AgentDefinition {
+    return {
+        id: 'builtin-code-scout',
+        name: 'Code Scout',
+        kind: 'code-scout',
+        description: 'Scans the codebase and knowledge base to identify relevant code paths, services, and call sites for the investigation. Produces a structured code map for the Investigator.',
+        source: 'builtin',
+        builtinType: 'code-scout',
+        promptPath: 'prompts/examples/CodeScoutPrompt.md',
+        color: '#3b82f6',
+        icon: '🔎',
+        tools: {
+            mode: 'whitelist',
+            list: ['read_file', 'list_dir'],
+        },
         ...overrides,
     };
 }
@@ -157,6 +193,7 @@ export function createCorrelatorAgent(overrides?: Partial<AgentDefinition>): Age
     return {
         id: 'builtin-correlator',
         name: 'Correlator',
+        kind: 'correlator',
         description: 'Cross-references findings with past investigations to find recurring patterns, similar root causes, and previously identified solutions.',
         source: 'builtin',
         builtinType: 'correlator',
@@ -180,6 +217,7 @@ export function createDevilsAdvocateAgent(overrides?: Partial<AgentDefinition>):
     return {
         id: 'builtin-devils-advocate',
         name: "Devil's Advocate",
+        kind: 'devils-advocate',
         description: "Challenges investigation conclusions by looking for alternative explanations, blind spots, and running counter-queries to stress-test findings.",
         source: 'builtin',
         builtinType: 'devils-advocate',
@@ -199,6 +237,7 @@ export function createSummarizerAgent(overrides?: Partial<AgentDefinition>): Age
     return {
         id: 'builtin-summarizer',
         name: 'Summarizer',
+        kind: 'summarizer',
         description: 'Condenses technical investigation findings into a stakeholder-friendly executive summary with key takeaways, business impact, and action items.',
         source: 'builtin',
         builtinType: 'summarizer',
@@ -222,6 +261,7 @@ export function createRemediationAgent(overrides?: Partial<AgentDefinition>): Ag
     return {
         id: 'builtin-remediation',
         name: 'Remediation Advisor',
+        kind: 'remediation',
         description: 'Proposes operational remediation: configuration changes, runbook updates, monitoring improvements, and architectural recommendations.',
         source: 'builtin',
         builtinType: 'remediation',
@@ -245,6 +285,7 @@ export function createTimelineAgent(overrides?: Partial<AgentDefinition>): Agent
     return {
         id: 'builtin-timeline',
         name: 'Timeline Reconstructor',
+        kind: 'timeline',
         description: 'Reconstructs a chronological event timeline from investigation data for incident post-mortems and root cause analysis.',
         source: 'builtin',
         builtinType: 'timeline',
@@ -268,6 +309,7 @@ export function createEnrichmentAgent(overrides?: Partial<AgentDefinition>): Age
     return {
         id: 'builtin-enrichment',
         name: 'Data Enrichment',
+        kind: 'enrichment',
         description: 'Gathers pre-investigation context: recent deployments, configuration changes, related alerts, and service dependencies.',
         source: 'builtin',
         builtinType: 'enrichment',
@@ -287,6 +329,7 @@ export function createComplianceAgent(overrides?: Partial<AgentDefinition>): Age
     return {
         id: 'builtin-compliance',
         name: 'Compliance Auditor',
+        kind: 'compliance',
         description: 'Reviews findings and remediations against security policies and compliance requirements. Can reject non-compliant proposals.',
         source: 'builtin',
         builtinType: 'compliance',
@@ -312,6 +355,7 @@ export function createSignalGroundingAgent(overrides?: Partial<AgentDefinition>)
     return {
         id: 'builtin-signal-grounding',
         name: 'Signal Grounding Auditor',
+        kind: 'signal-grounding',
         description: 'Audits conclusions to ensure they are grounded in observed telemetry, not inferred from missing data. Rejects absence-based reasoning — missing telemetry says nothing.',
         source: 'builtin',
         builtinType: 'signal-grounding',
@@ -333,6 +377,7 @@ export const BUILTIN_AGENTS: Record<string, (overrides?: Partial<AgentDefinition
     implementation: createImplementationAgent,
     planner: createPlannerAgent,
     triage: createTriageAgent,
+    'code-scout': createCodeScoutAgent,
     correlator: createCorrelatorAgent,
     'devils-advocate': createDevilsAdvocateAgent,
     summarizer: createSummarizerAgent,
@@ -399,14 +444,15 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'deep-investigation',
         name: 'Deep Investigation',
-        description: 'Thorough pipeline with planning, adversarial review, grounding audit, and executive summary for complex issues.',
+        description: 'Thorough pipeline with planning, code scouting, adversarial review, grounding audit, and executive summary for complex issues.',
         icon: '🔬',
         stages: [
             { builtinType: 'planner' },
+            { builtinType: 'code-scout' },
             { builtinType: 'investigator' },
             { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
-            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
-            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'summarizer' },
             { builtinType: 'retrospect' },
         ],
@@ -455,15 +501,16 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'root-cause-analysis',
         name: 'Root Cause Analysis',
-        description: 'Correlate with past incidents, reconstruct timeline, verify grounding, and generate remediation plan.',
+        description: 'Plan, scout the code, correlate with past incidents, reconstruct timeline, verify grounding, and generate remediation plan.',
         icon: '🔍',
         stages: [
             { builtinType: 'planner' },
+            { builtinType: 'code-scout' },
             { builtinType: 'investigator' },
             { builtinType: 'correlator' },
             { builtinType: 'timeline' },
-            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
-            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'remediation' },
             { builtinType: 'retrospect' },
         ],
@@ -471,14 +518,15 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'grounded-investigation',
         name: 'Grounded Investigation',
-        description: 'Rigorous pipeline that ensures all conclusions are grounded in observed telemetry — rejects absence-based reasoning where missing data is treated as evidence.',
+        description: 'Rigorous pipeline that ensures all conclusions are grounded in observed telemetry and real code paths — rejects absence-based reasoning where missing data is treated as evidence.',
         icon: '📡',
         stages: [
             { builtinType: 'planner' },
+            { builtinType: 'code-scout' },
             { builtinType: 'investigator' },
             { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
-            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
-            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'summarizer' },
             { builtinType: 'retrospect' },
         ],

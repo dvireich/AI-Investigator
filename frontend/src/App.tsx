@@ -1,5 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { useEffect, useState, lazy, Suspense } from 'react';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loader2 } from 'lucide-react';
@@ -18,7 +18,6 @@ const Settings = lazy(() => lazyRetry(() => import('./pages/Settings').then(m =>
 const About = lazy(() => lazyRetry(() => import('./pages/About').then(m => ({ default: m.About }))));
 const Schedules = lazy(() => lazyRetry(() => import('./pages/Schedules').then(m => ({ default: m.Schedules }))));
 const ScheduleForm = lazy(() => lazyRetry(() => import('./pages/ScheduleForm').then(m => ({ default: m.ScheduleForm }))));
-const OnboardingWizard = lazy(() => lazyRetry(() => import('./pages/OnboardingWizard').then(m => ({ default: m.OnboardingWizard }))));
 const NotFound = lazy(() => lazyRetry(() => import('./pages/NotFound').then(m => ({ default: m.NotFound }))));
 
 export { lazyRetry };
@@ -31,32 +30,14 @@ function PageLoader() {
   );
 }
 
-function OnboardingRedirect({ children }: { children: React.ReactNode }) {
-  const [needsOnboarding, setNeedsOnboarding] = useState<boolean | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetch('/api/onboarding/status')
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (!cancelled) setNeedsOnboarding(data && !data.complete); })
-      .catch(() => { if (!cancelled) setNeedsOnboarding(false); });
-    return () => { cancelled = true; };
-  }, []);
-
-  if (needsOnboarding === null) return null; // loading
-  if (needsOnboarding) return <Navigate to="/onboarding" replace />;
-  return <>{children}</>;
-}
-
 function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>
-            <Route path="/onboarding" element={<OnboardingWizard />} />
             <Route path="/" element={<Layout />}>
-              <Route index element={<OnboardingRedirect><Dashboard /></OnboardingRedirect>} />
+              <Route index element={<Dashboard />} />
               <Route path="new" element={<NewInvestigation />} />
               <Route path="investigation/:id" element={<InvestigationDetail />} />
               <Route path="schedules" element={<Schedules />} />

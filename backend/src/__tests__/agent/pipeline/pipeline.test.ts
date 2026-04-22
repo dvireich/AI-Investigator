@@ -2009,7 +2009,7 @@ describe('Pipeline Presets', () => {
             expect(validatorStage).toBeDefined();
             expect(validatorStage!.canReject).toBe(true);
             expect(validatorStage!.onReject).toBe('loop');
-            expect(validatorStage!.rejectTarget).toBe(1);
+            expect(validatorStage!.rejectTarget).toBe(2);
             expect(validatorStage!.maxRetries).toBe(1);
         });
 

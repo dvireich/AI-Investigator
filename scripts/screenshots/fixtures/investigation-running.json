@@ -50,32 +50,110 @@
   ],
   "pipeline": {
     "stages": [
-      { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749819800000, "completedAt": 1749819900000, "report": "Investigation plan: 1) Query pipeline latency via [KustoMessageProcessor] traces, 2) Break down per-service lag via [LagMetricMessageProcessor], 3) Analyze queue wait times via EventTelemetry, 4) Trace individual high-latency messages." },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "running", "retryCount": 0, "startedAt": 1749820000000 },
-      { "agentId": "builtin-devils-advocate", "agentName": "Devil's Advocate", "color": "#ef4444", "icon": "😈", "status": "pending", "retryCount": 0 },
-      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "pending", "retryCount": 0 },
-      { "agentId": "builtin-summarizer", "agentName": "Summarizer", "color": "#14b8a6", "icon": "📊", "status": "pending", "retryCount": 0 },
-      { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "pending", "retryCount": 0 }
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "color": "#10b981",
+        "icon": "🤖",
+        "retryCount": 0,
+        "status": "running",
+        "startedAt": 1749820000000
+      },
+      {
+        "agentId": "builtin-signal-grounding",
+        "agentName": "Signal Grounding Auditor",
+        "color": "#d946ef",
+        "icon": "📡",
+        "retryCount": 0,
+        "status": "pending"
+      },
+      {
+        "agentId": "builtin-validator",
+        "agentName": "Validator",
+        "color": "#f59e0b",
+        "icon": "🛡️",
+        "retryCount": 0,
+        "status": "pending"
+      },
+      {
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "color": "#6366f1",
+        "icon": "🔧",
+        "retryCount": 0,
+        "status": "pending"
+      },
+      {
+        "agentId": "builtin-retrospect",
+        "agentName": "Retrospect",
+        "color": "#8b5cf6",
+        "icon": "✨",
+        "retryCount": 0,
+        "status": "pending"
+      }
     ],
-    "currentStageIndex": 1,
+    "currentStageIndex": 0,
     "definition": {
-      "id": "deep-investigation",
-      "name": "Deep Investigation",
+      "id": "preset-default",
+      "name": "Standard",
       "stages": [
-        { "agentId": "builtin-planner", "inputMode": "conversation" },
-        { "agentId": "builtin-investigator", "inputMode": "conversation" },
-        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
-        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
-        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
-        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+        {
+          "agentId": "builtin-investigator",
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-signal-grounding",
+          "canReject": true,
+          "onReject": "loop",
+          "rejectTarget": "previous",
+          "maxRetries": 1,
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-validator",
+          "canReject": true,
+          "onReject": "loop",
+          "rejectTarget": "previous",
+          "maxRetries": 2,
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-proposer",
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-retrospect",
+          "inputMode": "conversation"
+        }
       ]
     },
     "conversationLog": [
-      { "agentId": "builtin-planner", "agentName": "Planner", "agentColor": "#0ea5e9", "agentIcon": "📋", "role": "thought", "content": "Analyzing investigation scope: pipeline latency on oi-tds-prd-eus2p-02. Planning structured KQL approach using TraceTelemetry and EventTelemetry.", "timestamp": 1749819800000, "stageIndex": 0 },
-      { "agentId": "builtin-planner", "agentName": "Planner", "agentColor": "#0ea5e9", "agentIcon": "📋", "role": "report", "content": "Investigation plan: 1) Query pipeline latency distribution, 2) Per-service lag breakdown, 3) Queue wait analysis, 4) Individual message traces.", "timestamp": 1749819900000, "stageIndex": 0 },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "thought", "content": "Following the plan — querying [KustoMessageProcessor] pipeline latency traces on oi-tds-prd-eus2p-02.", "timestamp": 1749820000000, "stageIndex": 1 },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "agentColor": "#10b981", "agentIcon": "🤖", "role": "action", "content": "Querying pipeline latency via TraceTelemetry and per-service lag via LagMetricMessageProcessor", "timestamp": 1749820030000, "stageIndex": 1, "metadata": { "toolName": "run_query" } }
-    ]
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "thought",
+        "content": "Following the plan — querying [KustoMessageProcessor] pipeline latency traces on oi-tds-prd-eus2p-02.",
+        "timestamp": 1749820000000,
+        "stageIndex": 0
+      },
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "agentColor": "#10b981",
+        "agentIcon": "🤖",
+        "role": "action",
+        "content": "Querying pipeline latency via TraceTelemetry and per-service lag via LagMetricMessageProcessor",
+        "timestamp": 1749820030000,
+        "stageIndex": 0,
+        "metadata": {
+          "toolName": "run_query"
+        }
+      }
+    ],
+    "id": "preset-default",
+    "name": "Standard"
   },
   "logs": [
     "Investigation started",

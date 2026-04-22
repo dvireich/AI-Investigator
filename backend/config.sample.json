@@ -27,18 +27,7 @@
       "env": {}
     }
   ],
-  "products": [
-    {
-      "id": "my-product",
-      "name": "My Product",
-      "repoRoot": "/path/to/MyProduct",
-      "systemPromptPath": ".github/agents/MyProduct_Investigation.agent.md",
-      "knowledgeBasePath": "docs/investigations",
-      "workingDirectory": ".",
-      "investigationsPath": "investigations"
-    }
-  ],
-  "activeProductId": "my-product",
+  "investigationsPath": "investigations",
 
   "pipeline": {
     "id": "default-pipeline",
@@ -57,6 +46,7 @@
           "id": "validator",
           "name": "Validator",
           "source": "file",
+          "kind": "validator",
           "promptPath": "prompts/examples/ValidatorPrompt.md"
         },
         "canReject": true,

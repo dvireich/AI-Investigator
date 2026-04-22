@@ -17,38 +17,31 @@
   "actions": [],
   "logs": ["Investigation started"],
   "pipeline": {
-    "id": "deep-investigation",
-    "name": "Deep Investigation",
-    "currentStageIndex": 0,
+    "id": "preset-default",
+    "name": "Standard",
+    "currentStageIndex": 1,
     "conversationLog": [],
     "stages": [
-      {
-        "agentId": "builtin-planner",
-        "agentName": "Planner",
-        "description": "Creates a structured investigation plan before execution. Analyzes the query scope and produces a step-by-step approach.",
-        "color": "#0ea5e9",
-        "icon": "📋",
-        "status": "running",
-        "retryCount": 0,
-        "startedAt": 1749819800000
-      },
       {
         "agentId": "builtin-investigator",
         "agentName": "Investigator",
         "description": "Runs the main investigation loop with full tool access. Queries data sources, analyzes results, and produces a findings report.",
         "color": "#10b981",
         "icon": "🤖",
-        "status": "pending",
-        "retryCount": 0
+        "status": "completed",
+        "retryCount": 0,
+        "startedAt": 1749819800000,
+        "completedAt": 1749819900000
       },
       {
-        "agentId": "builtin-devils-advocate",
-        "agentName": "Devil's Advocate",
-        "description": "Challenges conclusions and probes for blind spots. Questions assumptions, checks for alternative explanations, and stress-tests the evidence.",
-        "color": "#ef4444",
-        "icon": "😈",
-        "status": "pending",
-        "retryCount": 0
+        "agentId": "builtin-signal-grounding",
+        "agentName": "Signal Grounding Auditor",
+        "description": "Audits conclusions to ensure they are grounded in observed telemetry, not inferred from missing data. Rejects absence-based reasoning.",
+        "color": "#d946ef",
+        "icon": "📡",
+        "status": "running",
+        "retryCount": 0,
+        "startedAt": 1749819900000
       },
       {
         "agentId": "builtin-validator",
@@ -60,11 +53,11 @@
         "retryCount": 0
       },
       {
-        "agentId": "builtin-summarizer",
-        "agentName": "Summarizer",
-        "description": "Distills investigation findings into a concise executive summary with key metrics, timeline, and actionable recommendations.",
-        "color": "#14b8a6",
-        "icon": "📊",
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "description": "Reads investigation findings and proposes code changes for recommendations. Does not apply changes — only creates proposals for review.",
+        "color": "#6366f1",
+        "icon": "🔧",
         "status": "pending",
         "retryCount": 0
       },

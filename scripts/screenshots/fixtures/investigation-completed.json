@@ -63,36 +63,23 @@
   "pipeline": {
     "stages": [
       {
-        "agentId": "builtin-planner",
-        "agentName": "Planner",
-        "color": "#0ea5e9",
-        "icon": "📋",
-        "status": "completed",
-        "report": "Investigation plan: 1) Query pipeline latency distribution from KustoIngestionService, 2) Break down per-service lag using MdmTeleductLagMetric, 3) Analyze queue wait times via EventTelemetry, 4) Trace individual high-latency messages, 5) Check for errors/config changes.",
-        "retryCount": 0,
-        "startedAt": 1749789800000,
-        "completedAt": 1749789900000
-      },
-      {
         "agentId": "builtin-investigator",
         "agentName": "Investigator",
         "color": "#10b981",
         "icon": "🤖",
-        "status": "completed",
-        "report": "Investigation Report: Pipeline latency dominated by two Azure Storage queue polling cycles. GDS queue wait 1,886ms (37%) + Streaming queue wait 1,590ms (31%) = 76% of total latency. P50=5,165ms across 361K messages.",
         "retryCount": 0,
+        "status": "completed",
         "startedAt": 1749790000000,
-        "completedAt": 1749790120000
+        "completedAt": 1749790120000,
+        "report": "Investigation Report: Pipeline latency dominated by two Azure Storage queue polling cycles. GDS queue wait 1,886ms (37%) + Streaming queue wait 1,590ms (31%) = 76% of total latency. P50=5,165ms across 361K messages."
       },
       {
-        "agentId": "builtin-devils-advocate",
-        "agentName": "Devil's Advocate",
-        "color": "#ef4444",
-        "icon": "😈",
-        "status": "completed",
-        "verdict": "Findings hold up under scrutiny",
-        "feedback": "Challenged the queue-polling hypothesis with alternative explanations (network latency, thread starvation, GC pauses). Queue wait times are provably consistent at ~1.9s across all 12 time buckets — this is structural, not transient.",
+        "agentId": "builtin-signal-grounding",
+        "agentName": "Signal Grounding Auditor",
+        "color": "#d946ef",
+        "icon": "📡",
         "retryCount": 0,
+        "status": "completed",
         "startedAt": 1749790120000,
         "completedAt": 1749790180000
       },
@@ -101,70 +88,70 @@
         "agentName": "Validator",
         "color": "#f59e0b",
         "icon": "🛡️",
-        "status": "completed",
-        "verdict": "Findings validated with high confidence",
-        "feedback": "Root cause confirmed — queue polling intervals mathematically account for 76% of observed latency. Cross-validated with 2 individual message traces showing identical patterns.",
         "retryCount": 0,
+        "status": "completed",
         "startedAt": 1749790180000,
         "completedAt": 1749790300000
       },
       {
-        "agentId": "builtin-summarizer",
-        "agentName": "Summarizer",
-        "color": "#14b8a6",
-        "icon": "📊",
-        "status": "completed",
-        "report": "Executive summary: Pipeline latency on oi-tds-prd-eus2p-02 caused by structural queue polling delays. Two queue hops consume 76% of P50 latency (5.1s). Three actionable recommendations to reduce P50 to ~2.5s.",
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "color": "#6366f1",
+        "icon": "🔧",
         "retryCount": 0,
+        "status": "completed",
         "startedAt": 1749790300000,
-        "completedAt": 1749790380000
+        "completedAt": 1749790380000,
+        "report": "Executive summary: Pipeline latency on oi-tds-prd-eus2p-02 caused by structural queue polling delays. Two queue hops consume 76% of P50 latency (5.1s). Three actionable recommendations to reduce P50 to ~2.5s."
       },
       {
         "agentId": "builtin-retrospect",
         "agentName": "Retrospect",
         "color": "#8b5cf6",
         "icon": "✨",
-        "status": "completed",
-        "report": "Knowledge base updated with 3 proposed changes: queue polling metrics as Phase 0, per-service lag template, and latency waterfall methodology.",
         "retryCount": 0,
+        "status": "completed",
         "startedAt": 1749790380000,
-        "completedAt": 1749790480000
+        "completedAt": 1749790480000,
+        "report": "Knowledge base updated with 3 proposed changes: queue polling metrics as Phase 0, per-service lag template, and latency waterfall methodology."
       }
     ],
-    "currentStageIndex": 5,
+    "currentStageIndex": 4,
     "definition": {
-      "id": "deep-investigation",
-      "name": "Deep Investigation",
+      "id": "preset-default",
+      "name": "Standard",
       "stages": [
-        { "agentId": "builtin-planner", "inputMode": "conversation" },
-        { "agentId": "builtin-investigator", "inputMode": "conversation" },
-        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
-        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
-        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
-        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+        {
+          "agentId": "builtin-investigator",
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-signal-grounding",
+          "canReject": true,
+          "onReject": "loop",
+          "rejectTarget": "previous",
+          "maxRetries": 1,
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-validator",
+          "canReject": true,
+          "onReject": "loop",
+          "rejectTarget": "previous",
+          "maxRetries": 2,
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-proposer",
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-retrospect",
+          "inputMode": "conversation"
+        }
       ]
     },
     "conversationLog": [
-      {
-        "agentId": "builtin-planner",
-        "agentName": "Planner",
-        "agentColor": "#0ea5e9",
-        "agentIcon": "📋",
-        "role": "thought",
-        "content": "Analyzing scope: Pipeline latency on oi-tds-prd-eus2p-02, 1h window. Will create structured investigation plan using KQL queries against TraceTelemetry and EventTelemetry.",
-        "timestamp": 1749789800000,
-        "stageIndex": 0
-      },
-      {
-        "agentId": "builtin-planner",
-        "agentName": "Planner",
-        "agentColor": "#0ea5e9",
-        "agentIcon": "📋",
-        "role": "report",
-        "content": "Investigation plan: 1) Query pipeline latency distribution, 2) Per-service lag breakdown, 3) Queue wait analysis via EventTelemetry, 4) Individual message traces, 5) Error/config check.",
-        "timestamp": 1749789900000,
-        "stageIndex": 0
-      },
       {
         "agentId": "builtin-investigator",
         "agentName": "Investigator",
@@ -173,7 +160,7 @@
         "role": "thought",
         "content": "Following plan — querying [KustoMessageProcessor] pipeline latency from TraceTelemetry on oi-tds-prd-eus2p-02.",
         "timestamp": 1749790000000,
-        "stageIndex": 1
+        "stageIndex": 0
       },
       {
         "agentId": "builtin-investigator",
@@ -183,8 +170,10 @@
         "role": "action",
         "content": "Querying pipeline latency distribution and per-service lag metrics via MdmTeleductLagMetric",
         "timestamp": 1749790030000,
-        "stageIndex": 1,
-        "metadata": { "toolName": "run_query" }
+        "stageIndex": 0,
+        "metadata": {
+          "toolName": "run_query"
+        }
       },
       {
         "agentId": "builtin-investigator",
@@ -194,7 +183,7 @@
         "role": "report",
         "content": "Pipeline latency dominated by two queue polling cycles. GDS queue: 1,886ms avg (37%). Streaming queue: 1,590ms avg (31%). Combined = 76% of P50 latency.",
         "timestamp": 1749790100000,
-        "stageIndex": 1
+        "stageIndex": 0
       },
       {
         "agentId": "builtin-investigator",
@@ -202,29 +191,29 @@
         "agentColor": "#10b981",
         "agentIcon": "🤖",
         "role": "handoff",
-        "content": "Handing off to Devil's Advocate for adversarial review of queue-polling hypothesis",
+        "content": "Handing off to Signal Grounding Auditor for telemetry grounding audit",
         "timestamp": 1749790120000,
+        "stageIndex": 0
+      },
+      {
+        "agentId": "builtin-signal-grounding",
+        "agentName": "Signal Grounding Auditor",
+        "agentColor": "#d946ef",
+        "agentIcon": "📡",
+        "role": "thought",
+        "content": "Auditing conclusions for signal grounding. Are these conclusions grounded in observed telemetry, or inferred from absence the 1.9s gaps?",
+        "timestamp": 1749790125000,
         "stageIndex": 1
       },
       {
-        "agentId": "builtin-devils-advocate",
-        "agentName": "Devil's Advocate",
-        "agentColor": "#ef4444",
-        "agentIcon": "😈",
-        "role": "thought",
-        "content": "Challenging the queue-polling hypothesis. Could network latency, thread starvation, or GC pauses explain the 1.9s gaps?",
-        "timestamp": 1749790125000,
-        "stageIndex": 2
-      },
-      {
-        "agentId": "builtin-devils-advocate",
-        "agentName": "Devil's Advocate",
-        "agentColor": "#ef4444",
-        "agentIcon": "😈",
+        "agentId": "builtin-signal-grounding",
+        "agentName": "Signal Grounding Auditor",
+        "agentColor": "#d946ef",
+        "agentIcon": "📡",
         "role": "verdict",
-        "content": "✅ Approved — queue wait times are consistent across all 12 time buckets (1,850-1,918ms). This is structural, not a transient issue or artifact.",
+        "content": "✅ Grounded — all conclusions are supported by observed telemetry. queue wait times are consistent across all 12 time buckets (1,850-1,918ms). This is structural, not a transient issue or artifact.",
         "timestamp": 1749790180000,
-        "stageIndex": 2
+        "stageIndex": 1
       },
       {
         "agentId": "builtin-validator",
@@ -234,7 +223,7 @@
         "role": "thought",
         "content": "Reviewing investigation findings. Checking evidence quality — verifying per-service lag metrics against individual message traces.",
         "timestamp": 1749790185000,
-        "stageIndex": 3
+        "stageIndex": 2
       },
       {
         "agentId": "builtin-validator",
@@ -244,7 +233,7 @@
         "role": "observation",
         "content": "Cross-validated: 2 individual message traces (9,879ms and 9,872ms) show identical queue-dominated patterns. Mathematical proof: P50 GDS wait + P50 Streaming wait = 3,346ms ≈ 65% of P50 total (5,165ms).",
         "timestamp": 1749790240000,
-        "stageIndex": 3
+        "stageIndex": 2
       },
       {
         "agentId": "builtin-validator",
@@ -254,17 +243,17 @@
         "role": "verdict",
         "content": "✅ Approved — findings validated with high confidence. Queue wait times mathematically account for 76% of observed latency.",
         "timestamp": 1749790300000,
-        "stageIndex": 3
+        "stageIndex": 2
       },
       {
-        "agentId": "builtin-summarizer",
-        "agentName": "Summarizer",
-        "agentColor": "#14b8a6",
-        "agentIcon": "📊",
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "agentColor": "#6366f1",
+        "agentIcon": "🔧",
         "role": "report",
-        "content": "Executive summary: Pipeline latency on oi-tds-prd-eus2p-02 caused by structural queue polling delays. Two queue hops consume 76% of latency. Three recommendations to reduce P50 from 5.1s to ~2.5s.",
+        "content": "Proposed changes: Pipeline latency on oi-tds-prd-eus2p-02 caused by structural queue polling delays. Two queue hops consume 76% of latency. Three code change proposals to reduce P50 from 5.1s to ~2.5s.",
         "timestamp": 1749790380000,
-        "stageIndex": 4
+        "stageIndex": 3
       },
       {
         "agentId": "builtin-retrospect",
@@ -274,7 +263,7 @@
         "role": "thought",
         "content": "Analyzing investigation against knowledge base. Looking for gaps in pipeline latency investigation methodology.",
         "timestamp": 1749790385000,
-        "stageIndex": 5
+        "stageIndex": 4
       },
       {
         "agentId": "builtin-retrospect",
@@ -284,10 +273,14 @@
         "role": "action",
         "content": "Proposing 3 knowledge base changes: queue polling as Phase 0, per-service lag metrics template, and latency waterfall methodology",
         "timestamp": 1749790440000,
-        "stageIndex": 5,
-        "metadata": { "proposalCount": 3 }
+        "stageIndex": 4,
+        "metadata": {
+          "proposalCount": 3
+        }
       }
-    ]
+    ],
+    "id": "preset-default",
+    "name": "Standard"
   },
   "finalReport": "# Pipeline Latency Investigation — oi-tds-prd-eus2p-02\n\n## Summary\n\nPipeline latency on `oi-tds-prd-eus2p-02` is dominated by **two Azure Storage queue polling cycles** that consume **76% of total end-to-end latency**. P50 = 5,165ms, P95 = 7,226ms, Max = 9,879ms across 361K+ messages.\n\n## Root Cause\n\nMessages spend most of their pipeline lifetime **waiting in queues to be polled**, not being processed. Two queue hops introduce a combined **3,476ms average wait**:\n\n| Queue | Avg Wait | P50 | P95 | % of Total |\n|---|---|---|---|---|\n| GDS Queue → TeleductDriver | 1,886ms | 1,868ms | 3,355ms | 37% |\n| Streaming Queue → StreamingDriver | 1,590ms | 1,478ms | 3,108ms | 31% |\n| **Combined Queue Wait** | **3,476ms** | | | **68%** |\n\n### Complete Latency Waterfall\n\n```\n0s        1s        2s        3s        4s        5s\n|---------|---------|---------|---------|---------|\n[===GDS Queue Wait===]                                 ~1,886ms (37%)\n                     [=TeleductDriver=]                ~750ms (15%)\n                              [==Streaming Queue==]    ~1,590ms (31%)\n                                        [Services]    ~914ms (17%)\n                                                      ══════════\n                                                      ~5,140ms total\n```\n\n## Per-Service Breakdown\n\n| # | Service | Cumulative Lag | Incremental | % |\n|---|---|---|---|---|\n| 1 | TeleductDriverService | 1,893ms | 1,893ms | 37% |\n| 2 | StreamingDriverService | 3,879ms | 1,986ms | 39% |\n| 3 | DestinationResolverService | 3,888ms | 9ms | <1% |\n| 4 | TransformationService | 3,960ms | 72ms | 1% |\n| 5 | TableAggregationService | 4,196ms | 236ms | 5% |\n| 6 | KustoIngestionService | 4,929ms | 733ms | 14% |\n\n## Evidence\n\n### Query: Pipeline Latency Distribution\n```kql\nTraceTelemetry\n| where ApplicationName contains 'oi-tds-prd-eus2p-02'\n| where message startswith '[KustoMessageProcessor] The pipeline latency'\n| parse message with * 'PipelineLatencyMs:' latencyMs:real ','\n| summarize Avg=avg(latencyMs), P50=percentile(latencyMs,50),\n    P95=percentile(latencyMs,95), Max=max(latencyMs), Count=count()\n```\n\n### Query: GDS Queue Wait Time\n```kql\nEventTelemetry\n| where ApplicationName contains 'oi-tds-prd-eus2p-02'\n| where name == 'GdsMessageTrackingEvent'\n| extend QueueWaitMs = datetime_diff('millisecond',\n    todatetime(QueueDequeueTime), todatetime(QueueEnqueueTime))\n| summarize Avg=avg(QueueWaitMs), P50=percentile(QueueWaitMs,50),\n    P95=percentile(QueueWaitMs,95), Count=count()\n```\n\n### Query: Per-Service Lag Metrics\n```kql\nTraceTelemetry\n| where ApplicationName contains 'oi-tds-prd-eus2p-02'\n| where message has '[LagMetricMessageProcessor]'\n| parse message with * 'LagValue: ' LagValue:string ','\n| extend LagMs = totimespan(LagValue) / 1ms\n| summarize AvgLag=avg(LagMs), P50=percentile(LagMs,50) by ServiceName\n```\n\n## Recommendations\n\n1. **P0 — Reduce GDS Queue Polling Interval** `[code]`: Change from ~2s to 500ms. Expected savings: ~900ms avg per message\n2. **P1 — Reduce Streaming Queue Polling Interval** `[code]`: Change from ~1.5s to 500ms. Expected savings: ~700ms avg per message\n3. **P2 — Reduce Table Aggregation Batching Window** `[code]`: Reduce batching window from 500ms to 200ms. Expected savings: ~200ms avg\n4. **Monitoring**: Add queue wait time alerting when P50 exceeds 1s on either queue hop"
 }

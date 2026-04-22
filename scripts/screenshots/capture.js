@@ -2,7 +2,7 @@
  * Automated screenshot capture for the AI Investigator README.
  *
  * Launches a mock API server and the Vite dev server, then uses Playwright
- * to navigate every page/state and capture 37 screenshots to docs/screenshots/.
+ * to navigate every page/state and capture screenshots to docs/screenshots/.
  *
  * Usage:
  *   node capture.js              → full run (starts mock + Vite, captures all)
@@ -575,6 +575,51 @@ async function captureSettingsAppearance(page) {
     await screenshot(page, 'settings-appearance');
 }
 
+async function captureSettingsAgentBehavior(page) {
+    console.log('\n📸 Settings — Agent Behavior...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    const agentBehaviorTab = page.locator('button:has-text("Agent Behavior")').first();
+    if (await agentBehaviorTab.isVisible()) {
+        await agentBehaviorTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'settings-agent-behavior');
+}
+
+async function captureSettingsAgents(page) {
+    console.log('\n📸 Settings — Agents...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    const agentsTab = page.locator('button:has-text("Agents")').first();
+    if (await agentsTab.isVisible()) {
+        await agentsTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'settings-agents');
+}
+
+async function captureSettingsSystem(page) {
+    console.log('\n📸 Settings — System...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    const systemTab = page.locator('button:has-text("System")').first();
+    if (await systemTab.isVisible()) {
+        await systemTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'settings-system');
+}
+
 async function captureSettingsPipelineEmpty(page) {
     console.log('\n📸 Settings — Pipeline (empty)...');
     // Override settings to remove pipeline so the empty builder is shown
@@ -1005,6 +1050,9 @@ async function main() {
         await captureSettingsSchedules(page);
         await captureSettingsAnalytics(page);
         await captureSettingsAppearance(page);
+        await captureSettingsAgentBehavior(page);
+        await captureSettingsAgents(page);
+        await captureSettingsSystem(page);
 
         // Auth
         await captureAuthFlow(page);
@@ -1034,7 +1082,7 @@ async function main() {
         await captureMobileSettings(page);
 
         console.log('\n═══════════════════════════════════════════════');
-        console.log('  ✅ All 42 screenshots captured successfully!');
+        console.log('  ✅ All screenshots captured successfully!');
         console.log(`  📁 Output: docs/screenshots/`);
         console.log('═══════════════════════════════════════════════\n');
 

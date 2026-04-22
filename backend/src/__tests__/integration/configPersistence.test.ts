@@ -63,7 +63,6 @@ describe('config persistence round-trip', () => {
             notifEnabled: false,
             notifSound: false,
             notifEvents: ['failed'],
-            activeProductId: 'test-product',
             llmProvider: { type: 'copilot' },
             incidentProvider: { type: 'manual' },
             defaultView: 'list',

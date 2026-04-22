@@ -6,12 +6,11 @@ import { Breadcrumbs } from '../components/Breadcrumbs';
 import { Tooltip } from '../components/Tooltip';
 import type { SavedQuery } from '../api';
 import type { ScheduleDefinition } from '../types/schedule';
-import type { Product } from '../types/product';
 import { TIME_PRESETS, SCHEDULE_INTERVAL_PRESETS } from '../constants';
 import { parseFlexibleTimestamp, toDateTimeLocalValue, toDateTimeUTCValue, formatDateDisplayUTC, datetimeLocalToISO } from '../utils/timestamp';
 import {
     Clock, Command, AlertTriangle, ArrowRight, ArrowLeft, Sparkles, Zap,
-    Target, CheckCircle2, AlertCircle, Calendar, Timer, Settings, Loader2, Package,
+    Target, CheckCircle2, AlertCircle, Calendar, Timer, Settings, Loader2,
     BookOpen, Save, Trash2, ChevronDown, X, Check, Pencil
 } from 'lucide-react';
 
@@ -57,8 +56,6 @@ export const ScheduleForm = () => {
     };
 
     // Data
-    const [products, setProducts] = useState<Product[]>([]);
-    const [productId, setProductId] = useState('');
     const [models, setModels] = useState<string[]>([]);
     const [selectedModel, setSelectedModel] = useState('');
     const [loading, setLoading] = useState(false);
@@ -86,13 +83,9 @@ export const ScheduleForm = () => {
     const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
     const queryBankRef = useRef<HTMLDivElement>(null);
 
-    // Load products, models, and schedule (if editing)
+    // Load models and schedule (if editing)
     useEffect(() => {
         // Fire independent calls in parallel — no blocking spinner for new schedules
-        api.listProducts()
-            .then(prods => setProducts(prods))
-            .catch(err => console.error('Failed to load products:', err));
-
         api.listModels()
             .then(modelList => {
                 setModels(Array.from(new Set(modelList)));
@@ -127,7 +120,6 @@ export const ScheduleForm = () => {
                         setTarget(sched.target);
                         setQuery(sched.query);
                         setIntervalMinutes(sched.intervalMinutes);
-                        setProductId(sched.productId || '');
                         setCategory(sched.category || '');
                         if (sched.model) setSelectedModel(sched.model);
                         if (sched.retentionCount !== undefined) setRetentionCount(sched.retentionCount);
@@ -237,7 +229,6 @@ export const ScheduleForm = () => {
                 target: target.trim(),
                 query: query.trim(),
                 intervalMinutes,
-                productId: productId || undefined,
                 model: selectedModel || undefined,
                 timeRange: getTimeRange(),
                 category: category || undefined,
@@ -282,7 +273,6 @@ export const ScheduleForm = () => {
         if (sq.target) setTarget(sq.target);
         if (sq.query) setQuery(sq.query);
         if (sq.category) setCategory(sq.category);
-        if (sq.productId) setProductId(sq.productId);
         if (sq.model) setSelectedModel(sq.model);
         if (sq.intervalMinutes) setIntervalMinutes(sq.intervalMinutes);
         if (sq.timeMode === 'custom') {
@@ -326,7 +316,6 @@ export const ScheduleForm = () => {
                 timeRange: effectiveTimeRange,
                 timeMode: effectiveTimeMode,
                 model: selectedModel || undefined,
-                productId: productId || undefined,
                 intervalMinutes: intervalMinutes,
             };
             let saved: SavedQuery;
@@ -382,7 +371,7 @@ export const ScheduleForm = () => {
                 </p>
             </div>
 
-            {/* Query Bank + Product side by side */}
+            {/* Query Bank Bar */}
             <div className="flex flex-col sm:flex-row gap-4 items-stretch relative z-10">
             {/* Query Bank Bar */}
             <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] flex-1">
@@ -522,24 +511,6 @@ export const ScheduleForm = () => {
                     </div>
                 </div>
             </div>
-
-            {/* Product Selector */}
-            {products.length > 0 && (
-                <div className="bg-slate-900/70 backdrop-blur-xl rounded-2xl shadow-xl border border-white/[0.06] flex items-center px-4 py-3 gap-3">
-                    <Package className="w-4 h-4 text-slate-400 shrink-0" />
-                    <span className="text-xs font-bold uppercase tracking-wider text-slate-400 shrink-0">Product</span>
-                    <select
-                        value={productId}
-                        onChange={(e) => setProductId(e.target.value)}
-                        className="px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/50 text-sm font-medium text-slate-200 focus:ring-2 focus:ring-brand-500 outline-none transition-all min-w-[180px]"
-                    >
-                        <option value="">Default</option>
-                        {products.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                    </select>
-                </div>
-            )}
             </div>
 
             <form onSubmit={handleSubmit} onChange={() => setDirty(true)} className="space-y-4">

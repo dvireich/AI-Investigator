@@ -43,6 +43,14 @@ export const Layout = () => {
         };
     }, []);
 
+    // Re-check auth on route changes so the header stays in sync after the user
+    // saves a provider config on /settings or when the backend finishes its
+    // async provider initialization after a cold start.
+    useEffect(() => {
+        checkAuth();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [location.pathname]);
+
     const checkAuth = async () => {
         try {
             const status = await api.getAuthStatus();

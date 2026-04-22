@@ -13,34 +13,10 @@
     "claude-3-5-sonnet",
     "claude-3-haiku"
   ],
-  "products": [
-    {
-      "id": "sample-product",
-      "name": "sample-product",
-      "repoRoot": "C:\\Repositories\\MyProduct",
-      "systemPromptPath": "C:\\Repositories\\MyProduct\\.github\\agents\\MyProduct_Investigation.agent.md",
-      "knowledgeBasePath": "C:\\Repositories\\MyProduct\\docs\\telemetry-investigations",
-      "workingDirectory": "C:\\Repositories\\MyProduct",
-      "investigationsPath": "C:\\Tools\\AI-Investigator\\investigations"
-    }
-  ],
-  "activeProductId": "sample-product",
   "pipeline": {
-    "id": "deep-investigation",
-    "name": "Deep Investigation",
+    "id": "preset-default",
+    "name": "Standard",
     "stages": [
-      {
-        "agent": {
-          "id": "builtin-planner",
-          "name": "Planner",
-          "description": "Creates a structured investigation plan before execution. Analyzes the query scope and produces a step-by-step approach.",
-          "source": "builtin",
-          "builtinType": "planner",
-          "color": "#0ea5e9",
-          "icon": "📋"
-        },
-        "inputMode": "conversation"
-      },
       {
         "agent": {
           "id": "builtin-investigator",
@@ -55,19 +31,19 @@
       },
       {
         "agent": {
-          "id": "builtin-devils-advocate",
-          "name": "Devil's Advocate",
-          "description": "Challenges conclusions and probes for blind spots. Questions assumptions, checks for alternative explanations, and stress-tests the evidence.",
+          "id": "builtin-signal-grounding",
+          "name": "Signal Grounding Auditor",
+          "description": "Audits conclusions to ensure they are grounded in observed telemetry, not inferred from missing data. Rejects absence-based reasoning — missing telemetry says nothing.",
           "source": "builtin",
-          "builtinType": "devils-advocate",
-          "promptPath": "prompts/examples/DevilsAdvocatePrompt.md",
-          "color": "#ef4444",
-          "icon": "😈"
+          "builtinType": "signal-grounding",
+          "promptPath": "prompts/examples/SignalGroundingPrompt.md",
+          "color": "#d946ef",
+          "icon": "📡"
         },
         "inputMode": "conversation",
         "canReject": true,
         "onReject": "loop",
-        "rejectTarget": 1,
+        "rejectTarget": "previous",
         "maxRetries": 1
       },
       {
@@ -84,18 +60,18 @@
         "inputMode": "conversation",
         "canReject": true,
         "onReject": "loop",
-        "rejectTarget": 1,
-        "maxRetries": 1
+        "rejectTarget": "previous",
+        "maxRetries": 2
       },
       {
         "agent": {
-          "id": "builtin-summarizer",
-          "name": "Summarizer",
-          "description": "Distills investigation findings into a concise executive summary with key metrics, timeline, and actionable recommendations.",
+          "id": "builtin-proposer",
+          "name": "Proposer",
+          "description": "Reads investigation findings and proposes code changes for recommendations. Does not apply changes — only creates proposals for review.",
           "source": "builtin",
-          "builtinType": "summarizer",
-          "color": "#14b8a6",
-          "icon": "📊"
+          "builtinType": "implementation",
+          "color": "#6366f1",
+          "icon": "🔧"
         },
         "inputMode": "conversation"
       },

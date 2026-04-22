@@ -48,27 +48,95 @@
   ],
   "pipeline": {
     "stages": [
-      { "agentId": "builtin-planner", "agentName": "Planner", "color": "#0ea5e9", "icon": "📋", "status": "completed", "retryCount": 0, "startedAt": 1749789800000, "completedAt": 1749789900000 },
-      { "agentId": "builtin-investigator", "agentName": "Investigator", "color": "#10b981", "icon": "🤖", "status": "completed", "retryCount": 0, "startedAt": 1749790000000, "completedAt": 1749790120000 },
-      { "agentId": "builtin-devils-advocate", "agentName": "Devil's Advocate", "color": "#ef4444", "icon": "😈", "status": "completed", "retryCount": 0, "startedAt": 1749790120000, "completedAt": 1749790180000 },
-      { "agentId": "builtin-validator", "agentName": "Validator", "color": "#f59e0b", "icon": "🛡️", "status": "completed", "verdict": "Findings validated", "retryCount": 0, "startedAt": 1749790180000, "completedAt": 1749790300000 },
-      { "agentId": "builtin-summarizer", "agentName": "Summarizer", "color": "#14b8a6", "icon": "📊", "status": "completed", "retryCount": 0, "startedAt": 1749790300000, "completedAt": 1749790360000 },
-      { "agentId": "builtin-retrospect", "agentName": "Retrospect", "color": "#8b5cf6", "icon": "✨", "status": "completed", "retryCount": 0, "startedAt": 1749790360000, "completedAt": 1749790480000 }
+      {
+        "agentId": "builtin-investigator",
+        "agentName": "Investigator",
+        "color": "#10b981",
+        "icon": "🤖",
+        "retryCount": 0,
+        "status": "completed",
+        "startedAt": 1749790000000,
+        "completedAt": 1749790120000
+      },
+      {
+        "agentId": "builtin-signal-grounding",
+        "agentName": "Signal Grounding Auditor",
+        "color": "#d946ef",
+        "icon": "📡",
+        "retryCount": 0,
+        "status": "completed",
+        "startedAt": 1749790120000,
+        "completedAt": 1749790180000
+      },
+      {
+        "agentId": "builtin-validator",
+        "agentName": "Validator",
+        "color": "#f59e0b",
+        "icon": "🛡️",
+        "retryCount": 0,
+        "status": "completed",
+        "startedAt": 1749790180000,
+        "completedAt": 1749790300000
+      },
+      {
+        "agentId": "builtin-proposer",
+        "agentName": "Proposer",
+        "color": "#6366f1",
+        "icon": "🔧",
+        "retryCount": 0,
+        "status": "completed",
+        "startedAt": 1749790300000,
+        "completedAt": 1749790360000
+      },
+      {
+        "agentId": "builtin-retrospect",
+        "agentName": "Retrospect",
+        "color": "#8b5cf6",
+        "icon": "✨",
+        "retryCount": 0,
+        "status": "completed",
+        "startedAt": 1749790360000,
+        "completedAt": 1749790480000
+      }
     ],
-    "currentStageIndex": 5,
+    "currentStageIndex": 4,
     "definition": {
-      "id": "deep-investigation",
-      "name": "Deep Investigation",
+      "id": "preset-default",
+      "name": "Standard",
       "stages": [
-        { "agentId": "builtin-planner", "inputMode": "conversation" },
-        { "agentId": "builtin-investigator", "inputMode": "conversation" },
-        { "agentId": "builtin-devils-advocate", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
-        { "agentId": "builtin-validator", "canReject": true, "onReject": "loop", "rejectTarget": 1, "maxRetries": 1, "inputMode": "conversation" },
-        { "agentId": "builtin-summarizer", "inputMode": "conversation" },
-        { "agentId": "builtin-retrospect", "inputMode": "conversation" }
+        {
+          "agentId": "builtin-investigator",
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-signal-grounding",
+          "canReject": true,
+          "onReject": "loop",
+          "rejectTarget": "previous",
+          "maxRetries": 1,
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-validator",
+          "canReject": true,
+          "onReject": "loop",
+          "rejectTarget": "previous",
+          "maxRetries": 2,
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-proposer",
+          "inputMode": "conversation"
+        },
+        {
+          "agentId": "builtin-retrospect",
+          "inputMode": "conversation"
+        }
       ]
     },
-    "conversationLog": []
+    "conversationLog": [],
+    "id": "preset-default",
+    "name": "Standard"
   },
   "finalReport": "# Pipeline Latency Investigation (Updated)\n\n## Summary\n\nPipeline latency on `oi-tds-prd-eus2p-02` dominated by queue polling delays — P50 = 5,165ms.\n\n## Root Cause (Revised)\n\nThe GDS queue polling interval on -02 has **reverted** to the old ~4s configuration, while -01 is running the updated ~2s interval. This config regression doubled the GDS queue wait.\n\n## Cross-Stamp Comparison\n\n| Stamp | GDS Queue P50 | Pipeline P50 |\n|---|---|---|\n| oi-tds-prd-eus2p-01 | **920ms** | 3,285ms |\n| oi-tds-prd-eus2p-02 | **1,868ms** | 5,165ms |\n\n## Recommendations (Revised)\n\n1. **P0** — Fix config regression: deploy 2s GDS polling to -02 (same as -01)\n2. **P1** — Reduce both polling intervals further (2s → 500ms)\n3. **P2** — Add config drift detection alerting"
 }

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings, X, RotateCcw, AlertTriangle, FileText, Code, Cpu, Expand, HelpCircle, Eye, Search, Save, Library } from 'lucide-react';
-import type { AgentDefinition, PipelineStage, PipelineDefinition, PipelinePreset } from '../types/pipeline';
+import type { AgentDefinition, PipelineStage, PipelineDefinition, PipelinePreset, AgentKind } from '../types/pipeline';
+import { AGENT_KINDS } from '../types/pipeline';
 import type { SavedAgent } from '../api';
 import { api } from '../api';
 
@@ -608,14 +609,15 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'deep-investigation',
         name: 'Deep Investigation',
-        description: 'Thorough pipeline with planning, adversarial review, grounding audit, and executive summary for complex issues.',
+        description: 'Thorough pipeline with planning, code scouting, adversarial review, grounding audit, and executive summary for complex issues.',
         icon: '🔬',
         stages: [
             { builtinType: 'planner' },
+            { builtinType: 'code-scout' },
             { builtinType: 'investigator' },
             { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
-            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
-            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'summarizer' },
             { builtinType: 'retrospect' },
         ],
@@ -664,15 +666,16 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'root-cause-analysis',
         name: 'Root Cause Analysis',
-        description: 'Correlate with past incidents, reconstruct timeline, verify grounding, and generate remediation plan.',
+        description: 'Plan, scout the code, correlate with past incidents, reconstruct timeline, verify grounding, and generate remediation plan.',
         icon: '🔍',
         stages: [
             { builtinType: 'planner' },
+            { builtinType: 'code-scout' },
             { builtinType: 'investigator' },
             { builtinType: 'correlator' },
             { builtinType: 'timeline' },
-            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
-            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'remediation' },
             { builtinType: 'retrospect' },
         ],
@@ -680,14 +683,15 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'grounded-investigation',
         name: 'Grounded Investigation',
-        description: 'Rigorous pipeline that ensures all conclusions are grounded in observed telemetry — rejects absence-based reasoning where missing data is treated as evidence.',
+        description: 'Rigorous pipeline that ensures all conclusions are grounded in observed telemetry and real code paths — rejects absence-based reasoning where missing data is treated as evidence.',
         icon: '📡',
         stages: [
             { builtinType: 'planner' },
+            { builtinType: 'code-scout' },
             { builtinType: 'investigator' },
             { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
-            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
-            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'summarizer' },
             { builtinType: 'retrospect' },
         ],
@@ -1138,6 +1142,13 @@ const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels,
     const [maxSteps, setMaxSteps] = useState(existingAgent?.maxSteps ?? 0);
     const [color, setColor] = useState(existingAgent?.color || defaultColor);
     const [icon, setIcon] = useState(existingAgent?.icon || '');
+    const [kind, setKind] = useState<AgentKind>(existingAgent?.kind || 'custom');
+    const [agentRepoRoot, setAgentRepoRoot] = useState(existingAgent?.repoRoot || '');
+    const [agentKnowledgeBasePath, setAgentKnowledgeBasePath] = useState(existingAgent?.knowledgeBasePath || '');
+    const [agentWorkingDirectory, setAgentWorkingDirectory] = useState(existingAgent?.workingDirectory || '');
+    const [showContextFields, setShowContextFields] = useState(
+        !!(existingAgent?.repoRoot || existingAgent?.knowledgeBasePath || existingAgent?.workingDirectory)
+    );
     const [showDescPopup, setShowDescPopup] = useState(false);
     const backdropRef = useRef<HTMLDivElement>(null);
     const descPopupRef = useRef<HTMLDivElement>(null);
@@ -1166,16 +1177,24 @@ const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels,
             if (builtin) {
                 agent.color = builtin.color || color;
                 if (!icon) agent.icon = builtin.icon;
+                // Inherit kind from the underlying built-in so retrospect-tab
+                // routing keeps working even if the user wraps it in a stage.
+                if (builtin.kind) agent.kind = builtin.kind;
             }
         } else if (source === 'file') {
             agent.promptPath = promptPath;
+            agent.kind = kind;
         } else if (source === 'inline') {
             agent.promptContent = promptContent;
+            agent.kind = kind;
         }
 
         if (description) agent.description = description;
         if (model) agent.model = model;
         if (maxSteps > 0) agent.maxSteps = maxSteps;
+        if (agentRepoRoot.trim()) agent.repoRoot = agentRepoRoot.trim();
+        if (agentKnowledgeBasePath.trim()) agent.knowledgeBasePath = agentKnowledgeBasePath.trim();
+        if (agentWorkingDirectory.trim()) agent.workingDirectory = agentWorkingDirectory.trim();
 
         return agent;
     };
@@ -1269,6 +1288,76 @@ const AgentModal: React.FC<AgentModalProps> = ({ builtinAgents, availableModels,
                                 className="w-full bg-slate-800 text-sm text-slate-200 border border-slate-700 rounded-lg px-3 py-2 font-mono outline-none focus:ring-2 focus:ring-cyan-500/30"
                             />
                             <p className="text-[10px] text-slate-500 mt-1">Relative to repo root, or absolute path.</p>
+                        </div>
+                    )}
+
+                    {/* Kind (custom agents only) */}
+                    {source !== 'builtin' && (
+                        <div>
+                            <label className="text-xs font-bold text-slate-400 block mb-1.5">
+                                Role (kind)
+                                <span className="text-slate-600 font-normal ml-1">— drives UI routing (e.g. Retrospect tab surfaces agents with <code>retrospect</code>)</span>
+                            </label>
+                            <select
+                                value={kind}
+                                onChange={e => setKind(e.target.value as AgentKind)}
+                                className="w-full bg-slate-800 text-sm text-slate-200 border border-slate-700 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-cyan-500/30"
+                            >
+                                {AGENT_KINDS.map(k => (
+                                    <option key={k} value={k}>{k}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+
+                    {/* Investigation Context (per-agent path overrides) */}
+                    {source !== 'builtin' && (
+                        <div className="border border-slate-700/60 rounded-lg overflow-hidden">
+                            <button
+                                type="button"
+                                onClick={() => setShowContextFields(v => !v)}
+                                className="w-full flex items-center justify-between px-3 py-2 bg-slate-800/40 hover:bg-slate-800/60 transition-colors text-left"
+                            >
+                                <div>
+                                    <div className="text-xs font-bold text-slate-300">Investigation Context <span className="text-slate-500 font-normal">(optional)</span></div>
+                                    <div className="text-[10px] text-slate-500 mt-0.5">Per-agent repo, knowledge base, and working directory. Only needed for agents that read files or spawn MCP servers (typically <code>investigator</code>, <code>retrospect</code>, <code>implementation</code>).</div>
+                                </div>
+                                <span className="text-slate-500 text-xs ml-2">{showContextFields ? '▾' : '▸'}</span>
+                            </button>
+                            {showContextFields && (
+                                <div className="px-3 py-3 space-y-3 bg-slate-800/20">
+                                    <div>
+                                        <label className="text-[11px] font-semibold text-slate-400 block mb-1">Repository Root</label>
+                                        <input
+                                            type="text"
+                                            value={agentRepoRoot}
+                                            onChange={e => setAgentRepoRoot(e.target.value)}
+                                            placeholder="C:/Repositories/MyRepo  (leave blank to use global)"
+                                            className="w-full bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded px-2 py-1.5 font-mono outline-none focus:ring-1 focus:ring-cyan-500/30"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] font-semibold text-slate-400 block mb-1">Knowledge Base Path</label>
+                                        <input
+                                            type="text"
+                                            value={agentKnowledgeBasePath}
+                                            onChange={e => setAgentKnowledgeBasePath(e.target.value)}
+                                            placeholder="docs/investigations  (relative to repo root, or absolute)"
+                                            className="w-full bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded px-2 py-1.5 font-mono outline-none focus:ring-1 focus:ring-cyan-500/30"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] font-semibold text-slate-400 block mb-1">Working Directory</label>
+                                        <input
+                                            type="text"
+                                            value={agentWorkingDirectory}
+                                            onChange={e => setAgentWorkingDirectory(e.target.value)}
+                                            placeholder="cwd for this agent's MCP servers (leave blank to use global)"
+                                            className="w-full bg-slate-800 text-xs text-slate-200 border border-slate-700 rounded px-2 py-1.5 font-mono outline-none focus:ring-1 focus:ring-cyan-500/30"
+                                        />
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
 
