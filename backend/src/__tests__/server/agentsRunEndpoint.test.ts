@@ -88,6 +88,8 @@ describe('POST /api/agents/run', () => {
         const fakeRecs = [
             { priority: 'P1', title: 'Add retries', description: 'Add backoff', category: 'code' },
             { priority: 'P2', title: 'Doc gap', description: 'Update wiki', category: 'operational' },
+            // Missing fields → exercise default-value branches (priority|title|description fallbacks; category default).
+            {},
         ];
         mockRun.mockResolvedValue({ output: '[]', parsedJson: fakeRecs });
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agents-run-test-'));
@@ -101,15 +103,22 @@ describe('POST /api/agents/run', () => {
             rawInput: {},
         });
         expect(res.status).toBe(200);
+        expect(mockRun).toHaveBeenCalled();
+        expect(res.body.parsedJson).toEqual(fakeRecs);
         const updated = history.get('inv-99') as any;
-        expect(updated.recommendations).toHaveLength(2);
+        expect(updated.recommendations).toHaveLength(3);
         expect(updated.recommendations[0].priority).toBe('P1');
         expect(updated.recommendations[1].category).toBe('operational');
+        // Defaulted entry: priority='P2', title='', description='', category='code'.
+        expect(updated.recommendations[2].priority).toBe('P2');
+        expect(updated.recommendations[2].title).toBe('');
+        expect(updated.recommendations[2].category).toBe('code');
         // Confirm the persistHistory disk-write branch ran.
         const persisted = JSON.parse(fs.readFileSync(statePath, 'utf-8'));
-        expect(persisted.recommendations).toHaveLength(2);
+        expect(persisted.recommendations).toHaveLength(3);
         fs.rmSync(tmpDir, { recursive: true, force: true });
     });
+
 
     it('warns and continues when persistHistory disk-write fails', async () => {
         __testUtils.setActiveLlmProvider({ type: 'fake' } as any);
@@ -130,6 +139,35 @@ describe('POST /api/agents/run', () => {
         expect(res.status).toBe(200);
         expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('persistHistory failed'), expect.anything());
         warnSpy.mockRestore();
+    });
+
+    it('skips disk persistence when investigation has no _statePath', async () => {
+        __testUtils.setActiveLlmProvider({ type: 'fake' } as any);
+        mockRun.mockResolvedValue({ output: '[]', parsedJson: [{ priority: 'P3', title: 't', description: 'd', category: 'code' }] });
+        const history = __testUtils.getHistory();
+        history.set('inv-mem', { id: 'inv-mem', recommendations: [] } as any);
+        const res = await api().post('/api/agents/run').send({
+            kind: 'recommendation-extractor',
+            investigationId: 'inv-mem',
+            rawInput: {},
+        });
+        expect(res.status).toBe(200);
+        expect((history.get('inv-mem') as any).recommendations).toHaveLength(1);
+    });
+
+    it('does not persist when extractor result has no parsedJson array', async () => {
+        __testUtils.setActiveLlmProvider({ type: 'fake' } as any);
+        mockRun.mockResolvedValue({ output: 'unparseable', parsedJson: undefined });
+        const history = __testUtils.getHistory();
+        history.set('inv-noparse', { id: 'inv-noparse', recommendations: [{ id: 'pre-existing' }] } as any);
+        const res = await api().post('/api/agents/run').send({
+            kind: 'recommendation-extractor',
+            investigationId: 'inv-noparse',
+            rawInput: {},
+        });
+        expect(res.status).toBe(200);
+        // Pre-existing recommendations untouched.
+        expect((history.get('inv-noparse') as any).recommendations).toEqual([{ id: 'pre-existing' }]);
     });
 
     it('returns 500 and a sanitized error when runSingleAgent throws', async () => {

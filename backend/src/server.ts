@@ -4079,7 +4079,7 @@ app.delete('/api/custom-agents/:id', (req, res) => {
 // retrospect/analyze, implement, recommendations/reclassify).
 app.post('/api/agents/run', async (req, res) => {
     try {
-        const { agentId, kind, rawInput, investigationId } = req.body || {};
+        const { agentId, kind, rawInput, investigationId } = req.body;
         if (!agentId && !kind) {
             return res.status(400).json({ error: 'agentId or kind is required' });
         }
@@ -4135,7 +4135,18 @@ app.post('/api/agents/run', async (req, res) => {
                 description: r.description || '',
                 category: r.category === 'operational' ? 'operational' : 'code',
             }));
-            await persistHistory(investigationId);
+            // Best-effort disk persistence — the in-memory update is authoritative;
+            // a failed write is logged but does not fail the request.
+            const statePath: string | undefined = (investigation as any)._statePath;
+            if (statePath) {
+                try {
+                    const tmp: string = statePath + '.tmp';
+                    fs.writeFileSync(tmp, JSON.stringify(investigation, null, 2));
+                    fs.renameSync(tmp, statePath);
+                } catch (e) {
+                    console.warn('persistHistory failed:', e);
+                }
+            }
         }
 
         return res.json({
@@ -4152,23 +4163,6 @@ app.post('/api/agents/run', async (req, res) => {
         return res.status(500).json({ error: sanitizedError(err) });
     }
 });
-
-/** Internal: persist investigation state to disk (best-effort, ignores errors). */
-async function persistHistory(id: string | undefined): Promise<void> {
-    if (!id) return;
-    try {
-        const state: any = runners.has(id) ? (runners.get(id) as any).state : history.get(id);
-        if (!state) return;
-        const statePath: string | undefined = state._statePath;
-        if (!statePath) return;
-        const tmp = statePath + '.tmp';
-        fs.writeFileSync(tmp, JSON.stringify(state, null, 2));
-        fs.renameSync(tmp, statePath);
-        history.set(id, state);
-    } catch (e) {
-        console.warn('persistHistory failed:', e);
-    }
-}
 
 // ── Default agent resolution endpoints (Settings UI) ────────────────────────
 
