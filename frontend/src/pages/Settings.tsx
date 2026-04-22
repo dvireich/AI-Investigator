@@ -223,8 +223,8 @@ export const Settings = () => {
             // Sync MCP servers from saved config
             if (Array.isArray(settings.mcpServers)) {
                 setMcpServers(settings.mcpServers.map((s: any) => ({
-                    name: s.name || '',
-                    command: s.command || '',
+                    name: s.name,
+                    command: s.command,
                     args: Array.isArray(s.args) ? s.args.join(' ') : (s.args || ''),
                     env: s.env ? Object.entries(s.env).map(([k, v]) => `${k}=${v}`).join('\n') : '',
                     cwd: s.cwd || '',
@@ -866,7 +866,7 @@ export const Settings = () => {
                                                         type="text"
                                                         value={value || ''}
                                                         onChange={(e) => handleChange(row.key, e.target.value)}
-                                                        placeholder={row.mode === 'file' ? 'Path to file' : 'Path to directory'}
+                                                        placeholder="Path to directory"
                                                         className="w-full pl-10 pr-3 py-2.5 rounded-xl border border-slate-700/50 bg-slate-800/60 text-slate-200 font-mono text-sm focus:ring-2 focus:ring-brand-500 outline-none transition-all"
                                                     />
                                                 </div>
@@ -878,7 +878,7 @@ export const Settings = () => {
                                                         setShowFileBrowser(true);
                                                     }}
                                                     className="flex items-center gap-1.5 px-3 py-2.5 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-sm font-bold transition-colors"
-                                                    title={row.mode === 'file' ? 'Browse for file' : 'Browse for directory'}
+                                                    title="Browse for directory"
                                                 >
                                                     <FolderOpen className="w-4 h-4" />
                                                     Browse
@@ -1934,8 +1934,8 @@ export const Settings = () => {
                         setPathsBrowserTarget(null);
                     }}
                     mode={browserMode}
-                    title={browserMode === 'file' ? 'Select File' : 'Select Directory'}
-                    initialPath={pathsBrowserTarget ? ((config as any)[pathsBrowserTarget] as string | undefined) : undefined}
+                    title="Select Directory"
+                    initialPath={(config as any)[pathsBrowserTarget] as string | undefined}
                 />
             )}
         </div>

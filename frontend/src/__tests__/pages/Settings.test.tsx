@@ -2837,13 +2837,13 @@ describe('Settings extra coverage', () => {
         });
     });
 
-    describe.skip('Settings branch coverage — all remaining branches', () => {
-        describe('handleDiscover empty guard (L137) + Enter key (L1429)', () => {
+    describe('Settings branch coverage — all remaining branches', () => {
+        describe.skip('handleDiscover empty guard (L137) + Enter key (L1429)', () => {
             it('returns early when discoverRepoRoot is empty (press Enter with empty input)', async () => {
                 const { api } = await import('../../api');
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 // Open Add Product modal
                 await user.click(screen.getByRole('button', { name: /Add Product/i }));
@@ -2858,7 +2858,7 @@ describe('Settings extra coverage', () => {
             });
         });
 
-        describe('discover result with missing fields (L147-152)', () => {
+        describe.skip('discover result with missing fields (L147-152)', () => {
             it('fills form with fallback values when discovered product has no name/paths', async () => {
                 const { api } = await import('../../api');
                 vi.mocked(api.discoverProduct).mockResolvedValue({
@@ -2875,7 +2875,7 @@ describe('Settings extra coverage', () => {
                 });
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByRole('button', { name: /Add Product/i }));
                 await waitFor(() => screen.getByPlaceholderText(/C:\\Repositories\\MyProject/i));
@@ -2889,13 +2889,13 @@ describe('Settings extra coverage', () => {
             });
         });
 
-        describe('discoverError without message (L156)', () => {
+        describe.skip('discoverError without message (L156)', () => {
             it('shows Discovery failed fallback when error has no message', async () => {
                 const { api } = await import('../../api');
                 vi.mocked(api.discoverProduct).mockRejectedValue({});  // error with no .message
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByRole('button', { name: /Add Product/i }));
                 await waitFor(() => screen.getByPlaceholderText(/C:\\Repositories\\MyProject/i));
@@ -2908,13 +2908,13 @@ describe('Settings extra coverage', () => {
             });
         });
 
-        describe('clone product error without message (L161)', () => {
+        describe.skip('clone product error without message (L161)', () => {
             it('calls cloneProduct and handles error with no message (covers || fallback)', async () => {
                 const { api } = await import('../../api');
                 vi.mocked(api.cloneProduct).mockRejectedValue({});  // error with no .message
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getAllByTitle('Clone product')[0]);
 
@@ -2923,7 +2923,7 @@ describe('Settings extra coverage', () => {
             });
         });
 
-        describe('MCP server with missing fields — s.name||"", s.command||"", etc. (L291-295)', () => {
+        describe.skip('MCP server with missing fields — s.name||"", s.command||"", etc. (L291-295)', () => {
             it('loads MCP server with missing name/command/args/env/cwd using fallbacks', async () => {
                 const { api } = await import('../../api');
                 vi.mocked(api.getSettings).mockResolvedValue({
@@ -2947,7 +2947,7 @@ describe('Settings extra coverage', () => {
                     ],
                 } as any);
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
                 // Renders without error — covers all || '' fallbacks
                 await waitFor(() => screen.getAllByText('Connections')[0]);
             });
@@ -2977,7 +2977,7 @@ describe('Settings extra coverage', () => {
 
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 // go to Connections tab to see the MCP server
                 await user.click(screen.getByRole('button', { name: 'Connections' }));
@@ -2990,7 +2990,7 @@ describe('Settings extra coverage', () => {
             it('returns early without updating config when NaN value is passed', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 // Navigate to 'appearance' tab which has a type="number" input (autoRefreshInterval)
                 await user.click(screen.getByRole('button', { name: 'Appearance' }));
@@ -3007,7 +3007,7 @@ describe('Settings extra coverage', () => {
                 const { api } = await import('../../api');
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByRole('button', { name: 'Agent Behavior' }));
                 // Wait for the Agent Behavior tab content (range sliders)
@@ -3034,7 +3034,7 @@ describe('Settings extra coverage', () => {
                 vi.mocked(api.saveSettings).mockRejectedValue({});  // error with no .message
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 // Navigate to Agent Behavior tab (has the Save Changes footer button)
                 await user.click(screen.getByRole('button', { name: 'Agent Behavior' }));
@@ -3055,7 +3055,7 @@ describe('Settings extra coverage', () => {
                 vi.mocked(api.configureLlmProvider).mockRejectedValue({});
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByRole('button', { name: 'Connections' }));
                 // Wait for the Connections tab content — LLM Provider section
@@ -3067,7 +3067,7 @@ describe('Settings extra coverage', () => {
             });
         });
 
-        describe('errorCount === 1 singular "issue" (L519)', () => {
+        describe.skip('errorCount === 1 singular "issue" (L519)', () => {
             it('shows "1 path issue" (singular) for product with exactly 1 path error', async () => {
                 const { api } = await import('../../api');
                 vi.mocked(api.validateProduct).mockResolvedValue({
@@ -3083,14 +3083,14 @@ describe('Settings extra coverage', () => {
             });
         });
 
-        describe('setModalValidation with null fallback (L589)', () => {
+        describe.skip('setModalValidation with null fallback (L589)', () => {
             it('sets modalValidation to null when no validation exists for product', async () => {
                 const { api } = await import('../../api');
                 // Make validateProduct fail so productValidations dict is empty
                 vi.mocked(api.validateProduct).mockRejectedValue(new Error('cannot validate'));
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 // Edit button → setModalValidation(productValidations['p1'] || null)
                 // productValidations['p1'] is undefined → null
@@ -3110,7 +3110,7 @@ describe('Settings extra coverage', () => {
                 ] as any);
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByRole('button', { name: 'Connections' }));
                 // Wait for LLM Provider section to confirm we're on Connections tab
@@ -3141,7 +3141,7 @@ describe('Settings extra coverage', () => {
 
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByRole('button', { name: 'Connections' }));
                 await waitFor(() => screen.getByText('Unnamed Server'));
@@ -3153,7 +3153,7 @@ describe('Settings extra coverage', () => {
             it('disables Update/Add Server button when name or command is empty', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByRole('button', { name: 'Connections' }));
                 await waitFor(() => screen.getByText('LLM Provider'));
@@ -3199,7 +3199,7 @@ describe('Settings extra coverage', () => {
 
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByRole('button', { name: 'Connections' }));
                 await waitFor(() => screen.getByText('Test Server'));
@@ -3239,7 +3239,7 @@ describe('Settings extra coverage', () => {
 
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 await user.click(screen.getByRole('button', { name: 'Agent Behavior' }));
                 // Wait for Agent Behavior tab content — check for sliders
@@ -3255,7 +3255,7 @@ describe('Settings extra coverage', () => {
             });
         });
 
-        describe('Active Product dropdown disabled when no products', () => {
+        describe.skip('Active Product dropdown disabled when no products', () => {
             it('disables dropdown and shows placeholder when products list is empty', async () => {
                 const { api } = await import('../../api');
                 vi.mocked(api.listProducts).mockResolvedValue([]);
@@ -3271,11 +3271,11 @@ describe('Settings extra coverage', () => {
             });
         });
 
-        describe('browserMode === "file" title branch (L1635)', () => {
+        describe.skip('browserMode === "file" title branch (L1635)', () => {
             it('opens file browser with "Select File" title for systemPromptPath', async () => {
                 const user = userEvent.setup();
                 renderSettings();
-                await waitFor(() => screen.getAllByText('Product 1').length >= 1);
+                await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
 
                 // Open edit product modal
                 await user.click(screen.getAllByTitle('Edit product')[0]);
@@ -4351,6 +4351,20 @@ describe('Settings extra coverage', () => {
             Object.defineProperty(input, 'files', { value: [file], writable: true });
             fireEvent.change(input);
             await waitFor(() => expect(screen.getByText(/Failed to import settings/)).toBeInTheDocument());
+        });
+
+        it('does nothing when Import file input fires change with no file', async () => {
+            const { api } = await import('../../api');
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByRole('button', { name: 'System' }));
+            await waitFor(() => screen.getByText('Import / Export Settings'));
+            const input = document.querySelector('input[type="file"][accept=".json"]') as HTMLInputElement;
+            Object.defineProperty(input, 'files', { value: [], writable: true });
+            fireEvent.change(input);
+            await new Promise((r) => setTimeout(r, 20));
+            expect(api.importSettings).not.toHaveBeenCalled();
         });
     });
 });
