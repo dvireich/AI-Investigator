@@ -367,6 +367,144 @@ export function createSignalGroundingAgent(overrides?: Partial<AgentDefinition>)
 }
 
 /**
+ * Built-in: Recommendation Extractor agent.
+ * Single-shot agent that reads a completed investigation report and returns a structured
+ * JSON array of recommendations with priority and category. No tool loop, no investigation —
+ * pure extraction from the provided report text.
+ */
+export function createRecommendationExtractorAgent(overrides?: Partial<AgentDefinition>): AgentDefinition {
+    return {
+        id: 'builtin-recommendation-extractor',
+        name: 'Recommendation Extractor',
+        kind: 'recommendation-extractor',
+        description: 'Extracts structured, prioritized recommendations from a completed investigation report. Single-shot, returns JSON.',
+        source: 'builtin',
+        builtinType: 'recommendation-extractor',
+        promptPath: 'prompts/builtins/recommendation-extractor.md',
+        executionMode: 'single-shot',
+        outputFormat: 'json',
+        outputSchema: {
+            type: 'array',
+            items: {
+                type: 'object',
+                required: ['priority', 'title', 'description', 'category'],
+                properties: {
+                    priority: { type: 'string', enum: ['P0', 'P1', 'P2', 'P3'] },
+                    title: { type: 'string' },
+                    description: { type: 'string' },
+                    category: { type: 'string', enum: ['code', 'operational'] },
+                },
+            },
+        },
+        color: '#eab308',
+        icon: '📋',
+        tools: { mode: 'whitelist', list: [] },
+        ...overrides,
+    };
+}
+
+/**
+ * Built-in: Code Implementer agent.
+ * Tool-loop agent that takes selected recommendations and proposes concrete code changes.
+ * Replaces the legacy `implementation` builtin with an externalized prompt.
+ */
+export function createCodeImplementerAgent(overrides?: Partial<AgentDefinition>): AgentDefinition {
+    return {
+        id: 'builtin-code-implementer',
+        name: 'Code Implementer',
+        kind: 'code-implementer',
+        description: 'Translates selected recommendations into concrete code-change proposals. Searches code, reads files, and emits propose_change diffs for review.',
+        source: 'builtin',
+        builtinType: 'code-implementer',
+        promptPath: 'prompts/builtins/code-implementer.md',
+        executionMode: 'tool-loop',
+        outputFormat: 'markdown',
+        color: '#6366f1',
+        icon: '🔧',
+        tools: {
+            mode: 'whitelist',
+            list: ['read_file', 'list_dir', 'propose_change', 'search_code', 'get_summary'],
+        },
+        ...overrides,
+    };
+}
+
+/**
+ * Built-in: Knowledge Base Improver agent.
+ * Tool-loop agent that reviews a completed investigation and proposes changes to the
+ * knowledge base files so future investigations of the same type succeed faster.
+ * Replaces the legacy `retrospect` builtin with an externalized prompt.
+ */
+export function createKbImproverAgent(overrides?: Partial<AgentDefinition>): AgentDefinition {
+    return {
+        id: 'builtin-kb-improver',
+        name: 'Knowledge Base Improver',
+        kind: 'kb-improver',
+        description: 'Reviews a completed investigation against the knowledge base and proposes file changes to make future investigations more effective.',
+        source: 'builtin',
+        builtinType: 'kb-improver',
+        promptPath: 'prompts/builtins/kb-improver.md',
+        executionMode: 'tool-loop',
+        outputFormat: 'markdown',
+        color: '#8b5cf6',
+        icon: '✨',
+        tools: {
+            mode: 'whitelist',
+            list: ['read_file', 'list_dir', 'propose_change'],
+        },
+        ...overrides,
+    };
+}
+
+/**
+ * Built-in: Executive Report agent.
+ * Single-shot markdown synthesizer that turns pre-computed schedule statistics and a
+ * pre-formatted run history digest into a human-readable executive report.
+ * Statistics are computed deterministically (in `backend/src/schedules/statistics.ts`)
+ * before this agent is invoked — the agent does no math, only narration.
+ */
+export function createExecutiveReportAgent(overrides?: Partial<AgentDefinition>): AgentDefinition {
+    return {
+        id: 'builtin-executive-report',
+        name: 'Executive Report',
+        kind: 'executive-report',
+        description: 'Synthesizes a human-readable executive report from pre-computed schedule statistics and run-history digest. Single-shot, markdown output.',
+        source: 'builtin',
+        builtinType: 'executive-report',
+        promptPath: 'prompts/builtins/executive-report.md',
+        executionMode: 'single-shot',
+        outputFormat: 'markdown',
+        color: '#14b8a6',
+        icon: '📊',
+        tools: { mode: 'whitelist', list: [] },
+        ...overrides,
+    };
+}
+
+/**
+ * Built-in: Notes Rephraser agent.
+ * Single-shot text rephraser used by the investigation Notes editor.
+ * Preserves meaning, technical terms, and markdown formatting while improving clarity.
+ */
+export function createNotesRephraserAgent(overrides?: Partial<AgentDefinition>): AgentDefinition {
+    return {
+        id: 'builtin-notes-rephraser',
+        name: 'Notes Rephraser',
+        kind: 'notes-rephraser',
+        description: 'Rephrases user-supplied notes for clarity and professionalism while preserving meaning, technical terms, and markdown formatting.',
+        source: 'builtin',
+        builtinType: 'notes-rephraser',
+        promptPath: 'prompts/builtins/notes-rephraser.md',
+        executionMode: 'single-shot',
+        outputFormat: 'markdown',
+        color: '#f59e0b',
+        icon: '✍️',
+        tools: { mode: 'whitelist', list: [] },
+        ...overrides,
+    };
+}
+
+/**
  * Registry of all built-in agent types.
  * Maps builtinType string → factory function.
  */
@@ -386,6 +524,11 @@ export const BUILTIN_AGENTS: Record<string, (overrides?: Partial<AgentDefinition
     enrichment: createEnrichmentAgent,
     compliance: createComplianceAgent,
     'signal-grounding': createSignalGroundingAgent,
+    'recommendation-extractor': createRecommendationExtractorAgent,
+    'code-implementer': createCodeImplementerAgent,
+    'kb-improver': createKbImproverAgent,
+    'executive-report': createExecutiveReportAgent,
+    'notes-rephraser': createNotesRephraserAgent,
 };
 
 /**
