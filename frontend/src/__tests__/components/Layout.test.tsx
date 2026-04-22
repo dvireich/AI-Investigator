@@ -205,7 +205,7 @@ describe('Layout', () => {
 
     it('navigates to settings when auth is not oauth-device-flow', async () => {
         const { api } = await import('../../api');
-        vi.mocked(api.getAuthStatus).mockResolvedValueOnce({
+        vi.mocked(api.getAuthStatus).mockResolvedValue({
             authenticated: false,
             providerType: 'openai',
             authRequirement: { type: 'api-key' },
@@ -225,7 +225,7 @@ describe('Layout', () => {
 
     it('shows user icon when no avatar_url', async () => {
         const { api } = await import('../../api');
-        vi.mocked(api.getAuthStatus).mockResolvedValueOnce({
+        vi.mocked(api.getAuthStatus).mockResolvedValue({
             authenticated: true,
             providerType: 'copilot',
             authRequirement: { type: 'oauth-device-flow' },
@@ -269,7 +269,7 @@ describe('Layout', () => {
 
     it('mobile menu shows connect button when not authenticated', async () => {
         const { api } = await import('../../api');
-        vi.mocked(api.getAuthStatus).mockResolvedValueOnce({
+        vi.mocked(api.getAuthStatus).mockResolvedValue({
             authenticated: false,
             providerType: 'copilot',
             authRequirement: { type: 'oauth-device-flow' },
@@ -291,7 +291,7 @@ describe('Layout', () => {
 
     it('mobile menu triggers login when connect clicked', async () => {
         const { api } = await import('../../api');
-        vi.mocked(api.getAuthStatus).mockResolvedValueOnce({
+        vi.mocked(api.getAuthStatus).mockResolvedValue({
             authenticated: false,
             providerType: 'copilot',
             authRequirement: { type: 'oauth-device-flow' },
@@ -318,7 +318,7 @@ describe('Layout', () => {
 
     it('mobile menu shows active status and avatar when authenticated', async () => {
         const { api } = await import('../../api');
-        vi.mocked(api.getAuthStatus).mockResolvedValueOnce({
+        vi.mocked(api.getAuthStatus).mockResolvedValue({
             authenticated: true,
             providerType: 'copilot',
             authRequirement: { type: 'oauth-device-flow' },
@@ -340,7 +340,7 @@ describe('Layout', () => {
 
     it('cancels login modal when Cancel is clicked', async () => {
         const { api } = await import('../../api');
-        vi.mocked(api.getAuthStatus).mockResolvedValueOnce({
+        vi.mocked(api.getAuthStatus).mockResolvedValue({
             authenticated: false,
             providerType: 'copilot',
             authRequirement: { type: 'oauth-device-flow' },
@@ -364,7 +364,7 @@ describe('Layout', () => {
 
     it('handles startLogin failure', async () => {
         const { api } = await import('../../api');
-        vi.mocked(api.getAuthStatus).mockResolvedValueOnce({
+        vi.mocked(api.getAuthStatus).mockResolvedValue({
             authenticated: false,
             providerType: 'copilot',
             authRequirement: { type: 'oauth-device-flow' },
@@ -386,7 +386,7 @@ describe('Layout', () => {
 
     it('creates user from fallback fields when user object not present', async () => {
         const { api } = await import('../../api');
-        vi.mocked(api.getAuthStatus).mockResolvedValueOnce({
+        vi.mocked(api.getAuthStatus).mockResolvedValue({
             authenticated: true,
             providerType: 'copilot',
             authRequirement: { type: 'oauth-device-flow' },
@@ -433,8 +433,8 @@ describe('Layout', () => {
             user: null,
         } as any);
         vi.mocked(api.pollLogin)
-            .mockResolvedValueOnce({ pending: true })
-            .mockResolvedValueOnce({ success: true });
+            .mockResolvedValue({ pending: true })
+            .mockResolvedValue({ success: true });
 
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
         renderLayout();
@@ -499,7 +499,7 @@ describe('Layout', () => {
         } as any);
         vi.mocked(api.pollLogin)
             .mockRejectedValueOnce({ message: 'slow_down' })
-            .mockResolvedValueOnce({ success: true });
+            .mockResolvedValue({ success: true });
 
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
         renderLayout();
@@ -567,7 +567,7 @@ describe('Layout', () => {
         } as any);
         vi.mocked(api.pollLogin)
             .mockRejectedValueOnce(new Error('network_error'))
-            .mockResolvedValueOnce({ success: true });
+            .mockResolvedValue({ success: true });
 
         const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
         renderLayout();
@@ -848,7 +848,7 @@ describe('Layout additional coverage', () => {
         const origFetch = globalThis.fetch;
         // First call: ok false
         globalThis.fetch = vi.fn()
-            .mockResolvedValueOnce({ ok: false, json: () => Promise.resolve(null) })
+            .mockResolvedValue({ ok: false, json: () => Promise.resolve(null) })
             .mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
         const { unmount } = renderLayout();
         await waitFor(() => expect(globalThis.fetch).toHaveBeenCalled());
