@@ -2090,6 +2090,7 @@ describe('NewInvestigation workflow presets', () => {
         { id: 'a12', name: 'Correlator', source: 'builtin' as const, builtinType: 'correlator', color: '#f97316', icon: '🔀' },
         { id: 'a13', name: 'Compliance', source: 'builtin' as const, builtinType: 'compliance', color: '#6366f1', icon: '📜' },
         { id: 'a14', name: 'Signal Grounding Auditor', source: 'builtin' as const, builtinType: 'signal-grounding', color: '#d946ef', icon: '📡' },
+        { id: 'a15', name: 'Code Scout', source: 'builtin' as const, builtinType: 'code-scout', color: '#3b82f6', icon: '🔎' },
     ];
 
     beforeEach(async () => {

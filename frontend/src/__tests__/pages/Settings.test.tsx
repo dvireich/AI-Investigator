@@ -4174,6 +4174,7 @@ describe('Settings extra coverage', () => {
                 { id: 'a12', builtinType: 'compliance', source: 'builtin', name: 'Compliance', color: '#4f46e5', icon: '📜' },
                 { id: 'a13', builtinType: 'correlator', source: 'builtin', name: 'Correlator', color: '#be185d', icon: '🔗' },
                 { id: 'a14', builtinType: 'signal-grounding', source: 'builtin', name: 'Signal Grounding Auditor', color: '#d946ef', icon: '📡' },
+                { id: 'a15', builtinType: 'code-scout', source: 'builtin', name: 'Code Scout', color: '#3b82f6', icon: '🔎' },
             ] as any);
             // 7 presets + 1 None = 8 items, PAGE_SIZE=6 => 2 pages
             const user = userEvent.setup();
@@ -4202,6 +4203,7 @@ describe('Settings extra coverage', () => {
                 { id: 'a5', builtinType: 'retrospect', source: 'builtin', name: 'Retrospect', color: '#8b5cf6', icon: '📝' },
                 { id: 'a6', builtinType: 'compliance', source: 'builtin', name: 'Compliance', color: '#4f46e5', icon: '📜' },
                 { id: 'a7', builtinType: 'signal-grounding', source: 'builtin', name: 'Signal Grounding Auditor', color: '#d946ef', icon: '📡' },
+                { id: 'a8', builtinType: 'code-scout', source: 'builtin', name: 'Code Scout', color: '#3b82f6', icon: '🔎' },
             ] as any);
             vi.mocked(api.getSavedWorkflows).mockResolvedValue([
                 { id: 'sw-nd', name: 'No Desc Saved', pipeline: { id: 'p-nd', name: 'NoDWF', stages: [] }, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },

@@ -155,6 +155,36 @@ export function createTriageAgent(overrides?: Partial<AgentDefinition>): AgentDe
 }
 
 /**
+ * Built-in: Code Scout agent.
+ * Reviews the codebase and knowledge base to identify candidate code paths,
+ * services, files, classes, and call sites that may be relevant to the
+ * investigation. Hands a structured "code map" to the Investigator so the
+ * main loop starts already grounded in real source references rather than
+ * having to discover them ad hoc.
+ *
+ * Distinct from Planner (which reasons about telemetry/data sources) and
+ * Signal-Grounding (which audits whether conclusions match observed data).
+ */
+export function createCodeScoutAgent(overrides?: Partial<AgentDefinition>): AgentDefinition {
+    return {
+        id: 'builtin-code-scout',
+        name: 'Code Scout',
+        kind: 'code-scout',
+        description: 'Scans the codebase and knowledge base to identify relevant code paths, services, and call sites for the investigation. Produces a structured code map for the Investigator.',
+        source: 'builtin',
+        builtinType: 'code-scout',
+        promptPath: 'prompts/examples/CodeScoutPrompt.md',
+        color: '#3b82f6',
+        icon: '🔎',
+        tools: {
+            mode: 'whitelist',
+            list: ['read_file', 'list_dir'],
+        },
+        ...overrides,
+    };
+}
+
+/**
  * Built-in: Correlator agent.
  * Cross-references investigation findings with past investigations to find recurring patterns,
  * similar root causes, and previously identified solutions.
@@ -347,6 +377,7 @@ export const BUILTIN_AGENTS: Record<string, (overrides?: Partial<AgentDefinition
     implementation: createImplementationAgent,
     planner: createPlannerAgent,
     triage: createTriageAgent,
+    'code-scout': createCodeScoutAgent,
     correlator: createCorrelatorAgent,
     'devils-advocate': createDevilsAdvocateAgent,
     summarizer: createSummarizerAgent,
@@ -413,14 +444,15 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'deep-investigation',
         name: 'Deep Investigation',
-        description: 'Thorough pipeline with planning, adversarial review, grounding audit, and executive summary for complex issues.',
+        description: 'Thorough pipeline with planning, code scouting, adversarial review, grounding audit, and executive summary for complex issues.',
         icon: '🔬',
         stages: [
             { builtinType: 'planner' },
+            { builtinType: 'code-scout' },
             { builtinType: 'investigator' },
             { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
-            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
-            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'summarizer' },
             { builtinType: 'retrospect' },
         ],
@@ -469,15 +501,16 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'root-cause-analysis',
         name: 'Root Cause Analysis',
-        description: 'Correlate with past incidents, reconstruct timeline, verify grounding, and generate remediation plan.',
+        description: 'Plan, scout the code, correlate with past incidents, reconstruct timeline, verify grounding, and generate remediation plan.',
         icon: '🔍',
         stages: [
             { builtinType: 'planner' },
+            { builtinType: 'code-scout' },
             { builtinType: 'investigator' },
             { builtinType: 'correlator' },
             { builtinType: 'timeline' },
-            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
-            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'remediation' },
             { builtinType: 'retrospect' },
         ],
@@ -485,14 +518,15 @@ export const PIPELINE_PRESETS: PipelinePreset[] = [
     {
         id: 'grounded-investigation',
         name: 'Grounded Investigation',
-        description: 'Rigorous pipeline that ensures all conclusions are grounded in observed telemetry — rejects absence-based reasoning where missing data is treated as evidence.',
+        description: 'Rigorous pipeline that ensures all conclusions are grounded in observed telemetry and real code paths — rejects absence-based reasoning where missing data is treated as evidence.',
         icon: '📡',
         stages: [
             { builtinType: 'planner' },
+            { builtinType: 'code-scout' },
             { builtinType: 'investigator' },
             { builtinType: 'devils-advocate', canReject: true, onReject: 'flag' },
-            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
-            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 1, maxRetries: 1 },
+            { builtinType: 'signal-grounding', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
+            { builtinType: 'validator', canReject: true, onReject: 'loop', rejectTarget: 2, maxRetries: 1 },
             { builtinType: 'summarizer' },
             { builtinType: 'retrospect' },
         ],

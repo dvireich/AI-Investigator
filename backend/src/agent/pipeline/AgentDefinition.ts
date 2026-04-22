@@ -33,6 +33,7 @@ export type AgentKind =
     | 'enrichment'
     | 'compliance'
     | 'signal-grounding'
+    | 'code-scout'
     | 'custom';
 
 /** All known agent kinds (useful for UI dropdowns and validation). */
@@ -51,6 +52,7 @@ export const AGENT_KINDS: readonly AgentKind[] = [
     'enrichment',
     'compliance',
     'signal-grounding',
+    'code-scout',
     'custom',
 ] as const;
 
