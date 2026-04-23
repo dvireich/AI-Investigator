@@ -57,3 +57,4 @@ ci-run-status.json
 
 # Demo video output (intermediate webm files)
 docs/demo/*.webm
+config.json

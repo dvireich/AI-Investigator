@@ -3,7 +3,9 @@ import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
 import { AgentRunner, InvestigationState } from './agent/Runner';
-import { PipelineDefinition, PipelineOrchestrator, listBuiltinAgents, validatePipeline, buildPipelinePreset, listPipelinePresets, matchPipelinePreset, resolveDefaultPipeline, matchDefaultPipelineId } from './agent/pipeline';
+import { PipelineDefinition, PipelineOrchestrator, listBuiltinAgents, validatePipeline, buildPipelinePreset, listPipelinePresets, matchPipelinePreset, resolveDefaultPipeline, matchDefaultPipelineId, runSingleAgent } from './agent/pipeline';
+import { resolveAgentById, getDefaultAgentForKind, listAgentsForKind } from './server/agentResolver';
+import { getContextProvider } from './agent/contextProviders';
 import { LlmProviderRegistry } from './agent/llm/LlmProviderRegistry';
 import { LlmProvider } from './agent/llm/LlmProvider';
 import { IncidentProviderRegistry } from './agent/incidents/IncidentProviderRegistry';
@@ -840,6 +842,13 @@ let config: {
     defaultPipelineId?: string;
     // Time zone preference for custom time ranges
     defaultTimeZoneMode: 'utc' | 'local';
+    /**
+     * Default agent overrides keyed by AgentKind. When the user invokes an on-demand
+     * agent (`POST /api/agents/run`) without specifying an `agentId`, the system looks up
+     * `defaultAgentByKind[kind]`. Falsy / unknown values fall back to the first built-in
+     * registered with the requested kind.
+     */
+    defaultAgentByKind?: Partial<Record<string, string>>;
 } = {
     repoRoot: defaultRepoRoot,
     systemPromptPath: '',
@@ -873,6 +882,7 @@ let config: {
     pipeline: undefined,
     defaultPipelineId: undefined,
     defaultTimeZoneMode: 'utc',
+    defaultAgentByKind: undefined,
 };
 
 // Track what's persisted on disk — prevents internal defaults from leaking into the config file.
@@ -901,6 +911,7 @@ const SETTINGS_ALLOWED_KEYS = new Set([
     'analyticsWidgets', 'analyticsVisible',
     'pipeline', 'defaultPipelineId',
     'defaultTimeZoneMode',
+    'defaultAgentByKind',
 ]);
 
 function saveConfigToDisk() {
@@ -2818,19 +2829,13 @@ app.delete('/api/investigations/:id', async (req, res) => {
     }
 
     const investigation = history.get(id);
-    if (!investigation) {
-        return res.status(404).json({ error: 'Investigation not found' });
-    }
 
     // Single global investigations directory (per-product directories were removed).
     const investigationsDir = getGlobalInvestigationsDir();
 
-    history.delete(id);
-
-    // Remove from disk - folder is named ${timestamp}_${safeTarget}_${safeId}
+    // Locate the on-disk folder (may exist even when the in-memory entry was evicted).
     const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
     let dirPath: string | null = null;
-
     try {
         const entries = fs.readdirSync(investigationsDir);
         const match = entries.find(e => e.endsWith(`_${safeId}`));
@@ -2842,6 +2847,17 @@ app.delete('/api/investigations/:id', async (req, res) => {
     }
 
     const jsonPath = path.join(investigationsDir, `${id}.json`);
+    const hasDiskArtifacts: boolean = !!(
+        (dirPath && fs.existsSync(dirPath)) ||
+        fs.existsSync(jsonPath)
+    );
+
+    // 404 only when nothing exists anywhere — memory, disk, or active runner.
+    if (!investigation && !hasDiskArtifacts && !runner) {
+        return res.status(404).json({ error: 'Investigation not found' });
+    }
+
+    history.delete(id);
 
     try {
         if (dirPath && fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
@@ -4055,6 +4071,117 @@ app.delete('/api/custom-agents/:id', (req, res) => {
     const deleted = customAgentStore.delete(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Custom agent not found' });
     res.json({ success: true });
+});
+
+// ── Generic on-demand agent invocation ─────────────────────────────────────
+//
+// POST /api/agents/run
+// body: { agentId?: string, kind?: AgentKind, rawInput?: object, investigationId?: string }
+//
+// Resolves the agent (by id, or by `kind` via defaultAgentByKind), normalizes
+// inputs through the per-kind ContextProvider, and runs the agent through the
+// shared SingleAgentRunner. Replaces all per-button endpoints (notes/rephrase,
+// retrospect/analyze, implement, recommendations/reclassify).
+app.post('/api/agents/run', async (req, res) => {
+    try {
+        const { agentId, kind, rawInput, investigationId } = req.body;
+        if (!agentId && !kind) {
+            return res.status(400).json({ error: 'agentId or kind is required' });
+        }
+        if (!activeLlmProvider) {
+            return res.status(503).json({ error: 'No active LLM provider configured' });
+        }
+
+        // Resolve the agent.
+        let agent = agentId
+            ? resolveAgentById(agentId, customAgentStore)
+            : getDefaultAgentForKind(kind, config.defaultAgentByKind, customAgentStore);
+        if (!agent) {
+            return res.status(404).json({
+                error: `Agent not found: ${agentId || `default for kind '${kind}'`}`,
+            });
+        }
+
+        // Resolve investigation state when an id is supplied.
+        let investigation: InvestigationState | undefined;
+        if (investigationId) {
+            if (runners.has(investigationId)) {
+                investigation = (runners.get(investigationId) as any).state;
+            } else if (history.has(investigationId)) {
+                investigation = history.get(investigationId);
+            }
+        }
+
+        // Build the agent context via the kind-specific provider.
+        const provider = getContextProvider(agent.kind);
+        const ctx = provider(rawInput || {}, investigation);
+
+        // Build base AgentConfig — same shape as pipeline runs.
+        const baseAgentConfig = {
+            systemPromptPath: config.systemPromptPath,
+            knowledgeBasePath: config.knowledgeBasePath,
+            repoRoot: config.repoRoot,
+            mcpServers: config.mcpServers,
+            maxSteps: config.maxSteps,
+            model: config.model,
+            workingDirectory: config.workingDirectory,
+            investigationsPath: config.investigationsPath,
+        };
+
+        const result = await runSingleAgent(agent, ctx, activeLlmProvider, baseAgentConfig as any);
+
+        // Optional persistence based on agent kind. The endpoint is read-only by
+        // default — only well-known kinds with a clear write target update state.
+        if (investigation && agent.kind === 'recommendation-extractor' && Array.isArray(result.parsedJson)) {
+            investigation.recommendations = (result.parsedJson as any[]).map((r, i) => ({
+                id: `rec_${r.priority || 'P2'}_${i}`,
+                priority: r.priority || 'P2',
+                title: r.title || '',
+                description: r.description || '',
+                category: r.category === 'operational' ? 'operational' : 'code',
+            }));
+            // Best-effort disk persistence — the in-memory update is authoritative;
+            // a failed write is logged but does not fail the request.
+            const statePath: string | undefined = (investigation as any)._statePath;
+            if (statePath) {
+                try {
+                    const tmp: string = statePath + '.tmp';
+                    fs.writeFileSync(tmp, JSON.stringify(investigation, null, 2));
+                    fs.renameSync(tmp, statePath);
+                } catch (e) {
+                    console.warn('persistHistory failed:', e);
+                }
+            }
+        }
+
+        return res.json({
+            agentId: agent.id,
+            kind: agent.kind,
+            output: result.output,
+            parsedJson: result.parsedJson,
+            validationErrors: result.validationErrors,
+            proposals: result.proposals,
+            messages: result.messages,
+        });
+    } catch (err: any) {
+        console.error('POST /api/agents/run failed:', err);
+        return res.status(500).json({ error: sanitizedError(err) });
+    }
+});
+
+// ── Default agent resolution endpoints (Settings UI) ────────────────────────
+
+/** List all candidate agents for a given kind (built-in + saved custom). */
+app.get('/api/agents/by-kind/:kind', (req, res) => {
+    const kind = req.params.kind as any;
+    const agents = listAgentsForKind(kind, customAgentStore);
+    res.json(agents.map(a => ({
+        id: a.id,
+        name: a.name,
+        kind: a.kind,
+        source: a.id.startsWith('builtin-') ? 'builtin' : 'custom',
+        description: a.description,
+    })));
 });
 
 // Global error handler — catches unhandled errors in route handlers

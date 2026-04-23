@@ -619,6 +619,11 @@ describe('builtinAgents', () => {
             expect(types).toContain('timeline');
             expect(types).toContain('enrichment');
             expect(types).toContain('compliance');
+            expect(types).toContain('recommendation-extractor');
+            expect(types).toContain('code-implementer');
+            expect(types).toContain('kb-improver');
+            expect(types).toContain('executive-report');
+            expect(types).toContain('notes-rephraser');
         });
     });
 });

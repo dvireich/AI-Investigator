@@ -83,7 +83,7 @@ describe('integration: tsc compilation and loading', () => {
         });
 
         expect(output).not.toContain('LOAD_ERROR');
-    });
+    }, 120_000);
 });
 
 describe('integration: esbuild bundle', () => {

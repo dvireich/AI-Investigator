@@ -4911,6 +4911,32 @@ describe('server utilities and routes', () => {
             expect(json).toHaveBeenCalledWith({ ok: true });
         });
 
+        it('deletes on-disk folder even when the in-memory history entry is missing', async () => {
+            // Reproduces the bug: user hits delete, backend returned 404 because
+            // the entry was evicted from `history`, leaving the folder orphaned.
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-delete-disk-only-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+            const folder = path.join(invRoot, '2026-04-23_aux-tds-prd-cdm-01_1776917824304');
+            fs.mkdirSync(folder, { recursive: true });
+            fs.writeFileSync(path.join(folder, 'state.json'), '{}');
+            // Critically: do NOT add to history.
+            expect(__testUtils.getHistory().has('1776917824304')).toBe(false);
+
+            const response = await api().delete('/api/investigations/1776917824304');
+
+            expect(response.status).toBe(200);
+            expect(fs.existsSync(folder)).toBe(false);
+        });
+
+        it('still returns 404 when the investigation is missing from memory, disk, and runners', async () => {
+            const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-delete-totally-missing-'));
+            __testUtils.setConfig({ investigationsPath: invRoot, products: [], activeProductId: '' });
+
+            const response = await api().delete('/api/investigations/totally-missing-id');
+
+            expect(response.status).toBe(404);
+        });
+
         it('exports and imports investigations', async () => {
             const invRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-export-'));
             const investigation = makeState({ id: '1700000000100', target: 'stamp-03', finalReport: 'Final report' });
