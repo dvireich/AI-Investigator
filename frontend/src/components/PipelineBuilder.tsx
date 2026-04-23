@@ -91,11 +91,13 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
         });
     }, [value, onChange]);
 
-    const addStage = useCallback((agent: AgentDefinition) => {
-        const newStage: PipelineStage = {
-            agent: { ...agent },
-            inputMode: 'conversation',
-        };
+    const addStage = useCallback((agent: AgentDefinition, savedId?: string) => {
+        // When the agent comes from the saved-agent library, store ONLY the reference.
+        // The library (CustomAgentStore) is the single source of truth — no inline copy.
+        // Otherwise (builtin agents, one-off custom agents), store the inline definition.
+        const newStage: PipelineStage = savedId
+            ? { savedAgentId: savedId, inputMode: 'conversation' }
+            : { agent: { ...agent }, inputMode: 'conversation' };
         updatePipeline([...stages, newStage]);
     }, [stages, updatePipeline]);
 
@@ -111,7 +113,14 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
     }, [stages, updatePipeline]);
 
     const updateStageAgent = useCallback((index: number, agent: AgentDefinition) => {
-        const newStages = stages.map((s, i) => i === index ? { ...s, agent } : s);
+        // Editing the inline agent definition converts a library-linked stage into
+        // a standalone inline stage: the edit has diverged from the library, so the
+        // `savedAgentId` reference is dropped and the inline copy takes over.
+        const newStages = stages.map((s, i) => {
+            if (i !== index) return s;
+            const { savedAgentId: _dropped, ...rest } = s;
+            return { ...rest, agent };
+        });
         updatePipeline(newStages);
     }, [stages, updatePipeline]);
 
@@ -148,16 +157,39 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
 
     // ── Agent label helper ──────────────────────────────────────────
 
+    /**
+     * Resolve the agent definition that should currently be shown/used for a stage.
+     * If the stage has a `savedAgentId` and that saved agent exists, return it — this
+     * makes library edits propagate to every workflow referencing the agent.
+     * Otherwise fall back to the inline snapshot.
+     */
+    const resolveStageAgentDef = useCallback((stage: PipelineStage): AgentDefinition | undefined => {
+        if (stage.savedAgentId) {
+            const saved = savedAgents.find(sa => sa.id === stage.savedAgentId);
+            if (saved) return saved.agent;
+        }
+        return stage.agent;
+    }, [savedAgents]);
+
+    /** True when the stage references a savedAgentId that cannot be resolved. */
+    const isStageRefDangling = useCallback((stage: PipelineStage): boolean => {
+        if (!stage.savedAgentId) return false;
+        return !savedAgents.some(sa => sa.id === stage.savedAgentId);
+    }, [savedAgents]);
+
     const getAgentLabel = (stage: PipelineStage): string => {
-        return stage.agent?.name || stage.agentId || 'Unknown';
+        const a = resolveStageAgentDef(stage);
+        return a?.name || stage.agentId || 'Unknown';
     };
 
     const getAgentColor = (stage: PipelineStage, index: number): string => {
-        return stage.agent?.color || pickColor(index);
+        const a = resolveStageAgentDef(stage);
+        return a?.color || pickColor(index);
     };
 
     const getAgentIcon = (stage: PipelineStage): string => {
-        return stage.agent?.icon || stage.agent?.name?.charAt(0)?.toUpperCase() || '?';
+        const a = resolveStageAgentDef(stage);
+        return a?.icon || a?.name?.charAt(0)?.toUpperCase() || '?';
     };
 
     // ── Render ──────────────────────────────────────────────────────
@@ -295,7 +327,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                     <AgentChip
                                         key={agent.id}
                                         agent={agent}
-                                        onClick={() => addStage(agent)}
+                                        onClick={() => addStage(agent, savedId)}
                                         savedId={savedId}
                                         onDelete={savedId ? () => handleDeleteSavedAgent(savedId) : undefined}
                                         onEdit={savedId ? () => { setEditingSavedAgentId(savedId); setEditingAgentForStage(null); setShowAgentModal(true); } : undefined}
@@ -409,19 +441,20 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                 isDragging={dragIndex === index}
                                 isExpanded={editingStageIndex === index}
                                 readOnly={readOnly}
+                                resolvedAgent={resolveStageAgentDef(stage)}
+                                hasSavedRef={!!stage.savedAgentId}
+                                isDangling={isStageRefDangling(stage)}
                                 onToggleExpand={() => setEditingStageIndex(editingStageIndex === index ? null : index)}
                                 onRemove={() => removeStage(index)}
                                 onUpdate={(patch) => updateStage(index, patch)}
                                 onEditAgent={() => {
-                                    const agent = stage.agent;
+                                    const agent = resolveStageAgentDef(stage);
                                     if (agent) {
                                         if (agent.source === 'builtin') {
                                             const full = builtinAgents.find(a => a.builtinType === agent.builtinType) || agent;
                                             setBuiltinDetailAgent(full);
                                         } else {
-                                            // Use latest saved version if available (stage copy may be stale)
-                                            const latest = savedAgents.find(sa => sa.agent.id === agent.id)?.agent;
-                                            setBuiltinDetailAgent(latest ? { ...agent, ...latest } : agent);
+                                            setBuiltinDetailAgent(agent);
                                         }
                                     }
                                 }}
@@ -819,6 +852,12 @@ const StageCard: React.FC<{
     isDragging: boolean;
     isExpanded: boolean;
     readOnly?: boolean;
+    /** The live-resolved agent definition for this stage (saved-lib lookup or inline). Undefined when dangling. */
+    resolvedAgent?: AgentDefinition;
+    /** True when the stage is backed by a live saved-agent reference. */
+    hasSavedRef?: boolean;
+    /** True when the stage has a savedAgentId that can't be resolved in the library. */
+    isDangling?: boolean;
     onToggleExpand: () => void;
     onRemove: () => void;
     onUpdate: (patch: Partial<PipelineStage>) => void;
@@ -829,6 +868,7 @@ const StageCard: React.FC<{
     onDragEnd: () => void;
 }> = React.memo(({
     stage, index, total, color, icon, label, isDragging, isExpanded, readOnly,
+    resolvedAgent, hasSavedRef, isDangling,
     onToggleExpand, onRemove, onUpdate, onEditAgent,
     onDragStart, onDragOver, onDrop, onDragEnd,
 }) => {
@@ -865,10 +905,28 @@ const StageCard: React.FC<{
 
                 {/* Agent name & source */}
                 <div className="flex-1 min-w-0">
-                    <span className="text-sm font-semibold text-white truncate block">{label}</span>
+                    <span className="text-sm font-semibold text-white truncate block">
+                        {label}
+                        {hasSavedRef && !isDangling && (
+                            <span
+                                className="ml-1.5 align-middle inline-flex items-center gap-0.5 text-[9px] font-medium text-cyan-300/80 bg-cyan-900/30 border border-cyan-700/30 px-1 py-0 rounded"
+                                title="Linked to a saved agent in your library. Edits in the library propagate here."
+                            >
+                                <Library size={8} /> linked
+                            </span>
+                        )}
+                        {isDangling && (
+                            <span
+                                className="ml-1.5 align-middle inline-flex items-center gap-0.5 text-[9px] font-medium text-amber-300 bg-amber-900/30 border border-amber-700/40 px-1 py-0 rounded"
+                                title="This stage references a saved agent that no longer exists in your library. The workflow will fail to run until the agent is restored or the stage is replaced."
+                            >
+                                <AlertTriangle size={8} /> unlinked
+                            </span>
+                        )}
+                    </span>
                     <span className="text-[10px] text-slate-500">
-                        {stage.agent?.source || 'inline'}
-                        {stage.agent?.builtinType && ` · ${stage.agent.builtinType}`}
+                        {resolvedAgent?.source || 'inline'}
+                        {resolvedAgent?.builtinType && ` · ${resolvedAgent.builtinType}`}
                         {stage.canReject && (
                             <span className="ml-1.5 text-amber-400">⚡ can reject</span>
                         )}

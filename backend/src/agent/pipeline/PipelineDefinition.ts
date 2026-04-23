@@ -8,12 +8,24 @@ import { AgentDefinition } from './AgentDefinition';
  */
 export interface PipelineStage {
     /**
+     * Reference to an agent in the global saved-agent library (CustomAgentStore),
+     * by the SavedAgent's `id`. Resolved at pipeline build time so library edits
+     * propagate to every workflow that uses the agent. When set, this is the
+     * single source of truth for the stage's agent — no inline copy is stored.
+     */
+    savedAgentId?: string;
+
+    /**
      * Reference to an agent defined in `PipelineDefinition.agents` by its `id`.
-     * Mutually preferred over `agent` (inline) — if both are set, `agentId` wins.
+     * Used for pipeline-local agent libraries (self-contained pipelines).
      */
     agentId?: string;
 
-    /** Inline agent definition. Used when `agentId` is not set. */
+    /**
+     * Inline agent definition. Used for one-off agents that don't belong in the
+     * saved-agent library — typically builtin agents configured per-workflow.
+     * Mutually exclusive with `savedAgentId` and `agentId`.
+     */
     agent?: AgentDefinition;
 
     /**
@@ -89,14 +101,32 @@ export interface PipelineDefinition {
 const MAX_RETRIES_CAP = 5;
 
 /**
+ * Callback for resolving a saved agent id against the global CustomAgentStore.
+ * Returns the agent definition or `undefined` if the id is not found.
+ */
+export type SavedAgentResolver = (savedAgentId: string) => AgentDefinition | undefined;
+
+/**
  * Resolve the AgentDefinition for a given pipeline stage.
- * Looks up `agentId` in the pipeline's agent library, or returns the inline `agent`.
- * Throws if neither is provided or the referenced agent is not found.
+ *
+ * Exactly one of `savedAgentId`, `agentId`, or inline `agent` must be present.
+ * A dangling `savedAgentId` (the saved agent was deleted) is a hard error —
+ * there is no inline fallback. Re-save the workflow to pick a different agent.
  */
 export function resolveStageAgent(
     stage: PipelineStage,
-    pipeline: PipelineDefinition
+    pipeline: PipelineDefinition,
+    savedAgentResolver?: SavedAgentResolver
 ): AgentDefinition {
+    if (stage.savedAgentId) {
+        const resolved = savedAgentResolver?.(stage.savedAgentId);
+        if (!resolved) {
+            throw new Error(
+                `Pipeline stage references savedAgentId '${stage.savedAgentId}' but no saved agent with that id exists in the library.`
+            );
+        }
+        return resolved;
+    }
     if (stage.agentId) {
         const found = pipeline.agents?.find(a => a.id === stage.agentId);
         if (!found) {
@@ -110,8 +140,21 @@ export function resolveStageAgent(
         return stage.agent;
     }
     throw new Error(
-        'Pipeline stage must have either an `agentId` (referencing the agents library) or an inline `agent` definition.'
+        'Pipeline stage must have exactly one of `savedAgentId`, `agentId`, or inline `agent`.'
     );
+}
+
+/**
+ * Returns true if the stage references a `savedAgentId` that the resolver cannot find.
+ * Useful for surfacing UI warnings / diagnostics on dangling references.
+ */
+export function isSavedAgentRefDangling(
+    stage: PipelineStage,
+    savedAgentResolver?: SavedAgentResolver
+): boolean {
+    if (!stage.savedAgentId) return false;
+    if (!savedAgentResolver) return true;
+    return savedAgentResolver(stage.savedAgentId) === undefined;
 }
 
 /**
@@ -164,10 +207,16 @@ export function validatePipeline(pipeline: PipelineDefinition): void {
     for (let i = 0; i < pipeline.stages.length; i++) {
         const stage = pipeline.stages[i];
 
-        // Must have either agentId or inline agent
-        if (!stage.agentId && !stage.agent) {
+        // Exactly one of savedAgentId, agentId, inline agent must be set.
+        const sources: number = (stage.savedAgentId ? 1 : 0) + (stage.agentId ? 1 : 0) + (stage.agent ? 1 : 0);
+        if (sources === 0) {
             throw new Error(
-                `Pipeline stage ${i} must have either 'agentId' or 'agent'.`
+                `Pipeline stage ${i} must have exactly one of 'savedAgentId', 'agentId', or 'agent'.`
+            );
+        }
+        if (sources > 1) {
+            throw new Error(
+                `Pipeline stage ${i} must have exactly one of 'savedAgentId', 'agentId', or 'agent' — got multiple.`
             );
         }
 

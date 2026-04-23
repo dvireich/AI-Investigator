@@ -1526,7 +1526,7 @@ function createPipelineInvestigation(
         investigationsPath: effectiveConfig.investigationsPath,
     };
 
-    const orchestrator = new PipelineOrchestrator(pipelineDef, llmProvider, agentConfig);
+    const orchestrator = new PipelineOrchestrator(pipelineDef, llmProvider, agentConfig, getSavedAgentResolver());
 
     // Create a lightweight runner that acts as the "anchor" for the runners map.
     // This keeps existing infrastructure (pause, abort, history) working.
@@ -1624,7 +1624,7 @@ function resumePipelineInvestigation(runner: AgentRunner, id: string): void {
         investigationsPath: effectiveCfg.investigationsPath,
     };
 
-    const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig);
+    const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig, getSavedAgentResolver());
     (runner as any)._isPipeline = true;
     // Clean up previous orchestrator listeners before replacing
     const prevOrch = pipelineOrchestrators.get(id);
@@ -1732,7 +1732,7 @@ function restartPipelineForContest(runner: AgentRunner, id: string): void {
         investigationsPath: effectiveCfg.investigationsPath,
     };
 
-    const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig);
+    const orchestrator = new PipelineOrchestrator(pipelineDef, activeLlmProvider!, agentConfig, getSavedAgentResolver());
     (runner as any)._isPipeline = true;
     // Clean up previous orchestrator listeners before replacing
     const prevOrch = pipelineOrchestrators.get(id);
@@ -3474,6 +3474,15 @@ let scheduler: Scheduler | null = null;
 let queryBankStore: QueryBankStore | null = null;
 let workflowStore: WorkflowStore | null = null;
 let customAgentStore: CustomAgentStore | null = null;
+
+/**
+ * Returns a resolver function that looks up a saved agent's definition by id
+ * from the module-scoped `customAgentStore`. Passed into `PipelineOrchestrator`
+ * so that stages referencing `savedAgentId` resolve against the live library.
+ */
+function getSavedAgentResolver(): (savedAgentId: string) => import('./agent/pipeline/AgentDefinition').AgentDefinition | undefined {
+    return (savedAgentId: string) => customAgentStore?.get(savedAgentId)?.agent;
+}
 
 /** Extracted so v8 coverage tracks branch-level data reliably across worker merges. */
 async function deleteInvestigationFromDisk(investigationId: string): Promise<void> {
