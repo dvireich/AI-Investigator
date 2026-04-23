@@ -8,6 +8,7 @@ import {
     resolveRejectTarget,
     getEffectiveMaxRetries,
     validatePipeline,
+    isSavedAgentRefDangling,
     PipelineDefinition,
     PipelineStage,
 } from '../../../agent/pipeline/PipelineDefinition';
@@ -80,6 +81,68 @@ describe('PipelineDefinition', () => {
             const noLibPipeline: PipelineDefinition = { id: 'p', stages: [] };
             expect(() => resolveStageAgent({ agentId: 'any' }, noLibPipeline))
                 .toThrow("agentId 'any'");
+        });
+
+        // ── savedAgentId (global CustomAgentStore reference) ────────────
+        describe('savedAgentId resolution', () => {
+            const savedAgent = { id: 'saved-x', name: 'Saved X', source: 'inline' as const, promptContent: 'from-library' };
+            const resolver = (id: string) => (id === 'saved-x' ? savedAgent : undefined);
+
+            it('resolves savedAgentId via the resolver', () => {
+                const result = resolveStageAgent({ savedAgentId: 'saved-x' }, pipeline, resolver);
+                expect(result.name).toBe('Saved X');
+                expect(result.promptContent).toBe('from-library');
+            });
+
+            it('prefers savedAgentId over agentId and inline agent when all three are set', () => {
+                const inline = { id: 'i', name: 'Inline', source: 'inline' as const };
+                const result = resolveStageAgent(
+                    { savedAgentId: 'saved-x', agentId: 'agent-a', agent: inline },
+                    pipeline,
+                    resolver,
+                );
+                expect(result.name).toBe('Saved X');
+            });
+
+            it('falls back to inline agent when savedAgentId is dangling', () => {
+                const stale = { id: 'stale', name: 'Stale Snapshot', source: 'inline' as const };
+                const result = resolveStageAgent(
+                    { savedAgentId: 'missing', agent: stale },
+                    pipeline,
+                    resolver,
+                );
+                expect(result.name).toBe('Stale Snapshot');
+            });
+
+            it('throws when savedAgentId is dangling and no inline fallback exists', () => {
+                expect(() => resolveStageAgent({ savedAgentId: 'missing' }, pipeline, resolver))
+                    .toThrow("savedAgentId 'missing'");
+            });
+
+            it('treats savedAgentId as dangling when no resolver is supplied', () => {
+                expect(() => resolveStageAgent({ savedAgentId: 'saved-x' }, pipeline))
+                    .toThrow("savedAgentId 'saved-x'");
+            });
+        });
+
+        describe('isSavedAgentRefDangling', () => {
+            const resolver = (id: string) => (id === 'ok' ? { id: 'ok', name: 'OK', source: 'inline' as const } : undefined);
+
+            it('returns false when stage has no savedAgentId', () => {
+                expect(isSavedAgentRefDangling({}, resolver)).toBe(false);
+            });
+
+            it('returns false when the reference resolves', () => {
+                expect(isSavedAgentRefDangling({ savedAgentId: 'ok' }, resolver)).toBe(false);
+            });
+
+            it('returns true when the reference does not resolve', () => {
+                expect(isSavedAgentRefDangling({ savedAgentId: 'missing' }, resolver)).toBe(true);
+            });
+
+            it('returns true when no resolver is supplied', () => {
+                expect(isSavedAgentRefDangling({ savedAgentId: 'ok' })).toBe(true);
+            });
         });
     });
 
@@ -174,6 +237,14 @@ describe('PipelineDefinition', () => {
                 id: 'valid',
                 stages: [{ agentId: 'agent-a' }],
                 agents: [{ id: 'agent-a', name: 'A', source: 'inline' }],
+            };
+            expect(() => validatePipeline(pipeline)).not.toThrow();
+        });
+
+        it('accepts a valid pipeline with only savedAgentId references (no library, no inline)', () => {
+            const pipeline: PipelineDefinition = {
+                id: 'valid-saved',
+                stages: [{ savedAgentId: 'saved-1' }],
             };
             expect(() => validatePipeline(pipeline)).not.toThrow();
         });

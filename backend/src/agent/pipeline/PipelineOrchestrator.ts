@@ -9,6 +9,7 @@ import {
     resolveRejectTarget,
     getEffectiveMaxRetries,
     validatePipeline,
+    SavedAgentResolver,
 } from './PipelineDefinition';
 import { getBuiltinAgent, getPaletteEntry } from './builtinAgents';
 import { AgentRunner, AgentConfig, InvestigationState, PipelineState, PipelineStageState, StageContext } from '../Runner';
@@ -36,11 +37,13 @@ export class PipelineOrchestrator extends EventEmitter {
     private aborted: boolean = false;
     private currentRunner: AgentRunner | null = null;
     private pendingInterventions: string[] = [];
+    private savedAgentResolver?: SavedAgentResolver;
 
     constructor(
         pipeline: PipelineDefinition,
         llmProvider: LlmProvider,
-        baseConfig: AgentConfig
+        baseConfig: AgentConfig,
+        savedAgentResolver?: SavedAgentResolver
     ) {
         super();
         validatePipeline(pipeline);
@@ -48,6 +51,7 @@ export class PipelineOrchestrator extends EventEmitter {
         this.pipeline = pipeline;
         this.llmProvider = llmProvider;
         this.baseConfig = baseConfig;
+        this.savedAgentResolver = savedAgentResolver;
 
         // Initialize pipeline state
         this.pipelineState = {
@@ -510,7 +514,7 @@ export class PipelineOrchestrator extends EventEmitter {
     // ─── Private helpers ───
 
     private resolveAgent(stage: PipelineStage, index: number): AgentDefinition {
-        const agentDef = resolveStageAgent(stage, this.pipeline);
+        const agentDef = resolveStageAgent(stage, this.pipeline, this.savedAgentResolver);
 
         // For builtin agents, resolve the full definition
         if (agentDef.source === 'builtin' && agentDef.builtinType) {

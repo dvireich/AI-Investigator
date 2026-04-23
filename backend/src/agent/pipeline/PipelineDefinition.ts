@@ -8,12 +8,27 @@ import { AgentDefinition } from './AgentDefinition';
  */
 export interface PipelineStage {
     /**
+     * Reference to an agent in the **global saved-agent library** (CustomAgentStore),
+     * by the SavedAgent's `id`. Resolved at pipeline build time so that edits to
+     * the library propagate to every workflow that references it.
+     *
+     * Resolution precedence: `savedAgentId` > `agentId` > inline `agent`.
+     * If `savedAgentId` is set but the referenced agent cannot be resolved
+     * (e.g. the saved agent was deleted), the inline `agent` — if present —
+     * is used as a fallback so the workflow still runs.
+     */
+    savedAgentId?: string;
+
+    /**
      * Reference to an agent defined in `PipelineDefinition.agents` by its `id`.
      * Mutually preferred over `agent` (inline) — if both are set, `agentId` wins.
      */
     agentId?: string;
 
-    /** Inline agent definition. Used when `agentId` is not set. */
+    /**
+     * Inline agent definition. Used when `agentId` is not set,
+     * or as a fallback when `savedAgentId` cannot be resolved.
+     */
     agent?: AgentDefinition;
 
     /**
@@ -89,14 +104,39 @@ export interface PipelineDefinition {
 const MAX_RETRIES_CAP = 5;
 
 /**
+ * Callback for resolving a saved agent id against the global CustomAgentStore.
+ * Returns the agent definition or `undefined` if the id is not found.
+ */
+export type SavedAgentResolver = (savedAgentId: string) => AgentDefinition | undefined;
+
+/**
  * Resolve the AgentDefinition for a given pipeline stage.
- * Looks up `agentId` in the pipeline's agent library, or returns the inline `agent`.
- * Throws if neither is provided or the referenced agent is not found.
+ *
+ * Precedence:
+ *   1. `stage.savedAgentId` resolved via `savedAgentResolver` (if provided and found)
+ *   2. `stage.agentId` looked up in `pipeline.agents`
+ *   3. inline `stage.agent` — also used as fallback for a dangling `savedAgentId`
+ *
+ * Throws if none of the above produce an agent.
  */
 export function resolveStageAgent(
     stage: PipelineStage,
-    pipeline: PipelineDefinition
+    pipeline: PipelineDefinition,
+    savedAgentResolver?: SavedAgentResolver
 ): AgentDefinition {
+    if (stage.savedAgentId) {
+        const resolved = savedAgentResolver?.(stage.savedAgentId);
+        if (resolved) {
+            return resolved;
+        }
+        // Dangling saved-agent reference — fall back to inline snapshot if present.
+        if (stage.agent) {
+            return stage.agent;
+        }
+        throw new Error(
+            `Pipeline stage references savedAgentId '${stage.savedAgentId}' but no saved agent with that id exists and no inline fallback was provided.`
+        );
+    }
     if (stage.agentId) {
         const found = pipeline.agents?.find(a => a.id === stage.agentId);
         if (!found) {
@@ -110,8 +150,21 @@ export function resolveStageAgent(
         return stage.agent;
     }
     throw new Error(
-        'Pipeline stage must have either an `agentId` (referencing the agents library) or an inline `agent` definition.'
+        'Pipeline stage must have either a `savedAgentId`, an `agentId` (referencing the agents library), or an inline `agent` definition.'
     );
+}
+
+/**
+ * Returns true if the stage references a `savedAgentId` that the resolver cannot find.
+ * Useful for surfacing UI warnings / diagnostics on dangling references.
+ */
+export function isSavedAgentRefDangling(
+    stage: PipelineStage,
+    savedAgentResolver?: SavedAgentResolver
+): boolean {
+    if (!stage.savedAgentId) return false;
+    if (!savedAgentResolver) return true;
+    return savedAgentResolver(stage.savedAgentId) === undefined;
 }
 
 /**
@@ -164,10 +217,10 @@ export function validatePipeline(pipeline: PipelineDefinition): void {
     for (let i = 0; i < pipeline.stages.length; i++) {
         const stage = pipeline.stages[i];
 
-        // Must have either agentId or inline agent
-        if (!stage.agentId && !stage.agent) {
+        // Must have either savedAgentId, agentId, or inline agent
+        if (!stage.savedAgentId && !stage.agentId && !stage.agent) {
             throw new Error(
-                `Pipeline stage ${i} must have either 'agentId' or 'agent'.`
+                `Pipeline stage ${i} must have either 'savedAgentId', 'agentId', or 'agent'.`
             );
         }
 

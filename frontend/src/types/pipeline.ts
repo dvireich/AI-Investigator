@@ -108,6 +108,12 @@ export interface ConversationEntry {
 }
 
 export interface PipelineStage {
+    /**
+     * Reference to a saved agent in the global CustomAgentStore (by SavedAgent.id).
+     * When set, this is the source of truth for the stage's agent; the optional
+     * inline `agent` is only a fallback snapshot used if the reference is dangling.
+     */
+    savedAgentId?: string;
     agentId?: string;
     agent?: AgentDefinition;
     canReject?: boolean;

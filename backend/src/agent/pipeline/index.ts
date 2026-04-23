@@ -6,6 +6,8 @@ export {
     resolveRejectTarget,
     getEffectiveMaxRetries,
     validatePipeline,
+    isSavedAgentRefDangling,
+    SavedAgentResolver,
 } from './PipelineDefinition';
 export {
     AGENT_PALETTE,
