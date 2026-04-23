@@ -2829,19 +2829,13 @@ app.delete('/api/investigations/:id', async (req, res) => {
     }
 
     const investigation = history.get(id);
-    if (!investigation) {
-        return res.status(404).json({ error: 'Investigation not found' });
-    }
 
     // Single global investigations directory (per-product directories were removed).
     const investigationsDir = getGlobalInvestigationsDir();
 
-    history.delete(id);
-
-    // Remove from disk - folder is named ${timestamp}_${safeTarget}_${safeId}
+    // Locate the on-disk folder (may exist even when the in-memory entry was evicted).
     const safeId = id.replace(/[^a-zA-Z0-9]/g, '');
     let dirPath: string | null = null;
-
     try {
         const entries = fs.readdirSync(investigationsDir);
         const match = entries.find(e => e.endsWith(`_${safeId}`));
@@ -2853,6 +2847,17 @@ app.delete('/api/investigations/:id', async (req, res) => {
     }
 
     const jsonPath = path.join(investigationsDir, `${id}.json`);
+    const hasDiskArtifacts: boolean = !!(
+        (dirPath && fs.existsSync(dirPath)) ||
+        fs.existsSync(jsonPath)
+    );
+
+    // 404 only when nothing exists anywhere — memory, disk, or active runner.
+    if (!investigation && !hasDiskArtifacts && !runner) {
+        return res.status(404).json({ error: 'Investigation not found' });
+    }
+
+    history.delete(id);
 
     try {
         if (dirPath && fs.existsSync(dirPath) && fs.statSync(dirPath).isDirectory()) {
