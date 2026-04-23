@@ -76,13 +76,17 @@ describe('PipelineBuilder – Saved Agents', () => {
         const { onChange } = renderBuilder();
         await waitFor(() => expect(screen.getByText('Security Reviewer')).toBeInTheDocument());
         fireEvent.click(screen.getByText('Security Reviewer'));
+        // Saved agents are stored ONLY by reference — no inline snapshot duplication.
         expect(onChange).toHaveBeenCalledWith(
             expect.objectContaining({
                 stages: expect.arrayContaining([
-                    expect.objectContaining({ agent: expect.objectContaining({ name: 'Security Reviewer' }) }),
+                    expect.objectContaining({ savedAgentId: 'sa-1' }),
                 ]),
             }),
         );
+        const emitted = onChange.mock.calls[0][0];
+        const stage = emitted.stages[0];
+        expect(stage.agent).toBeUndefined();
     });
 
     it('deletes a saved agent when the X badge is clicked', async () => {

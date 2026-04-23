@@ -67,8 +67,8 @@ describe('PipelineDefinition', () => {
             expect(result.name).toBe('Inline');
         });
 
-        it('throws when neither agentId nor agent is provided', () => {
-            expect(() => resolveStageAgent({}, pipeline)).toThrow('must have either');
+        it('throws when stage has no agent source at all', () => {
+            expect(() => resolveStageAgent({}, pipeline)).toThrow('must have exactly one');
         });
 
         it('prefers agentId over inline agent when both set', () => {
@@ -94,32 +94,12 @@ describe('PipelineDefinition', () => {
                 expect(result.promptContent).toBe('from-library');
             });
 
-            it('prefers savedAgentId over agentId and inline agent when all three are set', () => {
-                const inline = { id: 'i', name: 'Inline', source: 'inline' as const };
-                const result = resolveStageAgent(
-                    { savedAgentId: 'saved-x', agentId: 'agent-a', agent: inline },
-                    pipeline,
-                    resolver,
-                );
-                expect(result.name).toBe('Saved X');
-            });
-
-            it('falls back to inline agent when savedAgentId is dangling', () => {
-                const stale = { id: 'stale', name: 'Stale Snapshot', source: 'inline' as const };
-                const result = resolveStageAgent(
-                    { savedAgentId: 'missing', agent: stale },
-                    pipeline,
-                    resolver,
-                );
-                expect(result.name).toBe('Stale Snapshot');
-            });
-
-            it('throws when savedAgentId is dangling and no inline fallback exists', () => {
+            it('throws when savedAgentId is dangling (no inline fallback in the strict model)', () => {
                 expect(() => resolveStageAgent({ savedAgentId: 'missing' }, pipeline, resolver))
                     .toThrow("savedAgentId 'missing'");
             });
 
-            it('treats savedAgentId as dangling when no resolver is supplied', () => {
+            it('throws when no resolver is supplied', () => {
                 expect(() => resolveStageAgent({ savedAgentId: 'saved-x' }, pipeline))
                     .toThrow("savedAgentId 'saved-x'");
             });
@@ -259,9 +239,17 @@ describe('PipelineDefinition', () => {
                 .toThrow('at least one stage');
         });
 
-        it('throws when stage has neither agentId nor agent', () => {
+        it('throws when stage has no agent source', () => {
             expect(() => validatePipeline({ id: 'test', stages: [{}] }))
-                .toThrow("stage 0 must have either");
+                .toThrow("stage 0 must have exactly one");
+        });
+
+        it('throws when stage has multiple agent sources at once', () => {
+            const pipeline: PipelineDefinition = {
+                id: 'test',
+                stages: [{ savedAgentId: 's', agent: { id: 'a', name: 'A', source: 'inline' } }],
+            };
+            expect(() => validatePipeline(pipeline)).toThrow('got multiple');
         });
 
         it('throws when agentId not in library', () => {

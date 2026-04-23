@@ -92,19 +92,12 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
     }, [value, onChange]);
 
     const addStage = useCallback((agent: AgentDefinition, savedId?: string) => {
-        // Strip any legacy `_savedId` hint that may be present on a palette-sourced agent
-        // so the inline snapshot stays clean; the stage-level `savedAgentId` is authoritative.
-        const { _savedId: _legacyHint, ...cleanAgent } = agent as AgentDefinition & { _savedId?: string };
+        // When the agent comes from the saved-agent library, store ONLY the reference.
+        // The library (CustomAgentStore) is the single source of truth — no inline copy.
+        // Otherwise (builtin agents, one-off custom agents), store the inline definition.
         const newStage: PipelineStage = savedId
-            ? {
-                savedAgentId: savedId, // live reference to the global library
-                agent: { ...cleanAgent }, // kept only as a fallback snapshot for dangling refs
-                inputMode: 'conversation',
-            }
-            : {
-                agent: { ...cleanAgent },
-                inputMode: 'conversation',
-            };
+            ? { savedAgentId: savedId, inputMode: 'conversation' }
+            : { agent: { ...agent }, inputMode: 'conversation' };
         updatePipeline([...stages, newStage]);
     }, [stages, updatePipeline]);
 
@@ -120,14 +113,13 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
     }, [stages, updatePipeline]);
 
     const updateStageAgent = useCallback((index: number, agent: AgentDefinition) => {
-        // Editing the inline agent definition breaks the link to any referenced saved agent —
-        // the stage now has an edited divergent copy. Drop `savedAgentId` so the refactor
-        // invariant ("savedAgentId is authoritative when set") still holds.
-        const { _savedId: _legacy, ...cleanAgent } = agent as AgentDefinition & { _savedId?: string };
+        // Editing the inline agent definition converts a library-linked stage into
+        // a standalone inline stage: the edit has diverged from the library, so the
+        // `savedAgentId` reference is dropped and the inline copy takes over.
         const newStages = stages.map((s, i) => {
             if (i !== index) return s;
             const { savedAgentId: _dropped, ...rest } = s;
-            return { ...rest, agent: cleanAgent };
+            return { ...rest, agent };
         });
         updatePipeline(newStages);
     }, [stages, updatePipeline]);
@@ -449,14 +441,14 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                 isDragging={dragIndex === index}
                                 isExpanded={editingStageIndex === index}
                                 readOnly={readOnly}
+                                resolvedAgent={resolveStageAgentDef(stage)}
                                 hasSavedRef={!!stage.savedAgentId}
                                 isDangling={isStageRefDangling(stage)}
                                 onToggleExpand={() => setEditingStageIndex(editingStageIndex === index ? null : index)}
                                 onRemove={() => removeStage(index)}
                                 onUpdate={(patch) => updateStage(index, patch)}
                                 onEditAgent={() => {
-                                    const liveAgent = resolveStageAgentDef(stage);
-                                    const agent = liveAgent || stage.agent;
+                                    const agent = resolveStageAgentDef(stage);
                                     if (agent) {
                                         if (agent.source === 'builtin') {
                                             const full = builtinAgents.find(a => a.builtinType === agent.builtinType) || agent;
@@ -860,6 +852,8 @@ const StageCard: React.FC<{
     isDragging: boolean;
     isExpanded: boolean;
     readOnly?: boolean;
+    /** The live-resolved agent definition for this stage (saved-lib lookup or inline). Undefined when dangling. */
+    resolvedAgent?: AgentDefinition;
     /** True when the stage is backed by a live saved-agent reference. */
     hasSavedRef?: boolean;
     /** True when the stage has a savedAgentId that can't be resolved in the library. */
@@ -874,7 +868,7 @@ const StageCard: React.FC<{
     onDragEnd: () => void;
 }> = React.memo(({
     stage, index, total, color, icon, label, isDragging, isExpanded, readOnly,
-    hasSavedRef, isDangling,
+    resolvedAgent, hasSavedRef, isDangling,
     onToggleExpand, onRemove, onUpdate, onEditAgent,
     onDragStart, onDragOver, onDrop, onDragEnd,
 }) => {
@@ -924,15 +918,15 @@ const StageCard: React.FC<{
                         {isDangling && (
                             <span
                                 className="ml-1.5 align-middle inline-flex items-center gap-0.5 text-[9px] font-medium text-amber-300 bg-amber-900/30 border border-amber-700/40 px-1 py-0 rounded"
-                                title="This stage references a saved agent that no longer exists in your library. Running it falls back to the embedded snapshot."
+                                title="This stage references a saved agent that no longer exists in your library. The workflow will fail to run until the agent is restored or the stage is replaced."
                             >
                                 <AlertTriangle size={8} /> unlinked
                             </span>
                         )}
                     </span>
                     <span className="text-[10px] text-slate-500">
-                        {stage.agent?.source || 'inline'}
-                        {stage.agent?.builtinType && ` · ${stage.agent.builtinType}`}
+                        {resolvedAgent?.source || 'inline'}
+                        {resolvedAgent?.builtinType && ` · ${resolvedAgent.builtinType}`}
                         {stage.canReject && (
                             <span className="ml-1.5 text-amber-400">⚡ can reject</span>
                         )}

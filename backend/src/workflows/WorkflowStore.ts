@@ -112,44 +112,13 @@ export class WorkflowStore {
         if (!fs.existsSync(this.filePath)) return; // nothing to load
         try {
             const data: SavedWorkflow[] = JSON.parse(fs.readFileSync(this.filePath, 'utf-8')); // parse JSON
-            let migrated: boolean = false; // tracks whether any workflow was rewritten by the legacy-_savedId migration
             for (const w of data) { // populate map
-                if (this.migrateLegacySavedId(w)) { // migrate stage-level _savedId hints into savedAgentId references
-                    migrated = true;
-                }
                 this.workflows.set(w.id, w);
             }
             console.log(`[WorkflowStore] Loaded ${this.workflows.size} saved workflow(s) from disk.`); // startup log
-            if (migrated) { // persist the migration so it only runs once
-                this.save();
-                console.log('[WorkflowStore] Migrated legacy _savedId hints to savedAgentId references.');
-            }
         } catch (e) {
             console.error('[WorkflowStore] Failed to load workflows from disk:', e); // log but don't crash
         }
-    }
-
-    /// <summary>
-    /// Legacy-format migration: older workflows stored the saved-agent id as
-    /// `stage.agent._savedId` (a frontend-only hint that leaked into persistence).
-    /// Promote it to the first-class `stage.savedAgentId` field and strip the hint
-    /// from the inline agent copy. Returns true if the workflow was modified.
-    /// </summary>
-    private migrateLegacySavedId(workflow: SavedWorkflow): boolean {
-        let changed: boolean = false; // whether this workflow needed any mutation
-        const stages: any[] = (workflow.pipeline?.stages as any[]) || []; // stages may be undefined in malformed data
-        for (const stage of stages) { // each stage is independent
-            const inlineAgent: any = stage?.agent; // inline agent snapshot may hold the legacy hint
-            const legacyId: unknown = inlineAgent?._savedId; // legacy hint field
-            if (typeof legacyId === 'string' && legacyId.length > 0) { // only migrate when hint is a non-empty string
-                if (!stage.savedAgentId) { // don't overwrite an explicit new-field value
-                    stage.savedAgentId = legacyId; // promote to first-class field
-                }
-                delete inlineAgent._savedId; // strip the legacy hint from the inline copy
-                changed = true; // mark for persistence
-            }
-        }
-        return changed;
     }
 }
 
