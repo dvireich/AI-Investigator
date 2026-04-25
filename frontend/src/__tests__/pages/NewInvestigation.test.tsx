@@ -2394,7 +2394,68 @@ describe('NewInvestigation workflow presets', () => {
         expect(screen.getByText('CONFIGURED')).toBeInTheDocument();
     });
 
-    // ── Saved Workflows in NewInvestigation ─────────────────────────
+    it('resolves stage agent via savedAgentId in saved workflow card and configured pipeline card', async () => {
+        const { api } = await import('../../api');
+        const savedAgentDef = {
+            id: 'agent-saved-ni',
+            name: 'NIAgentSaved',
+            source: 'inline' as const,
+            color: '#abcdef',
+            icon: '🛠',
+            promptContent: 'x',
+        };
+        vi.mocked(api.getSavedAgents).mockResolvedValue([
+            { id: 'sa-ni-1', name: 'NIAgentSaved', icon: '🛠', agent: savedAgentDef, createdAt: '', updatedAt: '' },
+        ] as any);
+        vi.mocked(api.getPipelineBuiltins).mockResolvedValue([
+            { id: 'a1', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#3b82f6', icon: '🔍' },
+        ] as any);
+        vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+            {
+                id: 'sw-saved-ni',
+                name: 'WF Saved NI',
+                description: '',
+                icon: '🚀',
+                pipeline: {
+                    id: 'p-saved-ni',
+                    name: 'WF Saved NI',
+                    // Include `agents` so `pipeline.agents?.find(...)` is exercised with a truthy match.
+                    agents: [{ id: 'a-wf', name: 'WFInline', source: 'inline' as const, color: '#777777', icon: '🅆', promptContent: 'q' }],
+                    stages: [
+                        { savedAgentId: 'sa-ni-1' },
+                        { agentId: 'a-wf' },
+                        // Falls through `pipeline.agents?.find` to `builtinAgents.find`.
+                        { agentId: 'a1' },
+                    ],
+                },
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+            },
+        ] as any);
+        vi.mocked(api.getSettings).mockResolvedValue({
+            model: 'gpt-4o',
+            timeRange: 'ago(1h)',
+            pipeline: {
+                id: 'configured-saved',
+                name: 'Configured With Saved',
+                // Include `agents` so `configuredPipeline.agents?.find(...)` is exercised with a truthy match.
+                agents: [{ id: 'a-cfg', name: 'CfgInline', source: 'inline' as const, color: '#888888', icon: '🅲', promptContent: 'r' }],
+                stages: [
+                    { savedAgentId: 'sa-ni-1' },
+                    { agentId: 'a-cfg' },
+                    // Falls through to builtins.
+                    { agentId: 'a1' },
+                ],
+            },
+        } as any);
+
+        renderNewInvestigation();
+        // Both the saved workflow card and the Default Pipeline card render badges with title="NIAgentSaved".
+        await waitFor(() => {
+            const badges = document.querySelectorAll('span[title="NIAgentSaved"]');
+            expect(badges.length).toBeGreaterThanOrEqual(2);
+        });
+    });
 
     it('renders saved workflows when available and allows selection', async () => {
         const { api } = await import('../../api');

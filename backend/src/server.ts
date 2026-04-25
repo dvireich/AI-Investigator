@@ -461,7 +461,7 @@ export function getInvestigationStoragePath(state: { id: string; target?: string
 // Promise that resolves once `loadHistory()` has populated the in-memory
 // history map. Routes that depend on history can `await historyReady` so the
 // HTTP server can start accepting connections immediately on cold start.
-let historyReadyResolve: () => void = () => {};
+let historyReadyResolve!: () => void;
 export let historyReady: Promise<void> = new Promise<void>((resolve) => { historyReadyResolve = resolve; });
 let historyHasLoaded: boolean = false;
 
@@ -1078,16 +1078,17 @@ initializeProviders();
 // to bind the HTTP server. This keeps cheap endpoints (/api/version,
 // /api/auth/status, /api/settings, /api/onboarding/status) responsive on
 // cold start. Routes that read `history` are gated by `whenHistoryReady`.
-setImmediate(() => {
+export function runDeferredHistoryLoad(loader: () => void = loadHistory): void {
     try {
-        loadHistory();
+        loader();
     } catch (e) {
         console.error('Initial loadHistory() failed:', e);
         // Resolve the gate so requests don't hang forever on a load failure.
         historyHasLoaded = true;
         historyReadyResolve();
     }
-});
+}
+setImmediate(() => runDeferredHistoryLoad());
 
 // Version / update API
 import { getVersionStatus, setUpdateManifestUrl } from './utils/updateChecker';
@@ -2608,6 +2609,7 @@ app.post('/api/investigations/:id/model', async (req, res) => {
     if (!model) return res.status(400).json({ error: 'Model is required' });
 
     let runner = runners.get(id);
+    const orchestrator = pipelineOrchestrators.get(id);
 
     // If runner is not active (paused/stopped), we update the history state directly
     if (!runner && history.has(id)) {
@@ -2623,6 +2625,13 @@ app.post('/api/investigations/:id/model', async (req, res) => {
 
     console.log(`[Model Switch] Updating active investigation ${id} to model ${model}`);
     runner.setModel(model);
+
+    // For pipeline investigations, the anchor runner doesn't actually execute the
+    // LLM calls — the orchestrator's per-stage runners do. Propagate the switch so
+    // subsequent stages (and any in-flight stage runner) pick up the new model.
+    if (orchestrator) {
+        orchestrator.setModel(model);
+    }
 
     // Broadcast status update if needed, but setModel adds a thought which triggers broadcast
     res.json({ status: 'ok', model });
@@ -4459,6 +4468,19 @@ export const __testUtils = {
     setCustomAgentStore: (store: CustomAgentStore | null) => {
         customAgentStore = store;
     },
+    /**
+     * Test helper: forces the history-ready gate back to its pre-load state so
+     * the queued path through `whenHistoryReady` can be exercised.
+     */
+    resetHistoryReadyGate: () => {
+        historyHasLoaded = false;
+        historyReady = new Promise<void>((resolve) => { historyReadyResolve = resolve; });
+    },
+    /**
+     * Test helper: returns the current value of the internal `historyHasLoaded`
+     * flag so tests can assert the catch branch of `runDeferredHistoryLoad`.
+     */
+    isHistoryGateOpen: () => historyHasLoaded,
     getScheduleStore: () => scheduleStore,
     getScheduler: () => scheduler,
     getQueryBankStore: () => queryBankStore,

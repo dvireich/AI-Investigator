@@ -3739,6 +3739,86 @@ describe('Settings extra coverage', () => {
             expect(screen.getByText('can reject')).toBeInTheDocument();
         });
 
+        it('resolves stage agent via savedAgentId in selected pipeline preview and saved-workflow card', async () => {
+            const { api } = await import('../../api');
+            const savedAgentDef = {
+                id: 'agent-from-saved',
+                name: 'SavedLibAgent',
+                source: 'inline' as const,
+                color: '#abcdef',
+                icon: '🛠',
+                promptContent: 'x',
+            };
+            vi.mocked(api.getSavedAgents).mockResolvedValue([
+                { id: 'sa-1', name: 'SavedLibAgent', icon: '🛠', agent: savedAgentDef, createdAt: '', updatedAt: '' },
+            ] as any);
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue(mockBuiltinAgents as any);
+            // Pipeline (Selected Pipeline Preview) references the saved agent by savedAgentId.
+            vi.mocked(api.getSettings).mockResolvedValueOnce({
+                model: 'gpt-4o',
+                maxSteps: 50,
+                pipeline: {
+                    id: 'p1',
+                    name: 'WithSaved',
+                    // Include `agents` so the pipelineAgents?.find branch (line 1273) is exercised with a truthy match.
+                    agents: [{ id: 'a1', name: 'PipelineAgent', source: 'inline' as const, color: '#123456', icon: '🅿', promptContent: 'p' }],
+                    stages: [
+                        { savedAgentId: 'sa-1' },
+                        { agentId: 'a1' },
+                        // Triggers the right-hand `|| builtinAgents.find` arm: a2 is not in `pipeline.agents` but is in builtins.
+                        { agentId: 'a2' },
+                    ],
+                },
+            } as any);
+            // Saved workflow card also exercises the same resolver in the Default Pipeline section.
+            vi.mocked(api.getSavedWorkflows).mockResolvedValue([
+                {
+                    id: 'sw-saved',
+                    name: 'WF With Saved Agent',
+                    description: '',
+                    icon: '🚀',
+                    pipeline: {
+                        id: 'p2',
+                        name: 'WF With Saved Agent',
+                        // Include `agents` so the pipelineAgents?.find branch (line 1070) is exercised with a truthy match.
+                        agents: [{ id: 'a2', name: 'WFPipelineAgent', source: 'inline' as const, color: '#234567', icon: '🅆', promptContent: 'q' }],
+                        stages: [
+                            { savedAgentId: 'sa-1' },
+                            { agentId: 'a2' },
+                            // Triggers the right-hand `|| builtinAgents.find` arm: a1 is not in `pipeline.agents` but is in builtins.
+                            { agentId: 'a1' },
+                        ],
+                    },
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                },
+                // Second workflow has no `agents` field so the optional-chain `?.` short-circuit branch is exercised.
+                {
+                    id: 'sw-saved-2',
+                    name: 'WF No Agents Field',
+                    description: '',
+                    icon: '🚀',
+                    pipeline: {
+                        id: 'p3',
+                        name: 'WF No Agents Field',
+                        stages: [
+                            { agentId: 'a1' },
+                        ],
+                    },
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString(),
+                },
+            ] as any);
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Pipeline'));
+            // Selected Pipeline Preview renders the saved agent's name once stages resolve.
+            await waitFor(() => {
+                expect(screen.getAllByText('SavedLibAgent').length).toBeGreaterThan(0);
+            });
+        });
+
         it('manages saved workflows — edit opens modal', async () => {
             const { api } = await import('../../api');
             vi.mocked(api.getSavedWorkflows).mockResolvedValue([mockSavedWorkflow] as any);

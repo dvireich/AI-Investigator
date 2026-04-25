@@ -868,4 +868,35 @@ describe('Layout additional coverage', () => {
         const main = document.querySelector('main');
         expect(main?.className).not.toContain('pt-[4.5rem]');
     });
+
+    it('re-checks auth when navigating away from /settings', async () => {
+        const { api } = await import('../../api');
+        const { useNavigate } = await import('react-router-dom');
+        // Helper component to programmatically navigate from inside the router context.
+        const Navigator = ({ to }: { to: string }) => {
+            const navigate = useNavigate();
+            return <button onClick={() => navigate(to)}>go-{to}</button>;
+        };
+        vi.mocked(api.getAuthStatus).mockResolvedValue({
+            authenticated: true,
+            providerType: 'copilot',
+            authRequirement: { type: 'oauth-device-flow' },
+            user: { login: 'u', name: 'U', avatar_url: '' },
+        } as any);
+
+        const user = userEvent.setup();
+        render(
+            <ToastProvider>
+                <MemoryRouter initialEntries={['/settings']}>
+                    <Layout />
+                    <Navigator to="/" />
+                </MemoryRouter>
+            </ToastProvider>
+        );
+        // Initial mount calls getAuthStatus once.
+        await waitFor(() => expect(api.getAuthStatus).toHaveBeenCalledTimes(1));
+        // Navigating away from /settings triggers the re-check branch (lines 55-56).
+        await user.click(screen.getByText('go-/'));
+        await waitFor(() => expect(api.getAuthStatus).toHaveBeenCalledTimes(2));
+    });
 });

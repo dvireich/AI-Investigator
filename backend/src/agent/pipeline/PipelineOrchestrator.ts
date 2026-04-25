@@ -505,6 +505,22 @@ export class PipelineOrchestrator extends EventEmitter {
     }
 
     /**
+     * Switch the LLM model used by all subsequent stage runners (and the
+     * currently-active stage runner, if any). This propagates a user-initiated
+     * model switch from the API endpoint into the pipeline's per-stage runners,
+     * which were otherwise pinned to the model from `baseConfig` at construction.
+     *
+     * Note: per-agent `modelOverride` (set on individual AgentDefinitions) still
+     * wins over the pipeline-level model.
+     */
+    setModel(model: string): void {
+        this.baseConfig.model = model;
+        if (this.currentRunner) {
+            this.currentRunner.setModel(model);
+        }
+    }
+
+    /**
      * Get current pipeline state (for API polling).
      */
     getPipelineState(): PipelineState {

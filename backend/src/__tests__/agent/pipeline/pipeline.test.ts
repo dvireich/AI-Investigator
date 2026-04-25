@@ -917,6 +917,25 @@ describe('PipelineOrchestrator', () => {
         });
     });
 
+    describe('setModel', () => {
+        it('updates baseConfig.model so subsequent stages pick up the switch', () => {
+            const cfg: any = { ...baseConfig, model: 'old-model' };
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, cfg);
+            orch.setModel('new-model');
+            expect(cfg.model).toBe('new-model');
+        });
+
+        it('forwards the model switch to the currently-active stage runner', () => {
+            const cfg: any = { ...baseConfig, model: 'old-model' };
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, cfg);
+            const setModelSpy = vi.fn();
+            (orch as any).currentRunner = { setModel: setModelSpy };
+            orch.setModel('new-model');
+            expect(cfg.model).toBe('new-model');
+            expect(setModelSpy).toHaveBeenCalledWith('new-model');
+        });
+    });
+
     describe('run', () => {
         it('emits stage-start and stage-complete events', async () => {
             const pipeline = makePipeline([
