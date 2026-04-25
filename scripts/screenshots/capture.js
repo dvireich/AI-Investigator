@@ -121,10 +121,10 @@ async function captureDashboardOverview(page) {
     await navigateTo(page, '/');
     // Wait for investigation cards to render
     await page.waitForTimeout(1200);
-    // Ensure list view is active so investigations are visible as rows
-    const listBtn = page.locator('button[title*="List"], button[aria-label*="list"], button:has(svg.lucide-list)').first();
-    if (await listBtn.isVisible()) {
-        await listBtn.click();
+    // Ensure grid view is active (the default) so screenshots showcase the card layout
+    const gridBtn = page.locator('button[title*="Grid"], button[aria-label*="grid"], button:has(svg.lucide-layout-grid)').first();
+    if (await gridBtn.isVisible()) {
+        await gridBtn.click();
         await page.waitForTimeout(600);
     }
     await screenshot(page, 'dashboard-overview', { fullPage: true });
@@ -1043,8 +1043,8 @@ async function startVite() {
 
         let started = false;
         const timeout = setTimeout(() => {
-            if (!started) reject(new Error('Vite did not start within 30s'));
-        }, 30000);
+            if (!started) reject(new Error('Vite did not start within 60s'));
+        }, 60000);
 
         viteProcess.stdout.on('data', (data) => {
             const text = data.toString();
@@ -1061,7 +1061,7 @@ async function startVite() {
         viteProcess.stderr.on('data', (data) => {
             // Vite logs some things to stderr that are warnings, not errors
             const text = data.toString();
-            if (text.includes('EADDRINUSE')) {
+            if (text.includes('EADDRINUSE') || text.includes('already in use')) {
                 clearTimeout(timeout);
                 reject(new Error(`Port ${VITE_PORT} is already in use`));
             }
