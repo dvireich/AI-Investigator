@@ -1229,7 +1229,10 @@ export const NewInvestigation = () => {
                                                             </p>
                                                             <div className="flex flex-wrap gap-0.5 mt-1.5">
                                                                 {workflow.pipeline.stages.map((stage, i) => {
-                                                                    const agent = stage.agent;
+                                                                    const agent =
+                                                                        (stage.savedAgentId && savedAgents.find(sa => sa.id === stage.savedAgentId)?.agent)
+                                                                        || (stage.agentId && (workflow.pipeline.agents?.find(a => a.id === stage.agentId) || builtinAgents.find(a => a.id === stage.agentId)))
+                                                                        || stage.agent;
                                                                     const color = agent?.color || '#6b7280';
                                                                     const agentTitle = agent?.name || `Stage ${i + 1}`;
                                                                     const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
@@ -1287,7 +1290,10 @@ export const NewInvestigation = () => {
                                                             </p>
                                                             <div className="flex flex-wrap gap-0.5 mt-1.5">
                                                                 {configuredPipeline!.stages.map((stage, i) => {
-                                                                    const agent = stage.agent;
+                                                                    const agent =
+                                                                        (stage.savedAgentId && savedAgents.find(sa => sa.id === stage.savedAgentId)?.agent)
+                                                                        || (stage.agentId && (configuredPipeline!.agents?.find(a => a.id === stage.agentId) || builtinAgents.find(a => a.id === stage.agentId)))
+                                                                        || stage.agent;
                                                                     const color = agent?.color || '#6b7280';
                                                                     const agentTitle = agent?.name || `Stage ${i + 1}`;
                                                                     const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
