@@ -265,9 +265,9 @@ export default async function sceneGifTour(page) {
     }
 
     // ══════════════════════════════════════════════════════════════════
-    //  ACT 4: Settings — Pipeline Builder (16s)
+    //  ACT 4: Settings — Pipeline Builder (28s)
     // ══════════════════════════════════════════════════════════════════
-    console.log('    ⚙️  Act 4: Settings Pipeline');
+    console.log('    ⚙️  Act 4: Settings Pipeline Builder');
 
     await fadeTransition(page, async () => {
         await go(page, '/settings');
@@ -278,7 +278,7 @@ export default async function sceneGifTour(page) {
 
     await showCaption(page,
         'Settings',
-        'Nine configuration tabs — Products, Pipeline, Agents, Connections, Schedules, Analytics, and more.');
+        'Nine configuration tabs — Connections, Paths, Agent Behavior, Pipeline, Agents, Schedules, Analytics, Appearance, System.');
     await showCursor(page);
     await pause(3);
 
@@ -286,32 +286,91 @@ export default async function sceneGifTour(page) {
     const pipelineSettingsTab = page.locator('button:has-text("Pipeline")').first();
     if (await pipelineSettingsTab.isVisible().catch(() => false)) {
         await cursorClick(page, pipelineSettingsTab);
-        await pause(2);
+        await pause(1.5);
+
+        await showCaption(page,
+            'Default Pipeline',
+            'Pick a built-in preset as your default — Standard, Incident Response, Quick Health Check, Compliance Review, or none.');
+        await pause(3);
+    }
+
+    // Open the Pipeline Builder modal — the marquee feature.
+    const createWorkflowBtn = page.locator('button:has-text("Create New Workflow")').first();
+    if (await createWorkflowBtn.isVisible().catch(() => false)) {
+        await cursorClick(page, createWorkflowBtn);
+        await pause(1.5);
 
         await showCaption(page,
             'Pipeline Builder',
-            'Drag-and-drop agent stages with 14 built-in agents. Search the palette, set per-stage models and rejection loops.');
-        await pause(4);
+            'Compose your own multi-agent workflow. Pick an icon, name it, and chain agents from the palette.');
+        await pause(3);
 
-        // Scroll down to show the saved workflows section
-        // Settings uses container scroll, not window scroll
-        const scrollContainer = page.locator('div.overflow-y-auto.custom-scrollbar').first();
-        if (await scrollContainer.isVisible().catch(() => false)) {
-            const box = await scrollContainer.boundingBox();
-            if (box) {
-                await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-                for (let i = 0; i < 6; i++) {
-                    await page.mouse.wheel(0, 150);
-                    await pause(0.2);
-                }
+        // Type a workflow name
+        const wfName = page.locator('input[placeholder*="Custom Workflow"], input[placeholder*="My Custom"]').first();
+        if (await wfName.isVisible().catch(() => false)) {
+            await cursorType(page, wfName, 'Cert Rotation Audit', { delayMs: 35 });
+            await pause(0.8);
+        }
+
+        // Open icon picker
+        const iconSwatch = page.locator('text=Icon').first().locator('..').locator('button').first();
+        if (await iconSwatch.count() > 0) {
+            await showCaption(page,
+                'Icon Picker',
+                'Pick an emoji to make your workflow recognizable in the launcher and timeline.');
+            await cursorMoveTo(page, iconSwatch);
+            await iconSwatch.dispatchEvent('click').catch(() => {});
+            await pause(2);
+
+            // Pick the shield icon (🛡️) for the Cert Rotation workflow.
+            // The icon-picker grid sits inside an overlay modal; real mouse
+            // clicks can be intercepted, so move the cursor there for the
+            // viewer and then dispatch the click event directly.
+            const shieldIcon = page.locator('button:has-text("🛡️")').first();
+            if (await shieldIcon.count() > 0) {
+                await cursorMoveTo(page, shieldIcon);
+                await shieldIcon.dispatchEvent('click').catch(() => {});
+                await pause(1);
             }
         }
-        await pause(1);
+
+        // Add agents from the palette: Triage → Investigator → Validator
+        await showCaption(page,
+            'Agent Palette',
+            'Click any agent chip to drop it on the canvas — built-in agents, your saved agents, or define a brand-new custom one.');
+        for (const agentName of ['Triage', 'Investigator', 'Validator']) {
+            // AgentChip renders <button>...<span class="font-medium">{name}</span>...</button>.
+            const chip = page.locator(`button:has(span.font-medium:text-is("${agentName}"))`).first();
+            if (await chip.count() > 0) {
+                // Move the cursor for visual feedback, then dispatch a real
+                // click event — bypasses overlay pointer-event interception
+                // that auto-actionable .click() would hit.
+                await cursorMoveTo(page, chip);
+                await chip.dispatchEvent('click').catch(() => {});
+                await pause(0.7);
+            }
+        }
+        await pause(2);
+
+        // Close the modal — Cancel or X
+        const cancelBtn = page.locator('button:has-text("Cancel")').first();
+        if (await cancelBtn.count() > 0) {
+            await cursorMoveTo(page, cancelBtn);
+            await cancelBtn.dispatchEvent('click').catch(() => {});
+            await pause(0.8);
+        }
+    }
+
+    // Switch to the Agents tab — showcases the Agent Library
+    const agentsSettingsTab = page.locator('button:has-text("Agents")').filter({ hasNot: page.locator('text=Behavior') }).first();
+    if (await agentsSettingsTab.isVisible().catch(() => false)) {
+        await cursorClick(page, agentsSettingsTab);
+        await pause(1.5);
 
         await showCaption(page,
-            'Saved Custom Workflows',
-            'Create, edit, and delete your own workflows. They appear in the New Investigation selector automatically.');
-        await pause(4);
+            'Agent Library',
+            '14 built-in agents across investigation, validation, planning, and remediation. Add your own custom agents anytime.');
+        await pause(3);
     }
 
     // ══════════════════════════════════════════════════════════════════

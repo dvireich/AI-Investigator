@@ -188,12 +188,12 @@ describe('PipelineDefinition', () => {
             expect(getEffectiveMaxRetries({ maxRetries: 100 })).toBe(5);
         });
 
-        it('clamps negative to 0', () => {
-            expect(getEffectiveMaxRetries({ maxRetries: -3 })).toBe(0);
+        it('treats negative values as unlimited (Infinity)', () => {
+            expect(getEffectiveMaxRetries({ maxRetries: -3 })).toBe(Number.POSITIVE_INFINITY);
         });
 
-        it('handles zero', () => {
-            expect(getEffectiveMaxRetries({ maxRetries: 0 })).toBe(0);
+        it('treats zero as unlimited (Infinity)', () => {
+            expect(getEffectiveMaxRetries({ maxRetries: 0 })).toBe(Number.POSITIVE_INFINITY);
         });
     });
 

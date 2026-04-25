@@ -56,6 +56,8 @@ export interface PipelineStage {
      * Maximum number of reject → re-run loops before the pipeline gives up
      * and continues (treating the last rejection as a flag).
      * Default: 2. Hard cap: 5.
+     * Sentinel: a value <= 0 (e.g. 0 or -1) means *unlimited* retries — the
+     * pipeline will keep looping as long as the agent keeps rejecting.
      */
     maxRetries?: number;
 
@@ -187,11 +189,17 @@ export function resolveRejectTarget(
 }
 
 /**
- * Get the effective maxRetries for a stage, clamped to the hard cap.
+ * Get the effective maxRetries for a stage.
+ *
+ * - `undefined` → default of 2.
+ * - Any value `<= 0` → `Number.POSITIVE_INFINITY` (unlimited retries).
+ * - Positive values are clamped to `MAX_RETRIES_CAP` (5).
  */
 export function getEffectiveMaxRetries(stage: PipelineStage): number {
-    const raw = stage.maxRetries ?? 2;
-    return Math.min(Math.max(0, raw), MAX_RETRIES_CAP);
+    const raw = stage.maxRetries;
+    if (raw === undefined) return 2;
+    if (raw <= 0) return Number.POSITIVE_INFINITY;
+    return Math.min(raw, MAX_RETRIES_CAP);
 }
 
 /**

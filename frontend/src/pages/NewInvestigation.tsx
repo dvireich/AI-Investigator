@@ -1103,12 +1103,15 @@ export const NewInvestigation = () => {
                                 && preset.id !== configuredPresetId
                             );
 
-                            // Separate saved workflows from built-in presets for clear visual grouping
+                            // Separate saved workflows from built-in presets for clear visual grouping.
+                            // The "configured" pipeline (user's default from Settings) is rendered in its
+                            // own section so it's not mislabeled as a built-in preset.
                             const searchLower = workflowSearch.toLowerCase();
-                            const builtinItems: { type: 'configured' | 'preset'; preset?: typeof availablePresets[number] }[] = [
-                                ...(hasConfiguredPipeline && (configuredPipeline!.name || 'Custom Pipeline').toLowerCase().includes(searchLower) ? [{ type: 'configured' as const }] : []),
-                                ...availablePresets.filter(p => p.name.toLowerCase().includes(searchLower) || p.description.toLowerCase().includes(searchLower)).map(preset => ({ type: 'preset' as const, preset })),
-                            ];
+                            const showConfigured = hasConfiguredPipeline && (configuredPipeline!.name || 'Custom Pipeline').toLowerCase().includes(searchLower);
+                            const builtinItems: { type: 'preset'; preset: typeof availablePresets[number] }[] =
+                                availablePresets
+                                    .filter(p => p.name.toLowerCase().includes(searchLower) || p.description.toLowerCase().includes(searchLower))
+                                    .map(preset => ({ type: 'preset' as const, preset }));
                             const PAGE_SIZE = 6; // 2 rows × 3 columns
                             const totalPages = Math.ceil(builtinItems.length / PAGE_SIZE);
                             const pageItems = builtinItems.slice(workflowPage * PAGE_SIZE, (workflowPage + 1) * PAGE_SIZE);
@@ -1250,41 +1253,16 @@ export const NewInvestigation = () => {
                                     );
                                     })()}
 
-                                    {/* ── Built-in Presets section ── */}
-                                    <div className="space-y-1.5">
-                                        <div className="flex items-center gap-2">
-                                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2 flex-1">
-                                                <span className="flex-1 h-px bg-slate-700/50"></span>
-                                                Built-in Presets
-                                                <span className="flex-1 h-px bg-slate-700/50"></span>
+                                    {/* ── Default Pipeline section (configured in Settings) ── */}
+                                    {showConfigured && (
+                                        <div className="space-y-1.5">
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70 flex items-center gap-2">
+                                                <span className="flex-1 h-px bg-emerald-500/10"></span>
+                                                Default Pipeline
+                                                <span className="flex-1 h-px bg-emerald-500/10"></span>
                                             </div>
-                                            {totalPages > 1 && (
-                                                <div className="flex items-center gap-1 shrink-0">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setWorkflowPage(p => Math.max(0, p - 1))}
-                                                        disabled={workflowPage === 0}
-                                                        className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                                    >
-                                                        <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
-                                                    </button>
-                                                    <span className="text-[10px] text-slate-500 tabular-nums min-w-[2rem] text-center">
-                                                        {workflowPage + 1}/{totalPages}
-                                                    </span>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setWorkflowPage(p => Math.min(totalPages - 1, p + 1))}
-                                                        disabled={workflowPage >= totalPages - 1}
-                                                        className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                                                    >
-                                                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
-                                                    </button>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                                            {pageItems.map((item) => {
-                                                if (item.type === 'configured') {
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                                {(() => {
                                                     const isSelected = selectedWorkflow === 'configured';
                                                     return (
                                                         <button
@@ -1327,8 +1305,46 @@ export const NewInvestigation = () => {
                                                             </div>
                                                         </button>
                                                     );
-                                                }
-                                                const { preset } = item as { type: 'preset'; preset: typeof availablePresets[number] };
+                                                })()}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* ── Built-in Presets section ── */}
+                                    <div className="space-y-1.5">
+                                        <div className="flex items-center gap-2">
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2 flex-1">
+                                                <span className="flex-1 h-px bg-slate-700/50"></span>
+                                                Built-in Presets
+                                                <span className="flex-1 h-px bg-slate-700/50"></span>
+                                            </div>
+                                            {totalPages > 1 && (
+                                                <div className="flex items-center gap-1 shrink-0">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setWorkflowPage(p => Math.max(0, p - 1))}
+                                                        disabled={workflowPage === 0}
+                                                        className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <ChevronLeft className="w-3.5 h-3.5 text-slate-400" />
+                                                    </button>
+                                                    <span className="text-[10px] text-slate-500 tabular-nums min-w-[2rem] text-center">
+                                                        {workflowPage + 1}/{totalPages}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setWorkflowPage(p => Math.min(totalPages - 1, p + 1))}
+                                                        disabled={workflowPage >= totalPages - 1}
+                                                        className="p-0.5 rounded hover:bg-slate-700/50 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                                                    >
+                                                        <ChevronRight className="w-3.5 h-3.5 text-slate-400" />
+                                                    </button>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                            {pageItems.map((item) => {
+                                                const { preset } = item;
                                                 const isSelected = selectedWorkflow === preset.id;
                                                 return (
                                                     <button
@@ -1459,7 +1475,7 @@ export const NewInvestigation = () => {
                         {/* Body */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
                             {/* Workflow metadata */}
-                            <div className="grid grid-cols-[auto_1fr_1fr] gap-3 items-end">
+                            <div className="grid grid-cols-[auto_1fr] gap-3 items-end">
                                 <div className="space-y-1 relative">
                                     <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Icon</label>
                                     <button
@@ -1494,16 +1510,16 @@ export const NewInvestigation = () => {
                                         className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
                                     />
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</label>
-                                    <input
-                                        type="text"
-                                        value={workflowSaveDesc}
-                                        onChange={e => setWorkflowSaveDesc(e.target.value)}
-                                        placeholder="Optional description..."
-                                        className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                                    />
-                                </div>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</label>
+                                <textarea
+                                    value={workflowSaveDesc}
+                                    onChange={e => setWorkflowSaveDesc(e.target.value)}
+                                    placeholder="Optional description..."
+                                    rows={3}
+                                    className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500 resize-y min-h-[4.5rem] leading-snug"
+                                />
                             </div>
 
                             {/* Pipeline builder */}

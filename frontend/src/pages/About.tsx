@@ -261,12 +261,12 @@ export const About = () => {
                         color="bg-cyan-500/10 border border-cyan-500/20 text-cyan-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-cyan-500/20"
                         title="Multi-agent pipelines"
-                        desc="Orchestrate sequential agent workflows with 13 built-in agents across three tiers. Drag-and-drop stage builder with rejection loops, per-stage model overrides, and shared conversation context." />
+                        desc="Orchestrate sequential agent workflows with 20 built-in agents across three tiers. Drag-and-drop stage builder with rejection loops, per-stage model overrides, and shared conversation context." />
                     <FeatureCard icon={<Layers className="w-4 h-4" />}
                         color="bg-violet-500/10 border border-violet-500/20 text-violet-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-violet-500/20"
                         title="Agent workflow presets"
-                        desc="Choose from 6 pre-built workflow templates when starting an investigation — Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis — or select one of your saved custom workflows. Searchable, paginated selector with agent stage previews." />
+                        desc="Choose from 7 pre-built workflow templates when starting an investigation — Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis, Grounded Investigation — or select one of your saved custom workflows. Searchable, paginated selector with agent stage previews." />
                     <FeatureCard icon={<Save className="w-4 h-4" />}
                         color="bg-orange-500/10 border border-orange-500/20 text-orange-400"
                         bg="bg-slate-900/60 border-slate-800 hover:border-orange-500/20"
@@ -289,7 +289,7 @@ export const About = () => {
                         desc="Choose your LLM provider — OpenAI, Anthropic, Azure OpenAI, GitHub Copilot, or local Ollama. Configure via the Settings page or config file." />
                     <PipelineStep n={2} icon={<GitBranch className="w-4 h-4 text-cyan-400" />}
                         title="Multi-agent pipeline orchestration"
-                        desc="Choose a workflow preset, a saved custom workflow, or your configured pipeline, then the system routes the investigation through sequential specialized agents — from 13 built-in options including Investigator, Validator, Planner, Triage, Correlator, and more. Each stage can reject and loop back, with shared conversation context flowing between agents." />
+                        desc="Choose a workflow preset, a saved custom workflow, or your configured pipeline, then the system routes the investigation through sequential specialized agents — from 20 built-in options including Investigator, Validator, Planner, Triage, Correlator, and more. Each stage can reject and loop back, with shared conversation context flowing between agents." />
                     <PipelineStep n={3} icon={<Brain className="w-4 h-4 text-purple-400" />}
                         title="Agentic investigation loop"
                         desc="The Investigator agent reads your knowledge base guides, runs queries via MCP tool servers, reads logs, and reasons iteratively until it reaches a conclusion." />
@@ -355,7 +355,7 @@ export const About = () => {
                         [ListOrdered,       'text-lime-400',    'Server-side pagination — fast load times with thousands of investigations'],
                         [ShieldCheck,       'text-emerald-400', 'Error boundary & 404 — graceful error recovery and friendly not-found page'],
                         [Gauge,             'text-fuchsia-400', 'Concurrent schedule limit — cap simultaneous scheduled investigation runs'],
-                        [GitBranch,         'text-cyan-400',    'Multi-agent pipelines — 13 built-in agents, drag-and-drop stage builder with rejection loops and per-stage overrides'],
+                        [GitBranch,         'text-cyan-400',    'Multi-agent pipelines — 20 built-in agents, drag-and-drop stage builder with rejection loops and per-stage overrides'],
                         [Layers,            'text-violet-400',  'Workflow presets — 7 pre-built pipeline templates selectable per investigation, plus your own configured pipeline'],
                         [Workflow,           'text-rose-400',    'Subagent invocation — agents can invoke other agents mid-run via .agent.md files with shared MCP connections'],
                     ] as const).map(([Icon, color, text], i) => (

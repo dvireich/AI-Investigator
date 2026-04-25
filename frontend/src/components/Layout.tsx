@@ -1,6 +1,6 @@
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, PlusCircle, Settings, Info, Menu, X, Clock, User } from 'lucide-react';
-import { useEffect, useState, useRef } from 'react';
+import { LayoutDashboard, PlusCircle, Settings, Info, Menu, X, Clock, User, Loader2 } from 'lucide-react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
 import { UpdateBanner } from './UpdateBanner';
@@ -32,6 +32,8 @@ export const Layout = () => {
     }, [location.pathname]);
 
     useEffect(() => {
+        // Fire-and-forget: never block the layout chrome on these calls.
+        // The header renders progressively as state arrives.
         checkAuth();
         fetch('/api/version')
             .then(r => { if (r.ok) return r.json(); })
@@ -43,11 +45,15 @@ export const Layout = () => {
         };
     }, []);
 
-    // Re-check auth on route changes so the header stays in sync after the user
-    // saves a provider config on /settings or when the backend finishes its
-    // async provider initialization after a cold start.
+    // Re-check auth only when leaving /settings (where the user may have just
+    // saved provider config). Avoids a network round-trip on every navigation.
+    const prevPathRef = useRef(location.pathname);
     useEffect(() => {
-        checkAuth();
+        const prev = prevPathRef.current;
+        prevPathRef.current = location.pathname;
+        if (prev === '/settings' && location.pathname !== '/settings') {
+            checkAuth();
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [location.pathname]);
 
@@ -265,7 +271,13 @@ export const Layout = () => {
 
             {/* Main Content */}
             <main className={location.pathname.startsWith('/investigation/') ? 'animate-slide-up' : 'pt-[4.5rem] sm:pt-[5rem] px-3 sm:px-6 md:px-8 max-w-[1600px] mx-auto animate-slide-up'}>
-                <Outlet />
+                <Suspense fallback={
+                    <div className="flex items-center justify-center min-h-[40vh]">
+                        <Loader2 className="w-8 h-8 text-brand-400 animate-spin" />
+                    </div>
+                }>
+                    <Outlet />
+                </Suspense>
             </main>
         </div>
     );

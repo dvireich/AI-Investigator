@@ -239,7 +239,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                     <li><span className="text-slate-300 font-medium">Input Mode</span> — <code className="text-xs bg-slate-800 px-1 rounded">conversation</code> passes the full chat history; <code className="text-xs bg-slate-800 px-1 rounded">report-only</code> passes only the previous agent's final report.</li>
                                     <li><span className="text-slate-300 font-medium">Can Reject</span> — If enabled, this agent can reject the previous agent's work with feedback, sending it back to retry.</li>
                                     <li><span className="text-slate-300 font-medium">On Reject → Target</span> — Choose which earlier stage to send rejections to (defaults to the previous stage).</li>
-                                    <li><span className="text-slate-300 font-medium">Max Retries</span> — How many times a rejection loop can repeat before forcing continuation.</li>
+                                    <li><span className="text-slate-300 font-medium">Max Retries</span> — How many times a rejection loop can repeat. When the limit is reached, the rejected output is accepted as a "flag" and the pipeline continues to the next stage (it does not fail). Range 1–5, or check <em>Unlimited</em> to keep looping until the agent stops rejecting.</li>
                                     <li><span className="text-slate-300 font-medium">Timeout</span> — Maximum seconds a single stage can run before being stopped.</li>
                                 </ul>
                             </section>
@@ -475,7 +475,7 @@ export const PipelineBuilder: React.FC<PipelineBuilderProps> = ({ value, onChang
                                     {stage.canReject && stage.onReject === 'loop' && (
                                         <div className="ml-2 flex items-center gap-1 text-[10px] text-amber-500/60">
                                             <RotateCcw size={10} />
-                                            <span>reject → {stage.rejectTarget === 'previous' ? 'prev' : `#${stage.rejectTarget}`}</span>
+                                            <span>reject → {stage.rejectTarget === 'previous' ? 'prev' : `#${(stage.rejectTarget as number) + 1}`}</span>
                                         </div>
                                     )}
                                 </div>
@@ -1010,15 +1010,69 @@ const StageCard: React.FC<{
                                         </select>
                                     </div>
                                     <div className="flex items-center gap-3">
-                                        <label className="text-xs text-slate-400 w-24 flex-shrink-0">Max Retries</label>
-                                        <input
-                                            type="number"
-                                            min={1}
-                                            max={5}
-                                            value={stage.maxRetries ?? 2}
-                                            onChange={e => onUpdate({ maxRetries: Math.min(5, Math.max(1, Number(e.target.value))) })}
-                                            className="w-20 bg-slate-900 text-xs text-slate-200 border border-slate-700 rounded-md px-2 py-1.5 outline-none focus:ring-1 focus:ring-cyan-500/30"
-                                        />
+                                        <label className="text-xs text-slate-400 w-24 flex-shrink-0 flex items-center gap-1">
+                                            Max Retries
+                                            <span
+                                                className="relative inline-flex group"
+                                                tabIndex={0}
+                                                aria-label="Max retries help"
+                                            >
+                                                <HelpCircle
+                                                    size={12}
+                                                    className="text-slate-500 group-hover:text-cyan-400 group-focus:text-cyan-400 cursor-help"
+                                                />
+                                                <span
+                                                    role="tooltip"
+                                                    className="pointer-events-none absolute left-0 bottom-full mb-1.5 z-50 w-64 rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-[11px] leading-relaxed text-slate-300 shadow-xl opacity-0 group-hover:opacity-100 group-focus:opacity-100 transition-opacity"
+                                                >
+                                                    How many times this agent may reject and loop back.
+                                                    <br /><br />
+                                                    When the limit is reached, the rejected output is accepted as-is (marked with a <span className="text-amber-400">flag</span>) and the pipeline <span className="text-slate-100">continues to the next stage</span> — it does <span className="text-slate-100">not</span> fail or stop.
+                                                    <br /><br />
+                                                    <span className="text-slate-400">Range: 1–5, or <span className="text-cyan-300">Unlimited</span> (loop until the agent stops rejecting).</span>
+                                                </span>
+                                            </span>
+                                        </label>
+                                        {(() => {
+                                            const isUnlimited = stage.maxRetries !== undefined && stage.maxRetries <= 0;
+                                            return (
+                                                <>
+                                                    <input
+                                                        type="number"
+                                                        min={1}
+                                                        max={5}
+                                                        value={isUnlimited ? '' : (stage.maxRetries ?? 2)}
+                                                        disabled={isUnlimited}
+                                                        placeholder={isUnlimited ? '∞' : undefined}
+                                                        onChange={e => {
+                                                            const raw = e.target.value;
+                                                            // Allow empty input transiently — don't clamp mid-typing
+                                                            if (raw === '') return;
+                                                            const n = Number(raw);
+                                                            if (!Number.isFinite(n)) return;
+                                                            // Only commit values inside the allowed range while typing
+                                                            if (n >= 1 && n <= 5) onUpdate({ maxRetries: n });
+                                                        }}
+                                                        onBlur={e => {
+                                                            if (isUnlimited) return;
+                                                            const n = Number(e.target.value);
+                                                            if (!Number.isFinite(n) || n < 1) onUpdate({ maxRetries: 1 });
+                                                            else if (n > 5) onUpdate({ maxRetries: 5 });
+                                                        }}
+                                                        className="w-20 bg-slate-900 text-xs text-slate-200 border border-slate-700 rounded-md px-2 py-1.5 outline-none focus:ring-1 focus:ring-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    />
+                                                    <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer select-none">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={isUnlimited}
+                                                            onChange={e => onUpdate({ maxRetries: e.target.checked ? 0 : 2 })}
+                                                            className="accent-cyan-500"
+                                                        />
+                                                        Unlimited
+                                                    </label>
+                                                </>
+                                            );
+                                        })()}
                                     </div>
                                 </>
                             )}

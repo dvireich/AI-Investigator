@@ -107,24 +107,6 @@ async function navigateTo(page, path) {
 // Screenshot capture functions
 // ---------------------------------------------------------------------------
 
-async function captureOnboardingWizard(page) {
-    console.log('\n📸 Onboarding Wizard...');
-    await resetMock();
-    await setOnboarding(false);
-    await page.goto(`${VITE_URL}/onboarding`, { waitUntil: 'networkidle' });
-    await page.waitForTimeout(1200);
-
-    // Advance to LLM provider step (more visually informative)
-    const getStarted = page.locator('button:has-text("Get Started"), button:has-text("Get started")').first();
-    if (await getStarted.isVisible()) {
-        await getStarted.click();
-        await page.waitForTimeout(800);
-    }
-
-    await screenshot(page, 'onboarding-wizard');
-    await setOnboarding(true); // restore
-}
-
 async function captureAboutPage(page) {
     console.log('\n📸 About page...');
     await resetMock();
@@ -496,22 +478,30 @@ async function captureSettings(page) {
     await navigateTo(page, '/settings');
     await page.waitForTimeout(1000);
 
-    // Click on Products tab if it exists (to show the most interesting tab)
-    const productsTab = page.locator('button:has-text("Products")').first();
-    if (await productsTab.isVisible()) {
-        await productsTab.click();
-        await page.waitForTimeout(600);
-    }
-
-    // Expand the first product to show path details
-    // The product card header is a div with cursor-pointer that toggles expansion
-    const productExpandRow = page.locator('div.cursor-pointer:has(svg.lucide-chevron-down)').first();
-    if (await productExpandRow.isVisible()) {
-        await productExpandRow.click();
+    // Show the Agents tab as the hero — it's the most visually rich tab and
+    // best represents the agent-centric configuration model.
+    const agentsTab = page.locator('button:has-text("Agents")').first();
+    if (await agentsTab.isVisible()) {
+        await agentsTab.click();
         await page.waitForTimeout(600);
     }
 
     await screenshot(page, 'settings');
+}
+
+async function captureSettingsPaths(page) {
+    console.log('\n📸 Settings — Paths...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    const pathsTab = page.locator('button:has-text("Paths")').first();
+    if (await pathsTab.isVisible()) {
+        await pathsTab.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'settings-paths');
 }
 
 async function captureSettingsAnalytics(page) {
@@ -675,6 +665,132 @@ async function captureSettingsPipelineSaved(page) {
     }
 
     await screenshot(page, 'settings-pipeline-saved');
+}
+
+// ─── Pipeline Builder modal: showcases drag-drop builder, agent palette,
+// custom agent button, and the canvas. Marquee feature post-#73-#77.
+async function captureSettingsPipelineBuilder(page) {
+    console.log('\n📸 Settings — Pipeline Builder modal...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(1000);
+
+    const pipelineTab = page.locator('button:has-text("Pipeline")').first();
+    if (await pipelineTab.isVisible()) {
+        await pipelineTab.click();
+        await page.waitForTimeout(500);
+    }
+
+    const createBtn = page.locator('button:has-text("Create New Workflow")').first();
+    if (!(await createBtn.isVisible().catch(() => false))) {
+        console.log('  ⚠ "Create New Workflow" button not visible, skipping');
+        return;
+    }
+    await createBtn.click();
+    await page.waitForTimeout(1000);
+
+    // Type a representative workflow name so the modal shows a real label
+    const nameInput = page.locator('input[placeholder*="Custom Workflow"], input[placeholder*="My Custom"]').first();
+    if (await nameInput.isVisible().catch(() => false)) {
+        await nameInput.fill('Cert Rotation Audit');
+        await page.waitForTimeout(300);
+    }
+
+    await screenshot(page, 'pipeline-builder', { fullPage: true });
+}
+
+// Pipeline Builder with the icon picker grid expanded — showcases the icon
+// picker added in PR #74.
+async function captureSettingsPipelineBuilderIconPicker(page) {
+    console.log('\n📸 Settings — Pipeline Builder icon picker...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    const pipelineTab = page.locator('button:has-text("Pipeline")').first();
+    if (await pipelineTab.isVisible()) {
+        await pipelineTab.click();
+        await page.waitForTimeout(500);
+    }
+
+    const createBtn = page.locator('button:has-text("Create New Workflow")').first();
+    if (!(await createBtn.isVisible().catch(() => false))) {
+        console.log('  ⚠ "Create New Workflow" button not visible, skipping');
+        return;
+    }
+    await createBtn.click();
+    await page.waitForTimeout(1000);
+
+    const nameInput = page.locator('input[placeholder*="Custom Workflow"], input[placeholder*="My Custom"]').first();
+    if (await nameInput.isVisible().catch(() => false)) {
+        await nameInput.fill('Cert Rotation Audit');
+    }
+
+    // The icon swatch is a button labeled with the current emoji (default 🔧).
+    // Locate it as the button inside the column labeled "Icon".
+    const iconSwatch = page.locator('text=Icon').first().locator('..').locator('button').first();
+    if (await iconSwatch.isVisible().catch(() => false)) {
+        await iconSwatch.click();
+        await page.waitForTimeout(600);
+    }
+
+    await screenshot(page, 'pipeline-builder-icon-picker', { fullPage: true });
+}
+
+// Pipeline Builder with three stages added to the canvas — showcases the
+// per-stage UI with rejection loop / input mode controls.
+async function captureSettingsPipelineBuilderWithStages(page) {
+    console.log('\n📸 Settings — Pipeline Builder with stages...');
+    await resetMock();
+    await navigateTo(page, '/settings');
+    await page.waitForTimeout(800);
+
+    const pipelineTab = page.locator('button:has-text("Pipeline")').first();
+    if (await pipelineTab.isVisible()) {
+        await pipelineTab.click();
+        await page.waitForTimeout(500);
+    }
+
+    const createBtn = page.locator('button:has-text("Create New Workflow")').first();
+    if (!(await createBtn.isVisible().catch(() => false))) {
+        console.log('  ⚠ "Create New Workflow" button not visible, skipping');
+        return;
+    }
+    await createBtn.click();
+    await page.waitForTimeout(1000);
+
+    const nameInput = page.locator('input[placeholder*="Custom Workflow"], input[placeholder*="My Custom"]').first();
+    if (await nameInput.isVisible().catch(() => false)) {
+        await nameInput.fill('Triage → Investigate → Validate');
+    }
+
+    // Click 3 palette chips in order to drop stages on the canvas.
+    // The chips are inside a modal — direct .click() can be intercepted by the
+    // dialog overlay's pointer-event detection, so dispatch a real click event.
+    for (const agentName of ['Triage', 'Investigator', 'Validator']) {
+        // AgentChip renders <button>...<span>{agent.name}</span>...</button>.
+        // Match the chip by its inner name span and walk up to the button.
+        const chip = page.locator(`button:has(span.font-medium:text-is("${agentName}"))`).first();
+        if (await chip.count() === 0) {
+            continue;
+        }
+        await chip.scrollIntoViewIfNeeded().catch(() => {});
+        await chip.dispatchEvent('click');
+        await page.waitForTimeout(500);
+    }
+    await page.waitForTimeout(500);
+
+    // Scroll the modal body to the bottom so all 3 added stages are visible.
+    // The modal's scrollable container is `.flex-1.overflow-y-auto` inside the
+    // workflow editor dialog. Without this scroll, fullPage screenshots only
+    // capture the modal viewport and stages 2-3 fall off the bottom.
+    await page.evaluate(() => {
+        const modal = document.querySelector('div.fixed.inset-0.z-50 .overflow-y-auto');
+        if (modal) modal.scrollTop = modal.scrollHeight;
+    });
+    await page.waitForTimeout(400);
+
+    await screenshot(page, 'pipeline-builder-with-stages', { fullPage: true });
 }
 
 async function captureInvestigationNotes(page) {
@@ -1003,10 +1119,7 @@ async function main() {
     await page.emulateMedia({ reducedMotion: 'reduce' });
 
     try {
-        // ---- Capture all 37 screenshots ----
-
-        // Onboarding
-        await captureOnboardingWizard(page);
+        // ---- Capture all screenshots ----
 
         // Dashboard
         await captureDashboardOverview(page);
@@ -1046,7 +1159,11 @@ async function main() {
         await captureSettingsPipelineEmpty(page);
         await captureSettingsPipeline(page);
         await captureSettingsPipelineSaved(page);
+        await captureSettingsPipelineBuilder(page);
+        await captureSettingsPipelineBuilderIconPicker(page);
+        await captureSettingsPipelineBuilderWithStages(page);
         await captureSettingsConnections(page);
+        await captureSettingsPaths(page);
         await captureSettingsSchedules(page);
         await captureSettingsAnalytics(page);
         await captureSettingsAppearance(page);

@@ -18,7 +18,7 @@ An agentic system that runs, monitors, and learns from investigations — comple
 
 ---
 
-> **🚀 Quick Start:** [Download the latest release](../../releases/latest) — extract, double-click `ai-investigator.exe`, configure your LLM provider in the onboarding wizard. No Node.js required.
+> **🚀 Quick Start:** [Download the latest release](../../releases/latest) — extract, double-click `ai-investigator.exe`, then configure your LLM provider in the Settings → Connections tab. No Node.js required.
 > See [docs/QUICKSTART.md](docs/QUICKSTART.md) for all installation options.
 
 ---
@@ -66,10 +66,9 @@ After each investigation, a **retrospective system** analyzes what went well and
 | **Dashboard Analytics** | Interactive charts — configurable 3-widget layout from 8 chart types, KPI bar, creator badges, and filter-by-creator |
 | **Multi-User Tracking** | Every investigation records who created it (GitHub login, OS username, or scheduler) with dashboard filtering |
 | **Standalone Executable** | Download a single `.exe` — runs as a desktop app with no console window, opens in a frameless Edge window. No Node.js required |
-| **First-Launch Onboarding** | Multi-step setup wizard guides new users through LLM provider selection |
 | **Auto-Update Checking** | Checks for new releases on startup, shows a floating notification card with download and release notes links. Session-only dismiss |
 | **Implementation Agent** | Select recommendations from the final report and let an AI coding agent propose exact code changes |
-| **Multi-Agent Pipelines** | Orchestrate sequential agent workflows with 14 built-in agents, 7 workflow presets, rejection loops, subagent invocation, and shared context |
+| **Multi-Agent Pipelines** | Orchestrate sequential agent workflows with 20 built-in agents, 7 workflow presets, rejection loops, subagent invocation, and shared context |
 | **Agent Workflow Presets** | Choose from pre-built workflow templates (Standard, Deep Investigation, Incident Response, Quick Health Check, Compliance Review, Root Cause Analysis, Grounded Investigation) or create and save your own custom workflows with the visual pipeline editor. Searchable, paginated selector with agent stage previews |
 
 ---
@@ -78,15 +77,7 @@ After each investigation, a **retrospective system** analyzes what went well and
 
 ---
 
-### 1. Onboarding Wizard
-
-First-launch experience that walks you through LLM provider selection. Three steps: Welcome → LLM Provider → Ready.
-
-![Onboarding Wizard](docs/screenshots/onboarding-wizard.png)
-
----
-
-### 2. Dashboard
+### 1. Dashboard
 
 The main dashboard shows all investigations as color-coded cards with live status, duration timers, and retrospective badges.
 
@@ -94,7 +85,7 @@ The main dashboard shows all investigations as color-coded cards with live statu
 
 ---
 
-### 3. New Investigation
+### 2. New Investigation
 
 Launch investigations with structured context: target name, category, time window (8 quick presets or custom range), model selection, and agent workflow. Toggle between **Standard** and **Incident** modes to start from an incident ID with auto-extracted context. The **Agent Workflow** selector lets you pick from pre-built pipeline templates, your saved custom workflows, or your configured pipeline — with searchable, paginated cards showing agent stage previews.
 
@@ -110,7 +101,7 @@ The Agent Configuration section shows two groups: **My Workflows** (your saved c
 
 ---
 
-### 4. Investigation Start
+### 3. Investigation Start
 
 Once launched, the investigation begins with the agent initializing and preparing to execute the task.
 
@@ -120,7 +111,7 @@ Once launched, the investigation begins with the agent initializing and preparin
 
 ---
 
-### 5. Live Session
+### 4. Live Session
 
 Watch the agent think and act in real-time. Each step shows the agent's reasoning (rendered Markdown) and tool executions with full arguments and results.
 
@@ -128,7 +119,7 @@ Watch the agent think and act in real-time. Each step shows the agent's reasonin
 
 ---
 
-### 6. Paused Investigation
+### 5. Paused Investigation
 
 Pause a running investigation at any time to review progress or prepare for intervention.
 
@@ -138,7 +129,7 @@ Pause a running investigation at any time to review progress or prepare for inte
 
 ---
 
-### 7. User Intervention
+### 6. User Intervention
 
 Inject custom instructions to a running investigation to guide the agent in a specific direction or provide additional context without pausing.
 
@@ -148,7 +139,7 @@ Inject custom instructions to a running investigation to guide the agent in a sp
 
 ---
 
-### 8. Contest Report
+### 7. Contest Report
 
 Disagree with the final report? Click **Contest Report** at the bottom of the Report tab, provide your feedback, and the investigation resumes — the agent re-examines its findings with your corrections.
 
@@ -156,7 +147,7 @@ Disagree with the final report? Click **Contest Report** at the bottom of the Re
 
 ---
 
-### 9. Investigation Resumed After Contest
+### 8. Investigation Resumed After Contest
 
 After contesting, the Live Session shows your feedback as an amber user bubble and a system notification. The agent acknowledges the feedback and continues investigating.
 
@@ -164,7 +155,7 @@ After contesting, the Live Session shows your feedback as an amber user bubble a
 
 ---
 
-### 10. Token Management
+### 9. Token Management
 
 When the context window fills up, a banner appears with a one-click Summarize button that compacts history while preserving recent context.
 
@@ -172,7 +163,7 @@ When the context window fills up, a banner appears with a one-click Summarize bu
 
 ---
 
-### 11. Final Report
+### 10. Final Report
 
 Auto-generated Markdown report with findings, queries used, and conclusions — styled with prose typography.
 
@@ -182,7 +173,7 @@ Auto-generated Markdown report with findings, queries used, and conclusions — 
 
 ---
 
-### 12. Implement Recommendations
+### 11. Implement Recommendations
 
 Select actionable recommendations from the final report and let an AI coding agent propose exact code changes. Code items get checkboxes; operational items are grayed out with an "OPS" badge. P0 code items are auto-selected.
 
@@ -190,7 +181,7 @@ Select actionable recommendations from the final report and let an AI coding age
 
 ---
 
-### 13. Failed Investigation
+### 12. Failed Investigation
 
 When an investigation encounters unrecoverable errors (consecutive LLM failures, tool disconnection), it transitions to a failed state with preserved context for debugging.
 
@@ -198,7 +189,7 @@ When an investigation encounters unrecoverable errors (consecutive LLM failures,
 
 ---
 
-### 14. Retrospective — Auto-Analysis
+### 13. Retrospective — Auto-Analysis
 
 When you open the Retrospect tab, an AI agent automatically reads the investigation transcript and knowledge base files, then proposes improvements.
 
@@ -208,7 +199,7 @@ When you open the Retrospect tab, an AI agent automatically reads the investigat
 
 ---
 
-### 15. Retrospective — Knowledge Base Analysis
+### 14. Retrospective — Knowledge Base Analysis
 
 The retrospective agent reads the investigation transcript and existing knowledge base files, then identifies gaps and proposes new documentation.
 
@@ -218,7 +209,7 @@ The retrospective agent reads the investigation transcript and existing knowledg
 
 ---
 
-### 16. Retrospective — Proposed Changes
+### 15. Retrospective — Proposed Changes
 
 The agent proposes concrete file changes (edit existing or create new). Review each proposal, approve or reject, then apply all approved changes to disk.
 
@@ -228,7 +219,7 @@ The agent proposes concrete file changes (edit existing or create new). Review e
 
 ---
 
-### 17. Retrospective — Conversational Follow-up
+### 16. Retrospective — Conversational Follow-up
 
 After auto-analysis, continue chatting with the retrospective agent to explore additional improvements.
 
@@ -236,17 +227,17 @@ After auto-analysis, continue chatting with the retrospective agent to explore a
 
 ---
 
-### 18. Settings
+### 17. Settings
 
-Configure agent behavior, model selection, investigation storage path (with server-side file browser), and system defaults across seven tabs: Connections, Paths, Agent Behavior, Schedules, Analytics, Appearance, and System.
+Configure all aspects of the investigator across nine tabs: **Connections, Paths, Agent Behavior, Pipeline, Agents, Schedules, Analytics, Appearance,** and **System**. The hero shot below shows the **Agents** tab — the searchable agent library where built-in and custom agents are managed and reused across pipelines.
 
-![Settings](docs/screenshots/settings.png)
+![Settings — Agents tab](docs/screenshots/settings.png)
 
-<!-- Screenshot: The Settings page showing the Agent Behavior tab with the model selector, max steps slider, and file browser for the investigations path. -->
+<!-- Screenshot: The Settings page showing the Agents tab — the agent library with built-in agents and custom-saved agents in a paginated grid. -->
 
 ---
 
-### 19. Settings — Connections
+### 18. Settings — Connections
 
 Configure all external integrations in one place: LLM provider selection (with auth status), MCP tool server management (add, edit, delete servers with environment variable injection), and incident provider settings.
 
@@ -254,7 +245,7 @@ Configure all external integrations in one place: LLM provider selection (with a
 
 ---
 
-### 20. Settings — Schedules
+### 19. Settings — Schedules
 
 Configure schedule-level defaults: maximum concurrent scheduled investigations, retention count (auto-delete oldest), and the LLM model used for AI-generated executive summaries.
 
@@ -262,7 +253,7 @@ Configure schedule-level defaults: maximum concurrent scheduled investigations, 
 
 ---
 
-### 21. Settings — Analytics Widgets
+### 20. Settings — Analytics Widgets
 
 Choose which 3 analytics charts appear on the dashboard from a registry of 8 widget types. Each widget shows a preview of its chart style.
 
@@ -272,7 +263,7 @@ Choose which 3 analytics charts appear on the dashboard from a registry of 8 wid
 
 ---
 
-### 22. Settings — Appearance
+### 21. Settings — Appearance
 
 Customize default view mode (grid/list), sort order (newest/modified/oldest/steps), page size (6/12/24/48), auto-refresh interval, and browser notifications with selective event types and optional sound chime.
 
@@ -280,7 +271,7 @@ Customize default view mode (grid/list), sort order (newest/modified/oldest/step
 
 ---
 
-### 23. Resume All After Server Restart
+### 22. Resume All After Server Restart
 
 When the backend restarts, all running investigations are automatically paused. The dashboard shows a **Resume All** button with the count of paused investigations. Click it to resume them all at once (respecting the max concurrent limit). A separate **Restart Server** button lets you trigger a graceful restart directly from the UI.
 
@@ -290,7 +281,7 @@ When the backend restarts, all running investigations are automatically paused. 
 
 ---
 
-### 24. Share & Export
+### 23. Share & Export
 
 Non-running investigations show **Share** (sky-blue) and **PDF** (violet) buttons in the sidebar. Share exports the full investigation state as a JSON file; PDF renders the final report into a styled, downloadable PDF document via Puppeteer.
 
@@ -300,7 +291,7 @@ Non-running investigations show **Share** (sky-blue) and **PDF** (violet) button
 
 ---
 
-### 25. Import Investigation (Drag & Drop)
+### 24. Import Investigation (Drag & Drop)
 
 Import previously exported investigations via the **Import Investigation** button in the floating action dock, or simply drag and drop a `.json` file anywhere on the dashboard. A full-screen animated drop zone appears with gradient borders and a pulsing upload icon.
 
@@ -310,7 +301,7 @@ Import previously exported investigations via the **Import Investigation** butto
 
 ---
 
-### 26. Scheduled Investigations
+### 25. Scheduled Investigations
 
 Set up recurring automated health checks with configurable intervals. The Schedules page shows all schedules as cards with live verdict badges (healthy / warning / critical / error), next-run countdown, and full run history. A floating dock lets you start/stop the scheduler and create new schedules.
 
@@ -318,15 +309,15 @@ Set up recurring automated health checks with configurable intervals. The Schedu
 
 ---
 
-### 27. New / Edit Schedule
+### 26. New / Edit Schedule
 
-Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — target, category, time range, model, and recurrence interval (5min to 24h). The form defaults to settings from your active product.
+Create or edit a schedule with a multi-step wizard: choose a saved query from the Query Bank or configure from scratch — target, category, time range, model, and recurrence interval (5min to 24h).
 
 ![Schedule Form](docs/screenshots/schedule-form.png)
 
 ---
 
-### 28. Query Bank
+### 27. Query Bank
 
 Save investigation configurations as reusable templates. Access the Query Bank from the New Investigation form to instantly load a saved target, query, time range, category, and model — or use them when creating schedules.
 
@@ -334,7 +325,7 @@ Save investigation configurations as reusable templates. Access the Query Bank f
 
 ---
 
-### 29. GitHub Copilot Authentication
+### 28. GitHub Copilot Authentication
 
 Secure OAuth device flow — enter the code on GitHub, and you're connected.
 
@@ -342,7 +333,7 @@ Secure OAuth device flow — enter the code on GitHub, and you're connected.
 
 ---
 
-### 30. About
+### 29. About
 
 Project information, feature showcase, architecture pipeline, tech stack, and version info with auto-update checking.
 
@@ -350,7 +341,7 @@ Project information, feature showcase, architecture pipeline, tech stack, and ve
 
 ---
 
-### 31. Investigation Notes
+### 30. Investigation Notes
 
 Attach freeform markdown notes to any investigation. The rich-text editor supports a formatting toolbar, live markdown preview, and an **AI Rephrase** button that uses your selected model to polish your writing. Notes auto-save on **Ctrl+S**.
 
@@ -360,7 +351,7 @@ Attach freeform markdown notes to any investigation. The rich-text editor suppor
 
 ---
 
-### 32. Settings — Multi-Agent Pipeline
+### 31. Settings — Multi-Agent Pipeline
 
 Build multi-agent investigation workflows with a drag-and-drop pipeline editor. Add stages from 14 built-in agents across three tiers (Core: Investigator, Validator, Proposer, Retrospect; Analysis: Planner, Triage, Correlator, Devil's Advocate, Summarizer; Specialist: Remediation, Timeline, Enrichment, Compliance, Signal Grounding). Configure rejection loops, per-stage model overrides, and timeout limits. Each agent has descriptive hover tooltips showing its role. Choose from 7 pre-built workflow presets, create and save your own custom workflows, or use your configured pipeline. The agent palette features search and pagination for quick access.
 
@@ -376,9 +367,21 @@ Build multi-agent investigation workflows with a drag-and-drop pipeline editor. 
 
 ![Settings — Pipeline (saved)](docs/screenshots/settings-pipeline-saved.png)
 
+**Pipeline Builder** — click **Create New Workflow** to open the builder modal. Name your workflow, pick an icon, and drop agents from the palette onto the canvas:
+
+![Pipeline Builder — empty](docs/screenshots/pipeline-builder.png)
+
+**Icon picker** — choose from 20 emoji icons so each saved workflow is instantly recognizable in the launcher and timeline:
+
+![Pipeline Builder — icon picker](docs/screenshots/pipeline-builder-icon-picker.png)
+
+**Composing a pipeline** — every chip in the agent palette adds an ordered stage. Mix built-in agents, your saved agents, and brand-new custom agents in any sequence:
+
+![Pipeline Builder — with stages](docs/screenshots/pipeline-builder-with-stages.png)
+
 <!-- Screenshot: Three pipeline screenshots — empty builder with agent palette, recommended pipeline, and saved workflows management. -->
 
-### 33. Investigation — Pipeline Timeline
+### 32. Investigation — Pipeline Timeline
 
 When running a multi-agent workflow, the **Pipeline** tab shows real-time progress through each stage. The **PipelineStepper** at the top displays all agents with color-coded status (active glow for the running stage, checkmarks for completed, pending for upcoming). Below, the **PipelineTimeline** renders the full conversation log as a group-chat-style timeline — each agent's thoughts, actions, observations, and handoffs appear as color-coded bubbles with role badges (💭 Thought, ⚡ Action, 📋 Report, ⚖️ Verdict). Filter by agent using the filter bar at the top.
 
@@ -517,9 +520,8 @@ The main dashboard provides a rich interface for managing all investigations:
 - **Grid / List View** — Toggle between card grid and compact list layouts (persisted to localStorage)
 - **Sort** — Order by Newest, Last Modified, Oldest, or Most Steps
 - **Filter by Status** — All, Running, Paused, Completed, Failed, Aborted
-- **Filter by Product** — Dropdown to show only investigations for a specific product
 - **Filter by Creator** — Dropdown to show only investigations created by a specific user (indigo themed)
-- **Full-Text Search** — Search across target, title, category, incident ID, product name, investigation ID, creator, and thought content. Matching text is highlighted in results
+- **Full-Text Search** — Search across target, title, category, incident ID, investigation ID, creator, and thought content. Matching text is highlighted in results
 - **Pinning** — Pin important investigations to the top (persisted to localStorage)
 - **Group by Target** — Toggle to cluster investigations by their target name
 - **Date Grouping** — List view auto-groups into Today, Yesterday, This Week, and Older sections
@@ -536,7 +538,7 @@ The main dashboard provides a rich interface for managing all investigations:
 - **Statistics Bar** — Four animated tiles: Active, Done, Failed, and Total Investigations. Click any tile to filter the list
 - **KPI Bar** — Collapsible row of key metrics: success rate percentage, average investigation duration, this-week count with week-over-week delta, and contest rate
 - **Creator Badges** — Indigo badges on grid cards and list rows showing who created each investigation. Click a badge to filter by that creator
-- **Active Filter Chips** — Dismissible chips for active creator, product, source, and tag filters
+- **Active Filter Chips** — Dismissible chips for active creator, source, and tag filters
 - **Keyboard Shortcuts** — Press `?` to toggle the shortcut overlay:
   | Key | Action |
   |-----|--------|
@@ -552,7 +554,6 @@ The main dashboard provides a rich interface for managing all investigations:
 - **Step Depth Bar** — Mini visualization of investigation step depth on each card
 - **Retrospective Badges** — Visual indicators for retrospective status on cards
 - **Incident Badge** — Orange badge on cards originating from incidents
-- **Product Labels** — Product name displayed on each investigation card
 - **Live Duration Timer** — Running and paused cards show a live-counting elapsed-time timer
 - **Correlation ID Copy** — Abbreviated correlation IDs with click-to-copy
 - **Skeleton Loading** — Animated placeholder cards during initial data fetch
@@ -583,7 +584,7 @@ The main dashboard provides a rich interface for managing all investigations:
 Automate recurring target health checks with a built-in scheduler:
 
 - **Create Schedules** — Define target, query, recurrence interval (5min / 15min / 30min / 1h / 4h / 12h / 24h), model, time range, and category
-- **Multi-Step Wizard** — Schedule creation form with product selection, query bank integration, and interval presets
+- **Multi-Step Wizard** — Schedule creation form with Query Bank integration and interval presets
 - **Scheduler Toggle** — Start/stop the scheduler from the floating dock on the Schedules page
 - **Verdict Tracking** — Each run produces a verdict: `healthy`, `warning`, `critical`, `error`, `paused`, or `unknown`. Color-coded badges displayed on schedule cards
 - **Run History** — Expandable history panel per schedule showing all past runs with timestamps, verdicts, and links to investigation details
@@ -604,7 +605,7 @@ Automate recurring target health checks with a built-in scheduler:
 
 Save and reuse investigation configurations as named templates:
 
-- **Save Query** — Store any combination of target, query, category, time range, model, and product as a named preset
+- **Save Query** — Store any combination of target, query, category, time range, and model as a named preset
 - **Load Query** — Instantly populate the New Investigation form from a saved query via a dropdown picker
 - **Update / Delete** — Edit or remove saved queries; updates propagate to the picker immediately
 - **Schedule Integration** — Query Bank entries are available when creating new schedules
@@ -642,15 +643,6 @@ AI Investigator is distributed as a single Windows executable — no Node.js ins
 - **Automatic Path Resolution** — The exe detects whether it's running in packaged or dev mode and resolves all paths (prompts, knowledge base, config) accordingly
 - **Version Metadata** — Each release includes `version.json` with semantic version, commit SHA, and build timestamp
 - **Team Integration** — Product repos can include a launcher script that auto-downloads the latest release from GitHub and runs the exe with `--config` pointing to the team's config file — no git clone or Node.js setup required
-
-### 🧭 First-Launch Onboarding
-
-A guided multi-step wizard appears on first launch to get new users productive immediately:
-
-- **Step 1: Welcome** — Introduction to the platform with a feature overview
-- **Step 2: LLM Provider** — Choose from available providers (OpenAI, Anthropic, GitHub Copilot, Azure OpenAI, Ollama) with auth requirement indicators
-- **Step 3: Ready** — Confirmation screen with a link to the dashboard
-- **Progress Bar** — Visual step completion indicator
 
 ### 🔄 Auto-Update Checking
 
@@ -829,7 +821,7 @@ Includes a server-side **file browser** for selecting directories.
 # 2. Extract the zip to a folder of your choice
 
 # 3. Double-click ai-investigator.exe
-#    The onboarding wizard will guide you through LLM provider setup
+#    Open Settings → Connections to configure your LLM provider
 ```
 
 The dashboard opens automatically. No Node.js installation required.
@@ -848,9 +840,9 @@ cd AI-Investigator
 .\Run-Dashboard.ps1
 ```
 
-The dashboard opens automatically in a frameless Edge window (desktop app mode) at **http://localhost:5173**. The onboarding wizard appears on first launch to configure your LLM provider.
+The dashboard opens automatically in a frameless Edge window (desktop app mode) at **http://localhost:5173**. Open **Settings → Connections** to configure your LLM provider on first launch.
 
-### Setting Up Your Product
+### Setting Up Your Environment
 
 AI Investigator is product-agnostic — point it at any repository to investigate that product's telemetry.
 
@@ -1309,7 +1301,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │   ├── public/
 │   │   └── favicon.svg           # Custom AI Investigator icon
 │   └── src/
-│       ├── App.tsx               # Router configuration + onboarding redirect
+│       ├── App.tsx               # Router configuration
 │       ├── api.ts                # API client (all endpoints)
 │       ├── constants.ts          # Time presets + schedule intervals + investigation modes
 │       ├── types/
@@ -1339,8 +1331,7 @@ Connect to `ws://localhost:3000/ws?id=<investigationId>` for real-time event not
 │           ├── Schedules.tsx         # Schedule list with verdicts + history + inline editing
 │           ├── ScheduleForm.tsx      # Schedule creation/edit wizard
 │           ├── Settings.tsx          # Configuration management (7 tabs: Connections, Paths, Agent, Schedules, Analytics, Appearance, System)
-│           ├── About.tsx             # Feature showcase + version info + update check
-│           └── OnboardingWizard.tsx  # First-launch setup wizard (LLM provider)
+│           └── About.tsx             # Feature showcase + version info + update check
 └── docs/
     └── screenshots/              # UI screenshots (see Visual Walkthrough)
 ```
@@ -1364,7 +1355,7 @@ cd scripts/screenshots
 npm install
 npx playwright install chromium
 
-# Generate all 37 screenshots
+# Generate all 41 screenshots
 npm run capture
 ```
 
@@ -1393,52 +1384,54 @@ npm run capture
 
 ### Screenshot Inventory
 
-The capture script produces these 42 files in `docs/screenshots/`:
+The capture script produces these 41 files in `docs/screenshots/`:
 
 | # | File | Page / State |
 |---|------|-------------|
-| 1 | `onboarding-wizard.png` | Onboarding — LLM provider selection step |
-| 2 | `dashboard-overview.png` | Dashboard — main grid overview with creator badges and KPI bar |
-| 3 | `dashboard.png` | Dashboard — mixed investigation statuses |
-| 4 | `dashboard-resume-all.png` | Dashboard — post-restart with Resume All button |
-| 5 | `new-investigation.png` | New Investigation form (filled) |
-| 6 | `new-investigation-workflows.png` | New Investigation — Agent Workflow selector with saved workflows and presets |
-| 7 | `investigation-start.png` | Investigation detail — early running state |
-| 8 | `live-session.png` | Investigation detail — multi-step with tool calls |
-| 9 | `paused-by-user.png` | Investigation detail — paused state |
-| 10 | `user-intervention.png` | Investigation detail — intervention input filled |
-| 11 | `token-alert.png` | Investigation detail — token limit warning banner |
-| 12 | `final-report.png` | Investigation detail — Report tab with Markdown report |
-| 13 | `implement-recommendations.png` | Investigation detail — Implement Recommendations modal |
-| 14 | `Consent-report.png` | Investigation detail — Contest form with feedback |
-| 15 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
-| 16 | `failed-investigation.png` | Investigation detail — failed state |
-| 17 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
-| 18 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
-| 19 | `proposals-panel.png` | Retrospective tab — expanded proposals |
-| 20 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
-| 21 | `settings.png` | Settings — Paths tab |
-| 22 | `settings-pipeline-empty.png` | Settings — Pipeline tab (empty builder with agent palette and search) |
-| 23 | `settings-pipeline.png` | Settings — Pipeline tab (recommended 4-stage pipeline) |
-| 24 | `settings-pipeline-saved.png` | Settings — Pipeline tab (saved custom workflows management) |
-| 25 | `settings-connections.png` | Settings — Connections tab (LLM provider + MCP servers + incident provider) |
-| 26 | `settings-schedules.png` | Settings — Schedules tab (concurrency, retention, report model) |
-| 27 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
-| 28 | `settings-appearance.png` | Settings — Appearance tab (view, sort, page size, browser notifications) |
-| 29 | `auth-flow.png` | Unauthenticated state |
-| 30 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
-| 31 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
-| 32 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
-| 33 | `schedule-form.png` | Schedule creation wizard with query bank |
-| 34 | `query-bank.png` | New Investigation — query bank dropdown |
-| 35 | `investigation-notes.png` | Investigation detail — Notes tab with markdown editor |
-| 36 | `about-page.png` | About — feature showcase, pipeline, version info |
-| 37 | `investigation-pipeline-timeline.png` | Investigation detail — Pipeline tab with stepper + conversation timeline |
-| 38 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
-| 39 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
-| 40 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
-| 41 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
-| 42 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
+| 1 | `dashboard-overview.png` | Dashboard — main grid overview with creator badges and KPI bar |
+| 2 | `dashboard.png` | Dashboard — mixed investigation statuses |
+| 3 | `dashboard-resume-all.png` | Dashboard — post-restart with Resume All button |
+| 4 | `new-investigation.png` | New Investigation form (filled) |
+| 5 | `new-investigation-workflows.png` | New Investigation — Agent Workflow selector with saved workflows and presets |
+| 6 | `investigation-start.png` | Investigation detail — early running state |
+| 7 | `live-session.png` | Investigation detail — multi-step with tool calls |
+| 8 | `paused-by-user.png` | Investigation detail — paused state |
+| 9 | `user-intervention.png` | Investigation detail — intervention input filled |
+| 10 | `token-alert.png` | Investigation detail — token limit warning banner |
+| 11 | `final-report.png` | Investigation detail — Report tab with Markdown report |
+| 12 | `implement-recommendations.png` | Investigation detail — Implement Recommendations modal |
+| 13 | `Consent-report.png` | Investigation detail — Contest form with feedback |
+| 14 | `investigation-consent-resume.png` | Investigation detail — Live tab post-contest |
+| 15 | `failed-investigation.png` | Investigation detail — failed state |
+| 16 | `retrospective-analysis.png` | Retrospective tab — analyzing state |
+| 17 | `retrospective-analyze-investigation.png` | Retrospective tab — analysis complete |
+| 18 | `proposals-panel.png` | Retrospective tab — expanded proposals |
+| 19 | `retrospective-chat.png` | Retrospective tab — follow-up conversation |
+| 20 | `settings.png` | Settings — Agents tab |
+| 21 | `settings-pipeline-empty.png` | Settings — Pipeline tab (empty builder with agent palette and search) |
+| 22 | `settings-pipeline.png` | Settings — Pipeline tab (recommended 4-stage pipeline) |
+| 23 | `settings-pipeline-saved.png` | Settings — Pipeline tab (saved custom workflows management) |
+| 23a | `pipeline-builder.png` | Pipeline Builder modal — naming a new workflow |
+| 23b | `pipeline-builder-icon-picker.png` | Pipeline Builder modal — icon picker grid expanded |
+| 23c | `pipeline-builder-with-stages.png` | Pipeline Builder modal — three stages added from the agent palette |
+| 24 | `settings-connections.png` | Settings — Connections tab (LLM provider + MCP servers + incident provider) |
+| 25 | `settings-schedules.png` | Settings — Schedules tab (concurrency, retention, report model) |
+| 26 | `settings-analytics.png` | Settings — Analytics tab with widget picker |
+| 27 | `settings-appearance.png` | Settings — Appearance tab (view, sort, page size, browser notifications) |
+| 28 | `auth-flow.png` | Unauthenticated state |
+| 29 | `share-export-buttons.png` | Investigation detail — Share & PDF export buttons |
+| 30 | `drag-drop-import.png` | Dashboard — drag-and-drop import overlay |
+| 31 | `schedules.png` | Schedules — schedule list with verdicts + scheduler dock |
+| 32 | `schedule-form.png` | Schedule creation wizard with query bank |
+| 33 | `query-bank.png` | New Investigation — query bank dropdown |
+| 34 | `investigation-notes.png` | Investigation detail — Notes tab with markdown editor |
+| 35 | `about-page.png` | About — feature showcase, pipeline, version info |
+| 36 | `investigation-pipeline-timeline.png` | Investigation detail — Pipeline tab with stepper + conversation timeline |
+| 37 | `mobile-dashboard.png` | 📱 Dashboard — phone viewport (375×812) |
+| 38 | `mobile-investigation-detail.png` | 📱 Investigation detail — compact sidebar |
+| 39 | `mobile-contest-report.png` | 📱 Contest report — phone layout |
+| 40 | `mobile-new-investigation.png` | 📱 New Investigation form — phone layout |
+| 41 | `mobile-settings.png` | 📱 Settings — horizontal tab bar |
 
 ### Architecture
 
