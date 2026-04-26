@@ -884,40 +884,86 @@ let mockSavedWorkflows = [
     },
 ];
 
-app.get('/api/saved-workflows', (_req, res) => {
-    res.json(mockSavedWorkflows);
-});
+// New backend uses /api/workflows; keep /api/saved-workflows as alias for older builds.
+for (const path of ['/api/workflows', '/api/saved-workflows']) {
+    app.get(path, (_req, res) => {
+        res.json(mockSavedWorkflows);
+    });
+    app.post(path, (req, res) => {
+        const wf = { id: 'sw-new-' + Date.now(), ...req.body, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+        mockSavedWorkflows.push(wf);
+        res.json(wf);
+    });
+    app.put(`${path}/:id`, (req, res) => {
+        const idx = mockSavedWorkflows.findIndex(w => w.id === req.params.id);
+        if (idx >= 0) mockSavedWorkflows[idx] = { ...mockSavedWorkflows[idx], ...req.body, updatedAt: new Date().toISOString() };
+        res.json(mockSavedWorkflows[idx] || { success: true });
+    });
+    app.delete(`${path}/:id`, (req, res) => {
+        mockSavedWorkflows = mockSavedWorkflows.filter(w => w.id !== req.params.id);
+        res.json({ success: true });
+    });
+}
 
-app.post('/api/saved-workflows', (req, res) => {
-    const wf = { id: 'sw-new-' + Date.now(), ...req.body, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
-    mockSavedWorkflows.push(wf);
-    res.json(wf);
-});
-
-app.put('/api/saved-workflows/:id', (req, res) => {
-    const idx = mockSavedWorkflows.findIndex(w => w.id === req.params.id);
-    if (idx >= 0) mockSavedWorkflows[idx] = { ...mockSavedWorkflows[idx], ...req.body, updatedAt: new Date().toISOString() };
-    res.json(mockSavedWorkflows[idx] || { success: true });
-});
-
-app.delete('/api/saved-workflows/:id', (req, res) => {
-    mockSavedWorkflows = mockSavedWorkflows.filter(w => w.id !== req.params.id);
-    res.json({ success: true });
-});
+let mockCustomAgents = [
+    {
+        id: 'ca-cert-auditor',
+        agent: {
+            id: 'ca-cert-auditor',
+            name: 'Certificate Auditor',
+            description: 'Audits certificate expiry dates across all stamps and flags rotations needed within 30 days.',
+            source: 'inline',
+            kind: 'investigator',
+            color: '#22d3ee',
+            icon: '\ud83d\udd10',
+            systemPrompt: 'You are a certificate auditor. Enumerate all certificates and identify those expiring within 30 days. Cross-reference with rotation schedules and flag risks.',
+            tools: { mode: 'whitelist', list: ['kusto_query', 'azure_keyvault_list', 'read_file'] },
+        },
+        createdAt: new Date(Date.now() - 5 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 1 * 86400000).toISOString(),
+    },
+    {
+        id: 'ca-cost-analyzer',
+        agent: {
+            id: 'ca-cost-analyzer',
+            name: 'Cost Analyzer',
+            description: 'Reviews Azure resource utilization and identifies cost-optimization opportunities for the investigated stamp.',
+            source: 'inline',
+            kind: 'investigator',
+            color: '#84cc16',
+            icon: '\ud83d\udcb0',
+            systemPrompt: 'You analyze Azure resource costs. Identify under-utilized SKUs, oversized clusters, and idle resources. Recommend right-sized alternatives.',
+            tools: { mode: 'all' },
+        },
+        createdAt: new Date(Date.now() - 12 * 86400000).toISOString(),
+        updatedAt: new Date(Date.now() - 4 * 86400000).toISOString(),
+    },
+];
 
 app.get('/api/custom-agents', (_req, res) => {
-    res.json([]);
+    res.json(mockCustomAgents);
+});
+
+app.get('/api/custom-agents/:id', (req, res) => {
+    const a = mockCustomAgents.find(x => x.id === req.params.id);
+    if (!a) return res.status(404).json({ error: 'not found' });
+    res.json(a);
 });
 
 app.post('/api/custom-agents', (req, res) => {
-    res.json({ id: 'ca-new-' + Date.now(), ...req.body });
+    const wrapped = { id: 'ca-new-' + Date.now(), ...req.body, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    mockCustomAgents.push(wrapped);
+    res.json(wrapped);
 });
 
 app.put('/api/custom-agents/:id', (req, res) => {
-    res.json({ success: true });
+    const idx = mockCustomAgents.findIndex(x => x.id === req.params.id);
+    if (idx >= 0) mockCustomAgents[idx] = { ...mockCustomAgents[idx], ...req.body, updatedAt: new Date().toISOString() };
+    res.json(mockCustomAgents[idx] || { success: true });
 });
 
 app.delete('/api/custom-agents/:id', (req, res) => {
+    mockCustomAgents = mockCustomAgents.filter(x => x.id !== req.params.id);
     res.json({ success: true });
 });
 

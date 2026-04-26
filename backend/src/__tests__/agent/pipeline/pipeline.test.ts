@@ -188,12 +188,12 @@ describe('PipelineDefinition', () => {
             expect(getEffectiveMaxRetries({ maxRetries: 100 })).toBe(5);
         });
 
-        it('clamps negative to 0', () => {
-            expect(getEffectiveMaxRetries({ maxRetries: -3 })).toBe(0);
+        it('treats negative values as unlimited (Infinity)', () => {
+            expect(getEffectiveMaxRetries({ maxRetries: -3 })).toBe(Number.POSITIVE_INFINITY);
         });
 
-        it('handles zero', () => {
-            expect(getEffectiveMaxRetries({ maxRetries: 0 })).toBe(0);
+        it('treats zero as unlimited (Infinity)', () => {
+            expect(getEffectiveMaxRetries({ maxRetries: 0 })).toBe(Number.POSITIVE_INFINITY);
         });
     });
 
@@ -914,6 +914,25 @@ describe('PipelineOrchestrator', () => {
             const fresh = orch.getPipelineState();
             expect(fresh.stages[0].status).toBe('pending');
             expect(fresh.currentStageIndex).toBe(0);
+        });
+    });
+
+    describe('setModel', () => {
+        it('updates baseConfig.model so subsequent stages pick up the switch', () => {
+            const cfg: any = { ...baseConfig, model: 'old-model' };
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, cfg);
+            orch.setModel('new-model');
+            expect(cfg.model).toBe('new-model');
+        });
+
+        it('forwards the model switch to the currently-active stage runner', () => {
+            const cfg: any = { ...baseConfig, model: 'old-model' };
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, cfg);
+            const setModelSpy = vi.fn();
+            (orch as any).currentRunner = { setModel: setModelSpy };
+            orch.setModel('new-model');
+            expect(cfg.model).toBe('new-model');
+            expect(setModelSpy).toHaveBeenCalledWith('new-model');
         });
     });
 

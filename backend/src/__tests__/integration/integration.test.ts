@@ -126,7 +126,10 @@ describe('integration: server boot and API health', () => {
     it('key API endpoints respond with 200 (not 500)', async () => {
         // Use supertest against the in-process app (same pattern as unit tests)
         // This validates the Express route wiring is intact
-        const { __testUtils } = await import('../../server');
+        const { __testUtils, historyReady } = await import('../../server');
+        // Wait for the deferred history load (and any sync fs work it triggers)
+        // so subsequent supertest requests don't compete with a blocked event loop.
+        await historyReady;
         const request = (await import('supertest')).default;
         const api = request(__testUtils.app);
 
@@ -154,7 +157,7 @@ describe('integration: server boot and API health', () => {
         const authRes = await api.get('/api/auth/status');
         expect(authRes.status).toBe(200);
         expect(authRes.body).toHaveProperty('authenticated');
-    });
+    }, 30000);
 
     it('GET /api/investigations returns paginated response', async () => {
         const { __testUtils } = await import('../../server');

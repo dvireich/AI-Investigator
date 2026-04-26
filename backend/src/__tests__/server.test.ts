@@ -28,6 +28,8 @@ import {
     inferTarget,
     isPathWithinDirectory,
     loadHistory,
+    runDeferredHistoryLoad,
+    whenHistoryReady,
     normalizeHistoricalState,
     autoStartServerIfNeeded,
     handleServerStarted,
@@ -645,6 +647,47 @@ describe('server utilities and routes', () => {
             const items = Array.from(__testUtils.getHistory().values());
             const item = items.find(i => i.id === 'infer-fail-1');
             expect(item?.target).toBe('legacy-stamp-fail');
+        });
+
+        describe('history-ready gate', () => {
+            it('whenHistoryReady takes the fast path once history has loaded', () => {
+                // The module-load setImmediate has already opened the gate.
+                expect((__testUtils as any).isHistoryGateOpen()).toBe(true);
+                const next = vi.fn();
+                whenHistoryReady({} as any, {} as any, next);
+                expect(next).toHaveBeenCalledTimes(1);
+                expect(next).toHaveBeenCalledWith();
+            });
+
+            it('whenHistoryReady queues the request until the gate opens', async () => {
+                (__testUtils as any).resetHistoryReadyGate();
+                const next = vi.fn();
+                whenHistoryReady({} as any, {} as any, next);
+                // Gate is closed - next() must not have been called yet.
+                expect(next).not.toHaveBeenCalled();
+                // Open the gate by running loadHistory (which sets historyHasLoaded
+                // and resolves the gate promise).
+                __testUtils.setConfig({ investigationsPath: testInvestigationsRoot, products: [], activeProductId: '' });
+                loadHistory();
+                // Yield so the queued .then() callback runs.
+                await new Promise<void>((resolve) => setImmediate(resolve));
+                expect(next).toHaveBeenCalledTimes(1);
+                expect(next).toHaveBeenCalledWith();
+            });
+
+            it('runDeferredHistoryLoad swallows loader errors and opens the gate anyway', async () => {
+                (__testUtils as any).resetHistoryReadyGate();
+                const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+                runDeferredHistoryLoad(() => { throw new Error('boom'); });
+                expect((__testUtils as any).isHistoryGateOpen()).toBe(true);
+                expect(errorSpy).toHaveBeenCalledWith('Initial loadHistory() failed:', expect.any(Error));
+                // The gate-promise should also resolve so any queued requests unblock.
+                const next = vi.fn();
+                whenHistoryReady({} as any, {} as any, next);
+                await new Promise<void>((resolve) => setImmediate(resolve));
+                expect(next).toHaveBeenCalledTimes(1);
+                errorSpy.mockRestore();
+            });
         });
 
         it.skip('covers path selection and inclusion helpers for product and global investigations', () => {
@@ -4180,6 +4223,23 @@ describe('server utilities and routes', () => {
             response = await api().post('/api/investigations/active-2/action').send({ action: 'abort' });
             expect(response.status).toBe(200);
             expect(runner.abort).toHaveBeenCalled();
+        });
+
+        it('propagates model switch to the pipeline orchestrator for active pipeline investigations', async () => {
+            const runner = makeRunner({ id: 'pipe-model-switch', status: 'running' });
+            __testUtils.getRunners().set('pipe-model-switch', runner as any);
+
+            const mockOrch = {
+                setModel: vi.fn(),
+            };
+            __testUtils.getPipelineOrchestrators().set('pipe-model-switch', mockOrch as any);
+
+            const response = await api().post('/api/investigations/pipe-model-switch/model').send({ model: 'gpt-4.1-mini' });
+            expect(response.status).toBe(200);
+            expect(runner.setModel).toHaveBeenCalledWith('gpt-4.1-mini');
+            expect(mockOrch.setModel).toHaveBeenCalledWith('gpt-4.1-mini');
+
+            __testUtils.getPipelineOrchestrators().delete('pipe-model-switch');
         });
 
         it('signals the pipeline orchestrator on pause/abort/intervene/resume for active pipeline investigations', async () => {

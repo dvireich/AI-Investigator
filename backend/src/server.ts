@@ -458,6 +458,21 @@ export function getInvestigationStoragePath(state: { id: string; target?: string
     return path.join(baseDir, nameParts.join('_'));
 }
 
+// Promise that resolves once `loadHistory()` has populated the in-memory
+// history map. Routes that depend on history can `await historyReady` so the
+// HTTP server can start accepting connections immediately on cold start.
+let historyReadyResolve!: () => void;
+export let historyReady: Promise<void> = new Promise<void>((resolve) => { historyReadyResolve = resolve; });
+let historyHasLoaded: boolean = false;
+
+// Express middleware: gates a route on history being ready. Returns fast
+// (no await cost) once history has loaded. On cold start, queues the request
+// until `loadHistory()` finishes - typically <1s for normal stores.
+export function whenHistoryReady(_req: any, _res: any, next: any): void {
+    if (historyHasLoaded) { next(); return; }
+    historyReady.then(() => next()).catch((e) => next(e));
+}
+
 export function loadHistory() {
     history.clear();
     storagePathCache.clear();
@@ -567,6 +582,8 @@ export function loadHistory() {
     }
 
     console.log(`Loaded ${history.size} total investigations into history.`);
+    historyHasLoaded = true;
+    historyReadyResolve();
 }
 
 
@@ -1013,6 +1030,14 @@ export function loadConfigFromDisk(targetConfigFile: string, baseConfig: typeof 
 
     if (mergedConfig.investigationsPath) {
         ensureDirectoryExists(mergedConfig.investigationsPath);
+    } else {
+        // Fallback: when the on-disk config doesn't set investigationsPath,
+        // store investigations next to the config file. This matches user intent
+        // when launching with --config <product-repo>/investigator-config.json
+        // (instead of falling through to the global default which can resolve to
+        // an unrelated drive root in dev mode).
+        mergedConfig.investigationsPath = path.join(baseDir, 'investigations');
+        ensureDirectoryExists(mergedConfig.investigationsPath);
     }
 
     return { config: mergedConfig, persistedConfig: nextPersistedConfig, loaded: true };
@@ -1049,8 +1074,21 @@ export function initializeProviders() {
 }
 initializeProviders();
 
-// Initial load of history (after config is loaded)
-loadHistory();
+// Defer the initial history scan until after the event loop has had a chance
+// to bind the HTTP server. This keeps cheap endpoints (/api/version,
+// /api/auth/status, /api/settings, /api/onboarding/status) responsive on
+// cold start. Routes that read `history` are gated by `whenHistoryReady`.
+export function runDeferredHistoryLoad(loader: () => void = loadHistory): void {
+    try {
+        loader();
+    } catch (e) {
+        console.error('Initial loadHistory() failed:', e);
+        // Resolve the gate so requests don't hang forever on a load failure.
+        historyHasLoaded = true;
+        historyReadyResolve();
+    }
+}
+setImmediate(() => runDeferredHistoryLoad());
 
 // Version / update API
 import { getVersionStatus, setUpdateManifestUrl } from './utils/updateChecker';
@@ -1233,6 +1271,12 @@ app.get('/api/pipeline/builtins', (_req, res) => {
 app.get('/api/pipeline/presets', (_req, res) => {
     res.json(listPipelinePresets());
 });
+
+// Gate all routes that read the in-memory `history` map until the initial
+// disk scan completes. On a warm process this is a no-op; on cold start
+// requests are queued briefly instead of returning empty/incorrect data.
+app.use('/api/investigations', whenHistoryReady);
+app.use('/api/schedules', whenHistoryReady);
 
 app.get('/api/investigations/:id/pipeline', (req, res) => {
     const { id } = req.params;
@@ -2565,6 +2609,7 @@ app.post('/api/investigations/:id/model', async (req, res) => {
     if (!model) return res.status(400).json({ error: 'Model is required' });
 
     let runner = runners.get(id);
+    const orchestrator = pipelineOrchestrators.get(id);
 
     // If runner is not active (paused/stopped), we update the history state directly
     if (!runner && history.has(id)) {
@@ -2580,6 +2625,13 @@ app.post('/api/investigations/:id/model', async (req, res) => {
 
     console.log(`[Model Switch] Updating active investigation ${id} to model ${model}`);
     runner.setModel(model);
+
+    // For pipeline investigations, the anchor runner doesn't actually execute the
+    // LLM calls — the orchestrator's per-stage runners do. Propagate the switch so
+    // subsequent stages (and any in-flight stage runner) pick up the new model.
+    if (orchestrator) {
+        orchestrator.setModel(model);
+    }
 
     // Broadcast status update if needed, but setModel adds a thought which triggers broadcast
     res.json({ status: 'ok', model });
@@ -4416,6 +4468,19 @@ export const __testUtils = {
     setCustomAgentStore: (store: CustomAgentStore | null) => {
         customAgentStore = store;
     },
+    /**
+     * Test helper: forces the history-ready gate back to its pre-load state so
+     * the queued path through `whenHistoryReady` can be exercised.
+     */
+    resetHistoryReadyGate: () => {
+        historyHasLoaded = false;
+        historyReady = new Promise<void>((resolve) => { historyReadyResolve = resolve; });
+    },
+    /**
+     * Test helper: returns the current value of the internal `historyHasLoaded`
+     * flag so tests can assert the catch branch of `runDeferredHistoryLoad`.
+     */
+    isHistoryGateOpen: () => historyHasLoaded,
     getScheduleStore: () => scheduleStore,
     getScheduler: () => scheduler,
     getQueryBankStore: () => queryBankStore,

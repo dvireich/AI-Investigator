@@ -1103,12 +1103,15 @@ export const NewInvestigation = () => {
                                 && preset.id !== configuredPresetId
                             );
 
-                            // Separate saved workflows from built-in presets for clear visual grouping
+                            // Separate saved workflows from built-in presets for clear visual grouping.
+                            // The "configured" pipeline (user's default from Settings) is rendered in its
+                            // own section so it's not mislabeled as a built-in preset.
                             const searchLower = workflowSearch.toLowerCase();
-                            const builtinItems: { type: 'configured' | 'preset'; preset?: typeof availablePresets[number] }[] = [
-                                ...(hasConfiguredPipeline && (configuredPipeline!.name || 'Custom Pipeline').toLowerCase().includes(searchLower) ? [{ type: 'configured' as const }] : []),
-                                ...availablePresets.filter(p => p.name.toLowerCase().includes(searchLower) || p.description.toLowerCase().includes(searchLower)).map(preset => ({ type: 'preset' as const, preset })),
-                            ];
+                            const showConfigured = hasConfiguredPipeline && (configuredPipeline!.name || 'Custom Pipeline').toLowerCase().includes(searchLower);
+                            const builtinItems: { type: 'preset'; preset: typeof availablePresets[number] }[] =
+                                availablePresets
+                                    .filter(p => p.name.toLowerCase().includes(searchLower) || p.description.toLowerCase().includes(searchLower))
+                                    .map(preset => ({ type: 'preset' as const, preset }));
                             const PAGE_SIZE = 6; // 2 rows × 3 columns
                             const totalPages = Math.ceil(builtinItems.length / PAGE_SIZE);
                             const pageItems = builtinItems.slice(workflowPage * PAGE_SIZE, (workflowPage + 1) * PAGE_SIZE);
@@ -1226,7 +1229,10 @@ export const NewInvestigation = () => {
                                                             </p>
                                                             <div className="flex flex-wrap gap-0.5 mt-1.5">
                                                                 {workflow.pipeline.stages.map((stage, i) => {
-                                                                    const agent = stage.agent;
+                                                                    const agent =
+                                                                        (stage.savedAgentId && savedAgents.find(sa => sa.id === stage.savedAgentId)?.agent)
+                                                                        || (stage.agentId && (workflow.pipeline.agents?.find(a => a.id === stage.agentId) || builtinAgents.find(a => a.id === stage.agentId)))
+                                                                        || stage.agent;
                                                                     const color = agent?.color || '#6b7280';
                                                                     const agentTitle = agent?.name || `Stage ${i + 1}`;
                                                                     const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
@@ -1249,6 +1255,66 @@ export const NewInvestigation = () => {
                                         </div>
                                     );
                                     })()}
+
+                                    {/* ── Default Pipeline section (configured in Settings) ── */}
+                                    {showConfigured && (
+                                        <div className="space-y-1.5">
+                                            <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/70 flex items-center gap-2">
+                                                <span className="flex-1 h-px bg-emerald-500/10"></span>
+                                                Default Pipeline
+                                                <span className="flex-1 h-px bg-emerald-500/10"></span>
+                                            </div>
+                                            <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                                                {(() => {
+                                                    const isSelected = selectedWorkflow === 'configured';
+                                                    return (
+                                                        <button
+                                                            key="configured"
+                                                            type="button"
+                                                            onClick={() => setSelectedWorkflow('configured')}
+                                                            className={`text-left p-2.5 rounded-xl border transition-all ${
+                                                                isSelected
+                                                                    ? 'bg-purple-950/50 border-purple-500/50 ring-1 ring-purple-500/20'
+                                                                    : 'bg-slate-800/40 border-slate-700/40 hover:border-slate-600 hover:bg-slate-800/70'
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <span className="text-sm">⚙️</span>
+                                                                <span className={`text-xs font-bold ${isSelected ? 'text-purple-200' : 'text-slate-300'}`}>
+                                                                    {configuredPipeline!.name || 'Custom Pipeline'}
+                                                                </span>
+                                                                <span className="text-[8px] bg-emerald-600/30 text-emerald-400 px-1 py-0.5 rounded-full font-bold">CONFIGURED</span>
+                                                            </div>
+                                                            <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-purple-300/70' : 'text-slate-500'}`}>
+                                                                Your pipeline from Settings. {configuredPipeline!.stages.length} stages.
+                                                            </p>
+                                                            <div className="flex flex-wrap gap-0.5 mt-1.5">
+                                                                {configuredPipeline!.stages.map((stage, i) => {
+                                                                    const agent =
+                                                                        (stage.savedAgentId && savedAgents.find(sa => sa.id === stage.savedAgentId)?.agent)
+                                                                        || (stage.agentId && (configuredPipeline!.agents?.find(a => a.id === stage.agentId) || builtinAgents.find(a => a.id === stage.agentId)))
+                                                                        || stage.agent;
+                                                                    const color = agent?.color || '#6b7280';
+                                                                    const agentTitle = agent?.name || `Stage ${i + 1}`;
+                                                                    const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
+                                                                    return (
+                                                                        <span
+                                                                            key={i}
+                                                                            className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
+                                                                            style={{ backgroundColor: color }}
+                                                                            title={agentTitle}
+                                                                        >
+                                                                            {agentLabel}
+                                                                        </span>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>
+                                    )}
 
                                     {/* ── Built-in Presets section ── */}
                                     <div className="space-y-1.5">
@@ -1284,51 +1350,7 @@ export const NewInvestigation = () => {
                                         </div>
                                         <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
                                             {pageItems.map((item) => {
-                                                if (item.type === 'configured') {
-                                                    const isSelected = selectedWorkflow === 'configured';
-                                                    return (
-                                                        <button
-                                                            key="configured"
-                                                            type="button"
-                                                            onClick={() => setSelectedWorkflow('configured')}
-                                                            className={`text-left p-2.5 rounded-xl border transition-all ${
-                                                                isSelected
-                                                                    ? 'bg-purple-950/50 border-purple-500/50 ring-1 ring-purple-500/20'
-                                                                    : 'bg-slate-800/40 border-slate-700/40 hover:border-slate-600 hover:bg-slate-800/70'
-                                                            }`}
-                                                        >
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <span className="text-sm">⚙️</span>
-                                                                <span className={`text-xs font-bold ${isSelected ? 'text-purple-200' : 'text-slate-300'}`}>
-                                                                    {configuredPipeline!.name || 'Custom Pipeline'}
-                                                                </span>
-                                                                <span className="text-[8px] bg-emerald-600/30 text-emerald-400 px-1 py-0.5 rounded-full font-bold">CONFIGURED</span>
-                                                            </div>
-                                                            <p className={`text-[10px] leading-snug line-clamp-2 ${isSelected ? 'text-purple-300/70' : 'text-slate-500'}`}>
-                                                                Your pipeline from Settings. {configuredPipeline!.stages.length} stages.
-                                                            </p>
-                                                            <div className="flex flex-wrap gap-0.5 mt-1.5">
-                                                                {configuredPipeline!.stages.map((stage, i) => {
-                                                                    const agent = stage.agent;
-                                                                    const color = agent?.color || '#6b7280';
-                                                                    const agentTitle = agent?.name || `Stage ${i + 1}`;
-                                                                    const agentLabel = agent?.icon || agent?.name?.charAt(0) || (i + 1);
-                                                                    return (
-                                                                        <span
-                                                                            key={i}
-                                                                            className="w-4 h-4 rounded-full flex items-center justify-center text-[7px]"
-                                                                            style={{ backgroundColor: color }}
-                                                                            title={agentTitle}
-                                                                        >
-                                                                            {agentLabel}
-                                                                        </span>
-                                                                    );
-                                                                })}
-                                                            </div>
-                                                        </button>
-                                                    );
-                                                }
-                                                const { preset } = item as { type: 'preset'; preset: typeof availablePresets[number] };
+                                                const { preset } = item;
                                                 const isSelected = selectedWorkflow === preset.id;
                                                 return (
                                                     <button
@@ -1459,7 +1481,7 @@ export const NewInvestigation = () => {
                         {/* Body */}
                         <div className="flex-1 overflow-y-auto p-4 space-y-4">
                             {/* Workflow metadata */}
-                            <div className="grid grid-cols-[auto_1fr_1fr] gap-3 items-end">
+                            <div className="grid grid-cols-[auto_1fr] gap-3 items-end">
                                 <div className="space-y-1 relative">
                                     <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Icon</label>
                                     <button
@@ -1494,16 +1516,16 @@ export const NewInvestigation = () => {
                                         className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
                                     />
                                 </div>
-                                <div className="space-y-1">
-                                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</label>
-                                    <input
-                                        type="text"
-                                        value={workflowSaveDesc}
-                                        onChange={e => setWorkflowSaveDesc(e.target.value)}
-                                        placeholder="Optional description..."
-                                        className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500"
-                                    />
-                                </div>
+                            </div>
+                            <div className="space-y-1">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Description</label>
+                                <textarea
+                                    value={workflowSaveDesc}
+                                    onChange={e => setWorkflowSaveDesc(e.target.value)}
+                                    placeholder="Optional description..."
+                                    rows={3}
+                                    className="w-full px-3 py-2 rounded-lg border border-slate-700 bg-slate-800/50 text-white text-sm outline-none focus:ring-2 focus:ring-purple-500 resize-y min-h-[4.5rem] leading-snug"
+                                />
                             </div>
 
                             {/* Pipeline builder */}
