@@ -4353,6 +4353,20 @@ describe('server utilities and routes', () => {
             __testUtils.getPipelineOrchestrators().delete('active-pipe-ctl');
         });
 
+        it('intervene swallows errors from the post-intervene saveArtifacts call', async () => {
+            const runner = makeRunner({ id: 'active-intervene-save-fail', status: 'running' });
+            (runner.saveArtifacts as any) = vi.fn().mockRejectedValue(new Error('disk full'));
+            __testUtils.getRunners().set('active-intervene-save-fail', runner as any);
+
+            const response = await api().post('/api/investigations/active-intervene-save-fail/action')
+                .send({ action: 'intervene', message: 'Note this' });
+
+            // Endpoint returns 200 even though the best-effort save rejected
+            expect(response.status).toBe(200);
+            expect(runner.intervene).toHaveBeenCalledWith('Note this');
+            expect(runner.saveArtifacts).toHaveBeenCalled();
+        });
+
         it('pause syncs orchestrator pipeline state to the anchor runner', async () => {
             const runner = makeRunner({ id: 'pipe-pause-sync', status: 'running' });
             __testUtils.getRunners().set('pipe-pause-sync', runner as any);

@@ -864,6 +864,17 @@ describe('PipelineOrchestrator', () => {
             expect((cs.thoughts[1] as any).content).toContain('second');
         });
 
+        it('intervene() drops the message and logs when orchestrator is not running', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            // No currentRunner, no _currentState — orchestrator hasn't started
+            expect((orch as any).currentRunner).toBeNull();
+            expect(orch.currentState).toBeNull();
+            const logSpy = vi.fn();
+            orch.on('log', logSpy);
+            orch.intervene('vanishes');
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Intervention dropped'));
+        });
+
         it('between-stage intervention reaches the next stage runner via shared thoughts array', async () => {
             const pipeline = makePipeline([
                 { agent: { id: 's1', name: 'S1', source: 'inline', promptContent: 'x' } },

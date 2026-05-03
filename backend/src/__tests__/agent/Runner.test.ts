@@ -706,6 +706,34 @@ describe('AgentRunner', () => {
             expect((interventions[0] as any).content).toContain('msg-0');
             expect((interventions[4] as any).content).toContain('msg-4');
         });
+
+        it('logs an error when fire-and-forget saveArtifacts rejects', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const errSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+            const saveErr = new Error('disk full');
+            vi.spyOn(runner as any, 'saveArtifacts').mockRejectedValue(saveErr);
+
+            runner.intervene('please retry');
+            // Wait for the unhandled-promise catch handler to run
+            await new Promise(r => setImmediate(r));
+
+            expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to persist intervention'));
+            errSpy.mockRestore();
+        });
+
+        it('logs the raw rejection value when saveArtifacts rejects with a non-Error', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const errSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+            // Reject with a plain string (no .message property) to cover the
+            // `err?.message || err` fallback branch.
+            vi.spyOn(runner as any, 'saveArtifacts').mockRejectedValue('write-locked');
+
+            runner.intervene('please retry');
+            await new Promise(r => setImmediate(r));
+
+            expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('write-locked'));
+            errSpy.mockRestore();
+        });
     });
 
     describe('contestReport', () => {
