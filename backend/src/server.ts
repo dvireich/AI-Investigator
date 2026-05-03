@@ -671,6 +671,18 @@ const attachPipelineListeners = (orchestrator: PipelineOrchestrator, id: string)
         const st = (runner as any).state;
         const ps = orchestrator.getPipelineState();
         if (ps) st.pipeline = ps;
+        // Mirror the orchestrator's live cumulative arrays (thoughts/actions/logs)
+        // by reference so the anchor always reflects the source of truth. Without
+        // this, the listener used to push events into a *separate* anchor array,
+        // which after a resume (where arrays were shared by reference) caused every
+        // model thought to be persisted twice — once raw by the stage runner and
+        // once wrapped by the listener — plus log noise pulled into the LLM payload.
+        const cs = orchestrator.currentState;
+        if (cs) {
+            st.thoughts = cs.thoughts;
+            st.actions = cs.actions;
+            st.logs = cs.logs;
+        }
     };
 
     // Persist the anchor runner state to disk periodically so the investigation
@@ -682,32 +694,18 @@ const attachPipelineListeners = (orchestrator: PipelineOrchestrator, id: string)
         try { await (runner as any).saveArtifacts(); } catch (_e) { /* best-effort */ }
     };
 
-    // Forward standard runner events + accumulate into runner state
+    // Forward standard runner events. Anchor accumulation is handled by
+    // syncRunnerState() (reference mirroring), not by pushing per-event.
     orchestrator.on('thought', (data) => {
-        const runner = runners.get(id);
-        if (runner) {
-            const st = (runner as any).state;
-            if (!st.thoughts) st.thoughts = [];
-            st.thoughts.push(data);
-        }
+        syncRunnerState();
         broadcast(id, 'thought', data);
     });
     orchestrator.on('action', (data) => {
-        const runner = runners.get(id);
-        if (runner) {
-            const st = (runner as any).state;
-            if (!st.actions) st.actions = [];
-            st.actions.push(data);
-        }
+        syncRunnerState();
         broadcast(id, 'action', data);
     });
     orchestrator.on('log', (data) => {
-        const runner = runners.get(id);
-        if (runner) {
-            const st = (runner as any).state;
-            if (!st.logs) st.logs = [];
-            st.logs.push(data);
-        }
+        syncRunnerState();
         broadcast(id, 'log', data);
     });
     orchestrator.on('status', (data) => {
@@ -2422,8 +2420,19 @@ app.post('/api/investigations/:id/action', async (req, res) => {
         if (orchestrator) orchestrator.abort();
     }
     if (action === 'intervene' && message) {
-        runner.intervene(message);
-        if (orchestrator) orchestrator.intervene(message);
+        // Pipeline mode: route through the orchestrator so the message reaches the
+        // active stage runner (or is recorded directly into the orchestrator's
+        // currentState between stages). Calling both anchor and orchestrator would
+        // double-push the message into the now-shared thoughts array.
+        if (orchestrator) {
+            orchestrator.intervene(message);
+        } else {
+            runner.intervene(message);
+        }
+        // Persist immediately so the message survives a server crash before the
+        // next save trigger (stage event / step boundary). The intervention may
+        // arrive between LLM steps, when nothing else would write to disk.
+        try { await (runner as any).saveArtifacts(); } catch (_e) { /* best-effort */ }
     }
     if (action === 'contest' && message) {
         // Block contest while implementation is running to avoid state corruption
