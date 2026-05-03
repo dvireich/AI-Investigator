@@ -40,12 +40,16 @@ const NotFound = lazyWithPreload(() => import('./pages/NotFound').then(m => ({ d
  * Used to prefetch a route's JS bundle on hover/focus or during browser idle
  * time, so navigation doesn't pay the chunk-download cost on click.
  * Note: '/' and '/new' are eagerly imported, so they have no preload entry.
+ * '/investigation' is keyed without the :id segment — it's preloaded from
+ * NewInvestigation while the user fills out the form, so navigating to the
+ * live investigation view after Start doesn't wait on chunk download.
  */
 export const preloadRoute: Record<string, () => Promise<unknown>> = {
     '/schedules': Schedules.preload,
     '/schedules/new': ScheduleForm.preload,
     '/settings': Settings.preload,
     '/about': About.preload,
+    '/investigation': InvestigationDetail.preload,
 };
 
 export { lazyRetry };
