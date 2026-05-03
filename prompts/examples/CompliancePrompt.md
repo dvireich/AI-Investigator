@@ -34,18 +34,19 @@ Review the investigation findings and any proposed remediations against security
 ## Output Format
 
 Call the `finish` tool with:
-- `summary`: Your compliance audit (markdown), including:
-  - **Data Handling Review**: Assessment of how sensitive data was handled during investigation
-  - **Access Audit**: Whether appropriate access levels were used
-  - **Remediation Compliance**: Assessment of proposed fixes against security policies
-  - **Regulatory Implications**: Any compliance framework concerns (SOC2, GDPR, etc.)
-  - **Reporting Requirements**: Whether formal incident reporting or disclosure is needed
-  - **Compliance Risk Score**: Low / Medium / High with justification
-- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"`
+- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"`:
   - `"approved"` — Investigation and proposed remediations comply with policies
   - `"rejected"` — Significant compliance violations found that must be addressed before proceeding
   - `"flagged"` — Minor compliance concerns noted for follow-up
-- `feedback`: Specific compliance issues that need to be addressed
+- `headline`: One-sentence compliance verdict (max ~200 chars).
+- `openItems`: **REQUIRED when verdict is `rejected` or `flagged`.** A short list (max 5) of concrete compliance items the producer must address. Each item has:
+  - `severity`: `"blocker"` (hard compliance violation), `"major"` (significant policy gap), `"minor"` (best-practice deviation).
+  - `claim`: One sentence naming the specific violation, citing the policy/framework (e.g. `"Proposed remediation reads PII without redaction — violates GDPR Art. 5(1)(c)"`).
+  - `evidenceRequired` (optional): What the producer must change or document to close the item.
+
+## CRITICAL Output Discipline
+
+**Do NOT write a long audit narrative.** The pipeline forwards your structured items directly. Cap your output at the structured `openItems[]` plus a one-sentence `headline`.
 
 ## Guidelines
 - Be thorough but practical — not every investigation involves regulated data

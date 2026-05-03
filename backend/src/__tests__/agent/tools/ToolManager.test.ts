@@ -167,6 +167,57 @@ describe('ToolManager', () => {
         });
     });
 
+    describe('setFinishRoleHint / role-shaped finish schema', () => {
+        it("emits a producer-shaped finish tool requiring only 'report'", async () => {
+            await manager.initialize([], undefined, vi.fn());
+            manager.setFinishRoleHint('producer');
+            const tools = await manager.listTools();
+            const finish = tools.find((t: any) => t.name === 'finish');
+            expect(finish).toBeDefined();
+            expect(finish.inputSchema.required).toEqual(['report']);
+            expect(finish.inputSchema.properties.report).toBeDefined();
+            // Producers cannot emit a verdict — that's the whole point.
+            expect(finish.inputSchema.properties.verdict).toBeUndefined();
+            expect(finish.inputSchema.properties.openItems).toBeUndefined();
+        });
+
+        it("emits a reviewer-shaped finish tool requiring 'verdict' with structured openItems[]", async () => {
+            await manager.initialize([], undefined, vi.fn());
+            manager.setFinishRoleHint('reviewer');
+            const tools = await manager.listTools();
+            const finish = tools.find((t: any) => t.name === 'finish');
+            expect(finish).toBeDefined();
+            expect(finish.inputSchema.required).toEqual(['verdict']);
+            expect(finish.inputSchema.properties.verdict.enum).toEqual(['approved', 'rejected', 'flagged']);
+            expect(finish.inputSchema.properties.headline).toBeDefined();
+            expect(finish.inputSchema.properties.openItems).toBeDefined();
+            expect(finish.inputSchema.properties.openItems.type).toBe('array');
+            // Reviewers cannot author a free-form report — they evaluate, they
+            // don't produce content.
+            expect(finish.inputSchema.properties.report).toBeUndefined();
+            // Open-item shape: severity enum + claim required
+            const itemSchema = finish.inputSchema.properties.openItems.items;
+            expect(itemSchema.required).toEqual(['severity', 'claim']);
+            expect(itemSchema.properties.severity.enum).toEqual(['blocker', 'major', 'minor']);
+            // Backwards-compat prose feedback still accepted but deprecated.
+            expect(finish.inputSchema.properties.feedback).toBeDefined();
+        });
+
+        it('reverts to the legacy schema when the hint is cleared', async () => {
+            await manager.initialize([], undefined, vi.fn());
+            manager.setFinishRoleHint('reviewer');
+            manager.setFinishRoleHint(undefined);
+            const tools = await manager.listTools();
+            const finish = tools.find((t: any) => t.name === 'finish');
+            expect(finish).toBeDefined();
+            // Legacy schema has summary + optional verdict/feedback so non-pipeline
+            // callers (scheduled health checks, single-agent runs) keep working
+            // unchanged.
+            expect(finish.inputSchema.properties.summary).toBeDefined();
+            expect(finish.inputSchema.required).toEqual(['summary']);
+        });
+    });
+
     describe('callTool', () => {
         beforeEach(async () => {
             await manager.initialize([], undefined, vi.fn());
