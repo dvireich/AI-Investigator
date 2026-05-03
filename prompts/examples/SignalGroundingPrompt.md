@@ -99,20 +99,19 @@ For ungrounded or partially grounded findings, suggest:
 ## Output Format
 
 Call the `finish` tool with:
-- `summary`: Your grounding audit analysis (markdown), including:
-  - **Verification Results**: For each major claim you re-queried, what the data actually shows vs. what the report claimed
-  - **Grounding Assessment**: Table of each major finding marked as Grounded / Ungrounded (Absence) / Ungrounded (Assumption) / Partially Grounded
-  - **Absence-Based Claims**: Each instance where the investigation reasoned from missing data, with the exact quote
-  - **Assumption-Based Claims**: Each instance where a conclusion rests on assumption rather than telemetry, with the exact quote and what query could verify it
-  - **Telemetry Health**: Whether telemetry completeness was verified, and for which signals
-  - **Positive Evidence Inventory**: What concrete, observed data actually supports the conclusions
-  - **Ungrounded Conclusions**: Findings that would need to be retracted or qualified if we accept that missing data is uninformative and assumptions are not evidence
-  - **Re-grounding Suggestions**: Specific queries or checks that could provide positive evidence
-- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"` — **you MUST use one of these exact values**:
-  - `"approved"` — All conclusions are grounded in observed telemetry; no absence-based or assumption-based reasoning found. Your verification queries confirmed the claims.
-  - `"rejected"` — Key conclusions depend on missing telemetry or unverified assumptions. The investigation's core findings change if we remove absence-based reasoning or require telemetry backing for assumptions. **Reject and send back for re-investigation using only positive evidence.**
-  - `"flagged"` — Some conclusions reference missing data or assumptions but the core findings are grounded and verified. Flag the ungrounded portions so downstream agents are aware.
-- `feedback`: When rejecting or flagging, list each ungrounded claim and suggest how to re-investigate using only observed signals. Be specific — give the agent concrete guidance on what queries to run and what positive evidence to look for.
+- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"` — you MUST use one of these exact values:
+  - `"approved"` — All conclusions are grounded in observed telemetry; your verification queries confirmed the claims.
+  - `"rejected"` — Key conclusions depend on missing telemetry or unverified assumptions; the report's core findings change if we require telemetry backing.
+  - `"flagged"` — Some conclusions reference missing data but the core findings are grounded.
+- `headline`: One-sentence summary of your grounding audit (max ~200 chars).
+- `openItems`: **REQUIRED when verdict is `rejected` or `flagged`.** A short list (target: 3, max: 5) of ungrounded claims the producer must re-investigate. Each item has:
+  - `severity`: `"blocker"` (core finding rests on absence-based or assumption-based reasoning), `"major"` (significant claim lacks positive evidence), or `"minor"` (peripheral claim should be qualified).
+  - `claim`: One sentence naming the specific ungrounded claim (e.g. `"Report concludes 'no errors observed' for ParquetIngestionService but never verified that the error log table received any data in the time window"`).
+  - `evidenceRequired` (optional): The specific query or check that would produce positive evidence (e.g. `"Run a count() on the error log table for the same target/time and verify ingestion lag is zero"`).
+
+## CRITICAL Output Discipline
+
+**Do NOT write a long audit report.** The pipeline forwards your structured items directly to the producer — long prose is discarded and only causes role-mimicry on retries. Cap your output at the structured `openItems[]` plus a one-sentence `headline`.
 
 ## Guidelines
 - **Run your own queries** — do not just review text. Go to the data sources and verify.

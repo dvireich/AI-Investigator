@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentDefinition, ConversationEntry, getAgentKind, stageProducesFinalReport } from './AgentDefinition';
+import { AgentDefinition, ConversationEntry, getAgentKind, getAgentRole, stageProducesFinalReport, OpenItem } from './AgentDefinition';
 import {
     PipelineDefinition,
     PipelineStage,
@@ -38,6 +38,22 @@ export class PipelineOrchestrator extends EventEmitter {
     private currentRunner: AgentRunner | null = null;
     private pendingInterventions: string[] = [];
     private savedAgentResolver?: SavedAgentResolver;
+    /**
+     * Per-stage convergence tracking — keyed by stage index. Carries the open
+     * items and tool-call signature from the prior round so we can detect
+     * non-convergent retry loops (same complaints, no new evidence) and
+     * downgrade them to a flag instead of looping forever.
+     */
+    private stageConvergence: Map<number, {
+        priorOpenItemHashes: string[];
+        priorToolCallSignature: string[];
+    }> = new Map();
+    /**
+     * Pending retry context per-stage, populated when a downstream reviewer
+     * rejects upstream work. Consumed when that target stage starts its
+     * next run.
+     */
+    private pendingRetryContext: Map<number, NonNullable<StageContext['retryContext']>> = new Map();
 
     constructor(
         pipeline: PipelineDefinition,
@@ -215,8 +231,19 @@ export class PipelineOrchestrator extends EventEmitter {
                     systemPromptOverride: systemPrompt,
                     modelOverride: agent.model,
                     maxStepsOverride: agent.maxSteps,
+                    // Drive the role-shaped finish tool. Reviewers get verdict+openItems;
+                    // producers get a report-only schema. This is what makes role
+                    // mimicry impossible at the tool boundary.
+                    role: getAgentRole(agent),
+                    // If a downstream reviewer rejected this stage in a prior round,
+                    // pass the structured retry context (prior report + open items).
+                    // This SUPPRESSES the conversation log injection on retry, which
+                    // is what causes voice-drift / role-mimicry failures.
+                    retryContext: this.pendingRetryContext.get(stageIndex),
                 };
                 runner.setStageContext(stageContext);
+                // Consume the pending retry context — it applies to one run only.
+                this.pendingRetryContext.delete(stageIndex);
 
                 // Forward events from the runner (tagged with agent identity)
                 this.forwardRunnerEvents(runner, {
@@ -369,13 +396,58 @@ export class PipelineOrchestrator extends EventEmitter {
 
                     if (stage.onReject === 'loop') {
                         const maxRetries = getEffectiveMaxRetries(stage);
-                        if (stageState.retryCount < maxRetries) {
-                            stageState.retryCount++;
-                            const targetIndex = resolveRejectTarget(
-                                stage,
+                        const targetIndex = resolveRejectTarget(
+                            stage,
+                            stageIndex,
+                            this.pipeline.stages.length
+                        );
+
+                        // Resolve open items for this rejection. Reviewers should
+                        // emit a structured `openItems[]`; legacy reviewers that only
+                        // emit free-form `feedback` get a single synthetic blocker
+                        // item synthesized from the prose so the retry context still
+                        // has something concrete to display.
+                        const openItems = this.resolveOpenItems(result);
+
+                        // Convergence detection: if THIS reviewer's previous round
+                        // raised substantively the same items AND the producer's
+                        // looped run produced the same tool-call signature as last
+                        // round, the loop is non-convergent (reviewer keeps asking
+                        // for the same thing; producer can't deliver). Downgrade
+                        // reject -> flag so the pipeline continues instead of
+                        // grinding forever on the same complaints.
+                        const convergence = this.stageConvergence.get(stageIndex);
+                        const itemHashes = openItems.map(i => this.hashOpenItem(i));
+                        const targetState = this.pipelineState.stages[targetIndex];
+                        const lastTargetSig: string[] | undefined = (targetState as any).__lastToolCallSignature;
+                        const sameItems = convergence && this.signatureSimilarity(convergence.priorOpenItemHashes, itemHashes) >= 0.8;
+                        const noNewEvidence = convergence && lastTargetSig !== undefined &&
+                            this.signatureSimilarity(convergence.priorToolCallSignature, lastTargetSig) >= 0.95;
+                        // Only converge after at least one prior retry — round 1 always loops.
+                        const giveUpOnLoop = stageState.retryCount > 0 && (sameItems || noNewEvidence);
+
+                        if (giveUpOnLoop) {
+                            this.log(`Stage ${stageIndex} (${agent.name}): non-convergent loop detected (sameItems=${sameItems}, noNewEvidence=${noNewEvidence}). Downgrading reject to flag.`);
+                            this.addConversationEntry({
+                                agentId: 'pipeline',
+                                agentName: 'Pipeline',
+                                role: 'handoff',
+                                content: `Rejection loop did not converge after retry ${stageState.retryCount}. ${agent.name} keeps raising similar items but ${targetState.agentName} cannot resolve them with new evidence. Continuing pipeline with flag.`,
+                                timestamp: Date.now(),
                                 stageIndex,
-                                this.pipeline.stages.length
-                            );
+                                metadata: {
+                                    type: 'rejection-loop-converged',
+                                    fromAgent: agent.name,
+                                    toAgent: targetState.agentName,
+                                    retryCount: stageState.retryCount,
+                                    sameItems,
+                                    noNewEvidence,
+                                    feedback: result.feedback,
+                                },
+                            });
+                            // Fall through to the "flag and continue" path below.
+                        } else if (stageState.retryCount < maxRetries) {
+                            stageState.retryCount++;
 
                             // Reset stages from target to current for re-execution.
                             // Also reset retryCount for intermediate stages so they
@@ -390,36 +462,63 @@ export class PipelineOrchestrator extends EventEmitter {
                                 }
                             }
 
-                            // Inject rejection feedback into the conversation
+                            // Stash convergence state for next round's comparison.
+                            this.stageConvergence.set(stageIndex, {
+                                priorOpenItemHashes: itemHashes,
+                                priorToolCallSignature: lastTargetSig ?? [],
+                            });
+
+                            // Stage retry context for the looped-back target.
+                            // The Runner will use this to SUPPRESS the conversation
+                            // log injection and replace it with a focused retry
+                            // block (prior report + open items only — NO reviewer
+                            // prose). This is what stops voice-drift / role-mimicry.
+                            this.pendingRetryContext.set(targetIndex, {
+                                priorReport: targetState.report || '(prior report unavailable)',
+                                openItems,
+                                round: stageState.retryCount,
+                                reviewerName: agent.name,
+                            });
+
+                            // Inject rejection feedback into the conversation (UI/timeline only).
                             this.addConversationEntry({
                                 agentId: 'pipeline',
                                 agentName: 'Pipeline',
                                 role: 'handoff',
-                                content: `Rejected by ${agent.name} (retry ${stageState.retryCount}/${maxRetries}). Sending feedback to ${this.pipelineState.stages[targetIndex].agentName}.`,
+                                content: `Rejected by ${agent.name} (retry ${stageState.retryCount}/${maxRetries}). Sending ${openItems.length} open item(s) to ${targetState.agentName}.`,
                                 timestamp: Date.now(),
                                 stageIndex,
                                 metadata: {
                                     type: 'rejection-loop',
                                     fromAgent: agent.name,
-                                    toAgent: this.pipelineState.stages[targetIndex].agentName,
+                                    toAgent: targetState.agentName,
                                     retryCount: stageState.retryCount,
                                     maxRetries,
                                     feedback: result.feedback,
+                                    openItems,
                                 },
                             });
 
                             // Loop back to target stage
                             stageIndex = targetIndex;
                             continue;
+                        } else {
+                            // Max retries exceeded — treat as flag and continue
+                            this.log(`Max retries (${maxRetries}) exceeded for stage ${stageIndex}. Continuing as flag.`);
                         }
-                        // Max retries exceeded — treat as flag and continue
-                        this.log(`Max retries (${maxRetries}) exceeded for stage ${stageIndex}. Continuing as flag.`);
                     }
 
-                    // For 'flag' or exhausted retries: mark and continue
+                    // For 'flag', exhausted retries, or converged loop: mark and continue
                     stageState.status = 'completed'; // completed with flag
                 } else {
                     stageState.status = 'completed';
+                }
+
+                // After every successful (non-rejection) stage completion, stash
+                // the producer's tool-call signature so the NEXT reviewer round can
+                // compare it to the prior round and detect no-new-evidence loops.
+                if (result.toolCallSignature) {
+                    (stageState as any).__lastToolCallSignature = result.toolCallSignature;
                 }
 
                 this.emit('stage-complete', {
@@ -638,6 +737,73 @@ export class PipelineOrchestrator extends EventEmitter {
      */
     private getReportOnlyContext(): ConversationEntry[] {
         return this.conversationLog.filter(e => e.role === 'report' || e.role === 'verdict');
+    }
+
+    /**
+     * Resolve a reviewer's structured `openItems[]` from the stage result.
+     * Backwards-compatible: when the reviewer only emits legacy free-form
+     * `feedback` prose (no `openItems` array), synthesize a single blocker
+     * item from the prose so the producer's retry context still has something
+     * concrete to display and the convergence detector still has an item hash
+     * to compare across rounds.
+     */
+    private resolveOpenItems(result: { openItems?: OpenItem[]; feedback?: string }): OpenItem[] {
+        if (Array.isArray(result.openItems) && result.openItems.length > 0) {
+            // Cap to top-5 by severity so the retry prompt stays focused.
+            const order = { blocker: 0, major: 1, minor: 2 } as const;
+            return [...result.openItems]
+                .sort((a, b) => (order[a.severity] ?? 3) - (order[b.severity] ?? 3))
+                .slice(0, 5);
+        }
+        const prose = (result.feedback || '').trim();
+        if (prose.length === 0) {
+            return [{
+                severity: 'blocker',
+                claim: 'Reviewer rejected the report but provided no structured items or prose feedback.',
+            }];
+        }
+        // Cap synthesized claim text so the retry prompt doesn't bloat.
+        const claim = prose.length > 800 ? prose.substring(0, 800) + ' ...' : prose;
+        return [{
+            severity: 'blocker',
+            claim,
+        }];
+    }
+
+    /**
+     * Stable hash of an open item used to detect "the reviewer is asking for
+     * the same thing again". We hash on the lowercased + word-tokenized claim
+     * so minor wording changes ("Error catalog incomplete" vs "Error catalog
+     * is incomplete") don't defeat detection. Severity is included so a
+     * blocker raised in round 1 doesn't match a minor in round 2.
+     */
+    private hashOpenItem(item: OpenItem): string {
+        const tokens = item.claim
+            .toLowerCase()
+            .replace(/[^a-z0-9\s]/g, ' ')
+            .split(/\s+/)
+            .filter(t => t.length >= 3)
+            .sort()
+            .join(' ');
+        return `${item.severity}|${tokens}`;
+    }
+
+    /**
+     * Jaccard similarity of two string-array signatures. Used both for open-item
+     * hashes (detecting "same complaints") and tool-call signatures (detecting
+     * "same evidence — no new investigation actually happened").
+     */
+    private signatureSimilarity(a: string[], b: string[]): number {
+        // Both empty -> perfectly similar (degenerate case). The early return
+        // is also what guarantees `union > 0` below: any non-empty input
+        // produces at least one set entry, so the divisor is always positive.
+        if (a.length === 0 && b.length === 0) return 1;
+        const setA = new Set(a);
+        const setB = new Set(b);
+        let intersection = 0;
+        for (const x of setA) if (setB.has(x)) intersection++;
+        const union = setA.size + setB.size - intersection;
+        return intersection / union;
     }
 
     /**

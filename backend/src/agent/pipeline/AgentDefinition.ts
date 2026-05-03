@@ -91,6 +91,15 @@ export interface AgentDefinition {
      */
     kind?: AgentKind;
 
+    /**
+     * Optional explicit role override. When unset, role is derived from `kind`
+     * (see `getAgentRole()`). Set this on custom agents that don't fit one of
+     * the built-in reviewer kinds but should still be treated as reviewers (or
+     * vice-versa). Reviewers emit structured `openItems[]`; producers emit a
+     * free-form report.
+     */
+    role?: 'producer' | 'reviewer';
+
     /** Optional description shown in the config UI. */
     description?: string;
 
@@ -245,6 +254,58 @@ export interface ConversationEntry {
  */
 export function getAgentKind(agent: AgentDefinition): AgentKind {
     return agent.kind ?? 'custom';
+}
+
+/**
+ * High-level agent role that controls how `finish` is shaped at the tool layer.
+ *
+ * - `'reviewer'` — agents whose job is to evaluate other agents' work. They emit a
+ *   structured verdict + `openItems[]` and are NOT permitted to author free-form
+ *   reports. (validator, devils-advocate, signal-grounding, compliance.)
+ * - `'producer'` — agents whose job is to author investigation content (planner,
+ *   investigator, summarizer, …). They emit a `report` and are NOT permitted to
+ *   issue verdicts.
+ *
+ * The role is **derived** from `kind` so existing agent definitions don't need to
+ * be updated. Callers may explicitly override via `agent.role` if a custom agent
+ * needs the opposite behavior.
+ */
+export type AgentRole = 'producer' | 'reviewer';
+
+const REVIEWER_KINDS: ReadonlySet<AgentKind> = new Set<AgentKind>([
+    'validator',
+    'devils-advocate',
+    'signal-grounding',
+    'compliance',
+]);
+
+/**
+ * Resolve an agent's role. Reviewer status is derived from `kind`; explicit
+ * `agent.role` overrides win when set on custom agents that don't fit the
+ * built-in reviewer kinds.
+ */
+export function getAgentRole(agent: AgentDefinition): AgentRole {
+    if (agent.role) return agent.role;
+    return REVIEWER_KINDS.has(getAgentKind(agent)) ? 'reviewer' : 'producer';
+}
+
+/**
+ * A single open item raised by a reviewer agent. Replaces free-form `feedback`
+ * prose with a structured, actionable list — each item names a concrete claim
+ * that must be addressed and (optionally) the evidence the producer must
+ * gather to address it.
+ *
+ * The orchestrator uses this structure to (a) detect repeat-rejections by
+ * comparing item claims across rounds and (b) build a focused retry prompt
+ * for the looped-back producer that omits the reviewer's prose entirely.
+ */
+export interface OpenItem {
+    /** Severity drives loop behavior: blockers must be addressed; minors do not loop. */
+    severity: 'blocker' | 'major' | 'minor';
+    /** Short statement of the gap or defect (one sentence). */
+    claim: string;
+    /** Optional: what specific evidence the producer should gather to close this item. */
+    evidenceRequired?: string;
 }
 
 /**

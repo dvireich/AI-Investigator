@@ -1,4 +1,6 @@
 export { AgentDefinition, ToolAccess, ConversationEntry } from './AgentDefinition';
+export { getAgentKind, getAgentRole } from './AgentDefinition';
+export type { AgentRole, OpenItem } from './AgentDefinition';
 export {
     PipelineStage,
     PipelineDefinition,

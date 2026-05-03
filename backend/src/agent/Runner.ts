@@ -5,7 +5,7 @@ import * as path from 'path';
 import { ToolManager } from './tools/ToolManager';
 import { McpServerConfig } from './tools/McpToolBridge';
 import { LlmProvider } from './llm/LlmProvider';
-import { ConversationEntry } from './pipeline/AgentDefinition';
+import { ConversationEntry, OpenItem, AgentRole } from './pipeline/AgentDefinition';
 import { PipelineDefinition } from './pipeline/PipelineDefinition';
 import OpenAI from 'openai';
 
@@ -162,6 +162,35 @@ export interface StageContext {
     modelOverride?: string;
     /** Override maxSteps for this stage. */
     maxStepsOverride?: number;
+    /**
+     * Agent role (`'producer' | 'reviewer'`). Drives the `finish` tool schema:
+     * producers can only emit a report; reviewers can only emit a verdict +
+     * structured `openItems[]`. When undefined, the legacy schema is exposed.
+     */
+    role?: AgentRole;
+    /**
+     * Set by the PipelineOrchestrator when this stage is being re-run after a
+     * downstream reviewer rejected its prior output. When present, the runner:
+     *   1. SUPPRESSES the normal `## Prior Agent Context` (which would re-feed
+     *      the reviewer's prose and cause voice-drift / role mimicry).
+     *   2. INJECTS a focused retry block: prior report + structured open items
+     *      + an explicit instruction to address each blocker with new tool
+     *      calls before calling `finish`.
+     *   3. ENFORCES a finish-gate: if the producer calls `finish` without
+     *      running any new non-finish tool calls during this run, the runner
+     *      pushes back a system message and refuses to terminate (one retry
+     *      attempt before giving up so we don't infinite-loop on a stuck LLM).
+     */
+    retryContext?: {
+        /** This stage's prior report from the rejected round. */
+        priorReport: string;
+        /** Structured open items the reviewer raised. Already filtered to actionable items. */
+        openItems: OpenItem[];
+        /** 1-indexed retry round number. */
+        round: number;
+        /** Display name of the reviewer that rejected the prior round. */
+        reviewerName?: string;
+    };
 }
 
 /**
@@ -222,6 +251,20 @@ function extractLlmErrorDetail(error: any): string {
     return `HTTP ${error.status || 'unknown'}`;
 }
 
+/**
+ * Prefix used by contestReport() when injecting the full rejected report into
+ * the conversation history as the next LLM prompt. This message is intended
+ * solely as model context — UI/report rendering should not echo it as a
+ * "latest activity" preview, since doing so duplicates the corresponding
+ * Execution Log entry and bloats list views.
+ */
+export const CONTEST_LLM_CONTEXT_PREFIX = 'CONTESTED REPORT (attempt #';
+
+/** True when a thought string is the verbose contest LLM-context block (see CONTEST_LLM_CONTEXT_PREFIX). */
+export function isContestLlmContextMessage(text: unknown): boolean {
+    return typeof text === 'string' && text.startsWith(CONTEST_LLM_CONTEXT_PREFIX);
+}
+
 export class AgentRunner extends EventEmitter {
     private state: InvestigationState;
     private config: AgentConfig;
@@ -271,7 +314,29 @@ export class AgentRunner extends EventEmitter {
      */
     setStageContext(ctx: StageContext): void {
         this.stageContext = ctx;
+        // Push the role hint into ToolManager so `finish` is shaped correctly:
+        // producers cannot emit verdicts; reviewers cannot emit free-form reports.
+        // This makes role-mimicry impossible at the tool boundary.
+        this.toolManager.setFinishRoleHint(ctx.role);
+        // Snapshot the current actions count so the finish-gate can detect whether
+        // any new tool calls happened during this stage's run (used to enforce
+        // "must run new tool calls before finishing on a retry").
+        this.stageStartActionsLength = this.state.actions.length;
+        // Reset the finish-gate tripwire whenever a new stage context is bound.
+        this.finishGateTripped = false;
     }
+
+    /**
+     * Index into `state.actions` at which this stage's run began. Used by the
+     * finish-gate to count this stage's tool calls without scanning prior
+     * stages' accumulated actions.
+     */
+    private stageStartActionsLength: number = 0;
+    /**
+     * True when the finish-gate has already pushed back once; lets the gate
+     * fire at most once per stage so a stuck LLM cannot loop forever.
+     */
+    private finishGateTripped: boolean = false;
 
     /**
      * Release resources held by this runner: disconnect MCP tool connections
@@ -367,7 +432,16 @@ export class AgentRunner extends EventEmitter {
         // Only inject meaningful entries (reports, verdicts, handoffs) — not every
         // operational thought/action ("Calling LLM...", "Deciding to use tool...")
         // which are noise that inflates the system prompt and causes 400 errors.
-        if (this.stageContext && this.stageContext.conversationLog.length > 0) {
+        //
+        // RETRY EXCEPTION: when this is a retry of a producer stage rejected by a
+        // downstream reviewer, we deliberately SKIP this block and inject a
+        // tightly-scoped retry context instead. Re-feeding the conversation log
+        // (which by now contains the reviewer's prose rejection report) is the
+        // root cause of the role-mimicry failure where the producer starts
+        // paraphrasing the reviewer's voice on round 2+.
+        if (this.stageContext?.retryContext) {
+            systemPrompt += this.buildRetryContextBlock(this.stageContext.retryContext);
+        } else if (this.stageContext && this.stageContext.conversationLog.length > 0) {
             const meaningfulRoles = new Set(['report', 'verdict', 'handoff']);
             const meaningfulEntries = this.stageContext.conversationLog
                 .filter(e => meaningfulRoles.has(e.role));
@@ -546,6 +620,42 @@ export class AgentRunner extends EventEmitter {
 
                     // Check for finish tool
                     if (step.action.tool === 'finish') {
+                        // ── Finish-gate: when this stage is a producer being re-run after
+                        // rejection, refuse to terminate if the producer didn't run any new
+                        // (non-finish) tool calls during this run. Without this gate the LLM
+                        // happily emits a "corrected" report based purely on the reviewer's
+                        // prose feedback — the no-progress loop documented in production.
+                        // The gate fires at most once per stage so a stuck LLM cannot loop
+                        // forever; on the second finish attempt we let it through and the
+                        // orchestrator's no-progress detection downgrades reject -> flag.
+                        const isProducerRetry =
+                            this.stageContext?.role === 'producer' &&
+                            this.stageContext?.retryContext !== undefined;
+
+                        if (isProducerRetry && !this.finishGateTripped) {
+                            const newToolCalls = this.state.actions
+                                .slice(this.stageStartActionsLength)
+                                .filter(a => a && a.tool && a.tool !== 'finish');
+
+                            if (newToolCalls.length === 0) {
+                                this.finishGateTripped = true;
+                                // Pop the finish action so the loop can continue cleanly.
+                                this.state.actions.pop();
+                                const blockerCount = this.stageContext!.retryContext!.openItems
+                                    .filter(i => i.severity === 'blocker' || i.severity === 'major')
+                                    .length;
+                                const gateMsg = `System: You called \`finish\` without running any new tool calls. ` +
+                                    `On a retry you MUST gather new evidence (at least one tool call) before finishing — ` +
+                                    `there are ${blockerCount} blocker/major open item(s) above that require concrete data, not paraphrasing. ` +
+                                    `Pick the most important open item and run a query/file read that addresses it, then call \`finish\` with a substantively new report.`;
+                                this.state.thoughts.push({ role: 'user', content: gateMsg });
+                                this.state.actions.push(null as any);
+                                this.emit('thought', gateMsg);
+                                this.log(`[finish-gate] Producer retry tried to finish with zero new tool calls; pushing back.`);
+                                continue;
+                            }
+                        }
+
                         this.state.status = 'completed';
                         this.log(`[DEBUG] Finish tool called with args: ${JSON.stringify(step.action.args)}`);
                         // Extract report from args
@@ -2215,12 +2325,31 @@ ${recsText}
             ? this.state.fullActions
             : this.state.actions;
 
-        const summaryText = this.state.finalReport
-            || (reportThoughts.length > 0 ? extractThoughtText(reportThoughts[reportThoughts.length - 1]) : 'No summary available.');
+        // Find the most recent thought suitable for a human-facing preview, skipping
+        // the verbose "CONTESTED REPORT ..." LLM-context block injected by contestReport().
+        // Without this filter the Summary/preview would echo the entire rejected report
+        // and duplicate the corresponding Execution Log step.
+        const findLatestPreviewThought = (): string | undefined => {
+            for (let i = reportThoughts.length - 1; i >= 0; i--) {
+                const text = extractThoughtText(reportThoughts[i]);
+                if (!isContestLlmContextMessage(text)) return text;
+            }
+            return undefined;
+        };
 
-        const thoughtPreview = reportThoughts.length > 0
-            ? extractThoughtText(reportThoughts[reportThoughts.length - 1])
-            : undefined;
+        const inFlight = this.state.status === 'running' || this.state.status === 'paused';
+        let summaryText: string;
+        if (this.state.finalReport) {
+            summaryText = this.state.finalReport;
+        } else if (inFlight && (this.state.contestCount ?? 0) > 0) {
+            summaryText = `_Investigation in progress (re-running after contest #${this.state.contestCount}). The previous final report was rejected; a revised report has not been produced yet._`;
+        } else if (inFlight) {
+            summaryText = '_Investigation in progress. Final report not yet available._';
+        } else {
+            summaryText = findLatestPreviewThought() ?? 'No summary available.';
+        }
+
+        const thoughtPreview = findLatestPreviewThought();
         const summaryState = {
             id: this.state.id,
             status: this.state.status,
@@ -2356,7 +2485,7 @@ ${recsText}
         // 3. Inject the full context for the LLM (rejected report + feedback + instructions)
         const rejectedReport = this.state.finalReport || '(no report content)';
         const contestMessage = [
-            `CONTESTED REPORT (attempt #${contestNum})`,
+            `${CONTEST_LLM_CONTEXT_PREFIX}${contestNum})`,
             `The user has rejected the following final report:`,
             `--- REJECTED REPORT START ---`,
             rejectedReport,
@@ -2535,6 +2664,58 @@ ${recsText}
     }
 
     /**
+     * Build the focused retry-context block injected into the system prompt
+     * when a producer stage is being re-run after rejection. Deliberately
+     * EXCLUDES the reviewer's prose report — only the structured open items
+     * are surfaced — to prevent the producer from drifting into mimicking the
+     * reviewer's voice (the failure mode that triggered repeated rejection
+     * loops in production investigations).
+     */
+    private buildRetryContextBlock(retry: NonNullable<StageContext['retryContext']>): string {
+        const MAX_PRIOR_REPORT_CHARS = 12_000;
+        let priorReport = retry.priorReport || '(prior report unavailable)';
+        if (priorReport.length > MAX_PRIOR_REPORT_CHARS) {
+            priorReport = priorReport.substring(0, MAX_PRIOR_REPORT_CHARS) +
+                `\n\n... [prior report truncated; ${priorReport.length.toLocaleString()} chars total]`;
+        }
+        const reviewer = retry.reviewerName ? ` by ${retry.reviewerName}` : '';
+        const blockerCount = retry.openItems.filter(i => i.severity === 'blocker').length;
+        const majorCount = retry.openItems.filter(i => i.severity === 'major').length;
+        const itemsList = retry.openItems.length > 0
+            ? retry.openItems
+                .map((it, i) => {
+                    const ev = it.evidenceRequired ? `\n   Evidence required: ${it.evidenceRequired}` : '';
+                    return `${i + 1}. [${it.severity.toUpperCase()}] ${it.claim}${ev}`;
+                })
+                .join('\n')
+            : '(no structured items provided)';
+
+        return `\n\n## Retry Context (round ${retry.round})
+
+Your prior report was rejected${reviewer}. You are being re-run to address the open items below — and ONLY those items. Other agents' prose feedback is not included; do not infer additional changes.
+
+### Your Prior Report
+
+\`\`\`
+${priorReport}
+\`\`\`
+
+### Open Items To Address (${blockerCount} blocker, ${majorCount} major, ${retry.openItems.length - blockerCount - majorCount} minor)
+
+${itemsList}
+
+### Mandatory Behavior For This Re-Run
+
+- You MUST run at least one new tool call to gather evidence before calling \`finish\`. Repeating your prior report verbatim is not permitted.
+- For each blocker and major item above, your new report must show concrete evidence (tool output) addressing it.
+- Do NOT mimic the format, tone, or wording of any reviewer agent. You are a producer; your job is to investigate, not to evaluate.
+- Do NOT include phrases like "REJECTING", "Devil's Advocate", "Validator review", or other reviewer language in your report.
+- When you call \`finish\`, the \`report\` field must be your own analysis, not a paraphrase of the reviewer's prose.
+`;
+    }
+
+
+    /**
      * Tag an emitted event with pipeline agent identity (if running as a stage).
      * Returns the original data augmented with agentId/agentName/agentColor/agentIcon.
      * When not in pipeline mode, returns the data unchanged.
@@ -2561,7 +2742,7 @@ ${recsText}
      * Get the pipeline-relevant result from this agent's execution.
      * Used by PipelineOrchestrator to extract verdict/feedback/report after the agent finishes.
      */
-    getStageResult(): { report?: string; verdict?: string; feedback?: string } {
+    getStageResult(): { report?: string; verdict?: string; feedback?: string; openItems?: OpenItem[]; toolCallSignature?: string[] } {
         // The finish tool may have set verdict on state (health check style)
         // or the args may include pipeline-style verdict/feedback.
         // Use reverse search so we pick THIS stage's finish action, not an
@@ -2590,11 +2771,49 @@ ${recsText}
             ? this.state.verdict
             : (this.state.verdict ? HEALTH_TO_PIPELINE[this.state.verdict] : undefined);
 
+        // Sanitize structured open items from the reviewer's finish call.
+        // Backwards compatible: when only legacy `feedback` prose is provided,
+        // the orchestrator synthesizes a single blocker item from it.
+        const rawItems = lastFinishAction?.args?.openItems;
+        const openItems: OpenItem[] | undefined = Array.isArray(rawItems)
+            ? rawItems
+                .filter((it: any) => it && typeof it.claim === 'string' && it.claim.trim().length > 0)
+                .map((it: any) => ({
+                    severity: ['blocker', 'major', 'minor'].includes(it.severity) ? it.severity : 'major',
+                    claim: String(it.claim).trim(),
+                    evidenceRequired: typeof it.evidenceRequired === 'string' ? it.evidenceRequired : undefined,
+                }))
+            : undefined;
+
+        // Compute a tool-call signature for THIS stage's run only (not the whole
+        // accumulated actions array). The orchestrator uses this to detect
+        // no-progress retries: when round N+1 produces the same signature as
+        // round N, the producer is just paraphrasing without gathering new
+        // evidence and the loop should stop.
+        const stageActions = this.state.actions.slice(this.stageStartActionsLength);
+        const toolCallSignature = stageActions
+            .filter(a => a && a.tool && a.tool !== 'finish')
+            .map(a => `${a.tool}:${this.stableStringify(a.args)}`);
+
         return {
             report: this.state.finalReport,
             verdict: mappedVerdict || fallbackVerdict,
             feedback: lastFinishAction?.args?.feedback,
+            openItems,
+            toolCallSignature,
         };
+    }
+
+    /**
+     * Deterministic JSON stringify used for tool-call signatures. Sorts object
+     * keys so semantically-identical args produce identical signatures.
+     */
+    private stableStringify(value: any): string {
+        if (value === null || value === undefined) return 'null';
+        if (typeof value !== 'object') return JSON.stringify(value);
+        if (Array.isArray(value)) return '[' + value.map(v => this.stableStringify(v)).join(',') + ']';
+        const keys = Object.keys(value).sort();
+        return '{' + keys.map(k => JSON.stringify(k) + ':' + this.stableStringify(value[k])).join(',') + '}';
     }
 
     public log(msg: string) {

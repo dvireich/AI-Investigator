@@ -5,6 +5,7 @@ import { EventEmitter } from 'events';
 const mockToolManager = {
     isConnected: vi.fn(() => true),
     setRepoRoot: vi.fn(),
+    setFinishRoleHint: vi.fn(),
     initialize: vi.fn(),
     listTools: vi.fn(async () => []),
     callTool: vi.fn(async () => 'tool result'),
@@ -3629,6 +3630,74 @@ describe('AgentRunner', () => {
             const summary = JSON.parse(mockFsState.get(summaryPath!) || '{}');
             expect(summary.retrospect.proposals).toEqual([]);
         });
+
+        it('does not duplicate the contest LLM-context block in the report Summary while re-running', async () => {
+            // Reproduces the bug where saveArtifacts() called after contestReport() (and
+            // before the next finalReport is produced) used the verbose
+            // "CONTESTED REPORT (attempt #N) ..." thought as the Summary, duplicating
+            // the corresponding Execution Log step.
+            const rejectedReport = '## Original Report\n\nNo issue detected.';
+            const contestBlock = [
+                'CONTESTED REPORT (attempt #1)',
+                'The user has rejected the following final report:',
+                '--- REJECTED REPORT START ---',
+                rejectedReport,
+                '--- REJECTED REPORT END ---',
+                '',
+                'User feedback: I see failures',
+            ].join('\n');
+
+            const runner = new AgentRunner(makeConfig(), provider, {
+                target: 'my-stamp',
+                status: 'running',
+                contestCount: 1,
+                finalReport: undefined,
+                thoughts: [
+                    { role: 'user', content: 'Report Contested: I see failures' },
+                    'System: Report contested (attempt #1). Investigation resumed with user feedback.',
+                    { role: 'user', content: contestBlock },
+                ],
+                actions: [null, null, null],
+            } as any);
+
+            await (runner as any).saveArtifacts();
+
+            const reportPath = Array.from(mockFsState.keys()).find(key => key.endsWith('/report.md'));
+            expect(reportPath).toBeDefined();
+            const report = mockFsState.get(reportPath!) || '';
+
+            // The full contest block should appear exactly once (in the Execution Log),
+            // not also as the Summary.
+            const contestBlockOccurrences = report.split('CONTESTED REPORT (attempt #1)').length - 1;
+            expect(contestBlockOccurrences).toBe(1);
+
+            // The Summary should reflect the contested-rerun status, not echo the rejected report.
+            const summarySection = report.split('## Summary')[1]?.split('## Execution Log')[0] ?? '';
+            expect(summarySection).toContain('contest #1');
+            expect(summarySection).not.toContain('--- REJECTED REPORT START ---');
+
+            // summary.json's thoughts preview should also skip the verbose contest block.
+            const summaryPath = Array.from(mockFsState.keys()).find(key => key.endsWith('/summary.json'));
+            const summary = JSON.parse(mockFsState.get(summaryPath!) || '{}');
+            expect(summary.thoughts?.[0] ?? '').not.toContain('CONTESTED REPORT (attempt #');
+        });
+
+        it('uses a generic in-progress placeholder when running without a finalReport', async () => {
+            const runner = new AgentRunner(makeConfig(), provider, {
+                target: 'my-stamp',
+                status: 'running',
+                finalReport: undefined,
+                thoughts: ['Working on it...'],
+                actions: [null],
+            } as any);
+
+            await (runner as any).saveArtifacts();
+
+            const reportPath = Array.from(mockFsState.keys()).find(key => key.endsWith('/report.md'));
+            const report = mockFsState.get(reportPath!) || '';
+            const summarySection = report.split('## Summary')[1]?.split('## Execution Log')[0] ?? '';
+            expect(summarySection).toContain('Investigation in progress');
+        });
     });
 
     describe('state access', () => {
@@ -5534,6 +5603,283 @@ describe('AgentRunner', () => {
             expect(result.verdict).toBe('flagged');
             expect(result.feedback).toBe('needs work');
             expect(result.report).toBe('stage3-report');
+        });
+    });
+
+    describe('rejection-loop fix: retry context, finish-gate, and structured outputs', () => {
+        beforeEach(() => {
+            // vi.clearAllMocks() in the outer beforeEach clears mock CALLS but does
+            // NOT reset queued mockResolvedValueOnce implementations. Without this
+            // explicit reset, queued responses from one test leak into the next.
+            mockOpenAI.chat.completions.create.mockReset();
+        });
+
+        it('builds a retry-context block in the system prompt when retryContext is set (suppresses Prior Agent Context)', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Re-investigated.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            // Producer must run a real tool call before finishing on a retry,
+                            // so we have it call list_dir first via two-turn flow… but for a
+                            // simpler unit test we let the gate trip and just inspect the prompt.
+                            function: { name: 'finish', arguments: JSON.stringify({ report: 'updated' }) },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                conversationLog: [
+                    // This SHOULD be suppressed when retryContext is set.
+                    { agentName: 'DevilsAdvocate', role: 'verdict', content: 'rejected: missed the latency spike' },
+                ],
+                retryContext: {
+                    priorReport: '## Prior Investigation\nFound issue X with subsystem Y.',
+                    openItems: [
+                        { severity: 'blocker', claim: 'Did not query the error log table during the bad window' },
+                        { severity: 'major', claim: 'Cited only 1 TrackingId; need at least 3', evidenceRequired: 'Re-run query Q with top 10' },
+                    ],
+                    round: 2,
+                    reviewerName: 'Devil\'s Advocate',
+                },
+            };
+
+            await runner.start('Re-investigate');
+
+            const messages = mockOpenAI.chat.completions.create.mock.calls[0][0].messages;
+            const systemMsg = messages.find((m: any) => m.role === 'system');
+            // Retry block is present
+            expect(systemMsg.content).toContain('Retry Context (round 2)');
+            expect(systemMsg.content).toContain("Devil's Advocate");
+            expect(systemMsg.content).toContain('Your Prior Report');
+            expect(systemMsg.content).toContain('Found issue X with subsystem Y');
+            expect(systemMsg.content).toContain('[BLOCKER]');
+            expect(systemMsg.content).toContain('[MAJOR]');
+            expect(systemMsg.content).toContain('Did not query the error log table');
+            expect(systemMsg.content).toContain('Evidence required: Re-run query Q with top 10');
+            // Anti-mimicry instruction must be present (this is the whole point)
+            expect(systemMsg.content.toLowerCase()).toMatch(/mimic|reviewer|voice/);
+            // Old-style "Prior Agent Context" block must NOT be injected when
+            // retryContext suppresses the conversation log.
+            expect(systemMsg.content).not.toContain('Prior Agent Context');
+            expect(systemMsg.content).not.toContain('rejected: missed the latency spike');
+        });
+
+        it('truncates an extremely long priorReport in the retry context block', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: { content: 'ok', tool_calls: [{ id: 't', function: { name: 'finish', arguments: '{"report":"r"}' } }] },
+                }],
+            });
+            const runner = new AgentRunner(makeConfig(), provider);
+            const huge = 'X'.repeat(20_000);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: huge,
+                    openItems: [{ severity: 'blocker', claim: 'fix it' }],
+                    round: 1,
+                    reviewerName: 'Reviewer',
+                },
+            };
+            await runner.start('q');
+            const systemMsg = mockOpenAI.chat.completions.create.mock.calls[0][0].messages.find((m: any) => m.role === 'system');
+            expect(systemMsg.content).toContain('prior report truncated');
+            // The block contains the truncated section, not the full 20K Xs.
+            // Find the prior-report fenced block and assert it is reasonably sized.
+            const priorMatch = systemMsg.content.match(/```\n(X+)/);
+            expect(priorMatch).toBeTruthy();
+            expect(priorMatch![1].length).toBeLessThanOrEqual(12_000);
+        });
+
+        it('handles missing reviewerName and empty openItems in the retry context block', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: { content: 'ok', tool_calls: [{ id: 't', function: { name: 'finish', arguments: '{"report":"r"}' } }] },
+                }],
+            });
+            const runner = new AgentRunner(makeConfig(), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: '',  // also exercise the empty-prior-report fallback
+                    openItems: [],
+                    round: 1,
+                    // reviewerName intentionally omitted
+                },
+            };
+            await runner.start('q');
+            const systemMsg = mockOpenAI.chat.completions.create.mock.calls[0][0].messages.find((m: any) => m.role === 'system');
+            expect(systemMsg.content).toContain('Retry Context (round 1)');
+            expect(systemMsg.content).toContain('(prior report unavailable)');
+            expect(systemMsg.content).toContain('(no structured items provided)');
+            // No reviewer name => no " by ..." fragment
+            expect(systemMsg.content).toMatch(/rejected\.\s*You are being re-run/);
+        });
+
+        it('finish-gate blocks producer retry that calls finish with zero new tool calls, then allows it on second attempt', async () => {
+            // First LLM call: try to finish immediately (gate trips)
+            // Second LLM call: try to finish again (gate already tripped, so allowed)
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Quick fix.',
+                            tool_calls: [{ id: 'tc1', function: { name: 'finish', arguments: '{"report":"trying to finish without new evidence"}' } }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Reluctantly trying again.',
+                            tool_calls: [{ id: 'tc2', function: { name: 'finish', arguments: '{"report":"second attempt"}' } }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 5 }), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: 'old report',
+                    openItems: [{ severity: 'blocker', claim: 'must gather more data' }],
+                    round: 1,
+                    reviewerName: 'Reviewer',
+                },
+            };
+
+            await runner.start('Re-investigate');
+
+            // The gate forced a second LLM call. extractRecommendations may also
+            // call the LLM after finish, so we assert at least 2 calls (gate + retry)
+            // and verify the gate explicitly pushed back via state.thoughts below.
+            expect(mockOpenAI.chat.completions.create.mock.calls.length).toBeGreaterThanOrEqual(2);
+            // The gate pushed back a system thought.
+            const gateThought = (runner as any).state.thoughts.find(
+                (t: any) => t && typeof t.content === 'string' && t.content.includes('without running any new tool calls'),
+            );
+            expect(gateThought).toBeDefined();
+            // Second attempt was allowed through (status = completed, finalReport = "second attempt")
+            expect((runner as any).state.status).toBe('completed');
+            expect((runner as any).state.finalReport).toBe('second attempt');
+        });
+
+        it('finish-gate does NOT fire for producers without retryContext (normal first run)', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"first-run report"}' } }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                conversationLog: [],
+                // No retryContext: first run, gate must not fire.
+            };
+
+            await runner.start('First investigation');
+
+            expect(mockOpenAI.chat.completions.create.mock.calls.length).toBeGreaterThanOrEqual(1);
+            expect((runner as any).state.status).toBe('completed');
+            expect((runner as any).state.finalReport).toBe('first-run report');
+        });
+
+        it('getStageResult sanitizes openItems and exposes toolCallSignature', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Reviewed.',
+                        tool_calls: [{
+                            id: 'tc',
+                            function: {
+                                name: 'finish',
+                                arguments: JSON.stringify({
+                                    verdict: 'rejected',
+                                    openItems: [
+                                        { severity: 'blocker', claim: '  Specific gap  ', evidenceRequired: 'Run query X' },
+                                        { severity: 'unknown-severity', claim: 'unknown sev should default to major' },
+                                        { severity: 'minor', claim: '   ' },  // whitespace-only claim → dropped
+                                        { severity: 'major' },                  // missing claim → dropped
+                                        null,                                    // null entry → dropped
+                                    ],
+                                }),
+                            },
+                        }],
+                    },
+                }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            // Simulate prior tool calls in this stage so signature is non-empty.
+            (runner as any).state.actions = [
+                { tool: 'list_dir', args: { path: '/a' } },
+                null,
+                { tool: 'read_file', args: { path: '/b/c.md' } },
+            ];
+            (runner as any).stageStartActionsLength = 0;
+            await runner.start('Review');
+
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('rejected');
+            // Two valid items survive sanitization (third/fourth/fifth dropped).
+            expect(result.openItems).toHaveLength(2);
+            expect(result.openItems![0]).toEqual({
+                severity: 'blocker',
+                claim: 'Specific gap',
+                evidenceRequired: 'Run query X',
+            });
+            expect(result.openItems![1].severity).toBe('major');  // unknown-severity normalized
+            // Tool-call signature: list_dir + read_file (finish excluded), keys sorted by stableStringify
+            expect(result.toolCallSignature).toContain('list_dir:{"path":"/a"}');
+            expect(result.toolCallSignature).toContain('read_file:{"path":"/b/c.md"}');
+            // finish itself must be excluded.
+            expect(result.toolCallSignature!.some(s => s.startsWith('finish:'))).toBe(false);
+        });
+
+        it('getStageResult returns undefined openItems when finish has no openItems array', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r","verdict":"approved"}' } }],
+                    },
+                }],
+            });
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            await runner.start('q');
+            const result = runner.getStageResult();
+            expect(result.openItems).toBeUndefined();
+        });
+
+        it('stableStringify produces order-independent JSON for tool-call signatures', () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const a = (runner as any).stableStringify({ b: 2, a: 1, c: { y: 2, x: 1 } });
+            const b = (runner as any).stableStringify({ a: 1, c: { x: 1, y: 2 }, b: 2 });
+            expect(a).toBe(b);
+            // Primitives and arrays are handled too.
+            expect((runner as any).stableStringify(null)).toBe('null');
+            expect((runner as any).stableStringify(undefined)).toBe('null');
+            expect((runner as any).stableStringify(42)).toBe('42');
+            expect((runner as any).stableStringify('hello')).toBe('"hello"');
+            expect((runner as any).stableStringify([1, { z: 1, a: 2 }])).toBe('[1,{"a":2,"z":1}]');
         });
     });
 

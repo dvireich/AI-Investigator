@@ -33,15 +33,23 @@ Review the investigation report produced by a prior agent and validate whether t
 ## Output Format
 
 You MUST call the `finish` tool with:
-- `summary`: Your detailed validation analysis (markdown)
-- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"` — **you MUST use one of these exact values** (do NOT use `"critical"`, `"warning"`, `"healthy"`, or any other value):
+- `verdict`: One of `"approved"`, `"rejected"`, or `"flagged"` — you MUST use one of these exact values:
   - `"approved"` — findings are accurate and complete
-  - `"rejected"` — findings have significant issues that need re-investigation. **Use this when the report's conclusions are wrong, incomplete, or unsupported.**
+  - `"rejected"` — findings have significant issues that need re-investigation
   - `"flagged"` — findings are mostly correct but have minor concerns worth noting
-- `feedback`: If rejecting or flagging, explain what specifically needs to be fixed or re-examined. This feedback is sent back to the previous agent for re-investigation.
+- `headline`: One-sentence summary of your validation result (max ~200 chars).
+- `openItems`: **REQUIRED when verdict is `rejected` or `flagged`.** A short list (target: 3, max: 5) of concrete defects the producer must fix. Each item has:
+  - `severity`: `"blocker"` (factual error or unsupported claim), `"major"` (significant gap in evidence), or `"minor"` (nice-to-have improvement)
+  - `claim`: One sentence naming the specific defect (e.g. `"Report claims root cause is X but tool output for query Q on line N shows Y"`). Quote the contradictory evidence.
+  - `evidenceRequired` (optional): What the producer must do to close the item (e.g. `"Re-query the same time window with the corrected filter"`).
+
+## CRITICAL Output Discipline
+
+**Do NOT write a long validation report.** The pipeline forwards your structured items directly to the producer — long prose is discarded and only causes role-mimicry on retries. Cap your output at the structured `openItems[]` plus a one-sentence `headline`.
 
 ## Guidelines
 - Be specific — quote the exact findings you agree or disagree with
 - Reference tool outputs by name when pointing out contradictions
 - Don't reject for style issues — only for factual accuracy, missing evidence, or logical gaps
 - If the investigation was thorough and findings are well-supported, approve it
+- The retry loop will downgrade to a flag if you keep raising the same items round after round; pick items the producer can actually address with one more round of investigation

@@ -4,6 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import {
     getAgentKind,
+    getAgentRole,
     findAgentsByKind,
     stageProducesFinalReport,
     type AgentDefinition,
@@ -30,6 +31,33 @@ describe('AgentDefinition helpers', () => {
         it('returns the explicitly set kind', () => {
             expect(getAgentKind(makeAgent('a', 'investigator'))).toBe('investigator');
             expect(getAgentKind(makeAgent('a', 'retrospect'))).toBe('retrospect');
+        });
+    });
+
+    describe('getAgentRole', () => {
+        it("defaults producers for 'custom' or 'investigator' kinds", () => {
+            expect(getAgentRole(makeAgent('a'))).toBe('producer');
+            expect(getAgentRole(makeAgent('a', 'investigator'))).toBe('producer');
+            expect(getAgentRole(makeAgent('a', 'summarizer'))).toBe('producer');
+            expect(getAgentRole(makeAgent('a', 'retrospect'))).toBe('producer');
+        });
+
+        it("returns 'reviewer' for built-in reviewer kinds", () => {
+            expect(getAgentRole(makeAgent('v', 'validator'))).toBe('reviewer');
+            expect(getAgentRole(makeAgent('d', 'devils-advocate'))).toBe('reviewer');
+            expect(getAgentRole(makeAgent('s', 'signal-grounding'))).toBe('reviewer');
+            expect(getAgentRole(makeAgent('c', 'compliance'))).toBe('reviewer');
+        });
+
+        it('honours explicit agent.role override', () => {
+            // A custom-kind agent forced to behave as a reviewer
+            const custom = { ...makeAgent('a', 'custom'), role: 'reviewer' as const };
+            expect(getAgentRole(custom)).toBe('reviewer');
+
+            // A validator-kind agent forced to behave as a producer (e.g.,
+            // a self-validating investigator)
+            const validatorAsProducer = { ...makeAgent('v', 'validator'), role: 'producer' as const };
+            expect(getAgentRole(validatorAsProducer)).toBe('producer');
         });
     });
 

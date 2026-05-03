@@ -320,6 +320,26 @@ describe('server utilities and routes', () => {
             expect(summary._storagePath).toBe('C:/tmp/inv');
         });
 
+        it('skips the verbose contest LLM-context block when picking the thought preview', () => {
+            const contestBlock = 'CONTESTED REPORT (attempt #1)\nThe user has rejected ...\n--- REJECTED REPORT START ---\n## Old report\n--- REJECTED REPORT END ---';
+            const summary = createSummaryState({
+                id: 'contested-1',
+                status: 'running',
+                thoughts: [
+                    'earlier user-visible thought',
+                    { role: 'user', content: 'Report Contested: try again' },
+                    'System: Report contested (attempt #1).',
+                    { role: 'user', content: contestBlock },
+                ],
+                actions: [],
+                logs: [],
+            } as any, 'C:/tmp/contested-1', 'C:/tmp/contested-1/state.json', 100);
+
+            // Should fall back past the contest block to the next-most-recent thought.
+            expect(summary.thoughts).toEqual(['System: Report contested (attempt #1).']);
+            expect(summary.thoughts?.[0] ?? '').not.toContain('CONTESTED REPORT (attempt #');
+        });
+
         it('creates a summary state with empty tags when they are omitted', () => {
             const summary = createSummaryState({
                 id: 'no-tags',

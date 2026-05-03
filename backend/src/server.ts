@@ -2,7 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
 import * as http from 'http';
-import { AgentRunner, InvestigationState } from './agent/Runner';
+import { AgentRunner, InvestigationState, isContestLlmContextMessage } from './agent/Runner';
 import { PipelineDefinition, PipelineOrchestrator, listBuiltinAgents, validatePipeline, buildPipelinePreset, listPipelinePresets, matchPipelinePreset, resolveDefaultPipeline, matchDefaultPipelineId, runSingleAgent } from './agent/pipeline';
 import { resolveAgentById, getDefaultAgentForKind, listAgentsForKind } from './server/agentResolver';
 import { getContextProvider } from './agent/contextProviders';
@@ -120,7 +120,18 @@ export function createSummaryState(
     lastModified: number,
 ): StoredInvestigationState {
     const thoughtSource = getThoughtSource(state);
-    const thoughtPreview = getThoughtPreview(thoughtSource[thoughtSource.length - 1]);
+    // Scan backwards for the most recent thought that is NOT the verbose
+    // "CONTESTED REPORT (attempt #N) ..." LLM-context block — that block is
+    // injected into history solely as a model prompt and would otherwise echo
+    // the entire rejected report into list-view previews.
+    let thoughtPreview: string | undefined;
+    for (let i = thoughtSource.length - 1; i >= 0; i--) {
+        const candidate = getThoughtPreview(thoughtSource[i]);
+        if (candidate !== undefined && !isContestLlmContextMessage(candidate)) {
+            thoughtPreview = candidate;
+            break;
+        }
+    }
 
     return {
         id: state.id,
@@ -2024,13 +2035,21 @@ app.get('/api/investigations', (req, res) => {
             storagePathCache.set(s.id, storagePath);
         }
         // Extract last thought as a plain string preview (avoid serializing large objects)
-        // Use fullHistory when available for accurate count and latest thought
+        // Use fullHistory when available for accurate count and latest thought.
+        // Skip the verbose contest LLM-context block (see CONTEST_LLM_CONTEXT_PREFIX);
+        // it would otherwise echo the entire rejected report into list-view previews.
         const stored = s as StoredInvestigationState;
         const allThoughts = stored._summaryOnly
             ? (Array.isArray(s.thoughts) ? s.thoughts : [])
             : getThoughtSource(s);
-        const lastThought = allThoughts.length > 0 ? allThoughts[allThoughts.length - 1] : undefined;
-        const thoughtPreview = getThoughtPreview(lastThought);
+        let thoughtPreview: string | undefined;
+        for (let i = allThoughts.length - 1; i >= 0; i--) {
+            const candidate = getThoughtPreview(allThoughts[i]);
+            if (candidate !== undefined && !isContestLlmContextMessage(candidate)) {
+                thoughtPreview = candidate;
+                break;
+            }
+        }
         const thoughtCount = stored._summaryOnly
             ? (stored._thoughtCount ?? allThoughts.length)
             : allThoughts.length;
