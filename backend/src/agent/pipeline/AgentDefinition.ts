@@ -187,6 +187,21 @@ export interface AgentDefinition {
      * output. Ignored when `outputFormat !== 'json'`.
      */
     outputSchema?: object;
+
+    /**
+     * Whether this agent's report should overwrite the investigation's `finalReport`.
+     *
+     * - `true`  - the agent authors investigation content; its report becomes the new finalReport.
+     * - `false` - the agent reviews/analyzes other agents' work (validators, devil's advocate,
+     *             signal-grounding, compliance, retrospect, kb-improver, etc.) and must NOT
+     *             overwrite the investigator-produced finalReport.
+     * - `undefined` - fall back to heuristics (see `stageProducesFinalReport`): retrospect-kind
+     *                 agents and stages with `canReject: true` are treated as non-authoring.
+     *
+     * A pipeline stage can override this via `PipelineStage.producesFinalReport` for cases
+     * where the same agent is used in different roles (e.g. as both a reviewer and an author).
+     */
+    producesFinalReport?: boolean;
 }
 
 /**
@@ -230,6 +245,36 @@ export interface ConversationEntry {
  */
 export function getAgentKind(agent: AgentDefinition): AgentKind {
     return agent.kind ?? 'custom';
+}
+
+/**
+ * Decide whether a stage's output should overwrite the investigation's `finalReport`.
+ *
+ * Resolution order (first match wins):
+ *  1. `stage.producesFinalReport` (per-stage explicit override)
+ *  2. `agent.producesFinalReport`  (agent-level explicit declaration)
+ *  3. Heuristic fallback for agents/stages that pre-date the explicit flag:
+ *     - retrospect-kind agents are analytical; they never author the report.
+ *     - stages with `canReject: true` are review/gate stages whose output is
+ *       feedback, not investigation content.
+ *     - everything else authors the report.
+ *
+ * Centralizing this lets the orchestrator stay declarative and lets new agent
+ * factories opt out explicitly instead of relying on the orchestrator to guess.
+ */
+export function stageProducesFinalReport(
+    agent: AgentDefinition,
+    stage?: { producesFinalReport?: boolean; canReject?: boolean },
+): boolean {
+    if (stage && typeof stage.producesFinalReport === 'boolean') {
+        return stage.producesFinalReport;
+    }
+    if (typeof agent.producesFinalReport === 'boolean') {
+        return agent.producesFinalReport;
+    }
+    if (getAgentKind(agent) === 'retrospect') return false;
+    if (stage?.canReject) return false;
+    return true;
 }
 
 /**

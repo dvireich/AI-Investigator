@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentDefinition, ConversationEntry } from './AgentDefinition';
+import { AgentDefinition, ConversationEntry, getAgentKind, stageProducesFinalReport } from './AgentDefinition';
 import {
     PipelineDefinition,
     PipelineStage,
@@ -178,7 +178,10 @@ export class PipelineOrchestrator extends EventEmitter {
 
                 // For retrospect stages, keep finalReport so it can analyze
                 // prior stages' output. For other stages, reset it.
-                const isRetrospectStage = agent.builtinType === 'retrospect';
+                // NOTE: Match by agent.kind (not just builtinType) so that custom/file/inline
+                // agents with `kind: 'retrospect'` are also recognized. Otherwise their
+                // KB-improvement output would overwrite the investigator's finalReport.
+                const isRetrospectStage = getAgentKind(agent) === 'retrospect';
 
                 // Create a runner for this stage
                 const runner = new AgentRunner(stageConfig, this.llmProvider, {
@@ -291,13 +294,13 @@ export class PipelineOrchestrator extends EventEmitter {
                 // Merge runner state back into current state
                 //
                 // finalReport policy:
-                //  - Retrospect stages always preserve (they analyse, not report).
-                //  - canReject stages (validators, DA, SGA) are review/gate stages
-                //    whose output is feedback, not the investigation report — their
-                //    reports are stored in stageState.report for the conversation log
-                //    but must NOT overwrite the investigator-produced finalReport.
-                //  - All other stages (planner, investigator, summarizer) update it.
-                const isReviewStage = !!stage.canReject;
+                //  - Whether a stage's report should overwrite the investigation's
+                //    finalReport is now decided by `stageProducesFinalReport(agent, stage)`,
+                //    which honours the explicit `producesFinalReport` flag on either the
+                //    stage or the agent definition. The legacy heuristics (retrospect kind
+                //    and `canReject`) remain as fallbacks for agents/stages that pre-date
+                //    the explicit flag.
+                const ownsFinalReport = stageProducesFinalReport(agent, stage);
                 currentState = {
                     ...currentState,
                     thoughts: runnerState.thoughts,
@@ -305,7 +308,7 @@ export class PipelineOrchestrator extends EventEmitter {
                     fullHistory: runnerState.fullHistory,
                     fullActions: runnerState.fullActions,
                     logs: [...currentState.logs, ...runnerState.logs],
-                    finalReport: (isRetrospectStage || isReviewStage) ? currentState.finalReport : (result.report || currentState.finalReport),
+                    finalReport: ownsFinalReport ? (result.report || currentState.finalReport) : currentState.finalReport,
                     recommendations: runnerState.recommendations || currentState.recommendations,
                     verdict: (result.verdict as any) || currentState.verdict,
                     pipeline: this.pipelineState,
@@ -314,7 +317,7 @@ export class PipelineOrchestrator extends EventEmitter {
                 // If this was a retrospect-type stage, bridge its results into
                 // the investigation's retrospect state so the Retrospect tab
                 // shows them directly instead of re-running analysis from scratch.
-                if (agent.builtinType === 'retrospect') {
+                if (isRetrospectStage) {
                     const runnerRetro = runnerState.retrospect;
                     if (runnerRetro) {
                         // runRetrospectiveAnalysis() already populated the full

@@ -3,6 +3,11 @@ import { lazy, Suspense } from 'react';
 import { Layout } from './components/Layout';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Loader2 } from 'lucide-react';
+// Eager imports for the two pages on the critical user path: viewing the
+// dashboard and starting a new investigation. Code-splitting these only
+// added a chunk-download delay before the user could do the primary action.
+import { Dashboard } from './pages/Dashboard';
+import { NewInvestigation } from './pages/NewInvestigation';
 
 function lazyRetry(factory: () => Promise<any>, retries = 2): Promise<any> {
     return factory().catch((err: any) => {
@@ -11,14 +16,37 @@ function lazyRetry(factory: () => Promise<any>, retries = 2): Promise<any> {
     });
 }
 
-const Dashboard = lazy(() => lazyRetry(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard }))));
-const NewInvestigation = lazy(() => lazyRetry(() => import('./pages/NewInvestigation').then(m => ({ default: m.NewInvestigation }))));
-const InvestigationDetail = lazy(() => lazyRetry(() => import('./pages/InvestigationDetail').then(m => ({ default: m.InvestigationDetail }))));
-const Settings = lazy(() => lazyRetry(() => import('./pages/Settings').then(m => ({ default: m.Settings }))));
-const About = lazy(() => lazyRetry(() => import('./pages/About').then(m => ({ default: m.About }))));
-const Schedules = lazy(() => lazyRetry(() => import('./pages/Schedules').then(m => ({ default: m.Schedules }))));
-const ScheduleForm = lazy(() => lazyRetry(() => import('./pages/ScheduleForm').then(m => ({ default: m.ScheduleForm }))));
-const NotFound = lazy(() => lazyRetry(() => import('./pages/NotFound').then(m => ({ default: m.NotFound }))));
+// Wrap a dynamic import so we can both lazy-mount and prefetch the chunk on demand.
+function lazyWithPreload<T extends Record<string, any>>(factory: () => Promise<T>) {
+    let cached: Promise<T> | null = null;
+    const load = () => {
+        if (!cached) cached = lazyRetry(factory) as Promise<T>;
+        return cached;
+    };
+    const Component = lazy(load);
+    (Component as any).preload = load;
+    return Component as typeof Component & { preload: () => Promise<T> };
+}
+
+const InvestigationDetail = lazyWithPreload(() => import('./pages/InvestigationDetail').then(m => ({ default: m.InvestigationDetail })));
+const Settings = lazyWithPreload(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
+const About = lazyWithPreload(() => import('./pages/About').then(m => ({ default: m.About })));
+const Schedules = lazyWithPreload(() => import('./pages/Schedules').then(m => ({ default: m.Schedules })));
+const ScheduleForm = lazyWithPreload(() => import('./pages/ScheduleForm').then(m => ({ default: m.ScheduleForm })));
+const NotFound = lazyWithPreload(() => import('./pages/NotFound').then(m => ({ default: m.NotFound })));
+
+/**
+ * Map of route paths to preload functions for their lazy-loaded page chunks.
+ * Used to prefetch a route's JS bundle on hover/focus or during browser idle
+ * time, so navigation doesn't pay the chunk-download cost on click.
+ * Note: '/' and '/new' are eagerly imported, so they have no preload entry.
+ */
+export const preloadRoute: Record<string, () => Promise<unknown>> = {
+    '/schedules': Schedules.preload,
+    '/schedules/new': ScheduleForm.preload,
+    '/settings': Settings.preload,
+    '/about': About.preload,
+};
 
 export { lazyRetry };
 

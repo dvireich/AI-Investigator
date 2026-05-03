@@ -1,7 +1,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { Plus, Trash2, GripVertical, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Settings, X, RotateCcw, AlertTriangle, FileText, Code, Cpu, Expand, HelpCircle, Eye, Search, Save, Library } from 'lucide-react';
 import type { AgentDefinition, PipelineStage, PipelineDefinition, PipelinePreset, AgentKind } from '../types/pipeline';
-import { AGENT_KINDS } from '../types/pipeline';
+import { AGENT_KINDS, stageProducesFinalReport } from '../types/pipeline';
 import type { SavedAgent } from '../api';
 import { api } from '../api';
 
@@ -1079,18 +1079,79 @@ const StageCard: React.FC<{
                         </>
                     )}
 
+                    {/* Produces Final Report */}
+                    <div className="flex items-start gap-3">
+                        <label className="text-xs text-slate-400 w-24 flex-shrink-0 pt-1.5">Final Report</label>
+                        <div className="flex-1 space-y-1">
+                            <select
+                                value={
+                                    typeof stage.producesFinalReport === 'boolean'
+                                        ? (stage.producesFinalReport ? 'yes' : 'no')
+                                        : 'auto'
+                                }
+                                onChange={e => {
+                                    const v = e.target.value;
+                                    onUpdate({
+                                        producesFinalReport:
+                                            v === 'yes' ? true : v === 'no' ? false : undefined,
+                                    });
+                                }}
+                                className="w-full bg-slate-900 text-xs text-slate-200 border border-slate-700 rounded-md px-2 py-1.5 outline-none focus:ring-1 focus:ring-cyan-500/30"
+                            >
+                                <option value="auto">
+                                    Auto{resolvedAgent
+                                        ? ` (${stageProducesFinalReport(resolvedAgent, stage) ? 'authors' : 'does not author'})`
+                                        : ''}
+                                </option>
+                                <option value="yes">Authors the report (overwrites finalReport)</option>
+                                <option value="no">Review only (preserves prior finalReport)</option>
+                            </select>
+                            <p className="text-[10px] text-slate-500 leading-snug">
+                                Controls whether this stage's output replaces the investigation's final report.
+                                Auto follows the agent's declared role: retrospect-kind agents and rejecting reviewers preserve the prior report; everyone else authors it.
+                            </p>
+                        </div>
+                    </div>
+
                     {/* Timeout */}
                     <div className="flex items-center gap-3">
                         <label className="text-xs text-slate-400 w-24 flex-shrink-0">Timeout (min)</label>
-                        <input
-                            type="number"
-                            min={0}
-                            value={stage.timeout ?? 0}
-                            onChange={e => onUpdate({ timeout: Number(e.target.value) || undefined })}
-                            placeholder="0 = no limit"
-                            className="w-20 bg-slate-900 text-xs text-slate-200 border border-slate-700 rounded-md px-2 py-1.5 outline-none focus:ring-1 focus:ring-cyan-500/30"
-                        />
-                        <span className="text-[10px] text-slate-600">0 = no limit</span>
+                        {(() => {
+                            const isUnlimited = stage.timeout === undefined || stage.timeout <= 0;
+                            return (
+                                <>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        value={isUnlimited ? '' : stage.timeout}
+                                        disabled={isUnlimited}
+                                        placeholder={isUnlimited ? '∞' : undefined}
+                                        onChange={e => {
+                                            const raw = e.target.value;
+                                            if (raw === '') return;
+                                            const n = Number(raw);
+                                            if (!Number.isFinite(n) || n < 1) return;
+                                            onUpdate({ timeout: n });
+                                        }}
+                                        onBlur={e => {
+                                            if (isUnlimited) return;
+                                            const n = Number(e.target.value);
+                                            if (!Number.isFinite(n) || n < 1) onUpdate({ timeout: undefined });
+                                        }}
+                                        className="w-20 bg-slate-900 text-xs text-slate-200 border border-slate-700 rounded-md px-2 py-1.5 outline-none focus:ring-1 focus:ring-cyan-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    />
+                                    <label className="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer select-none">
+                                        <input
+                                            type="checkbox"
+                                            checked={isUnlimited}
+                                            onChange={e => onUpdate({ timeout: e.target.checked ? undefined : 30 })}
+                                            className="accent-cyan-500"
+                                        />
+                                        Unlimited
+                                    </label>
+                                </>
+                            );
+                        })()}
                     </div>
                 </div>
             )}

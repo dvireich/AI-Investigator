@@ -237,6 +237,34 @@ describe('server utilities and routes', () => {
             expect(inferTarget({ target: '', query: 'Some random query' })).toBeUndefined();
         });
 
+        it('inferTarget extracts from [Tenant: X] prefix in title', () => {
+            expect(inferTarget({ target: '', title: '[Tenant: oi-tds-prd-ea-02] Latency spike' }))
+                .toBe('oi-tds-prd-ea-02');
+        });
+
+        it('inferTarget extracts from [Stamp: X] prefix in title (case-insensitive, with whitespace)', () => {
+            expect(inferTarget({ target: '', title: '[ stamp:  ax-tds-prd-cdm-01 ] Failures' }))
+                .toBe('ax-tds-prd-cdm-01');
+        });
+
+        it('inferTarget extracts from [Target: X] prefix in title', () => {
+            expect(inferTarget({ target: '', title: '[Target: my-stamp] Investigate' }))
+                .toBe('my-stamp');
+        });
+
+        it('inferTarget prefers query over title when both present', () => {
+            // query wins because it's evaluated before the title fallback
+            expect(inferTarget({
+                target: '',
+                query: 'Stamp: from-query\nTime Range: ago(1h)',
+                title: '[Tenant: from-title] something',
+            })).toBe('from-query');
+        });
+
+        it('inferTarget returns undefined when title has no recognized prefix', () => {
+            expect(inferTarget({ target: '', title: 'Latency spike in service' })).toBeUndefined();
+        });
+
         it('normalizeHistoricalState migrates legacy stamp field', () => {
             const result = normalizeHistoricalState({
                 id: '3',

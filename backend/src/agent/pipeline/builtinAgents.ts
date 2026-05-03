@@ -60,6 +60,7 @@ export function createRetrospectAgent(overrides?: Partial<AgentDefinition>): Age
         builtinType: 'retrospect',
         color: '#8b5cf6',
         icon: '✨',
+        producesFinalReport: false,
         tools: {
             mode: 'whitelist',
             list: ['read_file', 'list_dir', 'propose_change'],
@@ -106,6 +107,7 @@ export function createValidatorAgent(overrides?: Partial<AgentDefinition>): Agen
         promptPath: 'prompts/examples/ValidatorPrompt.md',
         color: '#f59e0b',
         icon: '🛡️',
+        producesFinalReport: false,
         ...overrides,
     };
 }
@@ -224,6 +226,7 @@ export function createDevilsAdvocateAgent(overrides?: Partial<AgentDefinition>):
         promptPath: 'prompts/examples/DevilsAdvocatePrompt.md',
         color: '#ef4444',
         icon: '😈',
+        producesFinalReport: false,
         ...overrides,
     };
 }
@@ -336,6 +339,7 @@ export function createComplianceAgent(overrides?: Partial<AgentDefinition>): Age
         promptPath: 'prompts/examples/CompliancePrompt.md',
         color: '#84cc16',
         icon: '📜',
+        producesFinalReport: false,
         tools: {
             mode: 'whitelist',
             list: ['read_file', 'list_dir'],
@@ -362,6 +366,7 @@ export function createSignalGroundingAgent(overrides?: Partial<AgentDefinition>)
         promptPath: 'prompts/examples/SignalGroundingPrompt.md',
         color: '#d946ef',
         icon: '📡',
+        producesFinalReport: false,
         ...overrides,
     };
 }
@@ -383,6 +388,7 @@ export function createRecommendationExtractorAgent(overrides?: Partial<AgentDefi
         promptPath: 'prompts/builtins/recommendation-extractor.md',
         executionMode: 'single-shot',
         outputFormat: 'json',
+        producesFinalReport: false,
         outputSchema: {
             type: 'array',
             items: {
@@ -448,6 +454,7 @@ export function createKbImproverAgent(overrides?: Partial<AgentDefinition>): Age
         outputFormat: 'markdown',
         color: '#8b5cf6',
         icon: '✨',
+        producesFinalReport: false,
         tools: {
             mode: 'whitelist',
             list: ['read_file', 'list_dir', 'propose_change'],
@@ -499,6 +506,7 @@ export function createNotesRephraserAgent(overrides?: Partial<AgentDefinition>):
         outputFormat: 'markdown',
         color: '#f59e0b',
         icon: '✍️',
+        producesFinalReport: false,
         tools: { mode: 'whitelist', list: [] },
         ...overrides,
     };

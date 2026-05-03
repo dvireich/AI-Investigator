@@ -80,6 +80,13 @@ export interface AgentDefinition {
     outputFormat?: 'markdown' | 'json';
     /** Optional JSON Schema for `outputFormat: 'json'` responses. */
     outputSchema?: object;
+    /**
+     * Whether this agent's report should overwrite the investigation's `finalReport`.
+     * `false` means review/analysis agents (validators, devil's advocate, retrospect, etc.)
+     * whose output never replaces the investigator-produced report. `undefined` falls back
+     * to heuristics (retrospect kind / canReject) for backwards compatibility.
+     */
+    producesFinalReport?: boolean;
 }
 
 export interface ToolAccess {
@@ -122,6 +129,11 @@ export interface PipelineStage {
     maxRetries?: number;
     timeout?: number;
     inputMode?: 'conversation' | 'report-only';
+    /**
+     * Per-stage override for whether this stage's output should overwrite the investigation's
+     * `finalReport`. When set, takes priority over `AgentDefinition.producesFinalReport`.
+     */
+    producesFinalReport?: boolean;
 }
 
 export interface PipelineDefinition {
@@ -174,6 +186,28 @@ export function findAgentsByKind(
     }
 
     return results;
+}
+
+/**
+ * Resolve whether a stage's report will overwrite the investigation's `finalReport`.
+ * Mirrors `stageProducesFinalReport` in `backend/src/agent/pipeline/AgentDefinition.ts`.
+ *
+ * Resolution order: stage flag → agent flag → heuristic (retrospect kind / canReject).
+ * Used by the UI to show the user what will actually happen even when neither flag is set.
+ */
+export function stageProducesFinalReport(
+    agent: AgentDefinition,
+    stage?: { producesFinalReport?: boolean; canReject?: boolean },
+): boolean {
+    if (stage && typeof stage.producesFinalReport === 'boolean') {
+        return stage.producesFinalReport;
+    }
+    if (typeof agent.producesFinalReport === 'boolean') {
+        return agent.producesFinalReport;
+    }
+    if (getAgentKind(agent) === 'retrospect') return false;
+    if (stage?.canReject) return false;
+    return true;
 }
 
 /** A compact stage definition inside a preset — references agents by builtinType. */
