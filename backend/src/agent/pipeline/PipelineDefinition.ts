@@ -71,6 +71,17 @@ export interface PipelineStage {
      * - `'report-only'`   — only the most recent stage's report (lighter context)
      */
     inputMode?: 'conversation' | 'report-only';
+
+    /**
+     * Per-stage override for whether this stage's output should overwrite the investigation's
+     * `finalReport`. When set, takes priority over `AgentDefinition.producesFinalReport`.
+     * Useful when the same agent is used in different roles across pipelines (e.g. an
+     * "Investigator" used as a reviewer in one workflow and as the author in another).
+     *
+     * When unset, the orchestrator falls back to `AgentDefinition.producesFinalReport`,
+     * then to heuristics (retrospect kind / canReject) — see `stageProducesFinalReport`.
+     */
+    producesFinalReport?: boolean;
 }
 
 /**

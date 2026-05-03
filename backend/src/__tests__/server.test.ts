@@ -237,6 +237,34 @@ describe('server utilities and routes', () => {
             expect(inferTarget({ target: '', query: 'Some random query' })).toBeUndefined();
         });
 
+        it('inferTarget extracts from [Tenant: X] prefix in title', () => {
+            expect(inferTarget({ target: '', title: '[Tenant: oi-tds-prd-ea-02] Latency spike' }))
+                .toBe('oi-tds-prd-ea-02');
+        });
+
+        it('inferTarget extracts from [Stamp: X] prefix in title (case-insensitive, with whitespace)', () => {
+            expect(inferTarget({ target: '', title: '[ stamp:  ax-tds-prd-cdm-01 ] Failures' }))
+                .toBe('ax-tds-prd-cdm-01');
+        });
+
+        it('inferTarget extracts from [Target: X] prefix in title', () => {
+            expect(inferTarget({ target: '', title: '[Target: my-stamp] Investigate' }))
+                .toBe('my-stamp');
+        });
+
+        it('inferTarget prefers query over title when both present', () => {
+            // query wins because it's evaluated before the title fallback
+            expect(inferTarget({
+                target: '',
+                query: 'Stamp: from-query\nTime Range: ago(1h)',
+                title: '[Tenant: from-title] something',
+            })).toBe('from-query');
+        });
+
+        it('inferTarget returns undefined when title has no recognized prefix', () => {
+            expect(inferTarget({ target: '', title: 'Latency spike in service' })).toBeUndefined();
+        });
+
         it('normalizeHistoricalState migrates legacy stamp field', () => {
             const result = normalizeHistoricalState({
                 id: '3',
@@ -2832,6 +2860,24 @@ describe('server utilities and routes', () => {
             expect(startSpy).toHaveBeenCalledWith(expect.stringContaining('Start general investigation based on provided context.'));
         });
 
+        it('back-fills effectiveTarget from a [Tenant: X] title prefix when target is empty', () => {
+            setFakeLlmProvider();
+            vi.spyOn(AgentRunner.prototype as any, 'start').mockResolvedValue(undefined);
+
+            const { runner } = createInvestigation({
+                // Incident-driven flow: target is unset and the incident title carries the tenant.
+                incidentId: 'INC-2024-001',
+                target: '',
+                title: '[Tenant: oi-tds-prd-ea-02] memory pressure investigation',
+                timeRange: 'ago(1h)',
+                query: 'investigate',
+            } as any);
+
+            // The fallback branch of `target || inferTarget(...)` should populate target
+            // from the [Tenant:] prefix in the title.
+            expect((runner as any).state.target).toBe('oi-tds-prd-ea-02');
+        });
+
         it('falls back to global product settings when selected product fields are blank', () => {
             const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-investigator-product-global-fallback-'));
             const knowledgeBasePath = path.join(repoRoot, 'docs');
@@ -4560,6 +4606,18 @@ describe('server utilities and routes', () => {
             expect(response.status).toBe(400);
         });
 
+        it('back-fills target from [Tenant:] title prefix on PATCH /title (active runner)', async () => {
+            const runner = makeRunner({ id: 'active-tenant', status: 'running', target: '' });
+            __testUtils.getRunners().set('active-tenant', runner as any);
+
+            const response = await api()
+                .patch('/api/investigations/active-tenant/title')
+                .send({ title: '[Tenant: oi-tds-prd-ea-02] New Title' });
+            expect(response.status).toBe(200);
+            expect(response.body.target).toBe('oi-tds-prd-ea-02');
+            expect(runner.state.target).toBe('oi-tds-prd-ea-02');
+        });
+
         it('patches title and tags for inactive investigations', async () => {
             setFakeLlmProvider();
             const saveArtifactsSpy = vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockResolvedValue(undefined);
@@ -4573,6 +4631,22 @@ describe('server utilities and routes', () => {
             expect(response.status).toBe(200);
             expect(__testUtils.getHistory().get('history-title')?.tags).toEqual(['one', 'two']);
             expect(saveArtifactsSpy).toHaveBeenCalled();
+        });
+
+        it('back-fills target from [Tenant:] title prefix on PATCH /title (history-only)', async () => {
+            setFakeLlmProvider();
+            vi.spyOn(AgentRunner.prototype as any, 'saveArtifacts').mockResolvedValue(undefined);
+            __testUtils.getHistory().set(
+                'history-tenant',
+                makeState({ id: 'history-tenant', status: 'paused', target: '' }) as any,
+            );
+
+            const response = await api()
+                .patch('/api/investigations/history-tenant/title')
+                .send({ title: '[Stamp: ax-tds-prd-cdm-01] Saved Title' });
+            expect(response.status).toBe(200);
+            expect(response.body.target).toBe('ax-tds-prd-cdm-01');
+            expect(__testUtils.getHistory().get('history-tenant')?.target).toBe('ax-tds-prd-cdm-01');
         });
 
         it('covers title validation, missing history, and tag persistence failures', async () => {

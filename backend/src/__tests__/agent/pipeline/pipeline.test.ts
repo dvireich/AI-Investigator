@@ -1286,6 +1286,50 @@ describe('PipelineOrchestrator', () => {
             expect(result.retrospect!.proposals).toHaveLength(1);
         });
 
+        it('custom (non-builtin) retrospect stage does not overwrite finalReport', async () => {
+            // Regression: a saved/file/inline agent with `kind: 'retrospect'` but
+            // no `builtinType: 'retrospect'` was previously not recognized as a
+            // retrospect stage, so its KB-improvement output overwrote the
+            // investigator's finalReport. Detection now uses agent.kind via
+            // getAgentKind(), so custom retrospect agents are also protected.
+            const pipeline = makePipeline([
+                { agent: { id: 'sum', name: 'Summarizer', source: 'inline', promptContent: 'summarize' } },
+                {
+                    agent: {
+                        id: 'custom-retro',
+                        name: 'Custom Retro',
+                        source: 'file',
+                        promptPath: 'some/path.md',
+                        kind: 'retrospect', // kind set, but builtinType is intentionally absent
+                    },
+                },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+
+            let stageIdx = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                if (stageIdx === 0) {
+                    runner.state.finalReport = 'Real investigation findings';
+                    runner.state.status = 'completed';
+                }
+                stageIdx++;
+            };
+            (orch as any).runRetrospectStage = async (runner: any) => {
+                // Custom retrospect produces a "report" that must not overwrite finalReport
+                runner.state.finalReport = 'KB Improvement Analysis — should not become finalReport';
+                runner.state.retrospect = {
+                    messages: [{ role: 'assistant', content: 'Proposed updates to playbook.' }],
+                    proposals: [],
+                    analysisComplete: true,
+                };
+            };
+
+            const result = await orch.run('query');
+            expect(result.finalReport).toBe('Real investigation findings');
+            expect(result.retrospect).toBeDefined();
+            expect(result.retrospect!.completed).toBe(true);
+        });
+
         it('canReject stages do not overwrite finalReport from investigator', async () => {
             // Reproduces bug where validator/DA/SGA reports hijacked the
             // investigation finalReport when no Summarizer stage was present.
@@ -1323,6 +1367,71 @@ describe('PipelineOrchestrator', () => {
             // Validator and DA reports should still be in stage states
             expect(result.pipeline!.stages[1].report).toBe('Validation Report: FLAGGED — issues found.');
             expect(result.pipeline!.stages[2].report).toBe('DA Challenge Report: critical blind spots.');
+        });
+
+        it('producesFinalReport: false on agent prevents finalReport overwrite', async () => {
+            // Explicit opt-out replaces the kind/canReject heuristic. An agent that
+            // is neither retrospect-kind nor a canReject reviewer can still declare
+            // it does not author the investigation report.
+            const pipeline = makePipeline([
+                { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'investigate' } },
+                {
+                    agent: {
+                        id: 'tagger',
+                        name: 'Tagger',
+                        source: 'inline',
+                        promptContent: 'tag stuff',
+                        producesFinalReport: false, // explicit: this agent enriches but doesn't replace the report
+                    },
+                },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let stageIdx = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                if (stageIdx === 0) {
+                    runner.state.finalReport = 'Investigator findings';
+                } else {
+                    runner.state.finalReport = 'Tagger output that should NOT win';
+                }
+                runner.state.status = 'completed';
+                stageIdx++;
+            };
+
+            const result = await orch.run('query');
+            expect(result.finalReport).toBe('Investigator findings');
+            // Stage report still recorded for the conversation log
+            expect(result.pipeline!.stages[1].report).toBe('Tagger output that should NOT win');
+        });
+
+        it('stage.producesFinalReport: true overrides agent-level opt-out', async () => {
+            // Same agent definition is used in two roles: as a reviewer (default
+            // opt-out via canReject heuristic) and explicitly as the author. The
+            // per-stage flag wins over the agent-level resolution.
+            const pipeline = makePipeline([
+                { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'investigate' } },
+                {
+                    agent: { id: 'val', name: 'Validator', source: 'inline', promptContent: 'validate' },
+                    canReject: true,
+                    onReject: 'flag',
+                    producesFinalReport: true, // explicit: in this pipeline, the validator's report IS the deliverable
+                },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let stageIdx = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                if (stageIdx === 0) {
+                    runner.state.finalReport = 'Investigator draft';
+                } else {
+                    runner.state.finalReport = 'Final validated deliverable';
+                    runner.state.actions = [{ tool: 'finish', args: { verdict: 'approved', summary: 'Final validated deliverable' } }];
+                    runner.state.verdict = 'approved';
+                }
+                runner.state.status = 'completed';
+                stageIdx++;
+            };
+
+            const result = await orch.run('query');
+            expect(result.finalReport).toBe('Final validated deliverable');
         });
 
         it('handles rejection with loop strategy', async () => {

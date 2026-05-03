@@ -1,10 +1,11 @@
 /// <summary>
-/// Unit tests for AgentDefinition helper functions (getAgentKind, findAgentsByKind).
+/// Unit tests for AgentDefinition helper functions (getAgentKind, findAgentsByKind, stageProducesFinalReport).
 /// </summary>
 import { describe, it, expect } from 'vitest';
 import {
     getAgentKind,
     findAgentsByKind,
+    stageProducesFinalReport,
     type AgentDefinition,
 } from '../../../agent/pipeline/AgentDefinition';
 
@@ -123,6 +124,46 @@ describe('AgentDefinition helpers', () => {
             const result = findAgentsByKind(pipeline, 'investigator');
             expect(result).toHaveLength(1);
             expect(result[0].stageIndex).toBe(1);
+        });
+    });
+
+    describe('stageProducesFinalReport', () => {
+        it('defaults to true for plain authoring agents (no flags, no canReject)', () => {
+            expect(stageProducesFinalReport(makeAgent('inv', 'investigator'))).toBe(true);
+            expect(stageProducesFinalReport(makeAgent('sum', 'summarizer'))).toBe(true);
+        });
+
+        it('returns false for retrospect-kind agents via heuristic fallback', () => {
+            expect(stageProducesFinalReport(makeAgent('retro', 'retrospect'))).toBe(false);
+        });
+
+        it('returns false when stage.canReject is true (review-stage heuristic)', () => {
+            expect(stageProducesFinalReport(makeAgent('val', 'validator'), { canReject: true })).toBe(false);
+        });
+
+        it('honours agent.producesFinalReport: false for non-retrospect, non-canReject agents', () => {
+            const agent = { ...makeAgent('tagger', 'custom'), producesFinalReport: false };
+            expect(stageProducesFinalReport(agent)).toBe(false);
+        });
+
+        it('honours agent.producesFinalReport: true even when stage.canReject is true', () => {
+            const agent = { ...makeAgent('val', 'validator'), producesFinalReport: true };
+            expect(stageProducesFinalReport(agent, { canReject: true })).toBe(true);
+        });
+
+        it('stage.producesFinalReport overrides agent.producesFinalReport (true wins)', () => {
+            const agent = { ...makeAgent('val', 'validator'), producesFinalReport: false };
+            expect(stageProducesFinalReport(agent, { producesFinalReport: true })).toBe(true);
+        });
+
+        it('stage.producesFinalReport overrides agent.producesFinalReport (false wins)', () => {
+            const agent = { ...makeAgent('inv', 'investigator'), producesFinalReport: true };
+            expect(stageProducesFinalReport(agent, { producesFinalReport: false })).toBe(false);
+        });
+
+        it('stage.producesFinalReport overrides retrospect-kind heuristic', () => {
+            const agent = makeAgent('retro', 'retrospect');
+            expect(stageProducesFinalReport(agent, { producesFinalReport: true })).toBe(true);
         });
     });
 });

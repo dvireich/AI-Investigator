@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, Suspense } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
 import { UpdateBanner } from './UpdateBanner';
+import { preloadRoute } from '../App';
 
 interface GitHubUser {
     login: string;
@@ -39,6 +40,15 @@ export const Layout = () => {
             .then(r => { if (r.ok) return r.json(); })
             .then(d => { if (d?.current) setAppVersion(d.current); })
             .catch(() => { console.warn('Failed to fetch app version'); });
+        // Prefetch a couple of secondary destinations during idle time so
+        // navigating to them doesn't pay the chunk-download cost on click.
+        // (Dashboard and New Investigation are eagerly imported.)
+        const idle: (cb: () => void) => number = (window as any).requestIdleCallback
+            || ((cb: () => void) => window.setTimeout(cb, 200));
+        const idleHandle = idle(() => {
+            preloadRoute['/schedules']?.();
+        });
+        void idleHandle;
         // Cleanup poller on unmount
         return () => {
             if (loginPollerRef.current) clearInterval(loginPollerRef.current);
@@ -283,9 +293,14 @@ export const Layout = () => {
     );
 };
 
+const preloadFor = (to: string) => () => { preloadRoute[to]?.(); };
+
 const NavLink = ({ to, icon, label, active }: { to: string; icon: any; label: string; active: boolean }) => (
     <Link
         to={to}
+        onMouseEnter={preloadFor(to)}
+        onFocus={preloadFor(to)}
+        onTouchStart={preloadFor(to)}
         className={`flex items-center px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 ${active
             ? 'bg-white/[0.08] text-white border border-white/[0.08] shadow-inner shadow-white/5'
             : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'
@@ -299,6 +314,9 @@ const NavLink = ({ to, icon, label, active }: { to: string; icon: any; label: st
 const MobileNavLink = ({ to, icon, label, active }: { to: string; icon: any; label: string; active: boolean }) => (
     <Link
         to={to}
+        onMouseEnter={preloadFor(to)}
+        onFocus={preloadFor(to)}
+        onTouchStart={preloadFor(to)}
         className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all ${active
             ? 'bg-white/[0.08] text-white border border-white/[0.08]'
             : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent'

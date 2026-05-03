@@ -63,8 +63,10 @@ export function summarizeRetrospect(retrospect?: InvestigationState['retrospect'
 }
 
 /**
- * Infer target from legacy 'stamp' field or query text when target is missing.
- * Handles migration from older investigations that used 'stamp' instead of 'target'.
+ * Infer target from legacy 'stamp' field, query text, or title prefix when target is missing.
+ * Handles migration from older investigations that used 'stamp' instead of 'target',
+ * and incident-driven investigations where the tenant/stamp is only known after the
+ * incident has been read (and surfaces in the title as `[Tenant: X]` etc.).
  */
 export function inferTarget(state: Record<string, any>): string | undefined {
     if (state.target?.trim()) return undefined; // already has a valid target
@@ -76,6 +78,13 @@ export function inferTarget(state: Record<string, any>): string | undefined {
     if (state.query) {
         const match = state.query.match(/^(?:Stamp|Target):\s*(.+)$/m);
         if (match?.[1]?.trim()) return match[1].trim();
+    }
+
+    // Extract from title prefix: "[Tenant: <value>] ..." / "[Stamp: <value>] ..." / "[Target: <value>] ..."
+    // Common in incident-driven investigations whose title is set from the incident metadata.
+    if (state.title) {
+        const titleMatch = state.title.match(/^\s*\[\s*(?:Tenant|Stamp|Target)\s*:\s*([^\]]+?)\s*\]/i);
+        if (titleMatch?.[1]?.trim()) return titleMatch[1].trim();
     }
 
     return undefined;
@@ -1490,12 +1499,16 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
         throw new Error('No LLM provider configured. Update settings to configure an LLM provider.');
     }
 
+    // Back-fill target from a `[Tenant: X]` / `[Stamp: X]` / `[Target: X]` title prefix
+    // when the caller didn't supply one (common for incident-driven flows).
+    const effectiveTarget = target || inferTarget({ target, title, query: fullQuery });
+
     // Check if a multi-agent pipeline is configured (per-investigation override takes priority)
     const pipelineDef = pipelineOverride || effectiveConfig.pipeline;
     if (pipelineDef && pipelineDef.stages && pipelineDef.stages.length > 1) {
         const pipelineCreatedBy = createdBy ?? (source === 'scheduled' ? 'scheduler' : undefined);
         return createPipelineInvestigation(pipelineDef, effectiveConfig, activeLlmProvider, fullQuery, {
-            target, timeRange, correlationId, category, incidentId,
+            target: effectiveTarget, timeRange, correlationId, category, incidentId,
             model: model || effectiveConfig.model,
             source: source || 'manual', scheduleId, title,
             createdBy: pipelineCreatedBy,
@@ -1504,7 +1517,7 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
 
     const runner = new AgentRunner(effectiveConfig, activeLlmProvider, {
         query: fullQuery,
-        target,
+        target: effectiveTarget,
         timeRange,
         correlationId,
         category,
@@ -2738,10 +2751,16 @@ app.patch('/api/investigations/:id/title', async (req, res) => {
     const runner = runners.get(id);
     if (runner) {
         // Active runner — update state directly and persist
-        (runner as any).state.title = title;
+        const runnerState = (runner as any).state;
+        runnerState.title = title;
+        // Back-fill target if it's still empty and the new title carries a [Tenant: X] / [Stamp: X] / [Target: X] prefix.
+        // Without this, incident-driven investigations end up with `target=""` and folder
+        // names like `..._UnknownTarget_<id>` even after the tenant becomes obvious from the title.
+        const inferred = inferTarget(runnerState);
+        if (inferred) runnerState.target = inferred;
         await (runner as any).saveArtifacts();
-        history.set(id, (runner as any).state);
-        return res.json({ ok: true, title });
+        history.set(id, runnerState);
+        return res.json({ ok: true, title, target: runnerState.target });
     }
 
     const state = history.get(id);
@@ -2749,6 +2768,8 @@ app.patch('/api/investigations/:id/title', async (req, res) => {
 
     // No active runner — update in-memory state and persist via temporary runner
     state.title = title;
+    const inferred = inferTarget(state);
+    if (inferred) state.target = inferred;
     history.set(id, state);
     try {
         const tempRunner = new AgentRunner(getEffectiveConfig(state), activeLlmProvider!, state);
@@ -2756,7 +2777,7 @@ app.patch('/api/investigations/:id/title', async (req, res) => {
     } catch (e: any) {
         console.error(`Failed to persist title for ${id}:`, e.message);
     }
-    return res.json({ ok: true, title });
+    return res.json({ ok: true, title, target: state.target });
 });
 
 // --- Update investigation tags ---

@@ -2116,6 +2116,68 @@ ${recsText}
         }
     }
 
+    /**
+     * Compute the desired folder name for the current investigation state. Format:
+     * `<YYYY-MM-DD>_<safeTarget>[_<safeTitle>]_<safeId>`. The safeId suffix is
+     * the durable lookup key (see `findInvestigationDirById`).
+     */
+    private computeInvestigationFolderName(): string {
+        const startDate = !isNaN(Number(this.state.id)) ? new Date(Number(this.state.id)) : new Date();
+        const timestamp = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
+        const safeStamp = (this.state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
+        const safeTitle = this.state.title
+            ? this.state.title.replace(/[^a-zA-Z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 50)
+            : '';
+        const safeId = this.state.id.replace(/[^a-zA-Z0-9]/g, '');
+        const nameParts = [timestamp, safeStamp, ...(safeTitle ? [safeTitle] : []), safeId];
+        return nameParts.join('_');
+    }
+
+    /**
+     * Find this investigation's existing folder under baseDir by matching the
+     * `_<safeId>` suffix. Returns undefined if no folder for this id exists yet.
+     */
+    private async findInvestigationDirById(baseDir: string): Promise<string | undefined> {
+        if (!fs.existsSync(baseDir)) return undefined;
+        let entries: fs.Dirent[];
+        try {
+            entries = await fsp.readdir(baseDir, { withFileTypes: true });
+        } catch {
+            return undefined;
+        }
+        const safeId = this.state.id.replace(/[^a-zA-Z0-9]/g, '');
+        const suffix = `_${safeId}`;
+        const match = entries.find(e => e.isDirectory() && e.name.endsWith(suffix));
+        return match ? path.join(baseDir, match.name) : undefined;
+    }
+
+    /**
+     * Resolve where to write this investigation's artifacts. If a folder for this
+     * investigation already exists under a different name (e.g. because target/title
+     * changed since the last save), rename it to the desired name so we keep one
+     * directory per investigation id instead of orphaning the old one.
+     */
+    private async resolveInvestigationDir(baseDir: string): Promise<string> {
+        const desiredName = this.computeInvestigationFolderName();
+        const desiredDir = path.join(baseDir, desiredName);
+        const existingDir = await this.findInvestigationDirById(baseDir);
+
+        if (!existingDir || existingDir === desiredDir) {
+            return desiredDir;
+        }
+
+        try {
+            await fsp.rename(existingDir, desiredDir);
+            this.log(`Renamed investigation folder: ${path.basename(existingDir)} -> ${desiredName}`);
+            return desiredDir;
+        } catch (err: any) {
+            // Rename failed (e.g. desired path already exists). Fall back to the existing
+            // folder so we don't silently create a duplicate.
+            this.log(`Could not rename folder ${path.basename(existingDir)} -> ${desiredName}: ${err.message}. Keeping existing.`);
+            return existingDir;
+        }
+    }
+
     private async saveArtifacts() {
         // Skip saving when this runner is a pipeline stage — the orchestrator
         // controls artifact saving via the anchor runner at pipeline completion.
@@ -2128,16 +2190,7 @@ ${recsText}
 
         await fsp.mkdir(baseDir, { recursive: true });
 
-        // Use the investigation creation date (from ID) to ensure consistent folder naming
-        const startDate = !isNaN(Number(this.state.id)) ? new Date(Number(this.state.id)) : new Date();
-        const timestamp = startDate.toISOString().split('T')[0]; // YYYY-MM-DD
-        const safeStamp = (this.state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
-        const safeTitle = this.state.title ? this.state.title.replace(/[^a-zA-Z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 50) : '';
-        const safeId = this.state.id.replace(/[^a-zA-Z0-9]/g, '');
-        const nameParts = [timestamp, safeStamp, ...(safeTitle ? [safeTitle] : []), safeId];
-        const folderName = nameParts.join('_');
-
-        const investigationDir = path.join(baseDir, folderName);
+        const investigationDir = await this.resolveInvestigationDir(baseDir);
         await fsp.mkdir(investigationDir, { recursive: true });
 
         // Save JSON atomically (write to .tmp, then rename)
@@ -2369,14 +2422,12 @@ ${recsText}
         // Ensure fullHistory is populated — it may have been cleared from RAM after saveArtifacts
         if (!this.state.fullHistory || this.state.fullHistory.length === 0) {
             const baseDir = this.config.investigationsPath || path.join(this.getRepoRoot(), 'investigations');
-            const startDate = !isNaN(Number(this.state.id)) ? new Date(Number(this.state.id)) : new Date();
-            const timestamp = startDate.toISOString().split('T')[0];
-            const safeStamp = (this.state.target || 'UnknownTarget').replace(/[^a-zA-Z0-9-]/g, '');
-            const safeTitle = this.state.title ? this.state.title.replace(/[^a-zA-Z0-9-]/g, '-').replace(/-{2,}/g, '-').replace(/^-|-$/g, '').slice(0, 50) : '';
-            const safeId = this.state.id.replace(/[^a-zA-Z0-9]/g, '');
-            const nameParts = [timestamp, safeStamp, ...(safeTitle ? [safeTitle] : []), safeId];
-            const folderName = nameParts.join('_');
-            const statePath = path.join(baseDir, folderName, 'state.json');
+            // Look up the investigation folder by id-suffix so we still find it even
+            // if target/title changed since the last save.
+            const existingDir = await this.findInvestigationDirById(baseDir);
+            const statePath = existingDir
+                ? path.join(existingDir, 'state.json')
+                : path.join(baseDir, this.computeInvestigationFolderName(), 'state.json');
 
             if (fs.existsSync(statePath)) {
                 const savedState = JSON.parse(await fsp.readFile(statePath, 'utf8'));
