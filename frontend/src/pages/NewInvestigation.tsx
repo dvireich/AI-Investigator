@@ -9,6 +9,7 @@ import { TIME_PRESETS, INVESTIGATION_MODES, type InvestigationMode } from '../co
 import { parseFlexibleTimestamp, toDateTimeLocalValue, toDateTimeUTCValue, formatDateDisplayUTC, datetimeLocalToISO } from '../utils/timestamp';
 import { PIPELINE_PRESETS, buildPipelinePreset, PipelineBuilder } from '../components/PipelineBuilder';
 import type { AgentDefinition, PipelineDefinition } from '../types/pipeline';
+import { preloadRoute } from '../App';
 
 /** Format Date to display string */
 function formatDateDisplay(date: Date): string {
@@ -118,6 +119,14 @@ export const NewInvestigation = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [timeZoneMode]);
     useEffect(() => () => { clearTimeout(saveSuccessTimerRef.current); }, []);
+
+    // Prefetch the InvestigationDetail chunk during browser idle so navigating
+    // to /investigation/:id after Start doesn't pay the chunk-download cost.
+    useEffect(() => {
+        const idle: (cb: () => void) => number = (window as any).requestIdleCallback
+            || ((cb: () => void) => window.setTimeout(cb, 200));
+        idle(() => { preloadRoute['/investigation']?.(); });
+    }, []);
 
     // Validate and sync time text with customStart/customEnd
     const handleStartTimeChange = (text: string) => {
@@ -284,6 +293,11 @@ export const NewInvestigation = () => {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setLoading(true);
+
+        // Kick off the InvestigationDetail chunk download in parallel with the
+        // POST. If the idle preload already fired, this is a no-op (the lazy
+        // wrapper caches the import promise).
+        preloadRoute['/investigation']?.();
 
         // Build pipeline from selected workflow preset (if agents are available)
         // 'configured' means use the already-configured pipeline from settings — don't override
