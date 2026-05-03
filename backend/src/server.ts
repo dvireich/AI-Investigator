@@ -1501,7 +1501,7 @@ export function createInvestigation(params: CreateInvestigationParams): { id: st
 
     // Back-fill target from a `[Tenant: X]` / `[Stamp: X]` / `[Target: X]` title prefix
     // when the caller didn't supply one (common for incident-driven flows).
-    const effectiveTarget = target || inferTarget({ target, title, query: fullQuery }) || target;
+    const effectiveTarget = target || inferTarget({ target, title, query: fullQuery });
 
     // Check if a multi-agent pipeline is configured (per-investigation override takes priority)
     const pipelineDef = pipelineOverride || effectiveConfig.pipeline;

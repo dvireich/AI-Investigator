@@ -162,4 +162,56 @@ describe('AgentRunner - investigation folder lifecycle (Fix #1: dedup + Fix #2: 
         const found = await (runner as any).findInvestigationDirById(missingDir);
         expect(found).toBeUndefined();
     });
+
+    it('restoreToLastCheckpoint reloads fullHistory from disk via findInvestigationDirById', async () => {
+        // Seed: write a state.json containing fullHistory (with a contest marker) inside
+        // an existing folder under the id-suffix naming scheme.
+        // Layout matches the production restore code: contestIndex + 2 must point at the
+        // CONTESTED REPORT message that wraps the rejected-report markers.
+        const contestMessage = [
+            'CONTESTED REPORT (attempt #1)',
+            '--- REJECTED REPORT START ---',
+            '## Restored Report',
+            'body',
+            '--- REJECTED REPORT END ---',
+            'User feedback: please reconsider',
+        ].join('\n');
+        const fullHistory = [
+            'Initial thought',
+            'Observation: Report Generated.',
+            'Report Contested: please reconsider',
+            'System: Report contested (attempt #1).',
+            contestMessage,
+            'Post-contest thought',
+        ];
+        const seedRunner = new AgentRunner(makeConfig(investigationsPath), makeProvider(), {
+            id: '1700000000000',
+            target: 'alpha',
+            status: 'completed',
+            contestCount: 1,
+            fullHistory,
+            fullActions: fullHistory.map(() => null) as any,
+        });
+        await (seedRunner as any).saveArtifacts();
+
+        // Now simulate a fresh load: same id but fullHistory cleared from RAM.
+        const runner = new AgentRunner(makeConfig(investigationsPath), makeProvider(), {
+            id: '1700000000000',
+            target: 'alpha',
+            status: 'completed',
+            contestCount: 1,
+            fullHistory: [],
+            fullActions: [],
+            finalReport: 'replaced report',
+        });
+        // Stub recommendation extraction (LLM not available in this test).
+        vi.spyOn(runner as any, 'extractRecommendations').mockResolvedValue([]);
+
+        await runner.restoreToLastCheckpoint();
+
+        // The reloaded fullHistory + contest scan + report extraction should have produced
+        // a finalReport equal to the one inside the REJECTED REPORT markers.
+        expect((runner as any).state.finalReport).toBe('## Restored Report\nbody');
+        expect((runner as any).state.contestCount).toBe(0);
+    });
 });
