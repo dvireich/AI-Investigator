@@ -112,7 +112,22 @@ if (-not $Classic) {
             Start-Process -FilePath $edgePath -ArgumentList $edgeArgs
             Write-Host ""
             Write-Host "Investigation Dashboard is running as a standalone app." -ForegroundColor Cyan
-            Write-Host "Close the app window or run Stop-Dashboard.ps1 to shut down." -ForegroundColor DarkGray
+            Write-Host "Closing the app window will automatically shut down backend, frontend, and tunnel." -ForegroundColor DarkGray
+        }
+
+        # Spawn background watcher: when the Edge --app window is closed,
+        # it will invoke Stop-Dashboard.ps1 to terminate backend/frontend/tunnel.
+        $watcherScript = Join-Path $ScriptDir 'Watch-Dashboard.ps1'
+        if (Test-Path $watcherScript) {
+            $watcherArgs = @(
+                '-WindowStyle', 'Hidden',
+                '-ExecutionPolicy', 'Bypass',
+                '-File', $watcherScript,
+                '-AppUrlMatch', "--app=$FrontendUrl"
+            )
+            $watcherProc = Start-Process -FilePath 'powershell' -ArgumentList $watcherArgs `
+                -WindowStyle Hidden -PassThru
+            Write-Host "  Auto-shutdown watcher started (PID: $($watcherProc.Id))" -ForegroundColor DarkGray
         }
     } else {
         Write-Host "Microsoft Edge not found. Opening in default browser instead..." -ForegroundColor Yellow
@@ -123,17 +138,33 @@ if (-not $Classic) {
 
     # Start Backend
     Write-Host "Starting Backend..." -ForegroundColor Green
-    Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-Command", "cd '$ScriptDir\backend'; npm.cmd run dev$backendExtra"
+    $backendProc = Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-Command", "cd '$ScriptDir\backend'; npm.cmd run dev$backendExtra" -PassThru
 
     # Wait a moment for backend to initialize
     Start-Sleep -Seconds 3
 
     # Start Frontend
     Write-Host "Starting Frontend..." -ForegroundColor Green
-    Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-Command", "cd '$ScriptDir\frontend'; npm.cmd run dev"
+    $frontendProc = Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-Command", "cd '$ScriptDir\frontend'; npm.cmd run dev" -PassThru
 
     Write-Host "Dashboard launched in separate windows." -ForegroundColor Cyan
+    Write-Host "Closing either console window will automatically shut down the dashboard." -ForegroundColor DarkGray
     Write-Host "If you see 'EADDRINUSE' in the Backend window, run 'Stop-Dashboard.ps1' and try again." -ForegroundColor Yellow
+
+    # Spawn background watcher: when either console window is closed, run Stop-Dashboard.ps1.
+    $watcherScript = Join-Path $ScriptDir 'Watch-Dashboard.ps1'
+    if (Test-Path $watcherScript) {
+        $pidArg = "$($backendProc.Id),$($frontendProc.Id)"
+        $watcherArgs = @(
+            '-WindowStyle', 'Hidden',
+            '-ExecutionPolicy', 'Bypass',
+            '-File', $watcherScript,
+            '-WatchPids', $pidArg
+        )
+        $watcherProc = Start-Process -FilePath 'powershell' -ArgumentList $watcherArgs `
+            -WindowStyle Hidden -PassThru
+        Write-Host "  Auto-shutdown watcher started (PID: $($watcherProc.Id))" -ForegroundColor DarkGray
+    }
 }
 
 # ----- Dev Tunnel (default, use -NoTunnel to skip) -----
