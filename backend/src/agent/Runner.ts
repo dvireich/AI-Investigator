@@ -271,7 +271,6 @@ export class AgentRunner extends EventEmitter {
     private toolManager: ToolManager;
     private paused: boolean = false;
     private aborted: boolean = false;
-    private pendingInterventions: any[] = [];
     private llmProvider: LlmProvider;
     private openaiClient: OpenAI | null = null;
     /** When running as a pipeline stage, carries context from the orchestrator. */
@@ -527,16 +526,6 @@ export class AgentRunner extends EventEmitter {
             }
 
             try {
-                // Flush any pending user interventions right before the LLM call
-                // This ensures user messages are always the last thing the LLM sees
-                while (this.pendingInterventions.length > 0) {
-                    const msg = this.pendingInterventions.shift()!;
-                    this.state.thoughts.push(msg);
-                    this.state.actions.push(null as any);
-                    this.emit('thought', msg);
-                    this.log(`Injecting user intervention: ${msg}`);
-                }
-
                 const step = await this.callLLM(systemPrompt, userQuery, this.state.thoughts, consecutiveThoughts >= 2);
 
                 if (step.thought) {
@@ -2438,15 +2427,25 @@ ${recsText}
         this.log("Investigation paused.");
     }
     intervene(message: string) {
-        // Cap pending interventions to prevent queue flooding (Fix 20)
-        const MAX_INTERVENTIONS = 50;
-        if (this.pendingInterventions.length >= MAX_INTERVENTIONS) {
-            this.log(`Intervention rejected: queue full (${MAX_INTERVENTIONS} pending)`);
-            return;
-        }
+        // Persist immediately into state.thoughts/state.actions so the user's
+        // message is captured in the investigation record and survives a crash
+        // or auto-pause before the next LLM call. Previously this was queued
+        // in an in-memory pendingInterventions array that was never written to
+        // state.json — messages sent between LLM calls were silently lost when
+        // the server restarted.
         const formatted = `User Intervention: ${message}\n(SYSTEM NOTE: You must acknowledge this user message in your next thought and adjust your plan accordingly.)`;
-        this.pendingInterventions.push({ role: 'user', content: formatted });
-        this.log(`User intervention queued: ${message}`);
+        const entry = { role: 'user' as const, content: formatted };
+        this.state.thoughts.push(entry);
+        this.state.actions.push(null as any);
+        this.emit('thought', this.tagEvent(entry));
+        this.log(`User intervention recorded: ${message}`);
+        // Best-effort save — a no-op when this runner is a pipeline stage
+        // (the anchor runner saves on the next stage event), but ensures the
+        // intervention is on disk for non-pipeline investigations even if the
+        // process crashes before the next runner-loop iteration.
+        this.saveArtifacts().catch(err => {
+            console.error(`[Runner] Failed to persist intervention: ${err?.message || err}`);
+        });
     }
 
     resume() {

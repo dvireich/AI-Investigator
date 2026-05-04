@@ -4339,7 +4339,10 @@ describe('server utilities and routes', () => {
 
             response = await api().post('/api/investigations/active-pipe-ctl/action').send({ action: 'intervene', message: 'Focus on errors' });
             expect(response.status).toBe(200);
-            expect(runner.intervene).toHaveBeenCalledWith('Focus on errors');
+            // In pipeline mode, only the orchestrator is invoked (it routes to the
+            // active stage runner). Calling both anchor + orchestrator would push
+            // the message twice into the now-shared thoughts array.
+            expect(runner.intervene).not.toHaveBeenCalled();
             expect(mockOrch.intervene).toHaveBeenCalledWith('Focus on errors');
 
             response = await api().post('/api/investigations/active-pipe-ctl/action').send({ action: 'abort' });
@@ -4348,6 +4351,20 @@ describe('server utilities and routes', () => {
             expect(mockOrch.abort).toHaveBeenCalled();
 
             __testUtils.getPipelineOrchestrators().delete('active-pipe-ctl');
+        });
+
+        it('intervene swallows errors from the post-intervene saveArtifacts call', async () => {
+            const runner = makeRunner({ id: 'active-intervene-save-fail', status: 'running' });
+            (runner.saveArtifacts as any) = vi.fn().mockRejectedValue(new Error('disk full'));
+            __testUtils.getRunners().set('active-intervene-save-fail', runner as any);
+
+            const response = await api().post('/api/investigations/active-intervene-save-fail/action')
+                .send({ action: 'intervene', message: 'Note this' });
+
+            // Endpoint returns 200 even though the best-effort save rejected
+            expect(response.status).toBe(200);
+            expect(runner.intervene).toHaveBeenCalledWith('Note this');
+            expect(runner.saveArtifacts).toHaveBeenCalled();
         });
 
         it('pause syncs orchestrator pipeline state to the anchor runner', async () => {
@@ -7741,17 +7758,37 @@ describe('pipeline endpoints and integration', () => {
         const orchestrator = __testUtils.getPipelineOrchestrators().get(id);
         expect(orchestrator).toBeDefined();
 
-        // Emit events on the orchestrator
+        // Simulate the orchestrator's run() initializing currentState — needed
+        // because the test mocks run() with a never-resolving promise.
+        // The new listener mirrors anchor.state arrays from orchestrator.currentState
+        // (instead of pushing per-event), so currentState must exist for sync to occur.
+        (orchestrator as any)._currentState = {
+            thoughts: [],
+            actions: [],
+            logs: [],
+            fullHistory: [],
+            fullActions: [],
+        };
+
+        // Push events into currentState (simulating what the stage runner would do),
+        // then emit the corresponding event so the listener triggers a sync.
+        const cs = (orchestrator as any)._currentState;
+        cs.thoughts.push({ content: 'test thought' });
         orchestrator!.emit('thought', { content: 'test thought' });
+
+        cs.actions.push({ tool: 'test_tool' });
         orchestrator!.emit('action', { tool: 'test_tool' });
+
+        cs.logs.push('test log entry');
         orchestrator!.emit('log', 'test log entry');
+
         orchestrator!.emit('stage-start', { stage: 0 });
         orchestrator!.emit('stage-complete', { stage: 0 });
 
         // Wait for saveToDisk async operations
         await new Promise(r => setTimeout(r, 50));
 
-        // Verify events accumulated in runner state
+        // Verify events are reflected in runner state via the reference-sync
         const runner = __testUtils.getRunners().get(id) as any;
         expect(runner.state.thoughts).toContainEqual({ content: 'test thought' });
         expect(runner.state.actions).toContainEqual({ tool: 'test_tool' });
@@ -8056,7 +8093,7 @@ describe('pipeline endpoints and integration', () => {
         __testUtils.getPipelineOrchestrators().delete(id);
     });
 
-    it('pipeline event handlers init missing arrays on runner state', async () => {
+    it('pipeline event handlers replace missing/stale arrays via sync from orchestrator currentState', async () => {
         setFakeLlmProvider();
         vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
 
@@ -8079,11 +8116,21 @@ describe('pipeline endpoints and integration', () => {
         const id = response.body.id;
         const orchestrator = __testUtils.getPipelineOrchestrators().get(id)!;
 
-        // Delete arrays from runner state to test the init branches
+        // Delete arrays from runner state to ensure the listener's sync correctly
+        // replaces them (instead of relying on a separate init guard).
         const runner = __testUtils.getRunners().get(id)! as any;
         delete runner.state.thoughts;
         delete runner.state.actions;
         delete runner.state.logs;
+
+        // Set up orchestrator's currentState as the source of truth (since run() is mocked).
+        (orchestrator as any)._currentState = {
+            thoughts: [{ content: 'new thought' }],
+            actions: [{ tool: 'new action' }],
+            logs: ['new log'],
+            fullHistory: [],
+            fullActions: [],
+        };
 
         orchestrator.emit('thought', { content: 'new thought' });
         orchestrator.emit('action', { tool: 'new action' });

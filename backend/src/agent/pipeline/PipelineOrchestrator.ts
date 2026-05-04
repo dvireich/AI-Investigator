@@ -36,8 +36,22 @@ export class PipelineOrchestrator extends EventEmitter {
     private pipelineState: PipelineState;
     private aborted: boolean = false;
     private currentRunner: AgentRunner | null = null;
-    private pendingInterventions: string[] = [];
     private savedAgentResolver?: SavedAgentResolver;
+    /**
+     * Live execution state shared with stage runners.
+     *
+     * Exposed via the public `currentState` getter so the server's WebSocket
+     * bridge can sync the anchor runner's state to the orchestrator's source
+     * of truth on every event — instead of separately accumulating events
+     * into the anchor (which caused duplicate / wrapped-object thoughts to
+     * appear in saved state.json after the first resume).
+     */
+    private _currentState: InvestigationState | null = null;
+
+    /** Read-only access to the orchestrator's live cumulative state. */
+    get currentState(): InvestigationState | null {
+        return this._currentState;
+    }
     /**
      * Per-stage convergence tracking — keyed by stage index. Carries the open
      * items and tool-call signature from the prior round so we can detect
@@ -107,7 +121,10 @@ export class PipelineOrchestrator extends EventEmitter {
         initialMetadata: Partial<InvestigationState> = {},
         resumeFrom?: { stageIndex: number; conversationLog: ConversationEntry[]; stageStates: PipelineStageState[] },
     ): Promise<InvestigationState> {
-        let currentState: InvestigationState = {
+        // Held in a `const` (not `let`) and mutated in place so external observers
+        // (the server's WebSocket listener) can keep a stable reference and always
+        // see up-to-date thoughts/actions/logs without races.
+        const currentState: InvestigationState = {
             id: Date.now().toString(),
             status: 'running',
             thoughts: [],
@@ -119,6 +136,7 @@ export class PipelineOrchestrator extends EventEmitter {
             pipeline: this.pipelineState,
             ...initialMetadata,
         };
+        this._currentState = currentState;
 
         // When resuming, restore conversation log and stage statuses from saved state
         let stageIndex = 0;
@@ -212,11 +230,10 @@ export class PipelineOrchestrator extends EventEmitter {
 
                 this.currentRunner = runner;
 
-                // Deliver any interventions that arrived between stages
-                for (const msg of this.pendingInterventions) {
-                    runner.intervene(msg);
-                }
-                this.pendingInterventions = [];
+                // Note: between-stage interventions are now pushed directly into
+                // `currentState.thoughts` by `intervene()`, so the new stage runner
+                // (created via `...currentState` spread above) already inherits them
+                // through the shared thoughts array — no extra delivery loop needed.
 
                 // Set stage context
                 const stageContext: StageContext = {
@@ -328,18 +345,19 @@ export class PipelineOrchestrator extends EventEmitter {
                 //    and `canReject`) remain as fallbacks for agents/stages that pre-date
                 //    the explicit flag.
                 const ownsFinalReport = stageProducesFinalReport(agent, stage);
-                currentState = {
-                    ...currentState,
-                    thoughts: runnerState.thoughts,
-                    actions: runnerState.actions,
-                    fullHistory: runnerState.fullHistory,
-                    fullActions: runnerState.fullActions,
-                    logs: [...currentState.logs, ...runnerState.logs],
-                    finalReport: ownsFinalReport ? (result.report || currentState.finalReport) : currentState.finalReport,
-                    recommendations: runnerState.recommendations || currentState.recommendations,
-                    verdict: (result.verdict as any) || currentState.verdict,
-                    pipeline: this.pipelineState,
-                };
+                // In-place mutation (instead of spread reassignment) so the public
+                // `currentState` reference observed by the server stays stable.
+                currentState.thoughts = runnerState.thoughts;
+                currentState.actions = runnerState.actions;
+                currentState.fullHistory = runnerState.fullHistory;
+                currentState.fullActions = runnerState.fullActions;
+                currentState.logs = [...currentState.logs, ...runnerState.logs];
+                if (ownsFinalReport) {
+                    currentState.finalReport = result.report || currentState.finalReport;
+                }
+                currentState.recommendations = runnerState.recommendations || currentState.recommendations;
+                currentState.verdict = (result.verdict as any) || currentState.verdict;
+                currentState.pipeline = this.pipelineState;
 
                 // If this was a retrospect-type stage, bridge its results into
                 // the investigation's retrospect state so the Retrospect tab
@@ -586,14 +604,29 @@ export class PipelineOrchestrator extends EventEmitter {
     }
 
     /**
-     * Queue a user intervention for the currently-executing stage runner.
+     * Deliver a user intervention immediately into the live cumulative state
+     * so it survives crashes (the message is persisted on the next save) and
+     * shows up in the timeline as a real chat bubble. When a stage runner is
+     * active, the message is routed through it (which mutates the same shared
+     * thoughts array). Between stages we push directly to `currentState.thoughts`
+     * so the next stage runner inherits the message via the `...currentState`
+     * spread when it is created.
      */
     intervene(message: string): void {
         if (this.currentRunner) {
             this.currentRunner.intervene(message);
-        } else {
-            this.pendingInterventions.push(message);
+            return;
         }
+        if (this._currentState) {
+            const formatted = `User Intervention: ${message}\n(SYSTEM NOTE: You must acknowledge this user message in your next thought and adjust your plan accordingly.)`;
+            const entry = { role: 'user' as const, content: formatted };
+            this._currentState.thoughts.push(entry);
+            this._currentState.actions.push(null as any);
+            this.emit('thought', entry);
+            this.log(`User intervention recorded between stages: ${message}`);
+            return;
+        }
+        this.log(`Intervention dropped (orchestrator not running): ${message}`);
     }
 
     /**

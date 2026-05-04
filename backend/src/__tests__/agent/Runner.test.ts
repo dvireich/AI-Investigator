@@ -682,24 +682,57 @@ describe('AgentRunner', () => {
     });
 
     describe('intervene', () => {
-        it('queues user intervention', () => {
+        it('records the user message in state.thoughts immediately', () => {
             const runner = new AgentRunner(makeConfig(), provider);
             runner.intervene('Please check X first');
-            const pending = (runner as any).pendingInterventions;
-            expect(pending).toHaveLength(1);
-            expect(pending[0].content).toContain('Please check X first');
+            const state = (runner as any).state as InvestigationState;
+            const last = state.thoughts[state.thoughts.length - 1];
+            expect(last).toMatchObject({ role: 'user' });
+            expect((last as any).content).toContain('Please check X first');
+            // actions array stays length-aligned with thoughts (null entry pushed for the intervention)
+            expect(state.actions.length).toBe(state.thoughts.length);
+            expect(state.actions[state.actions.length - 1]).toBeNull();
         });
 
-        it('rejects intervention when queue is full (Fix 20)', () => {
+        it('appends multiple interventions in order', () => {
             const runner = new AgentRunner(makeConfig(), provider);
-            for (let i = 0; i < 50; i++) {
+            for (let i = 0; i < 5; i++) {
                 runner.intervene(`msg-${i}`);
             }
-            expect((runner as any).pendingInterventions).toHaveLength(50);
-            runner.intervene('overflow');
-            // Queue should still be 50, the 51st is rejected
-            expect((runner as any).pendingInterventions).toHaveLength(50);
-            expect((runner as any).state.logs.some((l: string) => l.includes('queue full'))).toBe(true);
+            const state = (runner as any).state as InvestigationState;
+            const interventions = state.thoughts.filter((t: any) =>
+                typeof t === 'object' && t.content && t.content.includes('User Intervention:'));
+            expect(interventions).toHaveLength(5);
+            expect((interventions[0] as any).content).toContain('msg-0');
+            expect((interventions[4] as any).content).toContain('msg-4');
+        });
+
+        it('logs an error when fire-and-forget saveArtifacts rejects', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const errSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+            const saveErr = new Error('disk full');
+            vi.spyOn(runner as any, 'saveArtifacts').mockRejectedValue(saveErr);
+
+            runner.intervene('please retry');
+            // Wait for the unhandled-promise catch handler to run
+            await new Promise(r => setImmediate(r));
+
+            expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('Failed to persist intervention'));
+            errSpy.mockRestore();
+        });
+
+        it('logs the raw rejection value when saveArtifacts rejects with a non-Error', async () => {
+            const runner = new AgentRunner(makeConfig(), provider);
+            const errSpy = vi.spyOn(console, 'error').mockImplementation(() => { });
+            // Reject with a plain string (no .message property) to cover the
+            // `err?.message || err` fallback branch.
+            vi.spyOn(runner as any, 'saveArtifacts').mockRejectedValue('write-locked');
+
+            runner.intervene('please retry');
+            await new Promise(r => setImmediate(r));
+
+            expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('write-locked'));
+            errSpy.mockRestore();
         });
     });
 

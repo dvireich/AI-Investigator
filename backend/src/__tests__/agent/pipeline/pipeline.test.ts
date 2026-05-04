@@ -839,52 +839,69 @@ describe('PipelineOrchestrator', () => {
             (orch as any).currentRunner = mockRunner;
             orch.intervene('check the logs');
             expect(mockRunner.intervene).toHaveBeenCalledWith('check the logs');
-            // pendingInterventions should remain empty after immediate delivery
-            expect((orch as any).pendingInterventions).toEqual([]);
         });
 
-        it('intervene() queues message when no runner is active', () => {
+        it('intervene() pushes directly into currentState when no runner is active', () => {
             const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            // Simulate orchestrator mid-run, between stages
+            (orch as any)._currentState = { thoughts: [], actions: [], logs: [] };
             orch.intervene('hello');
-            expect((orch as any).pendingInterventions).toEqual(['hello']);
+            const cs = orch.currentState!;
+            expect(cs.thoughts).toHaveLength(1);
+            expect((cs.thoughts[0] as any).content).toContain('hello');
+            expect(cs.actions).toHaveLength(1);
+            expect(cs.actions[0]).toBeNull();
         });
 
-        it('intervene() queues multiple messages when no runner is active', () => {
+        it('intervene() appends multiple between-stage messages in order', () => {
             const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            (orch as any)._currentState = { thoughts: [], actions: [], logs: [] };
             orch.intervene('first');
             orch.intervene('second');
-            expect((orch as any).pendingInterventions).toEqual(['first', 'second']);
+            const cs = orch.currentState!;
+            expect(cs.thoughts).toHaveLength(2);
+            expect((cs.thoughts[0] as any).content).toContain('first');
+            expect((cs.thoughts[1] as any).content).toContain('second');
         });
 
-        it('pending intervention is delivered when the next stage starts', async () => {
+        it('intervene() drops the message and logs when orchestrator is not running', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            // No currentRunner, no _currentState — orchestrator hasn't started
+            expect((orch as any).currentRunner).toBeNull();
+            expect(orch.currentState).toBeNull();
+            const logSpy = vi.fn();
+            orch.on('log', logSpy);
+            orch.intervene('vanishes');
+            expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Intervention dropped'));
+        });
+
+        it('between-stage intervention reaches the next stage runner via shared thoughts array', async () => {
             const pipeline = makePipeline([
                 { agent: { id: 's1', name: 'S1', source: 'inline', promptContent: 'x' } },
                 { agent: { id: 's2', name: 'S2', source: 'inline', promptContent: 'y' } },
             ]);
             const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
-            let stage2InterveneCalled = false;
+            let stage2SawIntervention = false;
             let stageCount = 0;
             (orch as any).runWithTimeout = async (runner: any) => {
                 stageCount++;
                 runner.state.finalReport = `report-${stageCount}`;
                 runner.state.status = 'completed';
                 if (stageCount === 1) {
-                    // After stage 1 completes, runner.dispose() sets currentRunner = null.
-                    // Simulating that window: queue an intervention before stage 2 starts.
-                    // We'll actually send it right after the first runWithTimeout returns
-                    // by intercepting at stage 2.
+                    // Simulate the between-stages window: clear currentRunner so
+                    // intervene() takes the no-runner branch (push directly into
+                    // currentState.thoughts), then call intervene().
+                    (orch as any).currentRunner = null;
+                    orch.intervene('focus on auth logs');
                 }
                 if (stageCount === 2) {
-                    stage2InterveneCalled = runner.pendingInterventions?.length > 0;
+                    stage2SawIntervention = runner.state.thoughts.some((t: any) =>
+                        typeof t === 'object' && t.content && t.content.includes('focus on auth logs'));
                 }
             };
 
-            // Queue intervention before run — simulate the between-stages window
-            orch.intervene('focus on auth logs');
-
             await orch.run('query');
-            // The intervention queue should have been drained
-            expect((orch as any).pendingInterventions).toEqual([]);
+            expect(stage2SawIntervention).toBe(true);
         });
     });
 
