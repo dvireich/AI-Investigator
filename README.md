@@ -32,6 +32,7 @@ An agentic system that runs, monitors, and learns from investigations — comple
 - [Getting Started](#getting-started)
 - [Remote Access](#remote-access)
 - [Configuration](#configuration)
+- [Command-Line Interface (CLI)](#command-line-interface-cli)
 - [API Reference](#api-reference)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
@@ -1101,6 +1102,77 @@ Configuration is managed through the Settings UI or directly in `backend/config.
 | `scheduledReportModel` | `gpt-4o-mini` | LLM model for AI-generated schedule executive reports |
 
 > **Note:** Repository, system prompt, knowledge base, and working directory are defined per-agent inside each agent's markdown file — not in `config.json`. Only `investigationsPath` is a global filesystem setting.
+
+---
+
+## Command-Line Interface (CLI)
+
+In addition to the dashboard, AI Investigator ships a CLI that runs a single investigation in-process — no HTTP server, no browser, no WebSocket. Useful for CI pipelines, cron jobs, scripting, and offline use. CLI runs share the same on-disk format as dashboard runs, so they show up in the dashboard the next time you open it.
+
+### Install
+
+```powershell
+cd backend
+npm install
+npm run build
+npm link        # exposes `ai-investigator` on PATH
+```
+
+`npm link` is reversible: `npm unlink -g investigation-dashboard-backend`.
+
+Without `npm link` you can still run it via the npm script:
+
+```powershell
+cd backend
+npm run investigate -- --target ServiceX --time-range "ago(1h)"
+```
+
+### Usage
+
+```
+ai-investigator [options]
+```
+
+| Option | Description |
+|---|---|
+| `--target <name>` | Investigation target (required unless `--incident-id`) |
+| `--time-range <range>` | e.g. `"ago(1h)"` (required unless `--incident-id`) |
+| `--query <text>` | User question / context for the investigation |
+| `--incident-id <id>` | Incident ID alternative to `--target` / `--time-range` |
+| `--correlation-id <id>` | Optional correlation id |
+| `--category <name>` | Optional category |
+| `--model <name>` | Override the LLM model |
+| `--title <text>` | Optional human-readable title |
+| `--max-steps <n>` | Override max agent steps |
+| `--pipeline <ref>` | Builtin preset id (e.g. `default`, `deep`) or path to a pipeline JSON file |
+| `--json` | Emit one JSON event per line (machine-readable) |
+| `--no-stream` | Suppress per-step streaming output |
+| `-h`, `--help` | Show help |
+
+**Exit codes:** `0` completed, `1` failed/aborted/paused, `2` bad args / fatal startup error.
+
+### Examples
+
+```powershell
+# Simple investigation
+ai-investigator --target ServiceX --time-range "ago(1h)" --query "investigate latency spike"
+
+# Multi-agent pipeline (builtin preset)
+ai-investigator --pipeline deep --target ServiceX --time-range "ago(30m)"
+
+# Custom pipeline from a JSON file
+ai-investigator --pipeline ./my-pipeline.json --target ServiceX --time-range "ago(1h)"
+
+# Incident-driven, JSON output for piping
+ai-investigator --incident-id 12345 --json | jq .
+```
+
+### Notes
+
+- The CLI uses the same `config.json` and `investigationsPath` as the backend. Pass `--config <path>` style overrides via the same mechanism the backend uses.
+- Results land in `investigationsPath/<date>_<target>_<id>/` as `state.json` + `report.md` — identical to dashboard runs.
+- Press `Ctrl+C` once to abort gracefully (state is persisted); twice to force-exit.
+- The CLI is fire-and-wait: one investigation per invocation. Run multiple processes for concurrency.
 
 ---
 

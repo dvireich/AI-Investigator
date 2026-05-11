@@ -3,9 +3,14 @@
     "version": "1.0.0",
     "description": "Backend for the Investigation Dashboard",
     "main": "dist/server.js",
-    "bin": "dist/server.js",
+    "bin": {
+        "ai-investigator-server": "dist/server.js",
+        "ai-investigator": "dist/cli/investigate.js"
+    },
     "scripts": {
         "start": "node dist/server.js",
+        "investigate": "node dist/cli/investigate.js",
+        "investigate:dev": "ts-node-dev --transpile-only src/cli/investigate.ts",
         "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
         "build": "tsc",
         "lint": "eslint src",
