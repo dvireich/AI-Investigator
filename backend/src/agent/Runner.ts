@@ -631,22 +631,15 @@ export class AgentRunner extends EventEmitter {
                                 // Pop the finish action so the loop can continue cleanly.
                                 this.state.actions.pop();
                                 // Also pop the assistant thought added in this same
-                                // iteration. Without this, the model's own "I'll finish
-                                // now" reasoning stays in history and contradicts the
-                                // gate's user pushback, causing the model to rationalize
-                                // the contradiction as "my finish call failed silently"
-                                // and spiral into a text-only loop. Keep the thoughts
-                                // and actions arrays index-aligned (the gate will re-add
-                                // both below).
+                                // iteration (step.thought handling above always pushes a
+                                // string thought before the gate runs). Without this, the
+                                // model's own "I'll finish now" reasoning stays in history
+                                // and contradicts the gate's user pushback, causing the
+                                // model to rationalize the contradiction as "my finish call
+                                // failed silently" and spiral into a text-only loop. Keep
+                                // thoughts and actions arrays index-aligned.
                                 if (this.state.thoughts.length > 0) {
-                                    const last = this.state.thoughts[this.state.thoughts.length - 1];
-                                    const isAssistantThought = typeof last === 'string' ||
-                                        (last && typeof last === 'object' &&
-                                            (last as any).role !== 'user' &&
-                                            (last as any).role !== 'system');
-                                    if (isAssistantThought) {
-                                        this.state.thoughts.pop();
-                                    }
+                                    this.state.thoughts.pop();
                                 }
                                 const blockerCount = this.stageContext!.retryContext!.openItems
                                     .filter(i => i.severity === 'blocker' || i.severity === 'major')
@@ -2912,7 +2905,7 @@ ${itemsList}
                 // its own reasoning text with no record of having called a tool, then a
                 // user message complaining about that tool — an unexplainable contradiction
                 // it would rationalize as "my tool call failed silently" and then loop.
-                const actionsArr = this.state.actions || [];
+                const actionsArr = this.state.actions;
                 const reconstructed: any[] = [];
                 let pendingToolCallId: string | null = null;
                 const closePending = () => {
@@ -2942,14 +2935,11 @@ ${itemsList}
                         && rawRole !== 'user' && rawRole !== 'system') {
                         closePending();
                         const toolCallId = `call_${i}`;
-                        let argsStr: string;
-                        try {
-                            argsStr = typeof action.args === 'string'
-                                ? action.args
-                                : JSON.stringify(action.args ?? {});
-                        } catch {
-                            argsStr = '{}';
-                        }
+                        // action.args is always an object (parsed from JSON above), so a
+                        // plain JSON.stringify is sufficient. Any pathological input
+                        // (e.g. circular ref) will throw and be caught by callLLM's outer
+                        // try/catch as a Critical LLM Error.
+                        const argsStr = JSON.stringify(action.args);
                         reconstructed.push({
                             role: 'assistant',
                             content: rawContent ? capContent(rawContent) : null,
@@ -3092,7 +3082,10 @@ ${itemsList}
                     if (typeof dm === 'string') {
                         console.log(`[Agent]   ${dm}`);
                     } else {
-                        console.log(`[Agent]   role=${dm.role}, len=${dm.content.length}, content=${dm.content.substring(0, 100)}`);
+                        const c = dm.content;
+                        const cLen = typeof c === 'string' ? c.length : 0;
+                        const cPreview = typeof c === 'string' ? c.substring(0, 100) : '<non-string>';
+                        console.log(`[Agent]   role=${dm.role}, len=${cLen}, content=${cPreview}`);
                     }
                 }
 
@@ -3117,7 +3110,7 @@ ${itemsList}
                     }
                     let parsedArgs: any;
                     try {
-                        parsedArgs = JSON.parse(toolCall.function.arguments || '{}');
+                        parsedArgs = JSON.parse(toolCall.function.arguments);
                     } catch (parseErr: any) {
                         // Malformed JSON args (common when the model emits a giant `report`
                         // string with unescaped quotes). Surface a tool-style error back
