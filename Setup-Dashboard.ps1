@@ -53,6 +53,26 @@ Set-Location "$PSScriptRoot\backend"
 npm install
 if ($LASTEXITCODE -ne 0) { Write-Error "Backend install failed"; exit 1 }
 
+# --- CLI (ai-investigator command on PATH) ---
+Write-Host ""
+Write-Host "Building backend and installing 'ai-investigator' CLI on PATH..." -ForegroundColor Yellow
+npm run build
+if ($LASTEXITCODE -ne 0) {
+    Write-Warning "Backend build failed. The dashboard will still work (it uses ts-node-dev), but the 'ai-investigator' CLI will not be available until 'npm run build' succeeds in backend\."
+} else {
+    npm link
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "'npm link' failed. The CLI is built (use 'npm run investigate -- ...' from backend\), but the global 'ai-investigator' command was not registered. You can retry manually with: cd backend; npm link"
+    } else {
+        $cliExe = (Get-Command "ai-investigator" -ErrorAction SilentlyContinue).Source
+        if ($cliExe) {
+            Write-Host "CLI ready: $cliExe" -ForegroundColor Green
+        } else {
+            Write-Host "CLI linked. Open a new terminal so PATH refreshes, then run 'ai-investigator --help'." -ForegroundColor Green
+        }
+    }
+}
+
 # --- Puppeteer Chromium (for PDF export) ---
 Write-Host ""
 Write-Host "Ensuring Puppeteer Chromium browser is downloaded..." -ForegroundColor Yellow
@@ -119,6 +139,7 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host " Next steps:" -ForegroundColor White
 Write-Host "   1. Run 'Run-Dashboard.ps1' to start the dashboard" -ForegroundColor DarkGray
+Write-Host "      OR run 'ai-investigator --help' for the command-line interface" -ForegroundColor DarkGray
 Write-Host "   2. Open Settings > Connections to configure:" -ForegroundColor DarkGray
 Write-Host "      - LLM Provider (Copilot, OpenAI, Anthropic, etc.)" -ForegroundColor DarkGray
 Write-Host "      - Incident Provider (IcM, PagerDuty, or Manual)" -ForegroundColor DarkGray

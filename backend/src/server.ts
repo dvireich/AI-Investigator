@@ -4559,7 +4559,7 @@ export const __testUtils = {
 };
 
 export function shouldAutoStartServer(env: NodeJS.ProcessEnv): boolean {
-    return env.VITEST !== 'true';
+    return env.VITEST !== 'true' && env.AI_INVESTIGATOR_CLI !== '1';
 }
 
 export function autoStartServerIfNeeded(
