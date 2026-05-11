@@ -1144,7 +1144,8 @@ ai-investigator [options]
 | `--model <name>` | Override the LLM model |
 | `--title <text>` | Optional human-readable title |
 | `--max-steps <n>` | Override max agent steps |
-| `--pipeline <ref>` | Builtin preset id (e.g. `default`, `deep`) or path to a pipeline JSON file |
+| `--pipeline <ref>` | Builtin preset id (e.g. `default`, `deep-investigation`), path to a pipeline JSON file, or - when `--config` is used - a saved workflow id from `<investigationsPath>/workflows.json` |
+| `--config <path>` | Load a product config (e.g. AM-Teleduct's `investigator-config.json`). Resolves MCP servers, `investigationsPath`, and `defaultPipelineId` from that file. Without `--config`, the AI-Investigator backend's own `config.json` is used. |
 | `--json` | Emit one JSON event per line (machine-readable) |
 | `--no-stream` | Suppress per-step streaming output |
 | `-h`, `--help` | Show help |
@@ -1158,19 +1159,28 @@ ai-investigator [options]
 ai-investigator --target ServiceX --time-range "ago(1h)" --query "investigate latency spike"
 
 # Multi-agent pipeline (builtin preset)
-ai-investigator --pipeline deep --target ServiceX --time-range "ago(30m)"
+ai-investigator --pipeline deep-investigation --target ServiceX --time-range "ago(30m)"
 
 # Custom pipeline from a JSON file
 ai-investigator --pipeline ./my-pipeline.json --target ServiceX --time-range "ago(1h)"
 
 # Incident-driven, JSON output for piping
 ai-investigator --incident-id 12345 --json | jq .
+
+# Product config (e.g. AM-Teleduct): MCP servers + Teleduct pipeline + investigationsPath
+ai-investigator --config C:\Repositories\AM-Teleduct\investigator-config.json `
+                --target ServiceX --time-range "ago(1h)"
+
+# Same, with an explicit saved workflow override
+ai-investigator --config C:\Repositories\AM-Teleduct\investigator-config.json `
+                --pipeline teleduct-deep-attainment-investigation `
+                --target ServiceX --time-range "ago(1h)"
 ```
 
 ### Notes
 
-- The CLI uses the same `config.json` and `investigationsPath` as the backend. Pass `--config <path>` style overrides via the same mechanism the backend uses.
-- Results land in `investigationsPath/<date>_<target>_<id>/` as `state.json` + `report.md` — identical to dashboard runs.
+- `--config <path>` makes the CLI load any product config (e.g. AM-Teleduct's `investigator-config.json`), so MCP servers, `investigationsPath`, and `defaultPipelineId` all come from that file. Without `--config`, only the backend's own `config.json` is used and product-specific MCP servers are unavailable.
+- Results land in `investigationsPath/<date>_<target>_<id>/` as `state.json` + `report.md` - identical to dashboard runs.
 - Press `Ctrl+C` once to abort gracefully (state is persisted); twice to force-exit.
 - The CLI is fire-and-wait: one investigation per invocation. Run multiple processes for concurrency.
 
