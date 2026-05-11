@@ -99,6 +99,16 @@ export function normalizeHistoricalState(state: InvestigationState): StoredInves
     if (normalized.status === 'running') {
         normalized.status = 'paused';
         normalized.thoughts.push('System: Investigation automatically paused due to server restart.');
+        // Keep state.actions index-aligned with state.thoughts. callLLM's
+        // reconstruction walks `for i in thoughts: action = actions[i]` to
+        // rebuild the OpenAI tool-call protocol — pushing a thought without a
+        // matching null here causes a 1-position shift that mis-pairs every
+        // subsequent turn (e.g. "Observation: Report Generated." gets paired
+        // with the next turn's `finish` action and falls through to the plain
+        // assistant-text branch, making the model see itself "saying"
+        // observation lines). That corruption was the root cause of the
+        // text-only loop / auto-pause on investigation 1778490842776.
+        normalized.actions.push(null as any);
     }
 
     // Clear stale implementation flag — no runner survives a restart
