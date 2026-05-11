@@ -19,12 +19,13 @@ import {
     historyReady,
     __testUtils,
     getInvestigationStoragePath,
+    getEffectiveConfig,
 } from '../server';
 import {
     PipelineDefinition,
     PipelineOrchestrator,
-    buildPipelinePreset,
     listPipelinePresets,
+    resolveDefaultPipeline,
 } from '../agent/pipeline';
 import { AgentRunner, InvestigationState } from '../agent/Runner';
 
@@ -39,6 +40,7 @@ interface CliArgs {
     title?: string;
     maxSteps?: number;
     pipeline?: string;
+    configFile?: string;
     json: boolean;
     stream: boolean;
     help: boolean;
@@ -60,7 +62,14 @@ OPTIONS:
   --model <name>           Override LLM model
   --title <text>           Optional human-readable title
   --max-steps <n>          Override max agent steps
-  --pipeline <ref>         Pipeline preset id, or path to a JSON file
+  --pipeline <ref>         Pipeline preset id, or path to a JSON file.
+                           When --config is used, also resolves saved
+                           workflow IDs from <investigationsPath>/workflows.json.
+  --config <path>          Load a product config (e.g. AM-Teleduct's
+                           investigator-config.json). Resolves MCP servers,
+                           investigationsPath, and defaultPipelineId from
+                           that file. Without --config, the AI-Investigator
+                           backend's own config.json is used.
   --json                   Emit one JSON event per line (machine-readable)
   --no-stream              Suppress per-step streaming output
   -h, --help               Show this help
@@ -72,8 +81,10 @@ EXIT CODES:
 
 EXAMPLES:
   ai-investigator --target ServiceX --time-range "ago(1h)" --query "investigate spike"
-  ai-investigator --incident-id 12345 --pipeline deep
+  ai-investigator --incident-id 12345 --pipeline deep-investigation
   ai-investigator --pipeline ./my-pipeline.json --target ServiceX --time-range "ago(30m)"
+  ai-investigator --config C:\\Repositories\\AM-Teleduct\\investigator-config.json \\
+                  --target ServiceX --time-range "ago(1h)"
 `;
 
 function parseArgs(argv: string[]): CliArgs {
@@ -93,6 +104,7 @@ function parseArgs(argv: string[]): CliArgs {
             case '--title': args.title = next(); break;
             case '--max-steps': args.maxSteps = parseInt(next() || '', 10); break;
             case '--pipeline': args.pipeline = next(); break;
+            case '--config': args.configFile = next(); break;
             case '--json': args.json = true; break;
             case '--no-stream': args.stream = false; break;
             default:
@@ -105,8 +117,16 @@ function parseArgs(argv: string[]): CliArgs {
     return args;
 }
 
-/** Resolve --pipeline to a PipelineDefinition. Accepts: file path, builtin preset id. */
+/**
+ * Resolve --pipeline to a PipelineDefinition. Accepts (in order):
+ *   1. A path to a JSON file on disk.
+ *   2. A builtin preset id (e.g. "default", "deep-investigation").
+ *   3. A saved-workflow id from <investigationsPath>/workflows.json
+ *      (only when --config has been passed and the loaded config sets
+ *      investigationsPath, e.g. AM-Teleduct's investigator-config.json).
+ */
 function resolvePipeline(ref: string): PipelineDefinition {
+    // 1. File path
     const asPath = path.resolve(ref);
     if (fs.existsSync(asPath) && fs.statSync(asPath).isFile()) {
         try {
@@ -115,16 +135,19 @@ function resolvePipeline(ref: string): PipelineDefinition {
             throw new Error(`Failed to parse pipeline file ${asPath}: ${e.message}`);
         }
     }
-    const preset = listPipelinePresets().find(p => p.id === ref);
-    if (preset) {
-        return buildPipelinePreset(preset.id);
+    // 2 + 3. Builtin preset OR saved workflow (the resolver checks both,
+    // builtins always win on id collisions).
+    const investigationsPath = getEffectiveConfig().investigationsPath;
+    const resolved = resolveDefaultPipeline(ref, investigationsPath);
+    if (resolved) {
+        return resolved;
     }
-    // Saved-workflow lookup (WorkflowStore) is wired up only inside
-    // initScheduler(); not loaded in CLI mode. Out of scope for v1.
+    // 3. Failure: list builtins (workflows are not enumerated to avoid
+    // leaking arbitrary user-defined ids in error output).
     throw new Error(
-        `Unknown --pipeline ref '${ref}'. Provide a file path or one of: ${
-            listPipelinePresets().map(p => p.id).join(', ')
-        }`
+        `Unknown --pipeline ref '${ref}'. Provide a file path, a builtin preset id ` +
+        `(${listPipelinePresets().map(p => p.id).join(', ')}), or a saved workflow id ` +
+        `from <investigationsPath>/workflows.json (requires --config <product-config>).`,
     );
 }
 
@@ -222,8 +245,14 @@ async function main() {
     }
 
     const storagePath = getInvestigationStoragePath((runner as any).state);
-    emit('start', { id, storagePath, pipeline: !!pipeline }, () =>
-        fmt.cyan(`> Investigation ${id} started`) + fmt.dim(` (${storagePath})`)
+    // Surface which config + pipeline are actually in effect, so users can
+    // confirm --config and --pipeline did the right thing.
+    const effective = getEffectiveConfig();
+    const effectivePipelineId = effective.pipeline?.id;
+    emit('start', { id, storagePath, pipeline: !!pipeline, configFile: args.configFile, effectivePipelineId }, () =>
+        fmt.cyan(`> Investigation ${id} started`) + fmt.dim(` (${storagePath})`) +
+        (args.configFile ? fmt.dim(`\n  config: ${args.configFile}`) : '') +
+        (effectivePipelineId ? fmt.dim(`\n  pipeline: ${effectivePipelineId}`) : '')
     );
 
     // For pipeline runs, the orchestrator is the event source. It is added to

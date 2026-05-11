@@ -35,9 +35,10 @@ npm run investigate -- --target ServiceX --time-range "ago(1h)"
 | `--model <name>` | Override LLM model |
 | `--title <text>` | Optional title |
 | `--max-steps <n>` | Override max agent steps |
-| `--pipeline <ref>` | Builtin preset id (e.g. `default`, `deep`) or path to a pipeline JSON file |
+| `--pipeline <ref>` | Builtin preset id (e.g. `default`, `deep-investigation`), path to a pipeline JSON file, or - when `--config` is used - a saved workflow id from `<investigationsPath>/workflows.json` |
+| `--config <path>` | Load a product config (e.g. AM-Teleduct's `investigator-config.json`). Resolves MCP servers, `investigationsPath`, and `defaultPipelineId` from that file. Without `--config`, the AI-Investigator backend's own `config.json` is used. |
 | `--json` | Emit one JSON event per line (machine-readable) |
-| `--no-stream` | Suppress per-step streaming output |
+| `--no-stream` | Suppress per-step streaming output (final summary only) |
 | `-h`, `--help` | Show help |
 
 **Exit codes:** `0` completed, `1` failed/aborted/paused, `2` bad args / fatal startup error.
@@ -49,7 +50,7 @@ npm run investigate -- --target ServiceX --time-range "ago(1h)"
 ai-investigator --target ServiceX --time-range "ago(1h)" --query "investigate spike"
 
 # Multi-agent pipeline (builtin preset)
-ai-investigator --pipeline deep --target ServiceX --time-range "ago(30m)"
+ai-investigator --pipeline deep-investigation --target ServiceX --time-range "ago(30m)"
 
 # Custom pipeline from a JSON file
 ai-investigator --pipeline ./my-pipeline.json --target ServiceX --time-range "ago(1h)"
@@ -59,6 +60,15 @@ ai-investigator --incident-id 12345 --json | ConvertFrom-Json
 
 # Quiet mode (final summary only)
 ai-investigator --target ServiceX --time-range "ago(1h)" --no-stream
+
+# AM-Teleduct: load product config (MCP servers + Teleduct pipeline + investigationsPath)
+ai-investigator --config C:\Repositories\AM-Teleduct\investigator-config.json `
+                --target ServiceX --time-range "ago(1h)"
+
+# AM-Teleduct: same, but force a specific saved workflow from workflows.json
+ai-investigator --config C:\Repositories\AM-Teleduct\investigator-config.json `
+                --pipeline teleduct-deep-attainment-investigation `
+                --target ServiceX --time-range "ago(1h)"
 ```
 
 ## How it works
@@ -71,7 +81,8 @@ Config, LLM provider, and on-disk storage all use the same code paths as the das
 
 - Press `Ctrl+C` once to abort gracefully (state persists); twice to force-exit.
 - One investigation per invocation. Run multiple processes for concurrency.
-- `--pipeline` accepts either a builtin preset id or a path to a pipeline JSON file. Saved-workflow lookup (from `workflows.json`) is not yet wired up in CLI mode.
+- `--pipeline` accepts a builtin preset id, a path to a pipeline JSON file, or - when `--config` is supplied - a saved workflow id from that config's `<investigationsPath>/workflows.json`.
+- `--config` makes the CLI load any product config (e.g. AM-Teleduct's `investigator-config.json`), so MCP servers, `investigationsPath`, and `defaultPipelineId` all come from that file. Without `--config`, only the AI-Investigator backend's own `config.json` is used and product-specific MCP servers are unavailable.
 - Pause/resume, contest, and retrospect-apply are not yet exposed as subcommands. Use the dashboard for those, or open an issue if you need them in the CLI.
 
 ## See also
