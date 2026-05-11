@@ -630,6 +630,17 @@ export class AgentRunner extends EventEmitter {
                                 this.finishGateTripped = true;
                                 // Pop the finish action so the loop can continue cleanly.
                                 this.state.actions.pop();
+                                // Also pop the assistant thought added in this same
+                                // iteration (step.thought handling above always pushes a
+                                // string thought before the gate runs). Without this, the
+                                // model's own "I'll finish now" reasoning stays in history
+                                // and contradicts the gate's user pushback, causing the
+                                // model to rationalize the contradiction as "my finish call
+                                // failed silently" and spiral into a text-only loop. Keep
+                                // thoughts and actions arrays index-aligned.
+                                if (this.state.thoughts.length > 0) {
+                                    this.state.thoughts.pop();
+                                }
                                 const blockerCount = this.stageContext!.retryContext!.openItems
                                     .filter(i => i.severity === 'blocker' || i.severity === 'major')
                                     .length;
@@ -2883,22 +2894,92 @@ ${itemsList}
                         content.substring(content.length - tailSize);
                 };
 
-                // Filter out log-type entries that shouldn't be in the conversation,
-                // and sanitize roles: only 'user' and 'assistant' are valid mid-conversation.
-                // Entries with role:'system' or type:'log' from pipeline forwarding are skipped.
-                const historyMessages = currentHistory
-                    .filter(h => {
-                        if (h && typeof h === 'object' && h.type === 'log') return false;
-                        return true;
-                    })
-                    .map(h => {
-                        if (h && typeof h === 'object' && h.role && h.content) {
-                            const role = (h.role === 'user') ? 'user' : 'assistant';
-                            return { role, content: capContent(h.content) };
-                        }
-                        if (typeof h === 'string') return { role: 'assistant' as const, content: capContent(h) };
-                        return { role: 'assistant' as const, content: capContent(JSON.stringify(h)) };
-                    });
+                // Reconstruct the conversation following the OpenAI tool-call protocol
+                // by walking thoughts paired with state.actions. When actions[i] is a tool
+                // call, thoughts[i] is the assistant's pre-tool reasoning and MUST be sent
+                // with `tool_calls`; the next observation MUST be sent as
+                // {role:'tool', tool_call_id} matching that call.
+                //
+                // The previous implementation flattened everything to plain text, which
+                // worked in the happy path but broke on finish-gate trips: the model saw
+                // its own reasoning text with no record of having called a tool, then a
+                // user message complaining about that tool — an unexplainable contradiction
+                // it would rationalize as "my tool call failed silently" and then loop.
+                const actionsArr = this.state.actions;
+                const reconstructed: any[] = [];
+                let pendingToolCallId: string | null = null;
+                const closePending = () => {
+                    if (pendingToolCallId) {
+                        reconstructed.push({
+                            role: 'tool',
+                            tool_call_id: pendingToolCallId,
+                            content: '(no result recorded)',
+                        });
+                        pendingToolCallId = null;
+                    }
+                };
+                for (let i = 0; i < currentHistory.length; i++) {
+                    const h = currentHistory[i];
+                    if (h && typeof h === 'object' && (h as any).type === 'log') continue;
+                    const action = actionsArr[i];
+                    const isObj = h && typeof h === 'object';
+                    const rawRole: string | undefined = isObj ? (h as any).role : undefined;
+                    const rawContent: string = typeof h === 'string'
+                        ? h
+                        : (isObj && (h as any).content !== undefined ? String((h as any).content) : '');
+
+                    // Action-bearing assistant turn -> assistant message + tool_calls.
+                    // Skip 'finish' (it terminates the loop on success; on gate trip the
+                    // action is popped before history is sent).
+                    if (action && action.tool && action.tool !== 'finish'
+                        && rawRole !== 'user' && rawRole !== 'system') {
+                        closePending();
+                        const toolCallId = `call_${i}`;
+                        // action.args is always an object (parsed from JSON above), so a
+                        // plain JSON.stringify is sufficient. Any pathological input
+                        // (e.g. circular ref) will throw and be caught by callLLM's outer
+                        // try/catch as a Critical LLM Error.
+                        const argsStr = JSON.stringify(action.args);
+                        reconstructed.push({
+                            role: 'assistant',
+                            content: rawContent ? capContent(rawContent) : null,
+                            tool_calls: [{
+                                id: toolCallId,
+                                type: 'function',
+                                function: { name: action.tool, arguments: argsStr },
+                            }],
+                        });
+                        pendingToolCallId = toolCallId;
+                        continue;
+                    }
+
+                    // Observation following an action -> tool result message.
+                    if (pendingToolCallId && rawContent.startsWith('Observation:')) {
+                        reconstructed.push({
+                            role: 'tool',
+                            tool_call_id: pendingToolCallId,
+                            content: capContent(rawContent.replace(/^Observation:\s*/, '')),
+                        });
+                        pendingToolCallId = null;
+                        continue;
+                    }
+
+                    // Anything else: close any dangling tool call (e.g., gate popped the
+                    // action) with a synthetic result, then emit a normal message.
+                    closePending();
+
+                    if (rawRole === 'user' || rawRole === 'system') {
+                        reconstructed.push({ role: 'user', content: capContent(rawContent) });
+                    } else if (typeof h === 'string') {
+                        reconstructed.push({ role: 'assistant', content: capContent(h) });
+                    } else if (rawContent) {
+                        reconstructed.push({ role: 'assistant', content: capContent(rawContent) });
+                    } else {
+                        reconstructed.push({ role: 'assistant', content: capContent(JSON.stringify(h)) });
+                    }
+                }
+                closePending();
+                const historyMessages = reconstructed;
 
                 const messages: any[] = [
                     { role: 'system', content: currentSystem },
@@ -3001,7 +3082,10 @@ ${itemsList}
                     if (typeof dm === 'string') {
                         console.log(`[Agent]   ${dm}`);
                     } else {
-                        console.log(`[Agent]   role=${dm.role}, len=${dm.content.length}, content=${dm.content.substring(0, 100)}`);
+                        const c = dm.content;
+                        const cLen = typeof c === 'string' ? c.length : 0;
+                        const cPreview = typeof c === 'string' ? c.substring(0, 100) : '<non-string>';
+                        console.log(`[Agent]   role=${dm.role}, len=${cLen}, content=${cPreview}`);
                     }
                 }
 
@@ -3016,11 +3100,31 @@ ${itemsList}
 
                 if (message.tool_calls && message.tool_calls.length > 0) {
                     const toolCall = message.tool_calls[0] as any;
+                    // A successful tool call proves the model can still emit tools, so
+                    // re-arm `tool_choice:'required'` for future loop-recovery attempts.
+                    // Without this reset, one transient 400 permanently disables the only
+                    // safety net against text-only thought spirals for the entire run.
+                    if (this.toolChoiceRequiredFailed) {
+                        this.log('Re-arming tool_choice:\'required\' after successful tool call.');
+                        this.toolChoiceRequiredFailed = false;
+                    }
+                    let parsedArgs: any;
+                    try {
+                        parsedArgs = JSON.parse(toolCall.function.arguments);
+                    } catch (parseErr: any) {
+                        // Malformed JSON args (common when the model emits a giant `report`
+                        // string with unescaped quotes). Surface a tool-style error back
+                        // to the model instead of crashing the loop with a generic
+                        // "Critical LLM Error".
+                        const errMsg = `tool call '${toolCall.function.name}' had malformed JSON arguments: ${parseErr.message}. Retry with valid JSON.`;
+                        this.log(`Malformed tool args: ${errMsg}`);
+                        return { thought: `System: ${errMsg}`, isFinal: false };
+                    }
                     return {
                         thought: message.content || "Deciding to use a tool...",
                         action: {
                             tool: toolCall.function.name,
-                            args: JSON.parse(toolCall.function.arguments)
+                            args: parsedArgs
                         }
                     };
                 }

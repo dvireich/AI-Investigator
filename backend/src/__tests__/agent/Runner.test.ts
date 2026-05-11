@@ -5914,6 +5914,166 @@ describe('AgentRunner', () => {
             expect((runner as any).stableStringify('hello')).toBe('"hello"');
             expect((runner as any).stableStringify([1, { z: 1, a: 2 }])).toBe('[1,{"a":2,"z":1}]');
         });
+
+        it('finish-gate also pops the orphan assistant thought to prevent rationalization loop', async () => {
+            // Verifies the fix for the production loop where the model rationalized
+            // the gate's pushback as "my finish call failed silently". After the gate
+            // pops the rejected finish action, it must also pop the assistant's
+            // pre-finish reasoning so the model doesn't see contradictory turns.
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'I will produce the final report now.',
+                            tool_calls: [{ id: 'tc1', function: { name: 'finish', arguments: '{"report":"r1"}' } }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Second attempt.',
+                            tool_calls: [{ id: 'tc2', function: { name: 'finish', arguments: '{"report":"r2"}' } }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 5 }), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: 'old',
+                    openItems: [{ severity: 'blocker', claim: 'gather more' }],
+                    round: 1,
+                    reviewerName: 'Reviewer',
+                },
+            };
+
+            await runner.start('Re-run');
+
+            // The assistant thought from the popped finish action must NOT be present
+            // anywhere in state.thoughts after the gate trip.
+            const thoughts = (runner as any).state.thoughts;
+            const containsOrphan = thoughts.some((t: any) =>
+                (typeof t === 'string' && t === 'I will produce the final report now.') ||
+                (t && t.content === 'I will produce the final report now.'),
+            );
+            expect(containsOrphan).toBe(false);
+            // The gate's user pushback IS present.
+            expect(thoughts.some((t: any) => t && t.content && String(t.content).includes('without running any new tool calls'))).toBe(true);
+        });
+
+        it('callLLM reconstructs OpenAI tool-call protocol from prior thoughts and actions', async () => {
+            // Verifies that prior tool-call turns are sent as
+            // {role:assistant, tool_calls:[...]} + {role:tool, tool_call_id, content}
+            // instead of being flattened to plain text. This is the wire-format
+            // root-cause fix for the rationalization loop.
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{ id: 'final', function: { name: 'finish', arguments: '{"report":"r"}' } }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            // Seed a prior tool call + observation pair.
+            (runner as any).state.thoughts = [
+                'Calling kusto_query',
+                { role: 'user', content: 'Observation: {"rows":42}' },
+            ];
+            (runner as any).state.actions = [
+                { tool: 'kusto_query', args: { query: 'TraceTelemetry | take 1' } },
+                null,
+            ];
+
+            await runner.start('Investigate');
+
+            // Inspect the messages sent to the LLM on the (only) call.
+            const sent = mockOpenAI.chat.completions.create.mock.calls[0][0];
+            const assistantWithTools = sent.messages.find((m: any) => m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0);
+            expect(assistantWithTools).toBeDefined();
+            expect(assistantWithTools.tool_calls[0].function.name).toBe('kusto_query');
+            // The observation must be a tool message with matching tool_call_id.
+            const toolMsg = sent.messages.find((m: any) => m.role === 'tool');
+            expect(toolMsg).toBeDefined();
+            expect(toolMsg.tool_call_id).toBe(assistantWithTools.tool_calls[0].id);
+            expect(String(toolMsg.content)).toContain('"rows":42');
+        });
+
+        it('callLLM emits assistant content as null when prior thought is empty for a tool turn', async () => {
+            // OpenAI accepts assistant messages with content:null when tool_calls
+            // is present; this is the canonical shape when the model emitted only
+            // a tool call with no accompanying text.
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{ id: 'final', function: { name: 'finish', arguments: '{"report":"r"}' } }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            (runner as any).state.thoughts = [
+                '',                                                          // empty prior thought
+                { role: 'user', content: 'Observation: {"ok":true}' },
+            ];
+            (runner as any).state.actions = [
+                { tool: 'list_dir', args: { path: '/x' } },
+                null,
+            ];
+
+            await runner.start('q');
+
+            const sent = mockOpenAI.chat.completions.create.mock.calls[0][0];
+            const assistantWithTools = sent.messages.find((m: any) => m.role === 'assistant' && Array.isArray(m.tool_calls));
+            expect(assistantWithTools).toBeDefined();
+            expect(assistantWithTools.content).toBeNull();
+        });
+
+        it('callLLM re-arms tool_choice:required after a successful tool call', async () => {
+            // One transient 400 must not permanently disable the loop-recovery
+            // safeguard. Verifies toolChoiceRequiredFailed is reset on next success.
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'OK.',
+                        tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report":"r"}' } }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            (runner as any).toolChoiceRequiredFailed = true;
+
+            await runner.start('q');
+
+            expect((runner as any).toolChoiceRequiredFailed).toBe(false);
+        });
+
+        it('callLLM returns a usable error to the model when tool_call args are malformed JSON', async () => {
+            // Malformed args (e.g. unescaped quotes in a giant report string) must
+            // surface as a non-final System: thought instead of becoming a generic
+            // "Critical LLM Error" that crashes the loop.
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Trying.',
+                        tool_calls: [{ id: 'tc', function: { name: 'finish', arguments: '{"report": "broken' } }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 1 }), provider);
+            const result = await (runner as any).callLLM('sys', 'q', [], false);
+            expect(result.action).toBeUndefined();
+            expect(result.isFinal).toBe(false);
+            expect(String(result.thought)).toContain('malformed JSON arguments');
+        });
     });
 
     describe('initRetrospect - migration guards', () => {
