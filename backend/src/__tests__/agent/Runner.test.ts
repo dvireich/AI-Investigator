@@ -534,10 +534,60 @@ describe('AgentRunner', () => {
             const runner = new AgentRunner(makeConfig({ maxSteps: 5 }), provider);
             await runner.start('Query');
 
-            // Should eventually hit max consecutive errors and auto-pause
+            // Auth errors are deterministic — we now pause IMMEDIATELY (no retry,
+            // no compaction), instead of burning 3 attempts before pausing.
             const state = (runner as any).state as InvestigationState;
-            expect(['paused', 'running'].includes(state.status)).toBe(true);
+            expect(state.status).toBe('paused');
         });
+
+        it('pauses immediately on auth error with actionable re-login message (no 3-retry burn)', async () => {
+            // Regression for investigation 1778490842776 second relapse: the
+            // GitHub Copilot OAuth token expired ~2.5h into a long-running
+            // investigation, the LLM provider returned "Error: Not
+            // authenticated with GitHub Copilot. Please login via the
+            // dashboard." The old code treated that like any LLM error and
+            // burned 3 retries + a compaction pass before pausing with a
+            // generic "Resume — payload is smaller" message that didn't tell
+            // the user the real problem (expired token) or the real fix
+            // (re-login). This test asserts: (a) we pause on the FIRST auth
+            // error, not the third; (b) we do NOT call compactHistory; (c)
+            // the pause message tells the user to re-login via the dashboard.
+            provider.getAuthStatus.mockResolvedValue({ authenticated: false });
+
+            // Small maxSteps so the post-pause sleep loop exits quickly.
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+
+            // Spy on compactHistory so we can assert it is NOT called for auth errors.
+            const compactSpy = vi.spyOn(runner as any, 'compactHistory');
+
+            await runner.start('Query');
+
+            const state = (runner as any).state as InvestigationState;
+            expect(state.status).toBe('paused');
+
+            // Compaction MUST be skipped — it cannot fix an expired token
+            // and just wastes another LLM call (which would also fail with
+            // the same auth error).
+            expect(compactSpy).not.toHaveBeenCalled();
+
+            // The pause message must be the new auth-specific one, not the
+            // generic "consecutive LLM errors" one.
+            const pauseMsg = state.thoughts.find((t: any) =>
+                typeof t === 'string'
+                && t.includes('auto-paused')
+                && t.includes('not authenticated'),
+            );
+            expect(pauseMsg).toBeDefined();
+            expect(String(pauseMsg)).toContain('re-login');
+            expect(String(pauseMsg)).toContain('dashboard');
+
+            // The generic 3-error pause message MUST NOT appear (proves we
+            // took the fast-pause path, not the consecutive-errors path).
+            const genericPauseMsg = state.thoughts.find((t: any) =>
+                typeof t === 'string' && t.includes('consecutive LLM errors'),
+            );
+            expect(genericPauseMsg).toBeUndefined();
+        }, 10000);
 
         it('truncates oversized tool results', async () => {
             const bigResult = 'x'.repeat(100_000);
@@ -5965,6 +6015,614 @@ describe('AgentRunner', () => {
             expect(thoughts.some((t: any) => t && t.content && String(t.content).includes('without running any new tool calls'))).toBe(true);
         });
 
+        it('producer-rescue: restores popped finish + downgrades verdict + appends Limitations when producer goes silent after gate trip', async () => {
+            // Production scenario (oi-tds-prd-ea-02 investigation 1778490842776):
+            // After the finish-gate pops the producer's evidence-free finish, the
+            // model goes silent (text-only) for 6 turns and the consecutive-thoughts
+            // guard auto-pauses the whole pipeline. The rescue must intervene first:
+            // restore the popped finish (verdict downgraded to `flagged`, a
+            // `## Limitations` note appended) so the pipeline makes forward progress
+            // instead of grinding to a halt.
+            mockOpenAI.chat.completions.create
+                // Turn 1: producer calls finish without new evidence -> gate pops it.
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Same conclusion.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({
+                                        report: 'My prior report restated.',
+                                        verdict: 'approved',
+                                    }),
+                                },
+                            }],
+                        },
+                    }],
+                })
+                // Turn 2: producer goes silent (text-only). Rescue counter = 1.
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: { content: 'Hmm, not sure what to do.', tool_calls: [] },
+                    }],
+                })
+                // Turn 3: producer goes silent again (text-only). Rescue counter = 2 -> rescue fires.
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: { content: 'Still thinking.', tool_calls: [] },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 10 }), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: 'old',
+                    openItems: [{ severity: 'blocker', claim: 'gather more evidence' }],
+                    round: 1,
+                    reviewerName: 'Reviewer',
+                },
+            };
+
+            await runner.start('Re-run after rejection');
+
+            const state = (runner as any).state;
+            // The pipeline must NOT be paused — that was the production failure.
+            expect(state.status).toBe('completed');
+            // Verdict was downgraded from 'approved' to 'flagged' since the producer
+            // could not gather the new evidence the reviewer asked for.
+            expect(state.verdict).toBe('flagged');
+            // The Limitations note (with the stable rescue marker) is appended.
+            expect(state.finalReport).toContain('## Limitations');
+            expect(state.finalReport).toContain('<!-- producer-rescue-limitations -->');
+            // The original prior report content is preserved before the note.
+            expect(state.finalReport).toContain('My prior report restated.');
+            // A system-level rescue notice was emitted into the timeline so the UI
+            // and downstream stages can see what happened.
+            const rescueNotice = state.thoughts.find(
+                (t: any) => t && typeof t.content === 'string' && t.content.includes('Producer-rescue activated'),
+            );
+            expect(rescueNotice).toBeDefined();
+            // getStageResult surfaces the rescued verdict to the orchestrator.
+            const result = runner.getStageResult();
+            expect(result.verdict).toBe('flagged');
+            expect(result.report).toContain('## Limitations');
+        });
+
+        it('producer-rescue: honors a stronger self-flag verdict (rejected stays rejected)', async () => {
+            // If the popped finish was already self-rated as `rejected` (the model
+            // self-criticized), the rescue must NOT silently strengthen it to
+            // approved or weaken it to flagged — keep the model's own verdict.
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'I cannot find evidence either.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({
+                                        report: 'I do not have enough data.',
+                                        verdict: 'rejected',
+                                    }),
+                                },
+                            }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({ choices: [{ message: { content: 'Silent.', tool_calls: [] } }] })
+                .mockResolvedValueOnce({ choices: [{ message: { content: 'Still silent.', tool_calls: [] } }] });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 10 }), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: 'old',
+                    openItems: [{ severity: 'blocker', claim: 'data is missing' }],
+                    round: 1,
+                    reviewerName: 'Reviewer',
+                },
+            };
+
+            await runner.start('Re-run');
+
+            const state = (runner as any).state;
+            expect(state.status).toBe('completed');
+            // Self-flagged 'rejected' is preserved.
+            expect(state.verdict).toBe('rejected');
+            expect(state.finalReport).toContain('## Limitations');
+        });
+
+        it('producer-rescue: does NOT fire when producer recovers with a real tool call after gate trip', async () => {
+            // After the gate pops the finish, if the producer DOES call a real
+            // tool on the next turn, the rescue must stay disarmed — we must
+            // not "rescue" a producer that is making honest forward progress.
+            mockOpenAI.chat.completions.create
+                // Turn 1: gate-popped finish.
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'First finish.',
+                            tool_calls: [{ id: 'tc1', function: { name: 'finish', arguments: '{"report":"r1"}' } }],
+                        },
+                    }],
+                })
+                // Turn 2: real tool call (the kind the gate asked for).
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Gathering more evidence.',
+                            tool_calls: [{ id: 'tc2', function: { name: 'list_dir', arguments: '{"path":"/x"}' } }],
+                        },
+                    }],
+                })
+                // Turn 3: substantively new finish.
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Now finishing.',
+                            tool_calls: [{ id: 'tc3', function: { name: 'finish', arguments: '{"report":"r2","verdict":"approved"}' } }],
+                        },
+                    }],
+                });
+
+            // Stub list_dir so executeAction returns a benign result.
+            mockToolManager.callTool.mockResolvedValue({ ok: true });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 10 }), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: 'old',
+                    openItems: [{ severity: 'blocker', claim: 'do work' }],
+                    round: 1,
+                    reviewerName: 'Reviewer',
+                },
+            };
+
+            await runner.start('Re-run');
+
+            const state = (runner as any).state;
+            expect(state.status).toBe('completed');
+            // The model's honest 'approved' verdict on round 2 is preserved (no rescue happened).
+            expect(state.verdict).toBe('approved');
+            // The Limitations marker MUST NOT be present — that would mean the rescue
+            // silently downgraded a healthy producer.
+            expect(state.finalReport || '').not.toContain('<!-- producer-rescue-limitations -->');
+            // No rescue notice was emitted.
+            const rescueNotice = state.thoughts.find(
+                (t: any) => t && typeof t.content === 'string' && t.content.includes('Producer-rescue activated'),
+            );
+            expect(rescueNotice).toBeUndefined();
+        });
+
+        it('producer-rescue: does NOT fire for a producer that has never had its finish popped', async () => {
+            // No gate trip in this stage → no popped finish → no rescue, even if
+            // the model is silent for many turns. (The normal consecutive-thoughts
+            // auto-pause should still take over after maxConsecutiveThoughts; we
+            // assert here only that the rescue-specific path stays disarmed.)
+            for (let i = 0; i < 7; i++) {
+                mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                    choices: [{ message: { content: `silent ${i}`, tool_calls: [] } }],
+                });
+            }
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 10 }), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: 'old',
+                    openItems: [{ severity: 'blocker', claim: 'do work' }],
+                    round: 1,
+                    reviewerName: 'Reviewer',
+                },
+            };
+
+            await runner.start('Re-run');
+
+            const state = (runner as any).state;
+            // No rescue notice — the rescue must not invent a finish from thin air.
+            const rescueNotice = state.thoughts.find(
+                (t: any) => t && typeof t.content === 'string' && t.content.includes('Producer-rescue activated'),
+            );
+            expect(rescueNotice).toBeUndefined();
+            // No finalReport either — nothing to restore.
+            expect(state.finalReport).toBeUndefined();
+        });
+
+        // ──────────────────────────────────────────────────────────────────────
+        // acceptRescuedFinish: edge-shape coverage. The end-to-end rescue tests
+        // above hit the happy path. These short, focused tests exercise the
+        // defensive branches that real production payloads occasionally take:
+        // missing args entirely, summary-instead-of-report, an
+        // already-marker-tagged report, no report or summary at all,
+        // already-acceptable verdict, finish-was-saved-with-no-args, and
+        // extractRecommendations failing inside the rescue.
+        // ──────────────────────────────────────────────────────────────────────
+
+        it('acceptRescuedFinish: defensive early-return when no popped finish exists', async () => {
+            // Caller is supposed to check this.lastPoppedFinish first, but the
+            // method has its own defensive guard. Calling it directly with no
+            // popped finish must be a no-op — no rescue notice, no state change.
+            const runner = new AgentRunner(makeConfig({ maxSteps: 1 }), provider);
+            (runner as any).lastPoppedFinish = null;
+            const beforeThoughts = (runner as any).state.thoughts.length;
+            const beforeActions = (runner as any).state.actions.length;
+
+            await (runner as any).acceptRescuedFinish();
+
+            expect((runner as any).state.thoughts.length).toBe(beforeThoughts);
+            expect((runner as any).state.actions.length).toBe(beforeActions);
+            expect((runner as any).state.status).not.toBe('completed');
+        });
+
+        it('acceptRescuedFinish: synthesizes args + report when popped finish has neither', async () => {
+            // Production has seen finish actions saved with `args: undefined`
+            // (e.g. when JSON.parse failed upstream and we still pushed the
+            // skeleton action). The rescue must not crash — it has to mint
+            // an args object, default the verdict to 'flagged', and write
+            // a placeholder report so downstream consumers find SOMETHING.
+            const runner = new AgentRunner(makeConfig({ maxSteps: 1 }), provider);
+            // Simulate a finish that was popped without args.
+            (runner as any).lastPoppedFinish = { tool: 'finish', args: undefined };
+            // Stub extractRecommendations so we don't need a real LLM call.
+            (runner as any).extractRecommendations = vi.fn(async () => []);
+            (runner as any).saveArtifacts = vi.fn(async () => {});
+
+            await (runner as any).acceptRescuedFinish();
+
+            const state = (runner as any).state;
+            expect(state.status).toBe('completed');
+            expect(state.verdict).toBe('flagged');
+            // Synthesized placeholder report contains the rescue marker.
+            expect(state.finalReport).toContain('Producer did not provide a report');
+            expect(state.finalReport).toContain('<!-- producer-rescue-limitations -->');
+        });
+
+        it('acceptRescuedFinish: promotes summary into report and removes the stale summary key', async () => {
+            // Some models put their write-up in `summary` instead of `report`.
+            // The rescue must promote it to `report` (so saveArtifacts/UI find
+            // it in the predictable field) AND delete the now-stale summary
+            // copy (which would otherwise drift out of sync once the
+            // Limitations note is appended to `report` only).
+            const runner = new AgentRunner(makeConfig({ maxSteps: 1 }), provider);
+            (runner as any).lastPoppedFinish = {
+                tool: 'finish',
+                args: { summary: 'Wrote it under summary instead of report.' },
+            };
+            (runner as any).extractRecommendations = vi.fn(async () => []);
+            (runner as any).saveArtifacts = vi.fn(async () => {});
+
+            await (runner as any).acceptRescuedFinish();
+
+            // The restored action's args were rewritten in place.
+            const restored = (runner as any).state.actions.find(
+                (a: any) => a && a.tool === 'finish',
+            );
+            expect(restored).toBeDefined();
+            expect(restored.args.report).toContain('Wrote it under summary instead of report.');
+            expect(restored.args.report).toContain('<!-- producer-rescue-limitations -->');
+            // Stale summary copy must be deleted.
+            expect(restored.args.summary).toBeUndefined();
+        });
+
+        it('acceptRescuedFinish: skips Limitations append when the report already carries the rescue marker', async () => {
+            // Idempotency: if something upstream already stamped the rescue
+            // marker (e.g. a re-run of a previously rescued finish), the
+            // method must NOT append a second copy of the Limitations note.
+            const alreadyMarked = 'Already rescued.\n\n<!-- producer-rescue-limitations -->\n## Limitations\nPrior limitations.';
+            const runner = new AgentRunner(makeConfig({ maxSteps: 1 }), provider);
+            (runner as any).lastPoppedFinish = {
+                tool: 'finish',
+                args: { report: alreadyMarked, verdict: 'flagged' },
+            };
+            (runner as any).extractRecommendations = vi.fn(async () => []);
+            (runner as any).saveArtifacts = vi.fn(async () => {});
+
+            await (runner as any).acceptRescuedFinish();
+
+            // Still exactly one copy of the marker — no double-append.
+            const occurrences = ((runner as any).state.finalReport.match(/<!-- producer-rescue-limitations -->/g) || []).length;
+            expect(occurrences).toBe(1);
+            // Verdict 'flagged' was already PIPELINE-acceptable and was preserved.
+            expect((runner as any).state.verdict).toBe('flagged');
+        });
+
+        it('acceptRescuedFinish: catches a recommendation-extraction failure and continues with an empty list', async () => {
+            // extractRecommendations is a separate LLM call that can fail
+            // independently (rate-limit, transient 5xx). Inside the rescue
+            // path, a failure must NOT prevent the rescue from completing —
+            // the report is still salvaged, recommendations just default to [].
+            const runner = new AgentRunner(makeConfig({ maxSteps: 1 }), provider);
+            (runner as any).lastPoppedFinish = {
+                tool: 'finish',
+                args: { report: 'Real report content.', verdict: 'flagged' },
+            };
+            (runner as any).extractRecommendations = vi.fn(async () => {
+                throw new Error('rate limited');
+            });
+            (runner as any).saveArtifacts = vi.fn(async () => {});
+
+            await (runner as any).acceptRescuedFinish();
+
+            const state = (runner as any).state;
+            expect(state.status).toBe('completed');
+            expect(state.recommendations).toEqual([]);
+            // The failure is logged so it's not silent.
+            const warned = state.logs.some(
+                (l: any) => typeof l === 'string' && l.includes('recommendation extraction failed'),
+            );
+            expect(warned).toBe(true);
+        });
+
+        it('acceptRescuedFinish: defaults to a generic report string when neither report nor summary nor a fallback is present in the popped finish', async () => {
+            // Edge case: args is an empty object (verdict=undefined,
+            // report=undefined, summary=undefined). The fallback string
+            // ("Investigation Completed via finish tool.") path in the
+            // `report || summary || fallback` chain must execute.
+            const runner = new AgentRunner(makeConfig({ maxSteps: 1 }), provider);
+            (runner as any).lastPoppedFinish = { tool: 'finish', args: {} };
+            (runner as any).extractRecommendations = vi.fn(async () => []);
+            (runner as any).saveArtifacts = vi.fn(async () => {});
+
+            await (runner as any).acceptRescuedFinish();
+
+            const state = (runner as any).state;
+            expect(state.status).toBe('completed');
+            // The synthesized "(Producer did not provide a report...)" string
+            // gets written to args.report, so finalReport mirrors that — NOT
+            // the bare fallback. The `report || summary || fallback` chain
+            // exercises the branch even though the synthesized string wins.
+            expect(state.finalReport).toContain('Producer did not provide a report');
+        });
+
+        it('acceptRescuedFinish: falls back to summary when the report field is non-string-truthy after the if/else (e.g. only a numeric summary survives)', async () => {
+            // Edge case: reportField (= report || summary) is non-string-truthy
+            // (e.g. a number or object). The string-with/without-marker branch
+            // skips it (typeof !== 'string'), and the !reportField branch
+            // skips it (still truthy), so the if/else leaves restored.args.report
+            // alone. The `restored.args.report || restored.args.summary` chain
+            // on the next line then takes the summary side. This is the only
+            // way to reach the second leg of that `||` short-circuit.
+            const runner = new AgentRunner(makeConfig({ maxSteps: 1 }), provider);
+            // Numeric summary, no report field at all → reportField = 42 (number).
+            (runner as any).lastPoppedFinish = {
+                tool: 'finish',
+                args: { summary: 42, verdict: 'flagged' },
+            };
+            (runner as any).extractRecommendations = vi.fn(async () => []);
+            (runner as any).saveArtifacts = vi.fn(async () => {});
+
+            await (runner as any).acceptRescuedFinish();
+
+            const state = (runner as any).state;
+            expect(state.status).toBe('completed');
+            // restored.args.report was never assigned (non-string-truthy path),
+            // so the report variable resolves to the summary value (42).
+            expect(state.finalReport).toBe(42);
+            // Verdict 'flagged' was preserved (already PIPELINE-acceptable).
+            expect(state.verdict).toBe('flagged');
+        });
+
+        it('finish-gate: handles a popped finish action whose args field is null (defensive deep-copy)', async () => {
+            // Regression for the JSON.parse(JSON.stringify(... || {})) line:
+            // if step.action.args is null/undefined when the gate pops it,
+            // the defensive `|| {}` must prevent a deep-copy crash on null.
+            // We exercise the gate-pop branch by emitting `arguments: 'null'`,
+            // which JSON.parse turns into a literal `null` action.args.
+            mockOpenAI.chat.completions.create
+                // Round 1: producer calls finish with literal null args.
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Done.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: {
+                                    name: 'finish',
+                                    // Parses to JS null → step.action.args === null,
+                                    // which is exactly the falsy case the `|| {}`
+                                    // defensive guard exists to handle.
+                                    arguments: 'null',
+                                },
+                            }],
+                        },
+                    }],
+                })
+                // Round 2: producer concedes with a real Limitations report.
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Conceding.',
+                            tool_calls: [{
+                                id: 'tc2',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({
+                                        report: 'r2\n\n## Limitations\nNo more data.',
+                                        verdict: 'flagged',
+                                    }),
+                                },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 5 }), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: 'old',
+                    openItems: [{ severity: 'blocker', claim: 'do work' }],
+                    round: 1,
+                    reviewerName: 'Reviewer',
+                },
+            };
+
+            await runner.start('Re-run');
+
+            const state = (runner as any).state;
+            // The gate-pop branch ran with args:null — no crash, lastPoppedFinish
+            // got `{}` from the defensive `|| {}`. Round 2 then concedes.
+            expect(state.status).toBe('completed');
+            expect(state.finalReport).toContain('## Limitations');
+        });
+
+        it('improved gate pushback message offers an explicit concession path so the LLM can finish with Limitations', async () => {
+            // Regression for the deeper design issue: the prior gate message
+            // told the model only "you MUST gather new evidence" — leaving an
+            // exhausted producer with no graceful exit. The new message must
+            // explicitly mention the `## Limitations` concession path.
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Quick fix.',
+                            tool_calls: [{ id: 'tc1', function: { name: 'finish', arguments: '{"report":"r"}' } }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Conceding.',
+                            tool_calls: [{
+                                id: 'tc2',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({
+                                        report: 'r2\n\n## Limitations\nCannot resolve item X — no data.',
+                                        verdict: 'flagged',
+                                    }),
+                                },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 5 }), provider);
+            (runner as any).stageContext = {
+                stageIndex: 0,
+                agentName: 'Investigator',
+                role: 'producer',
+                retryContext: {
+                    priorReport: 'old',
+                    openItems: [{ severity: 'blocker', claim: 'gather more' }],
+                    round: 1,
+                    reviewerName: 'Reviewer',
+                },
+            };
+
+            await runner.start('Re-run');
+
+            const state = (runner as any).state;
+            // The gate message MUST mention the concession path so the model knows it has one.
+            const gateMsg = state.thoughts.find(
+                (t: any) => t && typeof t.content === 'string' && t.content.includes('without running any new tool calls'),
+            );
+            expect(gateMsg).toBeDefined();
+            expect(String(gateMsg.content)).toContain('## Limitations');
+            expect(String(gateMsg.content)).toContain('flagged');
+            // The model honored the concession path on attempt 2.
+            expect(state.status).toBe('completed');
+            expect(state.finalReport).toContain('## Limitations');
+        });
+
+        it('callLLM defensively pads actions when thoughts/actions are misaligned (recovers from server-restart drift)', async () => {
+            // Regression for investigation 1778490842776: a server restart
+            // pushed a "System: Investigation automatically paused due to
+            // server restart." thought without pushing a matching null to
+            // state.actions, leaving thoughts.length === actions.length + 1.
+            // callLLM walks `for i in thoughts: action = actions[i]`, so the
+            // off-by-one mis-paired every subsequent turn — observation
+            // strings landed on tool-call slots and got reconstructed as
+            // assistant text, which the model echoed back as a text-only
+            // loop until the consecutive-thoughts auto-pause fired.
+            //
+            // The defensive guard pads actions with nulls so the
+            // reconstruction stays correct even if some upstream caller
+            // forgets to keep the arrays aligned. We verify here that the
+            // tool-call turn that was NOT misaligned still reconstructs
+            // correctly (asst+tool_calls + tool result), the misaligned
+            // string thought reconstructs as a plain assistant message
+            // (not as a hallucinated tool result), and the runner does not
+            // mutate state.actions to be longer than thoughts.
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{ id: 'final', function: { name: 'finish', arguments: '{"report":"r"}' } }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            // Simulate post-restart state: 3 thoughts (tool turn + observation
+            // + restart marker) but only 2 actions (the restart marker did
+            // not get a matching null). thoughts.length = 3, actions.length = 2.
+            (runner as any).state.thoughts = [
+                'Calling kusto_query',
+                { role: 'user', content: 'Observation: {"rows":42}' },
+                'System: Investigation automatically paused due to server restart.',
+            ];
+            (runner as any).state.actions = [
+                { tool: 'kusto_query', args: { query: 'TraceTelemetry | take 1' } },
+                null,
+                // BUG: restart marker pushed without matching null — guard must recover.
+            ];
+
+            await runner.start('Investigate');
+
+            // Guard padded actions to match thoughts.length BEFORE reconstruction
+            // (then the start loop appended its own pre-finish thought + finish action,
+            // so we only assert that actions never trails thoughts).
+            const state = (runner as any).state;
+            expect(state.actions.length).toBeGreaterThanOrEqual(state.thoughts.length - 1);
+
+            // Reconstruction stayed correct: the seeded tool turn is sent as
+            // assistant+tool_calls, the observation as a tool message with the
+            // matching id, and the misaligned restart string as plain
+            // assistant text (NOT as a tool result).
+            const sent = mockOpenAI.chat.completions.create.mock.calls[0][0];
+            const assistantWithTools = sent.messages.find(
+                (m: any) => m.role === 'assistant'
+                    && Array.isArray(m.tool_calls)
+                    && m.tool_calls.some((tc: any) => tc.function?.name === 'kusto_query'),
+            );
+            expect(assistantWithTools).toBeDefined();
+            const toolMsg = sent.messages.find(
+                (m: any) => m.role === 'tool' && String(m.content).includes('"rows":42'),
+            );
+            expect(toolMsg).toBeDefined();
+            expect(toolMsg.tool_call_id).toBe(assistantWithTools.tool_calls[0].id);
+
+            // The restart marker MUST NOT appear as a tool result.
+            const restartAsTool = sent.messages.find(
+                (m: any) => m.role === 'tool' && String(m.content).includes('server restart'),
+            );
+            expect(restartAsTool).toBeUndefined();
+
+            // The runner logged the alignment warning so future drift is
+            // visible instead of silently corrupting the model's view.
+            const warned = state.logs.some(
+                (l: any) => typeof l === 'string' && l.includes('thoughts/actions misalignment detected'),
+            );
+            expect(warned).toBe(true);
+        });
+
         it('callLLM reconstructs OpenAI tool-call protocol from prior thoughts and actions', async () => {
             // Verifies that prior tool-call turns are sent as
             // {role:assistant, tool_calls:[...]} + {role:tool, tool_call_id, content}
@@ -6033,6 +6691,181 @@ describe('AgentRunner', () => {
             const assistantWithTools = sent.messages.find((m: any) => m.role === 'assistant' && Array.isArray(m.tool_calls));
             expect(assistantWithTools).toBeDefined();
             expect(assistantWithTools.content).toBeNull();
+        });
+
+        it('callLLM strips system-injected scaffolding (placeholders, prior pause/restart/auth markers) from the LLM view', async () => {
+            // Regression for investigation 1778490842776 fourth relapse:
+            // long-running pipelines accumulate dozens of system-injected
+            // scaffolding strings (UI placeholders "Deciding to use a
+            // tool...", "Observation: Report Generated." markers from the
+            // finish handler, prior auto-pause notices, server-restart
+            // markers, stale auth-error strings). At the time of failure,
+            // 245 of 312 thoughts (78%) were pure noise. The model could
+            // not see the actual investigation signal through the noise
+            // and went silent. These strings stay in state.thoughts for
+            // the UI/timeline but MUST NOT be sent to the LLM, because
+            // the LLM cannot act on them — they only reinforce the
+            // failure pattern they came from.
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{ id: 'final', function: { name: 'finish', arguments: '{"report":"r"}' } }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            // Realistic post-pause history with all the noise types.
+            (runner as any).state.thoughts = [
+                'Real analysis: latency spiked at 14:32 UTC.',                                              // KEEP
+                { role: 'user', content: 'Observation: {"rows":42}' },                                       // KEEP
+                'Deciding to use a tool...',                                                                  // DROP (placeholder)
+                'Observation: Report Generated.',                                                            // DROP (finish marker)
+                'System: Investigation auto-paused after 6 consecutive text-only responses.',                // DROP
+                'System: Investigation automatically paused due to server restart.',                         // DROP
+                'Error: Not authenticated with GitHub Copilot. Please login via the dashboard.',             // DROP
+                { role: 'system', content: 'You are looping with thoughts. You MUST call a tool now or finish.' }, // KEEP (current-loop pressure)
+                { role: 'user', content: 'System: You called `finish` without running any new tool calls. ...' }, // KEEP (gate pushback)
+            ];
+            (runner as any).state.actions = [
+                { tool: 'kusto_query', args: { query: 'T' } },
+                null,
+                null, null, null, null, null, null, null,
+            ];
+
+            await runner.start('q');
+
+            const sent = mockOpenAI.chat.completions.create.mock.calls[0][0];
+            const reconstructed = sent.messages.slice(2); // strip system prompt + initial user query
+
+            // KEPT: real analysis text + observation + nudge + gate pushback
+            const realAnalysis = reconstructed.find(
+                (m: any) => m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls[0]?.function?.name === 'kusto_query',
+            );
+            expect(realAnalysis).toBeDefined();
+            expect(String(realAnalysis.content)).toContain('latency spiked');
+
+            const obsMsg = reconstructed.find((m: any) => m.role === 'tool' && String(m.content).includes('"rows":42'));
+            expect(obsMsg).toBeDefined();
+
+            const nudge = reconstructed.find(
+                (m: any) => String(m.content || '').includes('looping with thoughts'),
+            );
+            expect(nudge).toBeDefined();
+
+            const gatePushback = reconstructed.find(
+                (m: any) => String(m.content || '').includes('without running any new tool calls'),
+            );
+            expect(gatePushback).toBeDefined();
+
+            // DROPPED: every noise string must be absent from the LLM view.
+            const noiseFound = reconstructed.find((m: any) => {
+                const c = String(m.content || '');
+                return c === 'Deciding to use a tool...'
+                    || c === 'Observation: Report Generated.'
+                    || c.startsWith('System: Investigation auto-paused')
+                    || c.startsWith('System: Investigation automatically paused')
+                    || c.startsWith('Error: Not authenticated');
+            });
+            expect(noiseFound).toBeUndefined();
+
+            // The noise MUST still be present in state.thoughts (UI/timeline
+            // expects it) — we only filter the LLM view.
+            const stateThoughts = (runner as any).state.thoughts;
+            expect(stateThoughts.some((t: any) => t === 'Deciding to use a tool...')).toBe(true);
+            expect(stateThoughts.some((t: any) => t === 'Observation: Report Generated.')).toBe(true);
+            expect(stateThoughts.some((t: any) => typeof t === 'string' && t.startsWith('System: Investigation auto-paused'))).toBe(true);
+        });
+
+        it('callLLM noise-strip uses content:null for tool turns whose only "thought" is the placeholder', async () => {
+            // The "Deciding to use a tool..." placeholder is meaningless on
+            // its own (we drop it), but when it sits on a tool-call slot it
+            // must NOT crash the reconstruction — the assistant message just
+            // gets content:null + the tool_calls, which is the canonical
+            // OpenAI shape for "tool call without preface".
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{ id: 'final', function: { name: 'finish', arguments: '{"report":"r"}' } }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            (runner as any).state.thoughts = [
+                'Deciding to use a tool...',                              // placeholder, but slot has a real action
+                { role: 'user', content: 'Observation: {"ok":true}' },
+            ];
+            (runner as any).state.actions = [
+                { tool: 'kusto_query', args: { query: 'T' } },
+                null,
+            ];
+
+            await runner.start('q');
+
+            const sent = mockOpenAI.chat.completions.create.mock.calls[0][0];
+            const assistantWithTools = sent.messages.find(
+                (m: any) => m.role === 'assistant' && Array.isArray(m.tool_calls),
+            );
+            expect(assistantWithTools).toBeDefined();
+            // content must be null (placeholder collapsed), tool_calls intact.
+            expect(assistantWithTools.content).toBeNull();
+            expect(assistantWithTools.tool_calls[0].function.name).toBe('kusto_query');
+        });
+
+        it('callLLM synthesizes a "(no result recorded)" tool message when a tool call is followed by a non-observation thought (closePending)', async () => {
+            // The reconstruction protocol requires every assistant tool_call to
+            // be paired with a matching tool message. If a tool call is
+            // followed by something that is NOT an observation (e.g. another
+            // assistant text turn — happens when the persisted state is
+            // truncated mid-investigation, or when noise-strip removes the
+            // observation), `closePending()` must synthesize a placeholder
+            // tool result so the OpenAI API doesn't reject the request.
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{ id: 'final', function: { name: 'finish', arguments: '{"report":"r"}' } }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            // Tool call immediately followed by a plain assistant text (NOT an
+            // observation). This forces closePending() to fire with
+            // pendingToolCallId still set when the second slot is processed
+            // through the "anything else" branch.
+            (runner as any).state.thoughts = [
+                'Calling kusto_query',
+                'Some real follow-up assistant text that is not an observation.',
+            ];
+            (runner as any).state.actions = [
+                { tool: 'kusto_query', args: { query: 'T' } },
+                null,
+            ];
+
+            await runner.start('q');
+
+            const sent = mockOpenAI.chat.completions.create.mock.calls[0][0];
+            // The synthetic placeholder tool result MUST be present so the
+            // assistant tool_calls slot has a matching tool message.
+            const placeholder = sent.messages.find(
+                (m: any) => m.role === 'tool' && String(m.content) === '(no result recorded)',
+            );
+            expect(placeholder).toBeDefined();
+            // And it must reference the SAME id as the assistant tool_calls entry.
+            const assistantWithTools = sent.messages.find(
+                (m: any) => m.role === 'assistant' && Array.isArray(m.tool_calls),
+            );
+            expect(placeholder.tool_call_id).toBe(assistantWithTools.tool_calls[0].id);
+            // The follow-up text was preserved as a normal assistant message.
+            const followup = sent.messages.find(
+                (m: any) => m.role === 'assistant' && typeof m.content === 'string'
+                    && m.content.includes('Some real follow-up assistant text'),
+            );
+            expect(followup).toBeDefined();
         });
 
         it('callLLM re-arms tool_choice:required after a successful tool call', async () => {

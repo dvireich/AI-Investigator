@@ -323,6 +323,10 @@ export class AgentRunner extends EventEmitter {
         this.stageStartActionsLength = this.state.actions.length;
         // Reset the finish-gate tripwire whenever a new stage context is bound.
         this.finishGateTripped = false;
+        // Reset the producer-rescue state too; otherwise a popped finish from
+        // a previous stage could leak forward and be mis-restored here.
+        this.lastPoppedFinish = null;
+        this.silentTurnsSinceFinishPop = 0;
     }
 
     /**
@@ -336,6 +340,24 @@ export class AgentRunner extends EventEmitter {
      * fire at most once per stage so a stuck LLM cannot loop forever.
      */
     private finishGateTripped: boolean = false;
+    /**
+     * The finish action object that the finish-gate popped, kept around so the
+     * producer-rescue path can restore it if the model goes silent (text-only
+     * loop) instead of producing new evidence. Without this, a producer that
+     * has nothing new to add has no way to express "I give up" — the only
+     * vehicle for that, `finish`, is what the gate just blocked. Restoring
+     * the popped finish (with verdict downgraded to `flagged` + a Limitations
+     * note appended to the report) lets the pipeline make forward progress
+     * instead of hard-pausing on a permanently stuck LLM.
+     */
+    private lastPoppedFinish: any = null;
+    /**
+     * Counts text-only LLM responses observed since the finish-gate trip in
+     * the current stage. When this hits {@link RESCUE_AFTER_SILENT_TURNS}
+     * (and {@link lastPoppedFinish} is set), the rescue path restores the
+     * popped finish instead of escalating to the auto-pause guard.
+     */
+    private silentTurnsSinceFinishPop: number = 0;
 
     /**
      * Release resources held by this runner: disconnect MCP tool connections
@@ -542,7 +564,32 @@ export class AgentRunner extends EventEmitter {
                     const isActualError = thoughtStr.startsWith('Critical LLM Error:') || 
                                           thoughtStr.startsWith('System Alert:') ||
                                           thoughtStr.startsWith('Error: Not authenticated');
-                    
+
+                    // Auth errors are deterministic — retrying without re-authenticating
+                    // is pointless (every retry returns the same "Not authenticated"
+                    // string), and compacting history doesn't help an expired token.
+                    // Pause IMMEDIATELY on the first occurrence with an actionable
+                    // message that tells the user exactly how to recover. Without
+                    // this, long-running investigations whose Copilot token expires
+                    // mid-run waste 3 retries + a compaction pass before pausing,
+                    // and the generic pause message ("Resume — payload is smaller")
+                    // misleads the user into resuming without re-authenticating.
+                    const isAuthError = thoughtStr.startsWith('Error: Not authenticated');
+                    if (isAuthError) {
+                        const pauseMsg = `System: Investigation auto-paused — LLM provider is not authenticated ` +
+                            `(token likely expired during this long-running investigation). ` +
+                            `To recover: (1) re-login via the dashboard (Settings → Authentication), ` +
+                            `then (2) Resume. Compaction was skipped because it cannot fix an expired token. ` +
+                            `Original error: ${thoughtStr.substring(0, 200)}`;
+                        this.log(pauseMsg);
+                        this.state.thoughts.push(pauseMsg);
+                        this.state.actions.push(null as any);
+                        this.emit('thought', pauseMsg);
+                        this.pause();
+                        consecutiveLLMErrors = 0;
+                        continue;
+                    }
+
                     if (isActualError) {
                         consecutiveLLMErrors++;
                         consecutiveThoughts = 0; // Reset so retry doesn't force tool_choice:'required'
@@ -603,6 +650,12 @@ export class AgentRunner extends EventEmitter {
                 if (step.action) {
                     // Reset consecutive thoughts on action
                     consecutiveThoughts = 0;
+                    // The model emitted *some* action this turn — even if the
+                    // gate later pops a fresh `finish`, the producer is no
+                    // longer silent. Clear the rescue's silent-turn counter so
+                    // it only reflects the streak SINCE the most recent gate
+                    // trip (or stage start).
+                    this.silentTurnsSinceFinishPop = 0;
 
                     this.state.actions.push(step.action);
                     this.emit('action', this.tagEvent(step.action));
@@ -628,6 +681,19 @@ export class AgentRunner extends EventEmitter {
 
                             if (newToolCalls.length === 0) {
                                 this.finishGateTripped = true;
+                                // Save the popped finish so the producer-rescue
+                                // path can restore it if the model goes silent
+                                // (text-only loop) instead of producing new
+                                // evidence on the next attempt. Deep-clone the
+                                // args so later in-place mutation (verdict
+                                // downgrade, Limitations note append) cannot
+                                // pollute the original action object that we
+                                // reference elsewhere.
+                                this.lastPoppedFinish = {
+                                    tool: step.action.tool,
+                                    args: JSON.parse(JSON.stringify(step.action.args || {})),
+                                };
+                                this.silentTurnsSinceFinishPop = 0;
                                 // Pop the finish action so the loop can continue cleanly.
                                 this.state.actions.pop();
                                 // Also pop the assistant thought added in this same
@@ -644,10 +710,26 @@ export class AgentRunner extends EventEmitter {
                                 const blockerCount = this.stageContext!.retryContext!.openItems
                                     .filter(i => i.severity === 'blocker' || i.severity === 'major')
                                     .length;
+                                // Two-path pushback: the model MUST either gather
+                                // new evidence OR concede gracefully. Without an
+                                // explicit concession path, models that have
+                                // genuinely exhausted the available evidence go
+                                // silent (the only way to "give up" — `finish`
+                                // — is what the gate just blocked), which trips
+                                // the consecutive-thoughts auto-pause and grinds
+                                // the pipeline to a halt. The concession path
+                                // also lets the producer-rescue logic accept
+                                // their second `finish` cleanly with a verdict
+                                // of `flagged`.
                                 const gateMsg = `System: You called \`finish\` without running any new tool calls. ` +
                                     `On a retry you MUST gather new evidence (at least one tool call) before finishing — ` +
                                     `there are ${blockerCount} blocker/major open item(s) above that require concrete data, not paraphrasing. ` +
-                                    `Pick the most important open item and run a query/file read that addresses it, then call \`finish\` with a substantively new report.`;
+                                    `Pick the most important open item and run a query/file read that addresses it, then call \`finish\` with a substantively new report. ` +
+                                    `\n\nIf — after attempting to gather evidence — you genuinely cannot resolve any of the open items ` +
+                                    `(e.g. the data does not exist, the queries time out, or the items are out of scope for your tools), ` +
+                                    `call \`finish\` again with verdict \`flagged\` and append a \`## Limitations\` section to the report ` +
+                                    `that lists each unresolved item and explains why it could not be addressed. That is an acceptable second-attempt response — ` +
+                                    `do NOT respond with prose only.`;
                                 this.state.thoughts.push({ role: 'user', content: gateMsg });
                                 this.state.actions.push(null as any);
                                 this.emit('thought', gateMsg);
@@ -719,6 +801,26 @@ export class AgentRunner extends EventEmitter {
                     // No action implies just thinking/speaking. 
                     consecutiveThoughts++;
                     this.state.actions.push(null as any);
+
+                    // Producer-rescue: if the finish-gate popped a finish call
+                    // earlier in this stage and the model has now gone silent
+                    // (text-only) for RESCUE_AFTER_SILENT_TURNS in a row, it
+                    // is the producer's way of conceding "I have nothing more
+                    // to add". Restore the popped finish (with verdict
+                    // downgraded to `flagged` and a `## Limitations` note
+                    // appended explaining the gate trip + rescue) so the
+                    // pipeline makes forward progress instead of grinding to
+                    // an auto-pause halt. Without this, the only way to
+                    // recover from this state was a manual Resume / model
+                    // switch, which is what production was hitting.
+                    const RESCUE_AFTER_SILENT_TURNS = 2;
+                    if (this.lastPoppedFinish) {
+                        this.silentTurnsSinceFinishPop++;
+                        if (this.silentTurnsSinceFinishPop >= RESCUE_AFTER_SILENT_TURNS) {
+                            this.acceptRescuedFinish();
+                            break;
+                        }
+                    }
 
                     if (consecutiveThoughts >= maxConsecutiveThoughts) {
                         // Auto-pause: the model is stuck in a text-only loop and tool forcing isn't working
@@ -2749,6 +2851,115 @@ ${itemsList}
     }
 
     /**
+     * Producer-rescue: restore the finish action that the finish-gate popped
+     * earlier in this stage and complete the stage as if the model had emitted
+     * it. Called when the model has gone silent (text-only) for a configurable
+     * number of turns after the gate trip — strong evidence that it has
+     * nothing more to investigate but cannot express that because the only
+     * vehicle for "I give up" (`finish`) is exactly what the gate just blocked.
+     *
+     * Side effects (all required to mirror the normal finish path):
+     *   - Mutates `lastPoppedFinish.args.verdict` to `flagged` if it was
+     *     stronger (`approved`/`completed`). The producer literally could not
+     *     gather more evidence after a rejection, so the report is at best
+     *     provisional and the convergence-detection downgrade in the
+     *     orchestrator already treats this as `flagged → continue`.
+     *   - Appends a `## Limitations` section to the report explaining what
+     *     happened, so downstream consumers (next stage, retrospect, UI) see
+     *     the rescue as an explicit fact, not a silent verdict downgrade.
+     *   - Pushes the restored action onto `state.actions` and the
+     *     "Report Generated" marker into `state.thoughts` (parallel arrays).
+     *   - Sets `state.status = 'completed'` and `state.finalReport` so
+     *     `getStageResult()` returns the rescued verdict + report.
+     *   - Calls `extractRecommendations()` and `saveArtifacts()` exactly like
+     *     the normal finish path, so the on-disk artifact is identical to a
+     *     real model-emitted finish.
+     *
+     * The caller (the consecutive-thoughts branch in `start()`) breaks out of
+     * the main loop after this returns; we do not need to advance any counters
+     * because the stage is over.
+     */
+    private async acceptRescuedFinish(): Promise<void> {
+        if (!this.lastPoppedFinish) return; // defensive — caller should have checked
+
+        const restored = this.lastPoppedFinish;
+        this.lastPoppedFinish = null;
+        this.silentTurnsSinceFinishPop = 0;
+
+        // Verdict downgrade: if the model said 'approved' before the gate
+        // popped its finish, the rescue cannot honor that — the rescue only
+        // fires when the producer FAILED to gather new evidence after a
+        // critic rejection, so the report is by definition provisional.
+        // Honor any existing 'flagged' or 'rejected' (the model self-flagged).
+        const PIPELINE_VERDICTS = new Set(['flagged', 'rejected']);
+        if (!restored.args) restored.args = {};
+        if (!PIPELINE_VERDICTS.has(restored.args.verdict)) {
+            restored.args.verdict = 'flagged';
+        }
+
+        // Append a Limitations section so downstream stages see the rescue.
+        // Use a stable marker (`<!-- producer-rescue-limitations -->`) so
+        // tests and tooling can detect rescues without parsing prose.
+        const rescueNote = `\n\n<!-- producer-rescue-limitations -->\n## Limitations\n\n` +
+            `The reviewer flagged open items on the prior round, but on this retry attempt the producer ` +
+            `could not gather additional evidence to address them (it called \`finish\` without new tool calls, ` +
+            `then went silent when the finish-gate asked for either new evidence or an explicit concession). ` +
+            `The pipeline accepted this report as-is — with verdict downgraded to \`flagged\` — to make forward progress. ` +
+            `Treat the conclusions as provisional and re-investigate the open items manually if they matter.\n`;
+        const reportField = restored.args.report || restored.args.summary;
+        if (typeof reportField === 'string' && !reportField.includes('<!-- producer-rescue-limitations -->')) {
+            // Always write back to `report` so downstream consumers find the rescue note
+            // in a predictable field, regardless of which key the model originally used.
+            restored.args.report = reportField + rescueNote;
+            // Avoid keeping a stale `summary` that lacks the note.
+            if (restored.args.summary && restored.args.summary !== restored.args.report) {
+                delete restored.args.summary;
+            }
+        } else if (!reportField) {
+            restored.args.report = `(Producer did not provide a report on the rescued attempt.)${rescueNote}`;
+        }
+
+        // Now mirror the normal finish-handling path from start()'s main loop.
+        const noticeMsg = `System: Producer-rescue activated — accepting prior \`finish\` (verdict downgraded to \`flagged\`, ` +
+            `Limitations section appended) so the pipeline can make forward progress.`;
+        this.state.thoughts.push({ role: 'system', content: noticeMsg });
+        this.state.actions.push(null as any);
+        this.emit('thought', noticeMsg);
+        this.log(`[finish-gate] ${noticeMsg}`);
+
+        this.state.actions.push(restored);
+        this.emit('action', this.tagEvent(restored));
+
+        this.state.status = 'completed';
+        // The if/else block above guarantees `restored.args.report || restored.args.summary`
+        // is non-empty here:
+        //   - if reportField was a string without the marker, we assigned `reportField + rescueNote` to .report;
+        //   - if reportField was falsy, we assigned the synthesized "(Producer did not provide…)" placeholder to .report;
+        //   - if reportField was a non-string truthy (e.g. number/object), .report or .summary already held that value.
+        // So no extra fallback string is needed.
+        const report = restored.args.report || restored.args.summary;
+        this.state.verdict = restored.args.verdict;
+        this.state.finalReport = report;
+        this.state.thoughts.push(`Observation: Report Generated.`);
+
+        // Extract recommendations the same way the regular finish path does.
+        try {
+            this.state.recommendations = await this.extractRecommendations(report);
+            this.log(`Extracted ${this.state.recommendations.length} recommendations.`);
+        } catch (err: any) {
+            this.log(`Warning: recommendation extraction failed: ${err.message}`);
+            this.state.recommendations = [];
+        }
+
+        // Mark the restored action with a result string and add the alignment
+        // null entry so action-thought parallelism is preserved.
+        restored.result = 'Report generated and saved to finalReport field (rescued by producer-rescue).';
+        this.state.actions.push(null as any);
+
+        await this.saveArtifacts();
+    }
+
+    /**
      * Get the pipeline-relevant result from this agent's execution.
      * Used by PipelineOrchestrator to extract verdict/feedback/report after the agent finishes.
      */
@@ -2905,6 +3116,23 @@ ${itemsList}
                 // its own reasoning text with no record of having called a tool, then a
                 // user message complaining about that tool — an unexplainable contradiction
                 // it would rationalize as "my tool call failed silently" and then loop.
+                // Defensive alignment guard: state.thoughts and state.actions are
+                // expected to be index-aligned (a `null` action is pushed for every
+                // observation / user / system thought). If any caller mutates only
+                // one array — e.g. an older normalizeHistoricalState that pushed a
+                // "server restart" thought without a matching null action — the
+                // reconstruction below would mis-pair every subsequent turn and the
+                // model would see corrupted history (its own observation strings
+                // appearing as assistant content, real tool calls vanishing). Pad
+                // actions with nulls so we always reconstruct against a consistent
+                // view, and log loudly so the underlying drift gets fixed.
+                if (this.state.actions.length < currentHistory.length) {
+                    const drift = currentHistory.length - this.state.actions.length;
+                    this.log(`[WARN] thoughts/actions misalignment detected: thoughts=${currentHistory.length}, actions=${this.state.actions.length}. Padding actions with ${drift} null(s) to recover.`);
+                    for (let p = 0; p < drift; p++) {
+                        this.state.actions.push(null as any);
+                    }
+                }
                 const actionsArr = this.state.actions;
                 const reconstructed: any[] = [];
                 let pendingToolCallId: string | null = null;
@@ -2918,10 +3146,49 @@ ${itemsList}
                         pendingToolCallId = null;
                     }
                 };
+
+                // History-pollution filter: long-running investigations
+                // accumulate dozens of system-injected scaffolding strings in
+                // state.thoughts (UI placeholders, prior auto-pause notices,
+                // server-restart markers, finish-handler synthetic
+                // observations). These have ZERO semantic value to the LLM —
+                // they only reinforce the failure pattern they came from.
+                // Investigation 1778490842776 had 245 of 312 thoughts (78%)
+                // be pure noise by the time it auto-paused for the 4th time;
+                // the model genuinely could not see the actual investigation
+                // signal through the noise. Strip them from the LLM's view
+                // (they STAY in state.thoughts for the UI/timeline).
+                //
+                // Conservatively skip ONLY deterministic system scaffolding;
+                // never drop real tool calls, observations, gate pushbacks
+                // (model needs to respond to those), or "looping with
+                // thoughts" nudges (current-loop pressure).
+                const isPlainNoise = (h: any): boolean => {
+                    if (typeof h !== 'string') return false;
+                    if (h === 'Observation: Report Generated.') return true;
+                    if (h === 'Deciding to use a tool...') return true;
+                    if (h.startsWith('System: Investigation auto-paused')) return true;
+                    if (h.startsWith('System: Investigation automatically paused')) return true;
+                    if (h.startsWith('Error: Not authenticated')) return true;
+                    return false;
+                };
+
                 for (let i = 0; i < currentHistory.length; i++) {
                     const h = currentHistory[i];
                     if (h && typeof h === 'object' && (h as any).type === 'log') continue;
                     const action = actionsArr[i];
+
+                    // Drop pure-noise placeholders UNLESS this slot has a real
+                    // tool action — in which case the action-bearing branch
+                    // below handles it and uses content:null for the assistant
+                    // message (per the existing "empty thought + tool turn"
+                    // behavior, validated by test
+                    // "callLLM emits assistant content as null when prior
+                    // thought is empty for a tool turn").
+                    if (isPlainNoise(h) && !(action && action.tool && action.tool !== 'finish')) {
+                        continue;
+                    }
+
                     const isObj = h && typeof h === 'object';
                     const rawRole: string | undefined = isObj ? (h as any).role : undefined;
                     const rawContent: string = typeof h === 'string'
@@ -2940,9 +3207,15 @@ ${itemsList}
                         // (e.g. circular ref) will throw and be caught by callLLM's outer
                         // try/catch as a Critical LLM Error.
                         const argsStr = JSON.stringify(action.args);
+                        // For tool turns whose recorded "thought" is just the
+                        // "Deciding to use a tool..." placeholder, send
+                        // content:null — the placeholder carries no signal.
+                        const assistantContent = (rawContent && rawContent !== 'Deciding to use a tool...')
+                            ? capContent(rawContent)
+                            : null;
                         reconstructed.push({
                             role: 'assistant',
-                            content: rawContent ? capContent(rawContent) : null,
+                            content: assistantContent,
                             tool_calls: [{
                                 id: toolCallId,
                                 type: 'function',

@@ -200,8 +200,39 @@ describe('server utilities and routes', () => {
 
             expect(result.status).toBe('paused');
             expect(result.thoughts).toContain('System: Investigation automatically paused due to server restart.');
-            expect(result.actions).toEqual([]);
+            // Pushing the restart marker MUST also push a null action so
+            // thoughts/actions stay index-aligned. callLLM's reconstruction
+            // walks `for i in thoughts: action = actions[i]` to rebuild the
+            // OpenAI tool-call protocol; an off-by-one shift mis-pairs every
+            // subsequent turn (root cause of investigation 1778490842776
+            // going into a text-only loop after a server restart).
+            expect(result.actions).toEqual([null]);
+            expect(result.thoughts.length).toBe(result.actions.length);
             expect(result.logs).toEqual([]);
+        });
+
+        it('keeps thoughts and actions index-aligned when restarting a running investigation with prior history', () => {
+            const result = normalizeHistoricalState({
+                id: 'r1',
+                status: 'running',
+                thoughts: [
+                    'I will run a query.',
+                    { role: 'user', content: 'Observation: {"rows":1}' },
+                    'Time to deliver the report.',
+                ],
+                actions: [
+                    { tool: 'execute_kql_query', args: { query: 'T' } },
+                    null,
+                    { tool: 'finish', args: { report: 'r' } },
+                ],
+                logs: [],
+            } as any);
+
+            expect(result.status).toBe('paused');
+            expect(result.thoughts.length).toBe(result.actions.length);
+            expect(result.thoughts[result.thoughts.length - 1])
+                .toBe('System: Investigation automatically paused due to server restart.');
+            expect(result.actions[result.actions.length - 1]).toBeNull();
         });
 
         it('normalizes non-array thoughts to an empty list', () => {
