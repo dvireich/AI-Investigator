@@ -35,6 +35,19 @@ export class PipelineOrchestrator extends EventEmitter {
     private conversationLog: ConversationEntry[] = [];
     private pipelineState: PipelineState;
     private aborted: boolean = false;
+    /**
+     * True when pause() has been called and no resume() has followed.
+     *
+     * Why this exists: `pause()` previously only forwarded to the active stage
+     * runner. If the user clicked Pause while one stage was in flight, that
+     * stage's runner exited cleanly — but the orchestrator's main `while`
+     * loop just moved to the next stage and constructed a brand-new runner
+     * that was NOT in a paused state, so the pipeline kept ticking through
+     * downstream stages. The orchestrator itself must hold the latch so the
+     * loop can short-circuit between stages and so each new stage runner is
+     * pre-paused immediately after construction.
+     */
+    private paused: boolean = false;
     private currentRunner: AgentRunner | null = null;
     private savedAgentResolver?: SavedAgentResolver;
     /**
@@ -51,6 +64,17 @@ export class PipelineOrchestrator extends EventEmitter {
     /** Read-only access to the orchestrator's live cumulative state. */
     get currentState(): InvestigationState | null {
         return this._currentState;
+    }
+
+    /**
+     * Read-only access to the runner currently executing a stage (or null
+     * between stages). The WS bridge uses this to mirror the *live* per-thought
+     * state into the anchor runner during long-running stages — without it,
+     * `currentState.thoughts` is only refreshed at stage boundaries and the
+     * Live tab appears frozen for the duration of a stage.
+     */
+    get currentStageRunner(): AgentRunner | null {
+        return this.currentRunner;
     }
     /**
      * Per-stage convergence tracking — keyed by stage index. Carries the open
@@ -154,6 +178,18 @@ export class PipelineOrchestrator extends EventEmitter {
         }
 
         while (stageIndex < this.pipeline.stages.length && !this.aborted) {
+            // Honour pause between stages. The previous stage's runner may
+            // have completed normally just as the user clicked Pause; without
+            // this gate we'd construct a fresh runner for the next stage and
+            // the pipeline would silently keep advancing through downstream
+            // stages until the user noticed and clicked Pause again. Wait for
+            // resume() (or abort) before constructing the next runner.
+            if (this.paused) {
+                this.log(`Pipeline paused between stages (next would be stage ${stageIndex}). Waiting for resume...`);
+                await this.waitForResumeOrAbort();
+                if (this.aborted) break;
+            }
+
             const stage = this.pipeline.stages[stageIndex];
             const stageState = this.pipelineState.stages[stageIndex];
             const agent = this.resolveAgent(stage, stageIndex);
@@ -252,6 +288,18 @@ export class PipelineOrchestrator extends EventEmitter {
                     // producers get a report-only schema. This is what makes role
                     // mimicry impossible at the tool boundary.
                     role: getAgentRole(agent),
+                    // Push the agent's `kind` so kind-specific output guards
+                    // (e.g. Code Scout drift detector) can fire in the runner.
+                    agentKind: getAgentKind(agent),
+                    // Per-agent tool whitelist: when the agent definition
+                    // restricts tools (`tools.mode: 'whitelist'`), pass the
+                    // resolved list down so the runner can both (a) hide
+                    // disallowed tools from the LLM and (b) defensively
+                    // reject hallucinated tool calls. Until this fix landed,
+                    // the policy was declared but never enforced — Code Scout
+                    // happily called `execute_kql_query` despite a whitelist
+                    // of just `[read_file, list_dir]`.
+                    allowedTools: agent.tools?.mode === 'whitelist' ? (agent.tools.list ?? []) : undefined,
                     // If a downstream reviewer rejected this stage in a prior round,
                     // pass the structured retry context (prior report + open items).
                     // This SUPPRESSES the conversation log injection on retry, which
@@ -281,6 +329,16 @@ export class PipelineOrchestrator extends EventEmitter {
                 } else {
                     await this.runWithTimeout(runner, initialQuery, timeout);
                 }
+                // Note: when the user pauses mid-stage, the runner blocks
+                // inside its own start() loop (it sets state.status='paused'
+                // but its outer while-condition is `status !== 'completed'`,
+                // so it just keeps polling its `paused` flag every second
+                // without returning). Therefore by the time we get here, the
+                // runner has either completed naturally or been aborted —
+                // never returned-while-paused. The between-stages pause check
+                // at the top of this while loop handles "pause clicked after
+                // a stage completed" cleanly without us needing to do
+                // anything extra here.
 
                 // Collect results
                 const result = runner.getStageResult();
@@ -425,7 +483,58 @@ export class PipelineOrchestrator extends EventEmitter {
                         // emit free-form `feedback` get a single synthetic blocker
                         // item synthesized from the prose so the retry context still
                         // has something concrete to display.
-                        const openItems = this.resolveOpenItems(result);
+                        const rawOpenItems = this.resolveOpenItems(result);
+
+                        // Numeric grounding: when a reviewer's open item cites
+                        // specific numbers (workspace counts, event totals,
+                        // timestamps), require those numbers to appear verbatim
+                        // in the producer's most recent report. In production
+                        // we observed Devil's Advocate fabricating "Producer
+                        // reports 25,075" when the producer's actual report
+                        // already said 3,513 — generating false-rejection
+                        // loops. Demote any blocker whose cited numbers are
+                        // ungrounded; this still surfaces the concern but no
+                        // longer triggers a re-run.
+                        const targetState = this.pipelineState.stages[targetIndex];
+                        const openItems = this.groundOpenItems(rawOpenItems, targetState.report || '');
+
+                        // If every blocker/major in the original list got
+                        // demoted by grounding (i.e. the reviewer's entire
+                        // rejection was based on numbers that don't appear in
+                        // the producer's report), bypass the retry loop
+                        // entirely and treat as a flag. Looping a re-run that
+                        // is provably wrong wastes cycles and burns user
+                        // patience.
+                        const hadActionableItems = rawOpenItems.some(i => i.severity === 'blocker' || i.severity === 'major');
+                        const stillActionable = openItems.some(i => i.severity === 'blocker' || i.severity === 'major');
+                        if (hadActionableItems && !stillActionable) {
+                            this.log(`Stage ${stageIndex} (${agent.name}): all blocker/major items were ungrounded (cited numbers not in producer report). Bypassing loop and continuing as flag.`);
+                            this.addConversationEntry({
+                                agentId: 'pipeline',
+                                agentName: 'Pipeline',
+                                role: 'handoff',
+                                content: `${agent.name} rejected, but all blocker/major items cited numbers that do not appear in ${targetState.agentName}'s report. Treating as flag instead of looping; review manually.`,
+                                timestamp: Date.now(),
+                                stageIndex,
+                                metadata: {
+                                    type: 'rejection-ungrounded',
+                                    fromAgent: agent.name,
+                                    toAgent: targetState.agentName,
+                                    feedback: result.feedback,
+                                    openItems,
+                                },
+                            });
+                            stageState.status = 'completed';
+                            this.emit('stage-complete', {
+                                stageIndex,
+                                agentName: agent.name,
+                                status: stageState.status,
+                                verdict: stageState.verdict,
+                                duration: stageState.completedAt! - stageState.startedAt!,
+                            });
+                            stageIndex++;
+                            continue;
+                        }
 
                         // Convergence detection: if THIS reviewer's previous round
                         // raised substantively the same items AND the producer's
@@ -436,13 +545,20 @@ export class PipelineOrchestrator extends EventEmitter {
                         // grinding forever on the same complaints.
                         const convergence = this.stageConvergence.get(stageIndex);
                         const itemHashes = openItems.map(i => this.hashOpenItem(i));
-                        const targetState = this.pipelineState.stages[targetIndex];
                         const lastTargetSig: string[] | undefined = (targetState as any).__lastToolCallSignature;
                         const sameItems = convergence && this.signatureSimilarity(convergence.priorOpenItemHashes, itemHashes) >= 0.8;
                         const noNewEvidence = convergence && lastTargetSig !== undefined &&
                             this.signatureSimilarity(convergence.priorToolCallSignature, lastTargetSig) >= 0.95;
-                        // Only converge after at least one prior retry — round 1 always loops.
-                        const giveUpOnLoop = stageState.retryCount > 0 && (sameItems || noNewEvidence);
+                        // Converge whenever we have prior convergence state for
+                        // THIS reviewer stage — regardless of `retryCount`. The
+                        // counter can be reset to 0 by an upstream sibling
+                        // reviewer (e.g. Signal Grounding rejecting back to
+                        // Code Scout also resets stages 1..3, including this
+                        // reviewer's retryCount), so gating on the counter
+                        // would let the same complaints loop forever once a
+                        // sibling fired. Map state, in contrast, persists for
+                        // the whole investigation.
+                        const giveUpOnLoop = !!convergence && (sameItems || noNewEvidence);
 
                         if (giveUpOnLoop) {
                             this.log(`Stage ${stageIndex} (${agent.name}): non-convergent loop detected (sameItems=${sameItems}, noNewEvidence=${noNewEvidence}). Downgrading reject to flag.`);
@@ -587,19 +703,45 @@ export class PipelineOrchestrator extends EventEmitter {
 
     /**
      * Pause the pipeline (and current runner if active).
+     *
+     * Two latches must move together:
+     *   - the active stage runner (so the in-flight LLM loop exits at its
+     *     next pause check), and
+     *   - this orchestrator's `paused` flag (so the main `while` loop blocks
+     *     between stages instead of sailing on through downstream stages
+     *     once the runner returns).
      */
     pause(): void {
+        this.paused = true;
         if (this.currentRunner) {
             this.currentRunner.pause();
         }
     }
 
     /**
-     * Resume the pipeline (and current runner if active).
+     * Resume the pipeline (and current runner if active). Releases the
+     * between-stage latch held by `pause()` so the main loop can proceed
+     * to the next stage.
      */
     resume(): void {
+        this.paused = false;
         if (this.currentRunner) {
             this.currentRunner.resume();
+        }
+    }
+
+    /**
+     * Block until pause() is released (or the orchestrator is aborted). Used
+     * by the main loop to honour pause cleanly between stages without busy-
+     * waiting; we poll a short interval since pause/resume are user-initiated
+     * and infrequent.
+     */
+    private async waitForResumeOrAbort(): Promise<void> {
+        // Short, bounded polling — pause/resume are user-driven, so a 250 ms
+        // tick is imperceptible and avoids the complexity of a condition
+        // variable across the EventEmitter boundary.
+        while (this.paused && !this.aborted) {
+            await new Promise(resolve => setTimeout(resolve, 250));
         }
     }
 
@@ -837,6 +979,70 @@ export class PipelineOrchestrator extends EventEmitter {
         for (const x of setA) if (setB.has(x)) intersection++;
         const union = setA.size + setB.size - intersection;
         return intersection / union;
+    }
+
+    /**
+     * Numeric grounding for reviewer open items.
+     *
+     * When a reviewer's claim cites specific numeric facts ("Producer reports
+     * 25,075 EDCL events", "the file is 68,739 chars"), those numbers must
+     * appear verbatim in the producer's most recent report — otherwise the
+     * reviewer is fabricating or hallucinating from stale memory and
+     * triggering a false-rejection loop. We extract numeric tokens (>= 3
+     * digits, ignoring trivial integers) from each claim and check membership
+     * against the producer's report. Items whose cited numbers are entirely
+     * ungrounded get demoted from blocker/major -> minor; the concern is
+     * still surfaced to the user but no longer triggers a re-run.
+     *
+     * Conservatively a no-op when:
+     *   - the prior report is empty (first round; nothing to ground against)
+     *   - the item cites zero numeric tokens (claim is purely qualitative)
+     *   - at least one cited number is found in the report (partial grounding
+     *     is treated as enough — the reviewer at least has SOME real data)
+     */
+    private groundOpenItems(items: OpenItem[], priorReport: string): OpenItem[] {
+        if (!priorReport || priorReport.trim().length === 0) return items;
+        // Strip thousands separators from BOTH sides so "25,075" matches "25075",
+        // and lowercase so unit suffixes (k, m, ms, s) match case-insensitively.
+        const normalizeForMatch = (s: string): string =>
+            s.toLowerCase().replace(/(\d),(\d)/g, '$1$2');
+        const reportText = normalizeForMatch(priorReport);
+
+        const extractNumericTokens = (claim: string): string[] => {
+            const out: string[] = [];
+            // Match integers / decimals with optional thousands separators.
+            // Require at least 3 significant digits so we don't trip on years
+            // (2025), severities (1, 2, 3), or version numbers in punctuation.
+            const re = /\d{1,3}(?:,\d{3})+|\d{3,}(?:\.\d+)?|\d+\.\d+/g;
+            let m: RegExpExecArray | null;
+            while ((m = re.exec(claim)) !== null) {
+                const normalized = m[0].replace(/,/g, '').toLowerCase();
+                // Skip noise: years (1900-2099), tiny decimals like 0.5
+                const numeric = parseFloat(normalized);
+                if (!isFinite(numeric)) continue;
+                if (numeric >= 1900 && numeric <= 2099 && Number.isInteger(numeric)) continue;
+                out.push(normalized);
+            }
+            return out;
+        };
+
+        return items.map(item => {
+            const claimTokens = extractNumericTokens(item.claim);
+            if (claimTokens.length === 0) return item;
+            const grounded = claimTokens.some(tok => reportText.includes(tok));
+            if (grounded) return item;
+            // No cited number appears in the producer's report. The reviewer
+            // is comparing against a phantom — demote so we don't re-run.
+            if (item.severity === 'blocker' || item.severity === 'major') {
+                this.log(`[grounding] Demoting ${item.severity} -> minor (cited numbers ${claimTokens.join(', ')} not found in producer report): "${item.claim.substring(0, 120)}..."`);
+                return {
+                    ...item,
+                    severity: 'minor' as const,
+                    claim: `[ungrounded numeric claim — review manually] ${item.claim}`,
+                };
+            }
+            return item;
+        });
     }
 
     /**

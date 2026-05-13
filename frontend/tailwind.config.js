@@ -1,3 +1,5 @@
+import typography from '@tailwindcss/typography';
+
 /** @type {import('tailwindcss').Config} */
 export default {
     darkMode: 'class',
@@ -121,6 +123,7 @@ export default {
         },
     },
     plugins: [
+        typography,
         function ({ addUtilities }) {
             addUtilities({
                 '.scrollbar-hide': {

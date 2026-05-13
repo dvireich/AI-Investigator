@@ -7219,6 +7219,52 @@ describe('AgentRunner', () => {
             expect((runner as any).state.finalReport).toBe('Investigation Completed via finish tool.');
         });
 
+        it('does NOT inject the placeholder finish report when running inside a pipeline stage (reviewer verdict-only finish)', async () => {
+            // Reviewer agents (Devil's Advocate, Validator, etc.) legitimately
+            // call finish with just a verdict — no report. Inside a pipeline
+            // we must leave finalReport empty so the stage detail panel hides
+            // the "Report" section instead of showing the placeholder
+            // "Investigation Completed via finish tool." string.
+            mockOpenAI.chat.completions.create.mockResolvedValue({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: {
+                                name: 'finish',
+                                arguments: JSON.stringify({ verdict: 'rejected', feedback: 'Missing evidence for X.' }),
+                            },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig(), provider);
+            // Mark this runner as a pipeline stage (any stageContext will do).
+            (runner as any).stageContext = {
+                stageIndex: 1,
+                agentId: 'devils-advocate',
+                agentName: "Devil's Advocate",
+                agentKind: 'devils-advocate',
+                role: 'reviewer',
+                conversationLog: [],
+            };
+
+            await runner.start('Query');
+
+            const state = (runner as any).state;
+            // Pipeline-stage path: no placeholder leaked into finalReport.
+            expect(state.finalReport).toBeUndefined();
+            // Verdict still flows through normally.
+            expect(state.verdict).toBe('rejected');
+            // Status reaches 'completed' (the finish call was honored).
+            expect(state.status).toBe('completed');
+            // Recommendation extraction is skipped when there is no report text,
+            // so recommendations stays at its initial default (unset).
+            expect(state.recommendations).toBeUndefined();
+        });
+
         it('falls back to the thrown value when an unexpected error has no message property', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValue({
                 choices: [{ message: { content: 'thinking...' } }],

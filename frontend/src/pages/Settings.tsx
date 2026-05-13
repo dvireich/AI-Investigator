@@ -9,6 +9,7 @@ import { TIME_PRESETS } from '../constants';
 import { FileBrowserModal } from '../components/FileBrowserModal';
 import { PipelineBuilder, BuiltinDetailModal, PIPELINE_PRESETS, buildPipelinePreset } from '../components/PipelineBuilder';
 import { AgentLibrary } from '../components/AgentLibrary';
+import { AgentModal, pickColor } from '../components/AgentModal';
 import type { AgentDefinition } from '../types/pipeline';
 import { useNotification, getNotifEnabled, setNotifEnabled, getNotifSound, setNotifSound, getNotifEvents, setNotifEvents, ALL_NOTIF_EVENTS, type NotifEvent } from '../hooks/useNotification';
 
@@ -138,6 +139,11 @@ export const Settings = () => {
     const [pipelineSearch, setPipelineSearch] = useState('');
     const [savedWfPage, setSavedWfPage] = useState(0);
     const [savedWfSearch, setSavedWfSearch] = useState('');
+
+    // Agent library editor (Settings → Agents tab)
+    type AgentEditorState = { mode: 'create' } | { mode: 'edit'; saved: SavedAgent } | null;
+    const [agentEditorState, setAgentEditorState] = useState<AgentEditorState>(null);
+    const [agentLibraryRefreshKey, setAgentLibraryRefreshKey] = useState(0);
 
     const [config, setConfig] = useState({
         maxConcurrentInvestigations: 3,
@@ -1513,7 +1519,43 @@ export const Settings = () => {
                     )}
 
                     {activeTab === 'agents' && (
-                        <AgentLibrary builtinAgents={builtinAgents} />
+                        <AgentLibrary
+                            builtinAgents={builtinAgents}
+                            refreshKey={agentLibraryRefreshKey}
+                            onCreateAgent={() => setAgentEditorState({ mode: 'create' })}
+                            onEditAgent={(saved) => setAgentEditorState({ mode: 'edit', saved })}
+                        />
+                    )}
+
+                    {/* Agent create/edit modal — Settings → Agents tab. Lives in library mode so the
+                        primary button persists to the library instead of adding to a pipeline. */}
+                    {agentEditorState && (
+                        <AgentModal
+                            mode="library"
+                            builtinAgents={builtinAgents}
+                            availableModels={availableModels}
+                            existingAgent={agentEditorState.mode === 'edit' ? agentEditorState.saved.agent : undefined}
+                            defaultColor={pickColor(0)}
+                            onSave={async (agent) => {
+                                try {
+                                    if (agentEditorState.mode === 'edit') {
+                                        await api.updateSavedAgent(agentEditorState.saved.id, { agent });
+                                        toast('success', 'Agent updated');
+                                    } else {
+                                        await api.createSavedAgent(agent);
+                                        toast('success', 'Agent saved to library');
+                                    }
+                                    setAgentLibraryRefreshKey(k => k + 1);
+                                    // Refresh the local savedAgents cache so the pipeline preview can resolve refs
+                                    api.getSavedAgents().then(setSavedAgents).catch(() => {});
+                                    setAgentEditorState(null);
+                                } catch (err: unknown) {
+                                    const msg = err instanceof Error ? err.message : 'Failed to save agent';
+                                    toast('error', msg);
+                                }
+                            }}
+                            onClose={() => setAgentEditorState(null)}
+                        />
                     )}
 
                     {activeTab === 'appearance' && (

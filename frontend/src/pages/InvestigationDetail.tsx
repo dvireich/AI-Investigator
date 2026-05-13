@@ -270,10 +270,36 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
     return (
         <div className="flex flex-col gap-2 my-4 animate-slide-in-bottom">
             {/* 1. Agent Thought Bubble */}
-            {thoughtContent && (
+            {thoughtContent && (() => {
+                // Per-agent avatar styling. Backend tags producer thoughts with
+                // agentIcon/agentColor/agentName when running as a pipeline stage;
+                // for non-pipeline runs (or untagged thoughts) we fall back to
+                // the original generic Bot avatar.
+                const t: any = displayThought;
+                const agentIcon: string | undefined = typeof t === 'object' ? t.agentIcon?.trim() : undefined;
+                const agentColor: string | undefined = typeof t === 'object' ? t.agentColor : undefined;
+                const agentName: string | undefined = typeof t === 'object' ? t.agentName : undefined;
+                const avatarStyle: React.CSSProperties = agentColor
+                    ? {
+                        backgroundColor: `${agentColor}1A`,
+                        borderColor: `${agentColor}33`,
+                        boxShadow: `0 8px 16px -4px ${agentColor}33`,
+                    }
+                    : {};
+                return (
                 <div className="flex justify-start pr-3 sm:pr-12 group items-end gap-2">
-                    <div className="w-8 h-8 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/10">
-                        <Bot className="w-4 h-4 text-emerald-400" />
+                    <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-lg ${agentColor ? '' : 'bg-emerald-500/10 border border-emerald-500/20 shadow-emerald-500/10'}`}
+                        style={agentColor ? { ...avatarStyle, borderWidth: 1, borderStyle: 'solid' } : undefined}
+                        title={agentName || undefined}
+                    >
+                        {agentIcon ? (
+                            <span className="text-base leading-none select-none" style={agentColor ? { color: agentColor } : undefined}>
+                                {agentIcon}
+                            </span>
+                        ) : (
+                            <Bot className="w-4 h-4 text-emerald-400" />
+                        )}
                     </div>
                     <div className="bg-slate-800 border border-slate-700 text-slate-300 rounded-2xl rounded-tl-none p-4 shadow-sm max-w-[95%] relative">
                         <div className="prose prose-invert prose-sm max-w-none prose-p:my-1 prose-pre:bg-slate-950 prose-pre:border prose-pre:border-slate-800">
@@ -290,7 +316,8 @@ const StepItem = React.memo(({ thought, action, index, id }: { thought: any, act
                         )}
                     </div>
                 </div>
-            )}
+                );
+            })()}
 
             {/* 2. Action Execution Card (Separate) */}
             {action && (
@@ -379,6 +406,105 @@ const ModelSelector = ({ currentModel, availableModels, onSelect }: { currentMod
                     </div>
                 </div>
             )}
+        </div>
+    );
+};
+
+/** Live-session "thinking" dots that randomly cycle through several
+ *  visual variants every few seconds, with a smooth cross-fade between them. */
+type ThinkingVariant = 'wave' | 'orbit' | 'typewriter' | 'heartbeat';
+const THINKING_VARIANTS: ThinkingVariant[] = ['wave', 'orbit', 'typewriter', 'heartbeat'];
+const THINKING_SWITCH_MS = 4500;
+const THINKING_FADE_MS = 550;
+
+const renderThinkingVariant = (variant: ThinkingVariant) => {
+    switch (variant) {
+        case 'wave':
+            return (
+                <div className="flex items-center gap-1.5">
+                    <span className="think-dot text-emerald-400" style={{ animationDelay: '0ms' }} />
+                    <span className="think-dot text-brand-400" style={{ animationDelay: '200ms' }} />
+                    <span className="think-dot text-purple-400" style={{ animationDelay: '400ms' }} />
+                </div>
+            );
+        case 'orbit':
+            return (
+                <div className="think-orbit">
+                    <span className="think-orbit-dot text-emerald-400" style={{ animationDelay: '0s' }} />
+                    <span className="think-orbit-dot text-brand-400" style={{ animationDelay: '-0.533s' }} />
+                    <span className="think-orbit-dot text-purple-400" style={{ animationDelay: '-1.066s' }} />
+                </div>
+            );
+        case 'typewriter':
+            return (
+                <div className="flex items-center gap-1.5">
+                    <span className="think-type text-emerald-400" style={{ animationDelay: '0s' }} />
+                    <span className="think-type text-brand-400" style={{ animationDelay: '0.4s' }} />
+                    <span className="think-type text-purple-400" style={{ animationDelay: '0.8s' }} />
+                </div>
+            );
+        case 'heartbeat':
+            return (
+                <div className="flex items-center gap-1.5">
+                    <span className="think-heart text-emerald-400" />
+                    <span className="think-heart text-brand-400" />
+                    <span className="think-heart text-purple-400" />
+                </div>
+            );
+    }
+};
+
+const LiveThinkingDots: React.FC = () => {
+    const [variant, setVariant] = useState<ThinkingVariant>(
+        () => THINKING_VARIANTS[Math.floor(Math.random() * THINKING_VARIANTS.length)]
+    );
+    // The previous variant is kept rendered (and fading out) for THINKING_FADE_MS
+    // after each switch so the transition is a cross-fade rather than a hard cut.
+    const [previous, setPrevious] = useState<ThinkingVariant | null>(null);
+    // Bumped on every swap so React fully re-mounts the inner content (resetting
+    // CSS animations) — needed because the same variant key can recur.
+    const [enterToken, setEnterToken] = useState(0);
+
+    useEffect(() => {
+        const switchTimer = setInterval(() => {
+            setVariant((cur) => {
+                const others = THINKING_VARIANTS.filter((v) => v !== cur);
+                const next = others[Math.floor(Math.random() * others.length)];
+                setPrevious(cur);
+                setEnterToken((t) => t + 1);
+                return next;
+            });
+        }, THINKING_SWITCH_MS);
+        return () => clearInterval(switchTimer);
+    }, []);
+
+    // Clear the outgoing layer once its fade-out animation completes.
+    useEffect(() => {
+        if (previous === null) return;
+        const t = setTimeout(() => setPrevious(null), THINKING_FADE_MS);
+        return () => clearTimeout(t);
+    }, [previous, enterToken]);
+
+    return (
+        <div
+            className="relative inline-flex items-center justify-center"
+            style={{ width: '2.4rem', height: '1.1rem' }}
+            aria-label={`thinking-${variant}`}
+        >
+            {previous && (
+                <div
+                    key={`prev-${enterToken}`}
+                    className="absolute inset-0 flex items-center justify-center think-variant-out pointer-events-none"
+                >
+                    {renderThinkingVariant(previous)}
+                </div>
+            )}
+            <div
+                key={`cur-${enterToken}`}
+                className="absolute inset-0 flex items-center justify-center think-variant-in"
+            >
+                {renderThinkingVariant(variant)}
+            </div>
         </div>
     );
 };
@@ -539,6 +665,16 @@ export const InvestigationDetail = () => {
     const [wsJustReconnected, setWsJustReconnected] = useState(false);
     const hadDisconnectRef = useRef(false);
     const logsEndRef = useRef<HTMLDivElement>(null);
+    // Live-session scroll plumbing. We use callback refs (set via setMessagesScrollEl /
+    // setMessagesInnerEl) instead of useRef + useEffect, because the loading-state
+    // guard (`if (!investigation) return ...`) means the chat-history DOM mounts AFTER
+    // the component first renders — a useEffect with empty deps would fire while the
+    // refs are still null and never re-run.
+    const [messagesScrollEl, setMessagesScrollEl] = useState<HTMLDivElement | null>(null);
+    const [messagesInnerEl, setMessagesInnerEl] = useState<HTMLDivElement | null>(null);
+    // True when the user is (within 80px of) the bottom of the live-session log.
+    // We only auto-scroll when pinned, so manual scroll-up doesn't get hijacked.
+    const isPinnedToBottomRef = useRef(true);
     const retrospectEndRef = useRef<HTMLDivElement>(null);
     const fetchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const [mobileSidebarExpanded, setMobileSidebarExpanded] = useState(false);
@@ -823,11 +959,87 @@ export const InvestigationDetail = () => {
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
     }, []);
 
+    // Auto-scroll the live-session log so the "Thinking" indicator stays
+    // visible. We use a ResizeObserver on the inner content (catches streaming
+    // updates where thoughts.length doesn't change) plus a scroll listener
+    // that records whether the user is pinned to the bottom — when they scroll
+    // up to read history, we stop hijacking their scroll.
+    //
+    // Re-runs whenever the chat-history nodes mount/unmount (callback refs cause
+    // state changes) so it survives the loading-state -> loaded transition.
     useEffect(() => {
-        if (logsEndRef.current) {
-            logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
-        }
-    }, [investigation?.thoughts.length, pendingInterventions.length]);  // Also scroll when pending messages are added
+        if (!messagesScrollEl || !messagesInnerEl) return;
+
+        const PIN_THRESHOLD = 120; // px from bottom counts as "pinned"
+        let suppressScrollEventUntil = 0;
+
+        const updatePinned = () => {
+            // Ignore scroll events fired by our own programmatic scroll.
+            if (Date.now() < suppressScrollEventUntil) return;
+            const distanceFromBottom = messagesScrollEl.scrollHeight - messagesScrollEl.scrollTop - messagesScrollEl.clientHeight;
+            isPinnedToBottomRef.current = distanceFromBottom <= PIN_THRESHOLD;
+        };
+
+        const scrollToBottom = () => {
+            if (!isPinnedToBottomRef.current) return;
+            // 'auto' (no smooth) — rapid streaming would otherwise queue overlapping
+            // smooth animations and lag behind. Prefer logsEndRef.scrollIntoView when
+            // the sentinel is mounted (gives us a precise target and exercises the
+            // existing scrollIntoView-based test contract); fall back to setting
+            // scrollTop directly otherwise.
+            suppressScrollEventUntil = Date.now() + 100;
+            if (logsEndRef.current) {
+                logsEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
+            } else {
+                messagesScrollEl.scrollTop = messagesScrollEl.scrollHeight;
+            }
+        };
+
+        // Initial state on mount: jump to bottom + assume pinned.
+        isPinnedToBottomRef.current = true;
+        scrollToBottom();
+        messagesScrollEl.addEventListener('scroll', updatePinned, { passive: true });
+
+        // Observe content height changes — fires for streaming thoughts AND new ones.
+        const ro = new ResizeObserver(scrollToBottom);
+        ro.observe(messagesInnerEl);
+
+        return () => {
+            messagesScrollEl.removeEventListener('scroll', updatePinned);
+            ro.disconnect();
+        };
+    }, [messagesScrollEl, messagesInnerEl]);
+
+    // Smooth-scroll once when status flips to 'running' so the freshly-shown
+    // Thinking indicator slides into view nicely (rather than snapping).
+    useEffect(() => {
+        if (investigation?.status !== 'running') return;
+        if (!isPinnedToBottomRef.current) return;
+        // Wait one frame so the indicator is laid out before scrolling.
+        const raf = requestAnimationFrame(() => {
+            logsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        });
+        return () => cancelAnimationFrame(raf);
+    }, [investigation?.status]);
+
+    // Smooth-scroll on new pending interventions (user just sent a message).
+    // These are small, infrequent additions — smooth is fine here.
+    useEffect(() => {
+        if (pendingInterventions.length === 0) return;
+        // Force pin on send: the user just acted, so they expect to see the result.
+        isPinnedToBottomRef.current = true;
+        logsEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, [pendingInterventions.length]);
+
+    // Backup auto-scroll trigger keyed on thoughts.length. The ResizeObserver
+    // catches every height change (including streaming partial updates) but
+    // doesn't fire in jsdom — this effect ensures we still scroll when a new
+    // thought is appended both in tests and as a safety net in browsers where
+    // the observer is delayed for any reason.
+    useEffect(() => {
+        if (!isPinnedToBottomRef.current) return;
+        logsEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+    }, [investigation?.thoughts?.length]);
 
     // Cleanup stale pending interventions (safety net: remove after 2 minutes)
     useEffect(() => {
@@ -1020,7 +1232,9 @@ export const InvestigationDetail = () => {
             setActiveTab('live');
             await new Promise(r => setTimeout(r, 500));
             await fetchInvestigation();
-            // Scroll to bottom of live session after tab switch + data refresh
+            // Scroll to bottom of live session after tab switch + data refresh.
+            // Force-pin so subsequent streaming auto-scroll resumes from the bottom.
+            isPinnedToBottomRef.current = true;
             setTimeout(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 150);
         } catch (e: any) {
             toast('error', `Action failed: ${e.message}`);
@@ -1701,7 +1915,7 @@ export const InvestigationDetail = () => {
                     {/* Integrated Tab Bar (Below Banner) */}
                     <div className="flex items-center gap-0.5 p-0.5 rounded-lg bg-slate-800/50 border border-slate-700/50 w-full shrink-0">
                         <button
-                            onClick={() => { setActiveTab('live'); requestAnimationFrame(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })); }}
+                            onClick={() => { setActiveTab('live'); isPinnedToBottomRef.current = true; requestAnimationFrame(() => logsEndRef.current?.scrollIntoView({ behavior: 'smooth' })); }}
                             className={`flex-1 px-2 sm:px-4 py-1.5 sm:py-3 rounded-md text-xs sm:text-sm font-bold transition-all flex items-center justify-center gap-1 sm:gap-2 ${activeTab === 'live' ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-700/30'}`}
                         >
                             <Terminal className="w-3.5 h-3.5 sm:w-4 sm:h-4" /> <span className="hidden sm:inline">Live Session</span><span className="sm:hidden">Live</span>
@@ -1796,7 +2010,8 @@ export const InvestigationDetail = () => {
                             </div>
 
                             {/* Chat History */}
-                            <div className="flex-1 overflow-y-auto p-2 sm:p-4 space-y-3 sm:space-y-4 font-mono text-sm leading-relaxed custom-scrollbar bg-slate-900">
+                            <div ref={setMessagesScrollEl} className="flex-1 overflow-y-auto p-2 sm:p-4 font-mono text-sm leading-relaxed custom-scrollbar bg-slate-900">
+                                <div ref={setMessagesInnerEl} className="space-y-3 sm:space-y-4">
                                 {/* Init Logs */}
                                 <div className="pb-2 space-y-0.5">
                                     {filteredLogs.map((log, i) => (
@@ -1834,22 +2049,62 @@ export const InvestigationDetail = () => {
                                     </div>
                                 ))}
 
-                                {investigation.status === 'running' && (
-                                    <div className="flex justify-start my-4 pr-12 items-end gap-2">
-                                        <div className="w-6 h-6 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center shrink-0">
-                                            <Bot className="w-3 h-3 text-emerald-400 animate-pulse" />
-                                        </div>
-                                        <div className="px-3 py-2 bg-slate-800/50 rounded-lg rounded-tl-none border border-slate-700/50 flex items-center gap-2">
-                                            <span className="text-[10px] text-slate-500 font-medium uppercase tracking-wide">Thinking</span>
-                                            <div className="flex items-center gap-1">
-                                                <div className="w-1 h-1 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '0ms' }}></div>
-                                                <div className="w-1 h-1 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '150ms' }}></div>
-                                                <div className="w-1 h-1 rounded-full bg-slate-500 animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                                {investigation.status === 'running' && (() => {
+                                    // Currently-running pipeline stage (if any) — drives the avatar icon/color.
+                                    const currentStage = pipelineState
+                                        ? pipelineState.stages?.[pipelineState.currentStageIndex]
+                                        : undefined;
+                                    const stageIcon = currentStage?.icon?.trim();
+                                    const stageColor = currentStage?.color;
+                                    const stageName = currentStage?.agentName;
+                                    return (
+                                    <div className="flex justify-start my-4 pr-12 items-end gap-2 animate-fade-in">
+                                        {/* Avatar with pulsing aura */}
+                                        <div className="relative w-8 h-8 shrink-0" title={stageName || 'Agent thinking'}>
+                                            <div
+                                                className="absolute inset-0 rounded-full animate-ping"
+                                                style={stageColor ? { backgroundColor: `${stageColor}66` } : { backgroundColor: 'rgba(52, 211, 153, 0.4)' }}
+                                            />
+                                            <div
+                                                className="relative w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500/30 via-brand-500/20 to-purple-500/20 border flex items-center justify-center shadow-lg overflow-hidden"
+                                                style={stageColor
+                                                    ? { borderColor: `${stageColor}80`, boxShadow: `0 8px 16px -4px ${stageColor}55` }
+                                                    : { borderColor: 'rgba(52, 211, 153, 0.5)', boxShadow: '0 8px 16px -4px rgba(16, 185, 129, 0.3)' }}
+                                            >
+                                                {stageIcon ? (
+                                                    <span
+                                                        className="text-base leading-none select-none"
+                                                        style={stageColor ? { color: stageColor } : undefined}
+                                                    >
+                                                        {stageIcon}
+                                                    </span>
+                                                ) : (
+                                                    <Bot className="w-4 h-4 text-emerald-300" />
+                                                )}
                                             </div>
                                         </div>
+                                        {/* Thinking bubble */}
+                                        <div className="relative px-4 py-2 bg-slate-900/80 rounded-2xl rounded-tl-none border border-emerald-500/30 flex items-center gap-2.5 shadow-lg shadow-emerald-500/10 overflow-hidden backdrop-blur-sm">
+                                            {/* Shimmer sweep overlay */}
+                                            <div
+                                                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-transparent via-emerald-400/15 to-transparent animate-shimmer"
+                                                style={{ backgroundSize: '200% 100%' }}
+                                            />
+                                            <span
+                                                className="relative text-xs font-bold uppercase tracking-[0.2em] bg-gradient-to-r from-emerald-300 via-brand-300 to-emerald-300 bg-clip-text text-transparent animate-shimmer"
+                                                style={{ backgroundSize: '200% auto' }}
+                                            >
+                                                Thinking
+                                            </span>
+                                            <LiveThinkingDots />
+                                            {/* Energy trail flowing along the bottom edge */}
+                                            <div className="think-trail" />
+                                        </div>
                                     </div>
-                                )}
+                                    );
+                                })()}
                                 <div ref={logsEndRef} className="h-px" />
+                                </div>
                             </div>
 
                             {/* Input Area */}
