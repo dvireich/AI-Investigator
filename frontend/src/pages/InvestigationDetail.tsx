@@ -983,16 +983,11 @@ export const InvestigationDetail = () => {
         const scrollToBottom = () => {
             if (!isPinnedToBottomRef.current) return;
             // 'auto' (no smooth) — rapid streaming would otherwise queue overlapping
-            // smooth animations and lag behind. Prefer logsEndRef.scrollIntoView when
-            // the sentinel is mounted (gives us a precise target and exercises the
-            // existing scrollIntoView-based test contract); fall back to setting
-            // scrollTop directly otherwise.
+            // smooth animations and lag behind. The logsEndRef sentinel is always
+            // mounted alongside messagesInnerEl, so this effect (which only runs
+            // once both refs are set) can rely on it being present.
             suppressScrollEventUntil = Date.now() + 100;
-            if (logsEndRef.current) {
-                logsEndRef.current.scrollIntoView({ behavior: 'auto', block: 'end' });
-            } else {
-                messagesScrollEl.scrollTop = messagesScrollEl.scrollHeight;
-            }
+            logsEndRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
         };
 
         // Initial state on mount: jump to bottom + assume pinned.

@@ -2422,6 +2422,283 @@ describe('PipelineOrchestrator', () => {
             });
         });
     });
+
+    // ──────────────────────────────────────────────
+    // Coverage tests for previously-unreached branches
+    // ──────────────────────────────────────────────
+    describe('groundOpenItems (private) — number-grounding demote logic', () => {
+        it('demotes blocker -> minor when cited numbers are not in the producer report', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const items = [
+                { severity: 'blocker', claim: 'Producer reports 25,075 events that should not be allowed' },
+                { severity: 'major', claim: 'Latency is 2400ms, exceeding budget' },
+            ];
+            const priorReport = 'We saw 3513 actual events with median latency 312ms and p99 1100ms.';
+            const result = (orch as any).groundOpenItems(items, priorReport);
+            // Neither 25075 nor 2400 appear in the report → both demoted.
+            expect(result[0].severity).toBe('minor');
+            expect(result[0].claim).toContain('[ungrounded numeric claim');
+            expect(result[1].severity).toBe('minor');
+            expect(result[1].claim).toContain('[ungrounded numeric claim');
+        });
+
+        it('preserves severity when at least one cited number IS in the producer report', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const items = [
+                { severity: 'blocker', claim: 'Producer reported 3,513 events but missing context for 9999 errors' },
+            ];
+            const priorReport = 'There were 3513 events observed.';
+            const result = (orch as any).groundOpenItems(items, priorReport);
+            // 3513 IS in the report → keep blocker (partial grounding suffices).
+            expect(result[0].severity).toBe('blocker');
+            expect(result[0].claim).not.toContain('[ungrounded');
+        });
+
+        it('returns items unchanged when prior report is empty (first round)', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const items = [{ severity: 'blocker', claim: 'Producer claimed 12345' }];
+            const result = (orch as any).groundOpenItems(items, '');
+            expect(result).toBe(items);
+        });
+
+        it('returns items unchanged when claim cites zero numeric tokens', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const items = [{ severity: 'blocker', claim: 'qualitative concern with no numbers' }];
+            const result = (orch as any).groundOpenItems(items, 'A very long report.');
+            expect(result[0].severity).toBe('blocker');
+            expect(result[0].claim).not.toContain('[ungrounded');
+        });
+
+        it('skips year-like tokens (1900-2099) so they do not falsely ground a claim', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const items = [{ severity: 'blocker', claim: 'In 2024 we saw 50000 errors' }];
+            const priorReport = 'Report from 2024 with 100 errors.';
+            // 2024 is filtered as a year; 50000 is not in report → demoted.
+            const result = (orch as any).groundOpenItems(items, priorReport);
+            expect(result[0].severity).toBe('minor');
+        });
+
+        it('keeps minor-severity items as-is even when their numbers are ungrounded', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const items = [{ severity: 'minor', claim: 'Latency was 9999ms' }];
+            const result = (orch as any).groundOpenItems(items, 'Different content.');
+            // Already minor → not further demoted; passed through unchanged.
+            expect(result[0].severity).toBe('minor');
+            expect(result[0].claim).toBe('Latency was 9999ms');
+        });
+
+        it('normalizes thousands separators so "25,075" matches "25075" in the report', () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const items = [{ severity: 'blocker', claim: 'Reported 25,075 events' }];
+            const priorReport = 'There were 25075 events.';
+            const result = (orch as any).groundOpenItems(items, priorReport);
+            // Normalized match → keep blocker.
+            expect(result[0].severity).toBe('blocker');
+        });
+    });
+
+    describe('waitForResumeOrAbort (private)', () => {
+        it('resolves immediately when not paused', async () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            const start = Date.now();
+            await (orch as any).waitForResumeOrAbort();
+            // Loop entry condition is false (paused=false) → returns immediately.
+            expect(Date.now() - start).toBeLessThan(100);
+        });
+
+        it('exits the polling loop when aborted', async () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            (orch as any).paused = true;
+            // Schedule an abort during the first polling tick.
+            setTimeout(() => orch.abort(), 30);
+            await (orch as any).waitForResumeOrAbort();
+            expect((orch as any).aborted).toBe(true);
+        });
+
+        it('exits the polling loop when resumed (paused becomes false)', async () => {
+            const orch = new PipelineOrchestrator(makePipeline(), baseLlmProvider as any, baseConfig as any);
+            (orch as any).paused = true;
+            setTimeout(() => { (orch as any).paused = false; }, 30);
+            await (orch as any).waitForResumeOrAbort();
+            expect((orch as any).paused).toBe(false);
+        });
+    });
+
+    describe('between-stages pause handling', () => {
+        it('honors pause set after a stage completes — waits for resume before constructing the next runner', async () => {
+            // Pipeline of two stages. After stage 0 completes, set paused=true so
+            // the main loop hits the `if (this.paused)` branch and calls
+            // waitForResumeOrAbort before stage 1. Resolve the pause shortly
+            // after so the run can finish.
+            const pipeline = makePipeline();
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let stageIdx = 0;
+            const startTimes: number[] = [];
+            (orch as any).runWithTimeout = async (runner: any) => {
+                startTimes.push(Date.now());
+                runner.state.finalReport = `r${stageIdx}`;
+                runner.state.status = 'completed';
+                if (stageIdx === 0) {
+                    // Pause before stage 1 starts; release the pause shortly after.
+                    (orch as any).paused = true;
+                    setTimeout(() => { (orch as any).paused = false; }, 80);
+                }
+                stageIdx++;
+            };
+            const result = await orch.run('query');
+            expect(result.status).toBe('completed');
+            // Stage 1 must have started AFTER the pause was honored — i.e. its
+            // start time must be at least ~70ms after stage 0's start.
+            expect(startTimes).toHaveLength(2);
+            expect(startTimes[1] - startTimes[0]).toBeGreaterThanOrEqual(70);
+        });
+
+        it('honors abort set during the between-stages pause — does not start the next stage', async () => {
+            const pipeline = makePipeline();
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let stageIdx = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                runner.state.finalReport = `r${stageIdx}`;
+                runner.state.status = 'completed';
+                if (stageIdx === 0) {
+                    (orch as any).paused = true;
+                    // Abort during the pause — main loop should bail immediately.
+                    setTimeout(() => orch.abort(), 30);
+                }
+                stageIdx++;
+            };
+            await orch.run('query');
+            // Only stage 0 should have run; stage 1 was aborted before construction.
+            expect(stageIdx).toBe(1);
+            expect((orch as any).aborted).toBe(true);
+        });
+    });
+
+    describe('ungrounded-rejection bypass', () => {
+        it('bypasses the retry loop when ALL blocker/major openItems cite numbers absent from the producer report', async () => {
+            // Producer (stage 0) writes a clean report. Reviewer (stage 1) rejects
+            // with cited numbers that DO NOT appear in the producer's report.
+            // groundOpenItems demotes every blocker/major to minor → the
+            // ungrounded-bypass branch (lines 511-537) fires: the loop is
+            // skipped, a 'rejection-ungrounded' handoff is added, and the
+            // pipeline continues as if the stage completed.
+            const pipeline = makePipeline([
+                { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'x' } },
+                { agent: { id: 'rev', name: 'Rev', source: 'inline', promptContent: 'x' }, canReject: true, onReject: 'loop', rejectTarget: 0, maxRetries: 3 },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let callCount = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                callCount++;
+                if (callCount === 1) {
+                    runner.state.finalReport = 'Producer report mentions 100 events and 200ms latency.';
+                } else {
+                    // Reviewer rejects with cited numbers (9999, 8888) that are
+                    // NOT in the producer report → all demoted to minor.
+                    runner.state.actions = [{
+                        tool: 'finish',
+                        args: {
+                            verdict: 'rejected',
+                            feedback: 'See open items.',
+                            openItems: [
+                                { severity: 'blocker', claim: 'Producer claimed 9999 events but the data shows otherwise' },
+                                { severity: 'major', claim: 'Latency was actually 8888ms not as reported' },
+                            ],
+                        },
+                    }];
+                    runner.state.verdict = 'rejected';
+                }
+                runner.state.status = 'completed';
+            };
+
+            const conversationEntries: any[] = [];
+            orch.on('conversation-entry', e => conversationEntries.push(e));
+
+            const result = await orch.run('query');
+            // Bypass branch fires → only TWO calls (producer + reviewer), no loop.
+            expect(callCount).toBe(2);
+            // Pipeline completes normally despite the rejection.
+            expect(result.status).toBe('completed');
+            // The handoff entry with metadata.type === 'rejection-ungrounded' was emitted.
+            const ungrounded = conversationEntries.find(
+                e => e.role === 'handoff' && e.metadata?.type === 'rejection-ungrounded',
+            );
+            expect(ungrounded).toBeDefined();
+            expect(ungrounded.content).toContain('all blocker/major items cited numbers');
+        });
+
+        it('still bypasses when openItems lead with severity `major` (covers right side of `blocker || major`)', async () => {
+            // Mirror of the preceding test, but with NO blocker items at all
+            // so that resolveOpenItems' severity sort (blocker -> major -> minor)
+            // does NOT push a blocker to the front. With only `major` items
+            // present, the `i.severity === 'blocker' || i.severity === 'major'`
+            // short-circuit's left side is FALSE, forcing evaluation of the
+            // right side — covering the previously unreached branch on the
+            // `rawOpenItems.some(...)` call.
+            const pipeline = makePipeline([
+                { agent: { id: 'inv', name: 'Inv', source: 'inline', promptContent: 'x' } },
+                { agent: { id: 'rev', name: 'Rev', source: 'inline', promptContent: 'x' }, canReject: true, onReject: 'loop', rejectTarget: 0, maxRetries: 3 },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let callCount = 0;
+            (orch as any).runWithTimeout = async (runner: any) => {
+                callCount++;
+                if (callCount === 1) {
+                    runner.state.finalReport = 'Producer report mentions 100 events and 200ms latency.';
+                } else {
+                    runner.state.actions = [{
+                        tool: 'finish',
+                        args: {
+                            verdict: 'rejected',
+                            feedback: 'See open items.',
+                            // ALL major (no blocker) — forces left side of `||`
+                            // to be false on every iteration.
+                            openItems: [
+                                { severity: 'major', claim: 'Latency was actually 8888ms not as reported' },
+                                { severity: 'major', claim: 'Throughput was 7777 not as reported' },
+                            ],
+                        },
+                    }];
+                    runner.state.verdict = 'rejected';
+                }
+                runner.state.status = 'completed';
+            };
+
+            const result = await orch.run('query');
+            expect(callCount).toBe(2);
+            expect(result.status).toBe('completed');
+        });
+    });
+
+    describe('whitelist allowedTools resolution (executeStage)', () => {
+        it('passes `allowedTools=[]` when `tools.mode=whitelist` but `tools.list` is undefined (covers `?? []` branch)', async () => {
+            // Cover the `agent.tools.list ?? []` nullish-coalesce fallback in
+            //   allowedTools: agent.tools?.mode === 'whitelist' ? (agent.tools.list ?? []) : undefined
+            // Schema-wise `list` is optional, so a whitelist with no list
+            // should resolve to an empty allowedTools array (deny-all).
+            const pipeline = makePipeline([
+                {
+                    agent: {
+                        id: 'a1',
+                        name: 'A1',
+                        source: 'inline',
+                        promptContent: 'x',
+                        // Whitelist mode WITHOUT a list field — `list ?? []` fires.
+                        tools: { mode: 'whitelist' } as any,
+                    },
+                },
+            ]);
+            const orch = new PipelineOrchestrator(pipeline, baseLlmProvider as any, baseConfig as any);
+            let captured: any = 'UNSET';
+            (orch as any).runWithTimeout = async (runner: any) => {
+                captured = runner.stageContext?.allowedTools;
+                runner.state.finalReport = 'done';
+                runner.state.status = 'completed';
+            };
+            await orch.run('query');
+            expect(captured).toEqual([]);
+        });
+    });
 });
 
 // ──────────────────────────────────────────────

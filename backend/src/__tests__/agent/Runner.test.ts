@@ -7265,6 +7265,602 @@ describe('AgentRunner', () => {
             expect(state.recommendations).toBeUndefined();
         });
 
+        it('role-drift gate pushes back when Code Scout finishes with KQL / audit-style content, then accepts a clean code-map on retry', async () => {
+            // Production bug: Code Scout drifted into authoring "Devil's Advocate
+            // Audit" style reports with KQL queries embedded. The role-drift gate
+            // should detect the drift signals and push back exactly once.
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Drafting…',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({
+                                        report:
+                                            "## Audit\nVerdict: rejected\n\n```kusto\nTraces | where Message contains 'foo'\n```",
+                                    }),
+                                },
+                            }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Sticking to code-map this time.',
+                            tool_calls: [{
+                                id: 'tc2',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({
+                                        report:
+                                            '- src/foo.ts: handler entry point\n- src/bar.ts: token bucket implementation',
+                                    }),
+                                },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 5 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'code-scout',
+                agentName: 'Code Scout',
+                agentKind: 'code-scout',
+                role: 'producer',
+                conversationLog: [],
+            });
+
+            await runner.start('Map the code');
+
+            // Gate forced a second call.
+            expect(mockOpenAI.chat.completions.create.mock.calls.length).toBeGreaterThanOrEqual(2);
+            // Pushback message landed in thoughts.
+            const driftThought = (runner as any).state.thoughts.find(
+                (t: any) => t && typeof t.content === 'string' && t.content.includes('drifted out of the Code Scout role'),
+            );
+            expect(driftThought).toBeDefined();
+            // Tripwire latched.
+            expect((runner as any).roleDriftGateTripped).toBe(true);
+            // Second attempt was accepted.
+            expect((runner as any).state.status).toBe('completed');
+            expect((runner as any).state.finalReport).toBe('- src/foo.ts: handler entry point\n- src/bar.ts: token bucket implementation');
+        });
+
+        it('role-drift gate detects investigation-report headings ("Root Cause") even without KQL', async () => {
+            // Coverage for the second drift signal branch: heading-only drift
+            // (no KQL fenced block, no "Verdict:" line).
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Drafting…',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({
+                                        summary: '## Root Cause\nThe upstream service throttled requests.',
+                                    }),
+                                },
+                            }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Code map only.',
+                            tool_calls: [{
+                                id: 'tc2',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({ report: '- src/x.ts: relevant' }),
+                                },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 4 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'code-scout',
+                agentName: 'Code Scout',
+                agentKind: 'code-scout',
+                role: 'producer',
+                conversationLog: [],
+            });
+
+            await runner.start('Map the code');
+
+            const driftThought = (runner as any).state.thoughts.find(
+                (t: any) => t && typeof t.content === 'string' && t.content.includes('investigation-report headings'),
+            );
+            expect(driftThought).toBeDefined();
+        });
+
+        it('role-drift gate does NOT fire when Code Scout output is a clean code map', async () => {
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: {
+                                name: 'finish',
+                                arguments: JSON.stringify({
+                                    report: '- src/foo.ts: throttle policy\n- src/bar.ts: budget metrics',
+                                }),
+                            },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'code-scout',
+                agentName: 'Code Scout',
+                agentKind: 'code-scout',
+                role: 'producer',
+                conversationLog: [],
+            });
+
+            await runner.start('Map the code');
+
+            expect((runner as any).roleDriftGateTripped).toBe(false);
+            expect((runner as any).state.status).toBe('completed');
+        });
+
+        it('investigator-work gate pushes back when an investigator finishes with zero tool calls, then accepts a real investigation', async () => {
+            // Production bug: Investigator stages would copy Code Scout's
+            // upstream code map verbatim and ship it as their "report" without
+            // running a single KQL query or file read. The gate should require
+            // at least one non-finish tool call before accepting `finish`.
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Looks done.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({ report: 'Verbatim upstream code map.' }),
+                                },
+                            }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Doing some real work first.',
+                            tool_calls: [{
+                                id: 'tc2',
+                                function: {
+                                    name: 'list_dir',
+                                    arguments: JSON.stringify({ path: '/repo' }),
+                                },
+                            }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Now finishing.',
+                            tool_calls: [{
+                                id: 'tc3',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({ report: 'Real investigation: dir listed.' }),
+                                },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 5 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'investigator',
+                agentName: 'Investigator',
+                agentKind: 'investigator',
+                role: 'producer',
+                conversationLog: [],
+            });
+
+            await runner.start('Investigate the issue');
+
+            const workThought = (runner as any).state.thoughts.find(
+                (t: any) => t && typeof t.content === 'string' && t.content.includes('without making a single tool call'),
+            );
+            expect(workThought).toBeDefined();
+            expect((runner as any).investigatorWorkGateTripped).toBe(true);
+            expect((runner as any).state.status).toBe('completed');
+            expect((runner as any).state.finalReport).toBe('Real investigation: dir listed.');
+        });
+
+        it('investigator-work gate also fires for attainment-investigator agents', async () => {
+            // Coverage for the OR branch: agentKind === 'attainment-investigator'.
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Done.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: { name: 'finish', arguments: JSON.stringify({ report: 'no work' }) },
+                            }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Now actually working.',
+                            tool_calls: [{
+                                id: 'tc2',
+                                function: { name: 'list_dir', arguments: JSON.stringify({ path: '/repo' }) },
+                            }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Done for real.',
+                            tool_calls: [{
+                                id: 'tc3',
+                                function: { name: 'finish', arguments: JSON.stringify({ report: 'investigated.' }) },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 5 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'attainment-investigator',
+                agentName: 'Attainment Investigator',
+                agentKind: 'attainment-investigator',
+                role: 'producer',
+                conversationLog: [],
+            });
+
+            await runner.start('Investigate');
+
+            expect((runner as any).investigatorWorkGateTripped).toBe(true);
+            expect((runner as any).state.status).toBe('completed');
+        });
+
+        it('tool whitelist filter at the LLM boundary hides disallowed tools but always exposes finish', async () => {
+            // Setup a runner with a stage context that whitelists only `read_file`.
+            // When callLLM is invoked, the `tools` array passed to the OpenAI
+            // completion must be filtered down to [read_file, finish] (finish is
+            // implicitly allowed) — invoke_subagent and others must be hidden.
+            mockToolManager.listTools.mockResolvedValueOnce([
+                { name: 'read_file', description: 'Read', inputSchema: { type: 'object', properties: {} } },
+                { name: 'execute_kql_query', description: 'KQL', inputSchema: { type: 'object', properties: {} } },
+                { name: 'invoke_subagent', description: 'Sub', inputSchema: { type: 'object', properties: {} } },
+                { name: 'finish', description: 'Finish', inputSchema: { type: 'object', properties: {} } },
+            ]);
+
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: { name: 'finish', arguments: JSON.stringify({ report: 'ok' }) },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'code-scout',
+                agentName: 'Code Scout',
+                agentKind: 'code-scout',
+                role: 'producer',
+                conversationLog: [],
+                allowedTools: ['read_file'],
+            });
+
+            await runner.start('Investigate');
+
+            // Inspect the tools array sent to OpenAI on the first call.
+            const firstCallArgs = mockOpenAI.chat.completions.create.mock.calls[0][0];
+            const sentToolNames: string[] = (firstCallArgs.tools || []).map((t: any) => t.function?.name);
+            expect(sentToolNames).toContain('finish');
+            expect(sentToolNames).toContain('read_file');
+            // Disallowed tools must not be present.
+            expect(sentToolNames).not.toContain('invoke_subagent');
+            expect(sentToolNames).not.toContain('execute_kql_query');
+            // Confirm the filter actually removed at least one tool from the
+            // base set (i.e. `beforeCount !== tools.length` log branch ran).
+            const filterLog = (runner as any).state.logs.find(
+                (l: string) => typeof l === 'string' && l.includes('[tool-whitelist] Filtered'),
+            );
+            expect(filterLog).toBeDefined();
+        });
+
+        it('tool whitelist filter is a no-op when no allowedTools are configured', async () => {
+            // Cover the early-out branch (allowedTools undefined) — should not
+            // log any filter line and should leave the base tools untouched.
+            mockToolManager.listTools.mockResolvedValueOnce([
+                { name: 'read_file', description: 'Read', inputSchema: { type: 'object', properties: {} } },
+                { name: 'invoke_subagent', description: 'Sub', inputSchema: { type: 'object', properties: {} } },
+                { name: 'finish', description: 'Finish', inputSchema: { type: 'object', properties: {} } },
+            ]);
+
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'Done.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            function: { name: 'finish', arguments: JSON.stringify({ report: 'ok' }) },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+
+            await runner.start('Investigate');
+
+            const filterLog = (runner as any).state.logs.find(
+                (l: string) => typeof l === 'string' && l.includes('[tool-whitelist] Filtered'),
+            );
+            expect(filterLog).toBeUndefined();
+        });
+
+        it('executeAction defensively blocks calls to disallowed tools with a re-plan error message', async () => {
+            // Even if the LLM hallucinates a tool name from prior context that
+            // we filtered at the LLM boundary, executeAction must reject the
+            // call with a structured error so the model re-plans.
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'code-scout',
+                agentName: 'Code Scout',
+                agentKind: 'code-scout',
+                role: 'producer',
+                conversationLog: [],
+                allowedTools: ['read_file'],
+            });
+
+            const result = await (runner as any).executeAction({
+                tool: 'execute_kql_query',
+                args: { query: 'Traces | take 1' },
+            });
+
+            expect(typeof result).toBe('string');
+            expect(result).toContain("Tool 'execute_kql_query' is not available");
+            expect(result).toContain('read_file');
+            expect(result).toContain('Re-plan');
+            // The blocked-call line should also be logged.
+            const blockLog = (runner as any).state.logs.find(
+                (l: string) => typeof l === 'string' && l.includes("[tool-whitelist] Blocked call to 'execute_kql_query'"),
+            );
+            expect(blockLog).toBeDefined();
+        });
+
+        it('executeAction whitelist always allows finish regardless of allowedTools', async () => {
+            // Edge case: the whitelist branch must not block finish even when
+            // it is not present in allowedTools. This is the implicit
+            // exemption that lets restricted agents complete.
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'code-scout',
+                agentName: 'Code Scout',
+                agentKind: 'code-scout',
+                role: 'producer',
+                conversationLog: [],
+                allowedTools: ['read_file'],
+            });
+
+            const result = await (runner as any).executeAction({
+                tool: 'finish',
+                args: { report: 'done' },
+            });
+
+            // We don't care about the exact return — only that it didn't get
+            // intercepted with the "not available" error.
+            if (typeof result === 'string') {
+                expect(result).not.toContain("Tool 'finish' is not available");
+            }
+        });
+
+        it('role-drift gate handles the empty-thoughts edge case (defensive `length > 0` branch)', async () => {
+            // The gate's pop-thought block is guarded by `if (this.state.thoughts.length > 0)`.
+            // In normal flow `step.thought` is always set so a thought is
+            // pushed before the action — but the guard exists for safety.
+            // Cover the false branch by stubbing callLLM to return a step
+            // with no thought, so the gate fires while thoughts is empty.
+            const runner = new AgentRunner(makeConfig({ maxSteps: 3 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'code-scout',
+                agentName: 'Code Scout',
+                agentKind: 'code-scout',
+                role: 'producer',
+                conversationLog: [],
+            });
+
+            let call = 0;
+            vi.spyOn(runner as any, 'callLLM').mockImplementation(async () => {
+                call++;
+                if (call === 1) {
+                    return {
+                        thought: null,
+                        action: {
+                            tool: 'finish',
+                            args: { report: '## Audit\nVerdict: rejected\n```kusto\nT | take 1\n```' },
+                        },
+                    };
+                }
+                return {
+                    thought: 'ok',
+                    action: { tool: 'finish', args: { report: '- src/foo.ts: real code map' } },
+                };
+            });
+
+            await runner.start('Map the code');
+
+            // Gate fired (drift signals matched), with no thought to pop —
+            // guard handled it gracefully and runner finished cleanly.
+            expect((runner as any).roleDriftGateTripped).toBe(true);
+            expect((runner as any).state.status).toBe('completed');
+        });
+
+        it('role-drift gate falls through cleanly when the finish call has neither report nor summary', async () => {
+            // Cover the third `||` branch: `step.action.args.report || step.action.args.summary || ''`
+            // when both report and summary are absent. reportText becomes ''
+            // → no drift signals match → gate never fires → finish is honored.
+            mockOpenAI.chat.completions.create.mockResolvedValueOnce({
+                choices: [{
+                    message: {
+                        content: 'No body.',
+                        tool_calls: [{
+                            id: 'tc1',
+                            // verdict-only finish with neither report nor summary
+                            function: { name: 'finish', arguments: JSON.stringify({ verdict: 'flagged' }) },
+                        }],
+                    },
+                }],
+            });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 2 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'code-scout',
+                agentName: 'Code Scout',
+                agentKind: 'code-scout',
+                role: 'producer',
+                conversationLog: [],
+            });
+
+            await runner.start('Map the code');
+
+            // Gate did NOT fire — driftSignals stayed empty for empty reportText.
+            expect((runner as any).roleDriftGateTripped).toBe(false);
+            expect((runner as any).state.status).toBe('completed');
+        });
+
+        it('investigator-work gate handles the empty-thoughts edge case (defensive `length > 0` branch)', async () => {
+            // Mirror of the role-drift-gate empty-thoughts test for the
+            // investigator-work gate's parallel guard.
+            const runner = new AgentRunner(makeConfig({ maxSteps: 4 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'investigator',
+                agentName: 'Investigator',
+                agentKind: 'investigator',
+                role: 'producer',
+                conversationLog: [],
+            });
+
+            let call = 0;
+            vi.spyOn(runner as any, 'callLLM').mockImplementation(async () => {
+                call++;
+                if (call === 1) {
+                    return {
+                        thought: null,
+                        action: { tool: 'finish', args: { report: 'no work' } },
+                    };
+                }
+                if (call === 2) {
+                    return {
+                        thought: 'doing work now',
+                        action: { tool: 'list_dir', args: { path: '/repo' } },
+                    };
+                }
+                return {
+                    thought: 'finishing',
+                    action: { tool: 'finish', args: { report: 'investigated.' } },
+                };
+            });
+
+            await runner.start('Investigate');
+
+            expect((runner as any).investigatorWorkGateTripped).toBe(true);
+            expect((runner as any).state.status).toBe('completed');
+        });
+
+        it('investigator-work gate snapshots `{}` when finish is called with literal-null args (defensive `args || {}` branch)', async () => {
+            // Cover the FALSY branch of `step.action.args || {}` at the
+            // investigator-work-gate snapshot site. Unlike the role-drift
+            // gate (which reads args.report before the snapshot), the
+            // investigator-work gate only checks stageActions.length, so
+            // args may be null at the snapshot point.
+            //
+            // We trigger this by emitting `arguments: 'null'` (which JSON
+            // parses to literal null) on the first finish call. The gate
+            // fires (zero non-finish actions in the stage), pops the action,
+            // and the `null || {}` short-circuit yields {} for the snapshot.
+            mockOpenAI.chat.completions.create
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'No tools used.',
+                            tool_calls: [{
+                                id: 'tc1',
+                                function: { name: 'finish', arguments: 'null' },
+                            }],
+                        },
+                    }],
+                })
+                .mockResolvedValueOnce({
+                    choices: [{
+                        message: {
+                            content: 'Conceding.',
+                            tool_calls: [{
+                                id: 'tc2',
+                                function: {
+                                    name: 'finish',
+                                    arguments: JSON.stringify({
+                                        report: 'r2\n\n## Limitations\nNo telemetry available.',
+                                        verdict: 'flagged',
+                                    }),
+                                },
+                            }],
+                        },
+                    }],
+                });
+
+            const runner = new AgentRunner(makeConfig({ maxSteps: 4 }), provider);
+            (runner as any).setStageContext({
+                stageIndex: 0,
+                agentId: 'investigator',
+                agentName: 'Investigator',
+                agentKind: 'investigator',
+                role: 'producer',
+                conversationLog: [],
+            });
+
+            await runner.start('Investigate');
+
+            expect((runner as any).investigatorWorkGateTripped).toBe(true);
+            // lastPoppedFinish.args was the {} fallback (snapshot of `null || {}`)
+            expect((runner as any).lastPoppedFinish?.args).toEqual({});
+            // Round 2 conceded with a Limitations section so the runner finished.
+            const state = (runner as any).state;
+            expect(state.status).toBe('completed');
+            expect(state.finalReport).toContain('## Limitations');
+        });
+
         it('falls back to the thrown value when an unexpected error has no message property', async () => {
             mockOpenAI.chat.completions.create.mockResolvedValue({
                 choices: [{ message: { content: 'thinking...' } }],

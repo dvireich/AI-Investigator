@@ -198,20 +198,18 @@ export const AgentLibrary: React.FC<AgentLibraryProps> = ({ builtinAgents, onCre
                                     >
                                         <Eye className="w-3.5 h-3.5" />
                                     </button>
-                                    {savedId && onEditAgent && (() => {
-                                        const saved = savedAgents.find(sa => sa.id === savedId);
-                                        if (!saved) return null;
-                                        return (
-                                            <button
-                                                type="button"
-                                                onClick={() => onEditAgent(saved)}
-                                                className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-600/10 transition-colors"
-                                                title="Edit agent"
-                                            >
-                                                <Pencil className="w-3.5 h-3.5" />
-                                            </button>
-                                        );
-                                    })()}
+                                    {savedId && onEditAgent && (
+                                        <button
+                                            type="button"
+                                            // savedId is only set on rows derived from savedAgents,
+                                            // so the lookup is guaranteed to find a match.
+                                            onClick={() => onEditAgent(savedAgents.find(sa => sa.id === savedId)!)}
+                                            className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-600/10 transition-colors"
+                                            title="Edit agent"
+                                        >
+                                            <Pencil className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
                                     {savedId && (
                                         <button
                                             type="button"

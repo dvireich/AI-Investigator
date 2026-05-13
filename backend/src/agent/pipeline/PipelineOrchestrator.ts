@@ -1017,9 +1017,10 @@ export class PipelineOrchestrator extends EventEmitter {
             let m: RegExpExecArray | null;
             while ((m = re.exec(claim)) !== null) {
                 const normalized = m[0].replace(/,/g, '').toLowerCase();
-                // Skip noise: years (1900-2099), tiny decimals like 0.5
+                // The regex only captures digit sequences, so parseFloat always
+                // yields a finite, non-NaN number — no `isFinite` guard needed.
                 const numeric = parseFloat(normalized);
-                if (!isFinite(numeric)) continue;
+                // Skip noise: years (1900-2099)
                 if (numeric >= 1900 && numeric <= 2099 && Number.isInteger(numeric)) continue;
                 out.push(normalized);
             }

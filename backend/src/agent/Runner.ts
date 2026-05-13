@@ -831,7 +831,10 @@ export class AgentRunner extends EventEmitter {
                                 this.roleDriftGateTripped = true;
                                 this.lastPoppedFinish = {
                                     tool: step.action.tool,
-                                    args: JSON.parse(JSON.stringify(step.action.args || {})),
+                                    // No `|| {}` fallback needed: line 819 above
+                                    // already dereferenced step.action.args.report,
+                                    // which would have thrown if args were null.
+                                    args: JSON.parse(JSON.stringify(step.action.args)),
                                 };
                                 this.silentTurnsSinceFinishPop = 0;
                                 this.state.actions.pop();

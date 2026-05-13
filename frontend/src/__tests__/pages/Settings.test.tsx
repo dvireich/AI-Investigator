@@ -4449,4 +4449,170 @@ describe('Settings extra coverage', () => {
             expect(api.importSettings).not.toHaveBeenCalled();
         });
     });
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // AgentEditModal block — Settings → Agents tab opens AgentModal in library mode
+    // (covers lines 1533-1558: onSave handler for create/edit/error paths)
+    // ════════════════════════════════════════════════════════════════════════════
+    describe('Agents tab — AgentModal create/edit/error', () => {
+        it('opens AgentModal on "New Agent" click and persists a new inline agent via api.createSavedAgent', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue([
+                { id: 'a1', name: 'Investigator', source: 'builtin', builtinType: 'investigator', color: '#10b981', icon: '🤖', description: 'Main' },
+            ] as any);
+            vi.mocked(api.getSavedAgents).mockResolvedValue([]);
+            vi.mocked(api.createSavedAgent).mockResolvedValue({
+                id: 'new-agent', agent: { name: 'My Inline', source: 'inline' as const, promptContent: 'prompt body' },
+            } as any);
+
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Agents'));
+            await waitFor(() => screen.getByText('Agent Library'));
+
+            // Click the "New Agent" button (rendered by AgentLibrary via onCreateAgent prop).
+            await user.click(screen.getByRole('button', { name: /New Agent/i }));
+
+            // AgentModal opens. Switch to inline source.
+            await waitFor(() => screen.getByText('✏️ Inline'));
+            await user.click(screen.getByText('✏️ Inline'));
+
+            // Fill name + prompt.
+            const nameInput = screen.getByPlaceholderText(/Validator, Security Reviewer/);
+            await user.clear(nameInput);
+            await user.type(nameInput, 'My Inline');
+            const promptArea = screen.getByPlaceholderText(/You are \{\{AGENT_NAME\}\}/);
+            await user.type(promptArea, 'prompt body');
+
+            // Click the primary "Save to Library" button. There are two buttons with the
+            // same label in library mode (primary + Add to Pipeline-style); both click
+            // through onSave. Use the first enabled one.
+            const saveButtons = screen.getAllByRole('button', { name: /Save to Library/ });
+            const enabled = saveButtons.find(b => !(b as HTMLButtonElement).disabled);
+            await user.click(enabled!);
+
+            await waitFor(() => {
+                expect(api.createSavedAgent).toHaveBeenCalledWith(expect.objectContaining({
+                    name: 'My Inline',
+                    source: 'inline',
+                    promptContent: 'prompt body',
+                }));
+            });
+            // Modal closes after success.
+            await waitFor(() => expect(screen.queryByText('✏️ Inline')).not.toBeInTheDocument());
+        });
+
+        it('opens AgentModal in edit mode and persists changes via api.updateSavedAgent', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue([] as any);
+            vi.mocked(api.getSavedAgents).mockResolvedValue([
+                { id: 'saved-1', agent: { name: 'Existing Agent', source: 'inline' as const, promptContent: 'old', color: '#abc', icon: '🤖' } },
+            ] as any);
+            vi.mocked(api.updateSavedAgent).mockResolvedValue({
+                id: 'saved-1', agent: { name: 'Existing Agent (Edited)', source: 'inline' as const, promptContent: 'old' },
+            } as any);
+
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Agents'));
+            await waitFor(() => screen.getByText('Existing Agent'));
+
+            // Click the pencil edit button for the saved agent.
+            const editBtn = screen.getByTitle('Edit agent');
+            await user.click(editBtn);
+
+            // AgentModal opens in edit mode. Tweak the name.
+            const nameInput = await screen.findByPlaceholderText(/Validator, Security Reviewer/);
+            await user.clear(nameInput);
+            await user.type(nameInput, 'Existing Agent (Edited)');
+
+            // Save — in edit mode the primary button is labeled "Update".
+            const updateBtn = screen.getByRole('button', { name: /^Update$/ });
+            await user.click(updateBtn);
+
+            await waitFor(() => {
+                expect(api.updateSavedAgent).toHaveBeenCalledWith('saved-1', expect.objectContaining({
+                    agent: expect.objectContaining({ name: 'Existing Agent (Edited)' }),
+                }));
+            });
+        });
+
+        it('shows an error toast when api.createSavedAgent rejects (covers catch branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue([] as any);
+            vi.mocked(api.getSavedAgents).mockResolvedValue([]);
+            vi.mocked(api.createSavedAgent).mockRejectedValue(new Error('Save failed: disk full'));
+
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Agents'));
+            await waitFor(() => screen.getByText('Agent Library'));
+
+            await user.click(screen.getByRole('button', { name: /New Agent/i }));
+            await waitFor(() => screen.getByText('✏️ Inline'));
+            await user.click(screen.getByText('✏️ Inline'));
+
+            const nameInput = screen.getByPlaceholderText(/Validator, Security Reviewer/);
+            await user.type(nameInput, 'Bad Agent');
+            const promptArea = screen.getByPlaceholderText(/You are \{\{AGENT_NAME\}\}/);
+            await user.type(promptArea, 'p');
+
+            const saveButtons = screen.getAllByRole('button', { name: /Save to Library/ });
+            const enabled = saveButtons.find(b => !(b as HTMLButtonElement).disabled);
+            await user.click(enabled!);
+
+            await waitFor(() => expect(screen.getByText(/Save failed: disk full/)).toBeInTheDocument());
+        });
+
+        it('shows the generic fallback message when api.createSavedAgent rejects with non-Error (covers `err instanceof Error` falsy branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue([] as any);
+            vi.mocked(api.getSavedAgents).mockResolvedValue([]);
+            vi.mocked(api.createSavedAgent).mockRejectedValue('not-an-error-object');
+
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Agents'));
+            await waitFor(() => screen.getByText('Agent Library'));
+            await user.click(screen.getByRole('button', { name: /New Agent/i }));
+            await waitFor(() => screen.getByText('✏️ Inline'));
+            await user.click(screen.getByText('✏️ Inline'));
+
+            const nameInput = screen.getByPlaceholderText(/Validator, Security Reviewer/);
+            await user.type(nameInput, 'Bad Agent');
+            const promptArea = screen.getByPlaceholderText(/You are \{\{AGENT_NAME\}\}/);
+            await user.type(promptArea, 'p');
+
+            const saveButtons = screen.getAllByRole('button', { name: /Save to Library/ });
+            const enabled = saveButtons.find(b => !(b as HTMLButtonElement).disabled);
+            await user.click(enabled!);
+
+            await waitFor(() => expect(screen.getByText(/Failed to save agent/)).toBeInTheDocument());
+        });
+
+        it('closes the AgentModal without saving when the user clicks Cancel/Close', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getPipelineBuiltins).mockResolvedValue([] as any);
+            vi.mocked(api.getSavedAgents).mockResolvedValue([]);
+
+            const user = userEvent.setup();
+            renderSettings();
+            await waitFor(() => screen.getByRole('heading', { name: 'Settings' }));
+            await user.click(screen.getByText('Agents'));
+            await waitFor(() => screen.getByText('Agent Library'));
+            await user.click(screen.getByRole('button', { name: /New Agent/i }));
+            await waitFor(() => screen.getByText('✏️ Inline'));
+
+            // Cancel without saving.
+            const cancelBtn = screen.getByRole('button', { name: /Cancel/i });
+            await user.click(cancelBtn);
+
+            await waitFor(() => expect(screen.queryByText('✏️ Inline')).not.toBeInTheDocument());
+            expect(api.createSavedAgent).not.toHaveBeenCalled();
+        });
+    });
 });
