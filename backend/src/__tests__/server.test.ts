@@ -7852,6 +7852,76 @@ describe('pipeline endpoints and integration', () => {
         cleanupRunner(id);
     });
 
+    it('syncRunnerState prefers currentStageRunner.state during live stage execution (live-stage forwarding)', async () => {
+        // The Live tab needs per-thought updates while a stage is running.
+        // syncRunnerState's `if (liveStage)` branch (server.ts ~695-703)
+        // reads from the active stage runner's `.state` instead of the
+        // orchestrator's between-stage merged state. This is what keeps the
+        // Live tab from freezing for the duration of a long-running stage.
+        setFakeLlmProvider();
+        vi.spyOn(PipelineOrchestrator.prototype as any, 'run').mockReturnValue(new Promise(() => {}));
+
+        __testUtils.setConfig({
+            ...JSON.parse(JSON.stringify(defaultConfig)),
+            pipeline: {
+                id: 'live-pipe',
+                stages: [
+                    { agent: { id: 'a', name: 'A', source: 'inline', promptContent: 'x' } },
+                    { agent: { id: 'b', name: 'B', source: 'inline', promptContent: 'y' } },
+                ],
+            },
+        });
+
+        const response = await api().post('/api/investigations').send({
+            query: 'Live test',
+            target: 'live-target',
+            timeRange: 'last 1 hour',
+        });
+        expect(response.status).toBe(200);
+        const id = response.body.id;
+
+        const orchestrator = __testUtils.getPipelineOrchestrators().get(id);
+        expect(orchestrator).toBeDefined();
+
+        // Both currentState (between-stages) AND a live stage runner exist —
+        // syncRunnerState must prefer the live stage's state.
+        (orchestrator as any)._currentState = {
+            thoughts: [{ content: 'between-stage thought' }],
+            actions: [{ tool: 'between' }],
+            logs: ['between log'],
+            fullHistory: [{ content: 'between-history' }],
+            fullActions: [{ tool: 'between-action' }],
+        };
+
+        const liveStageRunner = {
+            state: {
+                thoughts: [{ content: 'live thought 1' }, { content: 'live thought 2' }],
+                actions: [{ tool: 'live_tool' }],
+                logs: ['live log entry'],
+                fullHistory: [{ content: 'live-history-entry' }],
+                fullActions: [{ tool: 'live-history-action' }],
+            },
+        };
+        // The currentStageRunner getter returns this.currentRunner.
+        (orchestrator as any).currentRunner = liveStageRunner;
+
+        // Trigger a sync by emitting any forwarded event.
+        orchestrator!.emit('thought', { content: 'live thought 2' });
+        await new Promise(r => setTimeout(r, 50));
+
+        const runner = __testUtils.getRunners().get(id) as any;
+        // Live-stage values won — the between-stage values were ignored.
+        expect(runner.state.thoughts).toEqual(liveStageRunner.state.thoughts);
+        expect(runner.state.actions).toEqual(liveStageRunner.state.actions);
+        expect(runner.state.logs).toEqual(liveStageRunner.state.logs);
+        // fullHistory / fullActions also forwarded from live stage.
+        expect(runner.state.fullHistory).toEqual(liveStageRunner.state.fullHistory);
+        expect(runner.state.fullActions).toEqual(liveStageRunner.state.fullActions);
+
+        __testUtils.getPipelineOrchestrators().delete(id);
+        cleanupRunner(id);
+    });
+
     it('createPipelineInvestigation .then() handler cleans up after completion', async () => {
         setFakeLlmProvider();
         let resolveRun!: (value: any) => void;

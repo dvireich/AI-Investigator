@@ -191,6 +191,30 @@ export interface StageContext {
         /** Display name of the reviewer that rejected the prior round. */
         reviewerName?: string;
     };
+    /**
+     * Optional whitelist of tool names this agent is allowed to call. When set,
+     * the runner (a) hides all other tools from the LLM's `tools` parameter and
+     * (b) refuses to dispatch any tool call whose name is not in the list.
+     *
+     * Only `finish` is implicitly allowed (it's the agent's structural
+     * completion mechanism, not a real tool). `invoke_subagent` is
+     * deliberately NOT auto-allowed: a Code Scout restricted to
+     * `[read_file, list_dir]` must not be able to side-step that policy by
+     * spawning a subagent that runs KQL on its behalf — which is exactly
+     * what we observed in production before this restriction landed.
+     *
+     * Resolved by `PipelineOrchestrator` from the agent definition's `tools`
+     * field (`ToolAccess` mode='whitelist'). When undefined, every discovered
+     * tool is exposed (legacy behaviour for agents without a tool policy).
+     */
+    allowedTools?: string[];
+    /**
+     * The agent's `kind` (e.g. `'code-scout'`). Used by content-drift guards
+     * that need to enforce kind-specific output rules at the finish boundary
+     * (Code Scout must not author audit reports, etc.). Optional; falls back
+     * to `'custom'` when not provided.
+     */
+    agentKind?: string;
 }
 
 /**
@@ -280,6 +304,21 @@ export class AgentRunner extends EventEmitter {
     // Tracks how many entries from `thoughts` have been archived into `fullHistory`.
     // This allows us to sync incrementally without duplicating entries.
     private fullHistorySyncCursor: number = 0;
+    /**
+     * Per-runner serialization lock for saveArtifacts(). Multiple callers
+     * (WS bridge save chain, pipeline `.then()` completion, runner-internal
+     * step/pause/finish handlers) can trigger saves concurrently. Without this
+     * lock they race on the SAME `state.json.tmp` path: each opens it with
+     * O_TRUNC, writes its own JSON serialization, then renames to state.json.
+     * Two interleaved writes produce a state.json with extra bytes appended
+     * past the valid JSON tail (the tail of an earlier longer write surviving
+     * past the truncated end of a later shorter write — or vice versa) which
+     * then fails to parse on backend restart and effectively destroys the
+     * investigation. The chain coalesces to at most one queued save behind
+     * the in-flight one — newer state captures both.
+     */
+    private saveChain: Promise<void> = Promise.resolve();
+    private saveQueued: boolean = false;
 
     constructor(config: AgentConfig, llmProvider: LlmProvider, initialMetadata: Partial<InvestigationState> = {}) {
         super();
@@ -323,6 +362,13 @@ export class AgentRunner extends EventEmitter {
         this.stageStartActionsLength = this.state.actions.length;
         // Reset the finish-gate tripwire whenever a new stage context is bound.
         this.finishGateTripped = false;
+        // Reset the role-drift tripwire so each stage gets one (and only one)
+        // pushback if its finish output drifts into another agent's voice.
+        this.roleDriftGateTripped = false;
+        // Reset the investigator zero-work tripwire so each stage gets one
+        // (and only one) pushback if an investigator-kind agent tries to
+        // finish without doing any actual investigation work.
+        this.investigatorWorkGateTripped = false;
         // Reset the producer-rescue state too; otherwise a popped finish from
         // a previous stage could leak forward and be mis-restored here.
         this.lastPoppedFinish = null;
@@ -340,6 +386,22 @@ export class AgentRunner extends EventEmitter {
      * fire at most once per stage so a stuck LLM cannot loop forever.
      */
     private finishGateTripped: boolean = false;
+    /**
+     * True when the role-drift gate has already pushed back once on this
+     * stage; mirrors `finishGateTripped` so a kind-specific output guard
+     * (e.g. Code Scout writing audit-style content) cannot infinite-loop on
+     * a stuck LLM.
+     */
+    private roleDriftGateTripped: boolean = false;
+    /**
+     * True when the investigator zero-work gate has already pushed back once
+     * on this stage. Investigator-kind agents are expected to actually
+     * investigate (read files, run queries) before finishing — without this
+     * gate they happily regurgitate Code Scout's upstream code map as their
+     * "report" and skip the work entirely. Mirrors the other gates so the
+     * pushback fires at most once per stage.
+     */
+    private investigatorWorkGateTripped: boolean = false;
     /**
      * The finish action object that the finish-gate popped, kept around so the
      * producer-rescue path can restore it if the model goes silent (text-only
@@ -551,8 +613,15 @@ export class AgentRunner extends EventEmitter {
                 const step = await this.callLLM(systemPrompt, userQuery, this.state.thoughts, consecutiveThoughts >= 2);
 
                 if (step.thought) {
-                    this.state.thoughts.push(step.thought);
-                    this.emit('thought', this.tagEvent(step.thought));
+                    // Tag the persisted thought with the current pipeline stage's agent
+                    // identity (icon/color/name) so the frontend can render per-agent
+                    // avatars in the live session. tagEvent is a no-op when not in
+                    // pipeline mode (returns the input unchanged). Extra fields on
+                    // {role, content} objects are ignored by the LLM call layer
+                    // (callLLM extracts only role/content during reconstruction).
+                    const taggedThought = this.tagEvent(step.thought);
+                    this.state.thoughts.push(taggedThought);
+                    this.emit('thought', taggedThought);
                     console.log(`[Agent] Thought: ${JSON.stringify(step.thought)}`); // Log without pushing to thoughts again
                 }
 
@@ -738,26 +807,141 @@ export class AgentRunner extends EventEmitter {
                             }
                         }
 
+                        // ── Role-drift gate: enforce kind-specific output rules.
+                        // Code Scout's job is to produce a code map (file paths +
+                        // why_relevant), NOT to author an investigation report or
+                        // run KQL. In production we observed Code Scout drifting
+                        // into "Devil's Advocate Audit" / "Streaming Fallback Root
+                        // Causes" reports filled with KQL — because the
+                        // conversation log injected the prior reviewer's voice.
+                        // Detect that pattern and push back exactly once.
+                        if (!this.roleDriftGateTripped && this.stageContext?.agentKind === 'code-scout') {
+                            const reportText: string = step.action.args.report || step.action.args.summary || '';
+                            const driftSignals: string[] = [];
+                            if (/```\s*kusto/i.test(reportText) || /\|\s*where\b/i.test(reportText)) {
+                                driftSignals.push('contains KQL queries (Code Scout must not run or author KQL)');
+                            }
+                            if (/^\s*verdict\s*:/im.test(reportText) || /devil['’]s advocate/i.test(reportText)) {
+                                driftSignals.push('uses reviewer voice ("Verdict:", "Devil\'s Advocate")');
+                            }
+                            if (/^\s*##?\s*(audit|root[- ]cause|customer[- ]impact)/im.test(reportText)) {
+                                driftSignals.push('uses investigation-report headings ("Audit", "Root Cause", "Customer Impact")');
+                            }
+                            if (driftSignals.length > 0) {
+                                this.roleDriftGateTripped = true;
+                                this.lastPoppedFinish = {
+                                    tool: step.action.tool,
+                                    // No `|| {}` fallback needed: line 819 above
+                                    // already dereferenced step.action.args.report,
+                                    // which would have thrown if args were null.
+                                    args: JSON.parse(JSON.stringify(step.action.args)),
+                                };
+                                this.silentTurnsSinceFinishPop = 0;
+                                this.state.actions.pop();
+                                if (this.state.thoughts.length > 0) {
+                                    this.state.thoughts.pop();
+                                }
+                                const driftMsg = `System: Your report drifted out of the Code Scout role. Detected: ${driftSignals.join('; ')}. ` +
+                                    `Code Scout's ONLY job is to produce a structured code map: a ranked list of \`{ path, symbol, why_relevant, confidence }\` entries pointing at source files / docs the Investigator should read. ` +
+                                    `You must NOT author an investigation report, run or include KQL, or evaluate other agents' work. ` +
+                                    `Re-call \`finish\` with a code-map report only — file paths and one-sentence justifications, nothing else.`;
+                                this.state.thoughts.push({ role: 'user', content: driftMsg });
+                                this.state.actions.push(null as any);
+                                this.emit('thought', driftMsg);
+                                this.log(`[role-drift-gate] Code Scout output drifted out of role; pushing back. Signals: ${driftSignals.join(' | ')}`);
+                                continue;
+                            }
+                        }
+
+                        // ── Investigator zero-work gate: investigator-kind
+                        // agents must actually investigate before finishing.
+                        // In production we observed the Teleduct Investigator
+                        // stage taking the upstream Code Scout's code-map
+                        // report from the conversation log and submitting it
+                        // verbatim as its own "report" — zero KQL queries,
+                        // zero file reads, zero new evidence. The result was
+                        // a pipeline that "passed through" Code Scout instead
+                        // of running an investigation. Detect that pattern
+                        // (kind === 'investigator', no non-finish tool calls
+                        // since stage start) and push back exactly once.
+                        if (
+                            !this.investigatorWorkGateTripped &&
+                            (this.stageContext?.agentKind === 'investigator' ||
+                                this.stageContext?.agentKind === 'attainment-investigator')
+                        ) {
+                            const stageActions = this.state.actions
+                                .slice(this.stageStartActionsLength)
+                                .filter(a => a && a.tool && a.tool !== 'finish');
+
+                            if (stageActions.length === 0) {
+                                this.investigatorWorkGateTripped = true;
+                                this.lastPoppedFinish = {
+                                    tool: step.action.tool,
+                                    args: JSON.parse(JSON.stringify(step.action.args || {})),
+                                };
+                                this.silentTurnsSinceFinishPop = 0;
+                                this.state.actions.pop();
+                                if (this.state.thoughts.length > 0) {
+                                    this.state.thoughts.pop();
+                                }
+                                const workMsg = `System: You called \`finish\` without making a single tool call. ` +
+                                    `Investigator-kind agents MUST gather their own evidence (KQL queries, file reads, telemetry lookups) — ` +
+                                    `you cannot ship the upstream Code Scout's code map as your investigation report. ` +
+                                    `That code map is a set of POINTERS for you to chase, not a finished product. ` +
+                                    `\n\nRun at least one query/read that produces concrete evidence (event counts, traces, file contents), ` +
+                                    `then call \`finish\` with a report that cites that evidence. ` +
+                                    `If — after attempting at least one tool call — you genuinely have nothing to investigate ` +
+                                    `(e.g. the symptom is fully explained by static code already in scope), ` +
+                                    `call \`finish\` again with verdict \`flagged\` and a \`## Limitations\` section that explains why no telemetry was queried. ` +
+                                    `Do NOT respond with prose only.`;
+                                this.state.thoughts.push({ role: 'user', content: workMsg });
+                                this.state.actions.push(null as any);
+                                this.emit('thought', workMsg);
+                                this.log(`[investigator-work-gate] Investigator tried to finish with zero tool calls; pushing back.`);
+                                continue;
+                            }
+                        }
+
                         this.state.status = 'completed';
                         this.log(`[DEBUG] Finish tool called with args: ${JSON.stringify(step.action.args)}`);
-                        // Extract report from args
-                        const report = step.action.args.report || step.action.args.summary || "Investigation Completed via finish tool.";
+                        // Extract report from args.
+                        //
+                        // Reviewer-style stages in a pipeline (Devil's Advocate, Validator,
+                        // Signal Grounding, etc.) legitimately call `finish` with only a
+                        // verdict + feedback/openItems and no `report`/`summary`. Falling
+                        // back to a placeholder string in that case caused the stage
+                        // detail panel in the UI to render a bogus "Report" section
+                        // ("Investigation Completed via finish tool."). When running
+                        // inside a pipeline (stageContext is set), leave finalReport
+                        // empty so the UI hides the Report section and the orchestrator
+                        // preserves the upstream producer's real finalReport.
+                        //
+                        // Legacy single-agent runs (no stageContext) keep the placeholder
+                        // for backwards compatibility with the original UX.
+                        const isPipelineStage = !!this.stageContext;
+                        const fallbackReport = isPipelineStage ? undefined : "Investigation Completed via finish tool.";
+                        const report = step.action.args.report || step.action.args.summary || fallbackReport;
 
                         // Extract verdict if provided (used by scheduled health checks)
                         if (step.action.args.verdict) {
                             this.state.verdict = step.action.args.verdict;
                         }
 
-                        this.state.finalReport = report;
+                        if (report) {
+                            this.state.finalReport = report;
+                        }
                         this.state.thoughts.push(`Observation: Report Generated.`);
 
-                        // Extract and classify recommendations from the report using LLM
-                        try {
-                            this.state.recommendations = await this.extractRecommendations(report);
-                            this.log(`Extracted ${this.state.recommendations.length} recommendations.`);
-                        } catch (err: any) {
-                            this.log(`Warning: recommendation extraction failed: ${err.message}`);
-                            this.state.recommendations = [];
+                        // Extract and classify recommendations from the report using LLM.
+                        // Skip when there is no report text (verdict-only reviewer finish).
+                        if (report) {
+                            try {
+                                this.state.recommendations = await this.extractRecommendations(report);
+                                this.log(`Extracted ${this.state.recommendations.length} recommendations.`);
+                            } catch (err: any) {
+                                this.log(`Warning: recommendation extraction failed: ${err.message}`);
+                                this.state.recommendations = [];
+                            }
                         }
 
                         // Update last action result (the finish action, before pushing null alignment entry)
@@ -2390,11 +2574,32 @@ ${recsText}
         }
     }
 
-    private async saveArtifacts() {
+    /**
+     * Public entry point for persisting investigation artifacts. Serializes
+     * concurrent calls through a per-runner promise chain so two callers
+     * cannot race on the same `state.json.tmp` path. At most one save is in
+     * flight; at most one additional save is queued (subsequent calls fold
+     * into the queued one — they all observe the same up-to-date `this.state`
+     * when the queued save eventually runs, so coalescing loses no data).
+     */
+    private async saveArtifacts(): Promise<void> {
         // Skip saving when this runner is a pipeline stage — the orchestrator
-        // controls artifact saving via the anchor runner at pipeline completion.
+        // controls artifact saving via the anchor runner. Done OUTSIDE the
+        // chain so a stage runner never blocks anything.
         if (this.stageContext) return;
 
+        if (this.saveQueued) return this.saveChain;
+        this.saveQueued = true;
+        this.saveChain = this.saveChain.then(async () => {
+            // Reset BEFORE running so calls arriving during this save queue
+            // a follow-up that captures their newer state.
+            this.saveQueued = false;
+            await this.saveArtifactsInternal();
+        });
+        return this.saveChain;
+    }
+
+    private async saveArtifactsInternal() {
         // Sync fullHistory before persisting so the saved state has the complete record
         this.syncFullHistory();
 
@@ -2405,7 +2610,11 @@ ${recsText}
         const investigationDir = await this.resolveInvestigationDir(baseDir);
         await fsp.mkdir(investigationDir, { recursive: true });
 
-        // Save JSON atomically (write to .tmp, then rename)
+        // Save JSON atomically (write to .tmp, then rename).
+        // state.fullHistory is the cumulative in-memory record (kept across saves —
+        // see comment at the bottom of this method). Persisting it directly is correct;
+        // no merge with the previous on-disk file is needed and would risk duplicating
+        // entries after rehydration (where in-memory was just loaded from disk).
         const jsonPath = path.join(investigationDir, `state.json`);
         const tmpPath = jsonPath + '.tmp';
         this.log(`Saving JSON artifact to: ${jsonPath}`);
@@ -2523,11 +2732,12 @@ ${recsText}
         await fsp.writeFile(summaryTmpPath, JSON.stringify(summaryState, null, 2));
         await fsp.rename(summaryTmpPath, summaryPath);
 
-        // Release fullHistory/fullActions from memory — they're persisted to disk.
-        // Re-syncing from thoughts will rebuild them on demand (Fix 1).
-        this.state.fullHistory = [];
-        this.state.fullActions = [];
-        this.fullHistorySyncCursor = this.state.thoughts.length;
+        // Note: state.fullHistory / state.fullActions are kept in memory across saves.
+        // They form the cumulative uncompacted record consumed by contestReport(),
+        // restoreToLastCheckpoint(), buildRetrospectHistory(), and the Live tab's
+        // GET /api/investigations/:id selector. Releasing them here (a previously-
+        // attempted optimization) caused data loss because subsequent saves would
+        // overwrite the on-disk record with only the post-release delta.
 
         this.log(`Artifacts saved.`);
     }
@@ -3088,6 +3298,29 @@ ${itemsList}
                     tools = await this.toolManager.listTools();
                 } catch (e) {
                     this.log(`Warning: Failed to list tools: ${e}`);
+                }
+
+                // Per-agent tool whitelist enforcement. When the orchestrator
+                // passed `allowedTools`, hide everything outside that list from
+                // the LLM so it cannot call (e.g.) `execute_kql_query` from a
+                // Code Scout stage that is supposed to be read-only. Only the
+                // structural `finish` tool is auto-allowed (without it the
+                // agent has no way to complete). `invoke_subagent` is NOT
+                // auto-allowed — otherwise a restricted agent could escape
+                // its sandbox by spawning a subagent to run the disallowed
+                // tools on its behalf, which is exactly what Code Scout did
+                // in production (it invoked the Teleduct Investigator
+                // subagent to run KQL despite a [read_file, list_dir] only
+                // whitelist). Agents that legitimately need delegation must
+                // include 'invoke_subagent' explicitly in their whitelist.
+                const allowedTools = this.stageContext?.allowedTools;
+                if (allowedTools && allowedTools.length > 0) {
+                    const allowedSet = new Set([...allowedTools, 'finish']);
+                    const beforeCount = tools.length;
+                    tools = tools.filter(t => allowedSet.has(t.name));
+                    if (tools.length !== beforeCount) {
+                        this.log(`[tool-whitelist] Filtered ${beforeCount - tools.length} tool(s) outside agent allowlist [${[...allowedSet].join(', ')}]; ${tools.length} remain.`);
+                    }
                 }
 
                 // Per-message size guard: even after compaction, individual messages
@@ -3741,6 +3974,23 @@ ${itemsList}
     private async executeAction(action: any): Promise<any> {
         this.log(`Executing tool: ${action.tool}`);
         try {
+            // Per-agent tool whitelist: defensively reject any call to a tool
+            // that was not exposed to the LLM. This guards against models that
+            // hallucinate tool names from prior conversation context (e.g.
+            // Code Scout copying an `execute_kql_query` call from the
+            // Investigator's history) even after we filter the `tools`
+            // parameter at the LLM boundary. `finish` is the only implicit
+            // exemption; `invoke_subagent` must be explicitly whitelisted
+            // (otherwise it's a trivial sandbox-escape — see comment in
+            // callLLM).
+            const allowedTools = this.stageContext?.allowedTools;
+            if (allowedTools && allowedTools.length > 0 && action.tool !== 'finish') {
+                const allowedSet = new Set(allowedTools);
+                if (!allowedSet.has(action.tool)) {
+                    this.log(`[tool-whitelist] Blocked call to '${action.tool}' (not in allowlist [${allowedTools.join(', ')}]).`);
+                    return `Error: Tool '${action.tool}' is not available to this agent. Allowed tools: ${allowedTools.join(', ')}, finish. Re-plan using only allowed tools — this agent's role does not require ${action.tool}.`;
+                }
+            }
             // Subagent invocation is handled directly by the runner (needs LLM provider + ToolManager access)
             if (action.tool === 'invoke_subagent') {
                 return await this.executeSubagent(action.args);

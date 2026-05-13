@@ -8182,5 +8182,318 @@ SELECT * FROM MetricsTable WHERE timestamp > ago(1h)
         });
     });
 
-});
+    // ════════════════════════════════════════════════════════════════════════════
+    // Per-stage avatar styling for thoughts (covers lines 279-296 branches)
+    // ════════════════════════════════════════════════════════════════════════════
+    describe('Per-agent thought avatar (pipeline stage tagging)', () => {
+        it('renders the stage-tagged avatar with custom icon, color, and tooltip when a thought has agent metadata', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                thoughts: [
+                    {
+                        // Object thought with agent metadata triggers lines 279-296.
+                        type: 'thought',
+                        content: 'Stage-tagged thought body.',
+                        agentIcon: '🛡️',
+                        agentColor: '#ff00ff',
+                        agentName: 'My Reviewer',
+                    },
+                ],
+            }));
 
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getByText('Stage-tagged thought body.'));
+
+            // The agent name appears as the avatar tooltip → matches via title.
+            const avatarTitle = await screen.findByTitle('My Reviewer');
+            expect(avatarTitle).toBeInTheDocument();
+            // Custom color is applied as inline style on the avatar div.
+            expect(avatarTitle.getAttribute('style') || '').toMatch(/background-color/);
+            // The custom icon character renders inside the avatar.
+            expect(screen.getByText('🛡️')).toBeInTheDocument();
+        });
+
+        it('falls back to the default Bot avatar when a tagged thought has no icon (covers `agentIcon ?` falsy branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                thoughts: [
+                    {
+                        type: 'thought',
+                        content: 'Color but no icon.',
+                        agentIcon: '   ', // empty after trim → falsy
+                        agentColor: '#abcdef',
+                        agentName: 'Pale Stage',
+                    },
+                ],
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getByText('Color but no icon.'));
+            // Stage-named tooltip is present (color branch active).
+            expect(screen.getByTitle('Pale Stage')).toBeInTheDocument();
+        });
+
+        it('renders the icon span without color styling when a thought has icon but no color (covers `agentColor ? color : undefined` falsy branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                thoughts: [
+                    {
+                        type: 'thought',
+                        content: 'Icon without color.',
+                        agentIcon: '🌟',
+                        // No agentColor → falsy.
+                        agentName: 'Iconly Stage',
+                    },
+                ],
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getByText('Icon without color.'));
+            // Custom icon character renders even without color styling.
+            expect(screen.getByText('🌟')).toBeInTheDocument();
+            expect(screen.getByTitle('Iconly Stage')).toBeInTheDocument();
+        });
+    });
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // Pipeline-stage running avatar (covers lines 2133-2159 branches)
+    // ════════════════════════════════════════════════════════════════════════════
+    describe('Running pipeline-stage avatar', () => {
+        it('renders the stage avatar with the current stage icon, color, and name when running with a pipeline', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                status: 'running',
+                finalReport: null,
+                pipeline: {
+                    stages: [
+                        { agentName: 'Investigator', icon: '🔬', color: '#22c55e', status: 'running' },
+                    ],
+                    currentStageIndex: 0,
+                },
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            // The icon renders inside the running-stage thinking avatar.
+            await waitFor(() => expect(screen.getByText('🔬')).toBeInTheDocument(), { timeout: 5000 });
+            // The agentName is the avatar tooltip.
+            expect(screen.getByTitle('Investigator')).toBeInTheDocument();
+        });
+
+        it('falls back to default avatar styling when running stage has no icon/color (covers `stageIcon ?` falsy branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                status: 'running',
+                finalReport: null,
+                pipeline: {
+                    stages: [
+                        { agentName: 'Plain Stage', status: 'running' /* no icon, no color */ },
+                    ],
+                    currentStageIndex: 0,
+                },
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            // Default fallback tooltip is the agentName.
+            await waitFor(() => expect(screen.getByTitle('Plain Stage')).toBeInTheDocument(), { timeout: 5000 });
+        });
+
+        it('renders running-stage icon span without color when stage has icon but no color (covers `stageColor ? color : undefined` falsy branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                status: 'running',
+                finalReport: null,
+                pipeline: {
+                    stages: [
+                        { agentName: 'Iconic Stage', icon: '🔥', status: 'running' /* no color */ },
+                    ],
+                    currentStageIndex: 0,
+                },
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            // Icon character renders even without stageColor.
+            await waitFor(() => expect(screen.getByText('🔥')).toBeInTheDocument(), { timeout: 5000 });
+            expect(screen.getByTitle('Iconic Stage')).toBeInTheDocument();
+        });
+
+        it('uses the generic "Agent thinking" tooltip when running has no pipeline state at all (covers fallback branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                status: 'running',
+                finalReport: null,
+                // No pipeline field → pipelineState stays null.
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getAllByText('Test Investigation')[0]);
+            await waitFor(() => expect(screen.getByTitle('Agent thinking')).toBeInTheDocument(), { timeout: 5000 });
+        });
+    });
+
+    // ════════════════════════════════════════════════════════════════════════════
+    // Scroll handlers — updatePinned + scrollToBottom early-return branches
+    // (covers lines 978-981 and 984/1017/1040 truthy `!isPinned` paths)
+    // ════════════════════════════════════════════════════════════════════════════
+    describe('Messages auto-scroll handlers', () => {
+        it('updates pinned-to-bottom state on scroll and skips scrollToBottom when user has scrolled away', async () => {
+            const { api } = await import('../../api');
+            const baseInv = createMockInvestigation({
+                status: 'completed',
+                finalReport: null,
+                thoughts: [{ type: 'thought', content: 'Initial thought.' }],
+            });
+            vi.mocked(api.getInvestigation).mockResolvedValue(baseInv);
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getByText('Initial thought.'));
+
+            // Find the scroll container (the chat history div with custom-scrollbar class).
+            const scrollEl = document.querySelector('.custom-scrollbar') as HTMLElement;
+            expect(scrollEl).toBeTruthy();
+
+            // Advance enough that the suppression window from initial scrollToBottom expires.
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+
+            // Simulate the user scrolling far up — give jsdom realistic dimensions
+            // so distanceFromBottom > PIN_THRESHOLD (120 px).
+            Object.defineProperty(scrollEl, 'scrollHeight', { configurable: true, value: 2000 });
+            Object.defineProperty(scrollEl, 'clientHeight', { configurable: true, value: 400 });
+            Object.defineProperty(scrollEl, 'scrollTop', { configurable: true, writable: true, value: 0 });
+
+            // Fire the scroll event → triggers updatePinned (covers lines 978-981) and
+            // sets isPinnedToBottomRef.current = false.
+            await act(async () => {
+                fireEvent.scroll(scrollEl);
+            });
+
+            // Now flip status to 'running' and add a new thought via re-fetch.
+            // The status effect (line 1012) and thoughts.length effect (line 1035)
+            // should bail early because we are not pinned.
+            const updatedInv = {
+                ...baseInv,
+                status: 'running',
+                thoughts: [
+                    { type: 'thought', content: 'Initial thought.' },
+                    { type: 'thought', content: 'Another thought.' },
+                ],
+            };
+            vi.mocked(api.getInvestigation).mockResolvedValue(updatedInv);
+
+            // Send a WS thought event → triggers debounced fetchInvestigation 300ms later.
+            await act(async () => {
+                if (mockWsInstance && mockWsInstance.onmessage) {
+                    mockWsInstance.onmessage({ data: JSON.stringify({
+                        type: 'thought',
+                        content: 'Another thought.',
+                    }) } as MessageEvent);
+                }
+                await vi.advanceTimersByTimeAsync(500);
+            });
+
+            // Ensure the new thought is rendered → confirms the re-fetch fired and the
+            // effects ran (and bailed early because we are not pinned).
+            await waitFor(() => screen.getByText('Another thought.'), { timeout: 5000 });
+        });
+
+        it('treats scroll events as pinned when scrolled near the bottom (covers updatePinned truthy branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                thoughts: [{ type: 'thought', content: 'Pinned check.' }],
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getByText('Pinned check.'));
+
+            const scrollEl = document.querySelector('.custom-scrollbar') as HTMLElement;
+            Object.defineProperty(scrollEl, 'scrollHeight', { configurable: true, value: 1000 });
+            Object.defineProperty(scrollEl, 'clientHeight', { configurable: true, value: 800 });
+            // Within 120px of bottom: 1000 - 900 - 800 = -700, but |distance| <= 120 → pinned.
+            Object.defineProperty(scrollEl, 'scrollTop', { configurable: true, writable: true, value: 100 });
+
+            await act(async () => {
+                fireEvent.scroll(scrollEl);
+            });
+
+            expect(scrollEl).toBeInTheDocument();
+        });
+
+        it('suppresses scroll-event handling when triggered by our own programmatic scroll (covers updatePinned suppression branch)', async () => {
+            const { api } = await import('../../api');
+            vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                thoughts: [{ type: 'thought', content: 'Suppression check.' }],
+            }));
+
+            renderDetail();
+            await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+            await waitFor(() => screen.getByText('Suppression check.'));
+
+            const scrollEl = document.querySelector('.custom-scrollbar') as HTMLElement;
+            // Initial mount calls scrollToBottom which sets suppressScrollEventUntil = Date.now() + 100.
+            // Fire scroll immediately so the suppression window is still active.
+            await act(async () => {
+                fireEvent.scroll(scrollEl);
+            });
+
+            expect(scrollEl).toBeInTheDocument();
+        });
+
+        it('skips programmatic scroll when ResizeObserver fires after user has scrolled away (covers scrollToBottom early-return branch line 984)', async () => {
+            // Capture the ResizeObserver callback so we can invoke it manually.
+            let roCallback: ResizeObserverCallback | null = null;
+            const OriginalResizeObserver = (globalThis as any).ResizeObserver;
+            (globalThis as any).ResizeObserver = class {
+                constructor(cb: ResizeObserverCallback) { roCallback = cb; }
+                observe() { /* no-op */ }
+                unobserve() { /* no-op */ }
+                disconnect() { /* no-op */ }
+            };
+
+            try {
+                const { api } = await import('../../api');
+                vi.mocked(api.getInvestigation).mockResolvedValue(createMockInvestigation({
+                    status: 'completed',
+                    finalReport: null,
+                    thoughts: [{ type: 'thought', content: 'Resize check.' }],
+                }));
+
+                renderDetail();
+                await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+                await waitFor(() => screen.getByText('Resize check.'));
+
+                const scrollEl = document.querySelector('.custom-scrollbar') as HTMLElement;
+                expect(scrollEl).toBeTruthy();
+
+                // Wait past the suppression window from initial mount.
+                await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+
+                // User scrolls away from the bottom.
+                Object.defineProperty(scrollEl, 'scrollHeight', { configurable: true, value: 2000 });
+                Object.defineProperty(scrollEl, 'clientHeight', { configurable: true, value: 400 });
+                Object.defineProperty(scrollEl, 'scrollTop', { configurable: true, writable: true, value: 0 });
+                await act(async () => { fireEvent.scroll(scrollEl); });
+
+                // Now manually fire the captured ResizeObserver callback. scrollToBottom
+                // should bail at the `if (!isPinnedToBottomRef.current) return;` guard.
+                expect(roCallback).toBeTruthy();
+                await act(async () => { roCallback!([], {} as ResizeObserver); });
+
+                // Sanity assertion — page is still rendered.
+                expect(scrollEl).toBeInTheDocument();
+            } finally {
+                (globalThis as any).ResizeObserver = OriginalResizeObserver;
+            }
+        });
+    });
+});

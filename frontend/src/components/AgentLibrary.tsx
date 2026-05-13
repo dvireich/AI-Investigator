@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, Eye, Pencil, Trash2, Plus, ChevronLeft, ChevronRight, Wrench, Cpu, FileText, Code, Shield } from 'lucide-react';
+import { Search, Eye, Pencil, Trash2, Plus, ChevronLeft, ChevronRight, Wrench, Cpu } from 'lucide-react';
 import type { AgentDefinition } from '../types/pipeline';
 import type { SavedAgent } from '../api';
 import { api } from '../api';
@@ -7,7 +7,13 @@ import { BuiltinDetailModal } from './PipelineBuilder';
 
 interface AgentLibraryProps {
     builtinAgents: AgentDefinition[];
+    /** When provided, shows a "New Agent" button in the header. */
     onCreateAgent?: () => void;
+    /** When provided, shows an edit (pencil) button on saved-agent cards. */
+    onEditAgent?: (saved: SavedAgent) => void;
+    /** Bumping this value forces a refetch of saved agents. Used by parents that
+     *  mutate the library externally (e.g. Settings opens the create/edit modal). */
+    refreshKey?: number;
 }
 
 const PAGE_SIZE = 12;
@@ -25,7 +31,7 @@ const sourceLabel = (agent: AgentDefinition): string => {
     return '✏️ Inline';
 };
 
-export const AgentLibrary: React.FC<AgentLibraryProps> = ({ builtinAgents, onCreateAgent }) => {
+export const AgentLibrary: React.FC<AgentLibraryProps> = ({ builtinAgents, onCreateAgent, onEditAgent, refreshKey }) => {
     const [savedAgents, setSavedAgents] = useState<SavedAgent[]>([]);
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
@@ -39,7 +45,7 @@ export const AgentLibrary: React.FC<AgentLibraryProps> = ({ builtinAgents, onCre
         } catch { /* ignore */ }
     }, []);
 
-    useEffect(() => { refreshSavedAgents(); }, [refreshSavedAgents]);
+    useEffect(() => { refreshSavedAgents(); }, [refreshSavedAgents, refreshKey]);
 
     const handleDelete = async (id: string) => {
         try {
@@ -192,6 +198,18 @@ export const AgentLibrary: React.FC<AgentLibraryProps> = ({ builtinAgents, onCre
                                     >
                                         <Eye className="w-3.5 h-3.5" />
                                     </button>
+                                    {savedId && onEditAgent && (
+                                        <button
+                                            type="button"
+                                            // savedId is only set on rows derived from savedAgents,
+                                            // so the lookup is guaranteed to find a match.
+                                            onClick={() => onEditAgent(savedAgents.find(sa => sa.id === savedId)!)}
+                                            className="p-1.5 rounded-lg text-slate-400 hover:text-cyan-400 hover:bg-cyan-600/10 transition-colors"
+                                            title="Edit agent"
+                                        >
+                                            <Pencil className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
                                     {savedId && (
                                         <button
                                             type="button"

@@ -246,6 +246,52 @@ describe('AgentLibrary', () => {
         expect(screen.queryByText('New Agent')).not.toBeInTheDocument();
     });
 
+    it('shows edit button on saved-agent cards when onEditAgent is provided', async () => {
+        mockGetSavedAgents.mockResolvedValue(SAVED_AGENTS);
+        const onEditAgent = vi.fn();
+        renderLibrary({ onEditAgent });
+        await waitFor(() => {
+            expect(screen.getByText('Custom Scanner')).toBeInTheDocument();
+        });
+        const editButton = screen.getByTitle('Edit agent');
+        fireEvent.click(editButton);
+        expect(onEditAgent).toHaveBeenCalledWith(SAVED_AGENTS[0]);
+    });
+
+    it('does not show edit button when onEditAgent is absent', async () => {
+        mockGetSavedAgents.mockResolvedValue(SAVED_AGENTS);
+        renderLibrary();
+        await waitFor(() => {
+            expect(screen.getByText('Custom Scanner')).toBeInTheDocument();
+        });
+        expect(screen.queryByTitle('Edit agent')).not.toBeInTheDocument();
+    });
+
+    it('does not show edit button on builtin agents', async () => {
+        mockGetSavedAgents.mockResolvedValue(SAVED_AGENTS);
+        const onEditAgent = vi.fn();
+        renderLibrary({ onEditAgent });
+        await waitFor(() => {
+            expect(screen.getByText('Custom Scanner')).toBeInTheDocument();
+        });
+        // Only the saved agent has an edit button — not the 3 builtins
+        expect(screen.getAllByTitle('Edit agent')).toHaveLength(1);
+    });
+
+    it('refetches saved agents when refreshKey changes', async () => {
+        mockGetSavedAgents.mockResolvedValue([]);
+        const { rerender } = render(
+            <AgentLibrary builtinAgents={BUILTIN_AGENTS} refreshKey={0} />,
+        );
+        await waitFor(() => {
+            expect(mockGetSavedAgents).toHaveBeenCalledTimes(1);
+        });
+        rerender(<AgentLibrary builtinAgents={BUILTIN_AGENTS} refreshKey={1} />);
+        await waitFor(() => {
+            expect(mockGetSavedAgents).toHaveBeenCalledTimes(2);
+        });
+    });
+
     it('shows results count', () => {
         renderLibrary();
         expect(screen.getByText('3 agents')).toBeInTheDocument();

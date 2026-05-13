@@ -681,27 +681,63 @@ const attachPipelineListeners = (orchestrator: PipelineOrchestrator, id: string)
         const st = (runner as any).state;
         const ps = orchestrator.getPipelineState();
         if (ps) st.pipeline = ps;
-        // Mirror the orchestrator's live cumulative arrays (thoughts/actions/logs)
-        // by reference so the anchor always reflects the source of truth. Without
-        // this, the listener used to push events into a *separate* anchor array,
-        // which after a resume (where arrays were shared by reference) caused every
-        // model thought to be persisted twice — once raw by the stage runner and
-        // once wrapped by the listener — plus log noise pulled into the LLM payload.
-        const cs = orchestrator.currentState;
-        if (cs) {
-            st.thoughts = cs.thoughts;
-            st.actions = cs.actions;
-            st.logs = cs.logs;
+        // Prefer the LIVE stage runner's state during stage execution. The
+        // orchestrator's `currentState.thoughts` is only refreshed at stage
+        // boundaries (PipelineOrchestrator merges runnerState back when a
+        // stage completes); reading from `currentState` mid-stage left the
+        // Live tab frozen at the start-of-stage snapshot for the entire
+        // duration of long-running stages (e.g. teleduct-code-scout).
+        // Each stage runner inherits the prior cumulative thoughts via the
+        // `...currentState` spread, so its `state.thoughts` is the full live
+        // record (not just the current stage's deltas).
+        const liveStage = orchestrator.currentStageRunner;
+        if (liveStage) {
+            const ls = (liveStage as any).state;
+            st.thoughts = ls.thoughts;
+            st.actions = ls.actions;
+            st.logs = ls.logs;
+            // fullHistory is updated by the stage runner via syncFullHistory()
+            // and serves contestReport/restoreToLastCheckpoint plus the Live
+            // tab selector when compaction has trimmed `thoughts`.
+            if (ls.fullHistory) st.fullHistory = ls.fullHistory;
+            if (ls.fullActions) st.fullActions = ls.fullActions;
+        } else {
+            // Between stages — fall back to orchestrator's merged state.
+            const cs = orchestrator.currentState;
+            if (cs) {
+                st.thoughts = cs.thoughts;
+                st.actions = cs.actions;
+                st.logs = cs.logs;
+                if (cs.fullHistory) st.fullHistory = cs.fullHistory;
+                if (cs.fullActions) st.fullActions = cs.fullActions;
+            }
         }
     };
 
     // Persist the anchor runner state to disk periodically so the investigation
     // folder exists during the run and progress survives backend restarts/crashes.
-    const saveToDisk = async () => {
-        const runner = runners.get(id);
-        if (!runner) return;
-        syncRunnerState();
-        try { await (runner as any).saveArtifacts(); } catch (_e) { /* best-effort */ }
+    //
+    // Concurrent stage events (status / stage-start / stage-complete / stage-reject)
+    // can fire close together. Serialize the saves into a single chain: at most
+    // one write in flight, plus at most one coalesced "next" save. This prevents
+    // two saveArtifacts() calls from racing on the same `state.json.tmp` path —
+    // a race that produced state.json files with extra bytes appended past the
+    // valid JSON end (the tail of an earlier, longer write surviving past the
+    // truncated end of a later, shorter write).
+    let saveChain: Promise<void> = Promise.resolve();
+    let saveQueued = false;
+    const saveToDisk = (): Promise<void> => {
+        if (saveQueued) return saveChain; // Coalesce — the queued save will capture latest state
+        saveQueued = true;
+        saveChain = saveChain.then(async () => {
+            // Reset BEFORE running so events arriving during this save queue a follow-up.
+            saveQueued = false;
+            const runner = runners.get(id);
+            if (!runner) return;
+            syncRunnerState();
+            try { await (runner as any).saveArtifacts(); } catch (_e) { /* best-effort */ }
+        });
+        return saveChain;
     };
 
     // Forward standard runner events. Anchor accumulation is handled by
@@ -2182,12 +2218,18 @@ app.get('/api/investigations/:id', (req, res) => {
     // Create a lightweight copy for initial load performance
     const lightweightState = { ...state, storagePath: getInvestigationStoragePath(state) };
 
-    // Use fullHistory (uncompacted) for the UI when available, falling back to thoughts
-    const sourceThoughts = (state.fullHistory && state.fullHistory.length > 0)
-        ? state.fullHistory
+    // Prefer fullHistory only when it actually contains MORE entries than thoughts
+    // (i.e., compaction has shrunk thoughts and fullHistory still holds the full record).
+    // Without this guard, a stale or partial fullHistory (e.g., the small post-save delta
+    // remaining after the in-memory release in saveArtifacts) would clobber the live
+    // thoughts and the Live tab would show only the last few system entries.
+    const fullHist = state.fullHistory;
+    const fullActs = state.fullActions;
+    const sourceThoughts = (Array.isArray(fullHist) && fullHist.length >= state.thoughts.length && fullHist.length > 0)
+        ? fullHist
         : state.thoughts;
-    const sourceActions = (state.fullActions && state.fullActions.length > 0)
-        ? state.fullActions
+    const sourceActions = (Array.isArray(fullActs) && fullActs.length >= state.actions.length && fullActs.length > 0)
+        ? fullActs
         : state.actions;
 
     // Truncate thoughts > 500 chars
