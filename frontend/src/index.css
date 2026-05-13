@@ -360,3 +360,87 @@ body::before {
   0%   { opacity: 1; transform: translateY(0)    scale(1);    filter: blur(0); }
   100% { opacity: 0; transform: translateY(-4px) scale(1.08); filter: blur(4px); }
 }
+
+/* ============================================================
+ * "Investigation Agent" header — periodic flair
+ * Effects fire on long cycles (5–9s) so the header feels alive
+ * without being distracting. All bind to long animation-iteration
+ * counts so they're free after the initial layout.
+ * ============================================================ */
+
+/* Bot eye-blink: brief dim + glow flash every 6s */
+.agent-blink {
+  animation: agentBlink 6.2s ease-in-out infinite;
+  animation-delay: 1.4s;
+}
+@keyframes agentBlink {
+  0%, 92%, 100% {
+    filter: drop-shadow(0 0 4px rgba(16, 185, 129, 0.6));
+    opacity: 1;
+  }
+  94% { filter: drop-shadow(0 0 0px rgba(16, 185, 129, 0)); opacity: 0.55; }
+  96% { filter: drop-shadow(0 0 10px rgba(16, 185, 129, 0.95)); opacity: 1; }
+  98% { filter: drop-shadow(0 0 0px rgba(16, 185, 129, 0)); opacity: 0.55; }
+}
+
+/* Horizontal scan-line sweep across the avatar every ~7s */
+.agent-scan {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  overflow: hidden;
+  pointer-events: none;
+}
+.agent-scan::before {
+  content: '';
+  position: absolute;
+  left: -50%;
+  top: 0;
+  width: 200%;
+  height: 100%;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    rgba(56, 189, 248, 0.55) 47%,
+    rgba(255, 255, 255, 0.7) 50%,
+    rgba(168, 85, 247, 0.55) 53%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  animation: agentScan 7.5s ease-in-out infinite;
+  animation-delay: 2.6s;
+}
+@keyframes agentScan {
+  0%, 88%, 100% { transform: translateX(-100%); opacity: 0.85; }
+  92% { opacity: 1; }
+  100% { transform: translateX(100%); }
+}
+
+/* Tiny sparkle particles that briefly appear around the avatar */
+.agent-sparkle {
+  position: absolute;
+  width: 4px;
+  height: 4px;
+  border-radius: 9999px;
+  background: radial-gradient(circle, #fff 0%, rgba(56, 189, 248, 0.8) 50%, transparent 70%);
+  box-shadow: 0 0 6px 1px rgba(255, 255, 255, 0.6);
+  opacity: 0;
+  pointer-events: none;
+  animation: agentSparkle 5.5s ease-out infinite;
+}
+@keyframes agentSparkle {
+  0%, 80%, 100% { opacity: 0; transform: scale(0.3) translate(0, 0); }
+  85% { opacity: 1; transform: scale(1.1) translate(var(--sx, 0), var(--sy, 0)); }
+  92% { opacity: 0.6; transform: scale(0.8) translate(calc(var(--sx, 0) * 1.4), calc(var(--sy, 0) * 1.4)); }
+  98% { opacity: 0; transform: scale(0.2) translate(calc(var(--sx, 0) * 1.8), calc(var(--sy, 0) * 1.8)); }
+}
+
+/* Wordmark gradient shimmer that runs slowly and pauses ~2s between sweeps */
+.agent-wordmark-shimmer {
+  background-size: 250% auto;
+  animation: agentWordmarkShimmer 5.5s ease-in-out infinite;
+}
+@keyframes agentWordmarkShimmer {
+  0%, 50% { background-position: 0% center; }
+  100%    { background-position: 200% center; }
+}

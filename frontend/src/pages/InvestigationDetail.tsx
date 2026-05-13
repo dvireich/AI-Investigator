@@ -1885,12 +1885,91 @@ export const InvestigationDetail = () => {
                                 </div>
                             )}
                         </div>
-                        <div className="flex items-center gap-2.5">
-                            <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/20 shadow-sm">
-                                <Bot className="w-4 h-4 text-emerald-400" />
+                        <div className="flex items-center gap-3 group/agent">
+                            {/* Animated avatar: pulsing aura + gradient ring + Bot core + periodic flair */}
+                            <div className="relative w-9 h-9 shrink-0">
+                                {/* Outer pulsing aura — only visible while running so the header has a "heartbeat" */}
+                                {investigation.status === 'running' && (
+                                    <span className="absolute inset-0 rounded-full bg-emerald-400/30 blur-[2px] animate-ping" aria-hidden />
+                                )}
+                                {/* Spinning conic gradient border (slow) */}
+                                <span
+                                    className="absolute inset-0 rounded-full opacity-80 group-hover/agent:opacity-100 transition-opacity"
+                                    style={{
+                                        background: 'conic-gradient(from 0deg, #10b981, #0ea5e9, #a855f7, #10b981)',
+                                        animation: investigation.status === 'running' ? 'logoBorderSpin 6s linear infinite' : undefined,
+                                        padding: '1.5px',
+                                        WebkitMask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                                        WebkitMaskComposite: 'xor',
+                                        maskComposite: 'exclude',
+                                    }}
+                                    aria-hidden
+                                />
+                                {/* Periodic sparkle particles (running only) — staggered so they appear at different times */}
+                                {investigation.status === 'running' && (
+                                    <>
+                                        <span
+                                            className="agent-sparkle"
+                                            style={{ top: '-2px', left: '50%', ['--sx' as any]: '0px', ['--sy' as any]: '-10px', animationDelay: '0.8s' } as React.CSSProperties}
+                                            aria-hidden
+                                        />
+                                        <span
+                                            className="agent-sparkle"
+                                            style={{ top: '50%', right: '-3px', ['--sx' as any]: '12px', ['--sy' as any]: '-4px', animationDelay: '2.7s' } as React.CSSProperties}
+                                            aria-hidden
+                                        />
+                                        <span
+                                            className="agent-sparkle"
+                                            style={{ bottom: '-2px', left: '20%', ['--sx' as any]: '-10px', ['--sy' as any]: '8px', animationDelay: '4.1s' } as React.CSSProperties}
+                                            aria-hidden
+                                        />
+                                    </>
+                                )}
+                                {/* Inner avatar */}
+                                <div className="relative w-9 h-9 rounded-full bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 border border-emerald-500/30 flex items-center justify-center shadow-lg shadow-emerald-500/10 overflow-hidden">
+                                    {/* Periodic scan-line sweep (running only) */}
+                                    {investigation.status === 'running' && <span className="agent-scan" aria-hidden />}
+                                    {/* Diagonal shine sweep on hover */}
+                                    <span className="pointer-events-none absolute inset-0 -translate-x-full group-hover/agent:translate-x-full transition-transform duration-700 bg-gradient-to-r from-transparent via-white/15 to-transparent skew-x-12" aria-hidden />
+                                    <Bot className={`w-5 h-5 text-emerald-300 ${investigation.status === 'running' ? 'agent-blink' : 'drop-shadow-[0_0_4px_rgba(16,185,129,0.6)]'}`} />
+                                </div>
                             </div>
-                            <div className="flex flex-col">
-                                <span className="text-sm font-bold text-slate-100 leading-tight">Investigation Agent</span>
+                            {/* Wordmark + tagline */}
+                            <div className="flex flex-col min-w-0">
+                                <span className={`text-sm font-extrabold tracking-tight leading-tight bg-gradient-to-r from-emerald-300 via-brand-300 to-purple-300 bg-clip-text text-transparent ${investigation.status === 'running' ? 'agent-wordmark-shimmer' : ''}`}>
+                                    Investigation Agent
+                                </span>
+                                <span className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.18em] font-semibold text-slate-500 leading-tight mt-0.5">
+                                    {investigation.status === 'running' ? (
+                                        <>
+                                            <span className="relative flex w-1.5 h-1.5">
+                                                <span className="absolute inset-0 rounded-full bg-emerald-400 animate-ping opacity-75" />
+                                                <span className="relative w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                                            </span>
+                                            <span className="text-emerald-400/90">Live · Investigating</span>
+                                        </>
+                                    ) : investigation.status === 'paused' ? (
+                                        <>
+                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                                            <span className="text-amber-400/90">Paused</span>
+                                        </>
+                                    ) : investigation.status === 'completed' ? (
+                                        <>
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                            <span className="text-emerald-500/90">Complete</span>
+                                        </>
+                                    ) : investigation.status === 'failed' || investigation.status === 'aborted' ? (
+                                        <>
+                                            <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
+                                            <span className="text-red-400/90">{investigation.status === 'aborted' ? 'Aborted' : 'Failed'}</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span className="w-1.5 h-1.5 rounded-full bg-slate-500" />
+                                            <span>Idle</span>
+                                        </>
+                                    )}
+                                </span>
                             </div>
                         </div>
                         <div className="flex-1 flex justify-end">
